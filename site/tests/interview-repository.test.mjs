@@ -188,9 +188,16 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       .bind(awaiting.answer.id)
       .run();
     assert.equal((await domain.readInterviewState(database, owner)).status, "review_required");
-    const restarted = await domain.restartUnboundReview(database, owner, {
-      idempotencyKey: "0198a4b0-0000-7000-8000-000000000008",
-    });
+    const restartRace = await Promise.allSettled([
+      domain.restartUnboundReview(database, owner, {
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000008",
+      }),
+      domain.restartUnboundReview(database, owner, {
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000009",
+      }),
+    ]);
+    assert.equal(restartRace.filter((result) => result.status === "fulfilled").length, 2);
+    const restarted = await domain.readInterviewState(database, owner);
     assert.equal(restarted.status, "active");
     assert.deepEqual(
       await domain.restartUnboundReview(database, owner, {
@@ -198,6 +205,16 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       }),
       restarted,
     );
+    const activeSessions = await database
+      .prepare("SELECT COUNT(*) AS count FROM interview_sessions WHERE workspace_id = ? AND state = 'awaiting_answer'")
+      .bind(active.workspace.id)
+      .first();
+    assert.equal(Number(activeSessions.count), 1);
+    const quarantineAudits = await database
+      .prepare("SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id = ? AND action = 'interview.unbound_review_restarted'")
+      .bind(active.workspace.id)
+      .first();
+    assert.equal(Number(quarantineAudits.count), 1);
     const superseded = await database
       .prepare("SELECT status FROM knowledge_versions WHERE id = ?")
       .bind(confirmed.confirmed.knowledgeVersionId)

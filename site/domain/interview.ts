@@ -668,7 +668,7 @@ export async function restartUnboundReview(
         answerId: unbound.answer_id,
       }),
     ),
-    sha256(`${workspace.id}:restart:${input.idempotencyKey}`),
+    sha256(`${workspace.id}:restart:${unbound.answer_id}`),
   ]);
   const sessionId = `is_${identityDigest.slice(0, 24)}`;
   const questionId = `iq_${identityDigest.slice(0, 24)}`;
