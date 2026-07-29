@@ -141,3 +141,18 @@ produce one quarantine audit.
 
 The private deployment succeeded with environment revision 1. Authenticated
 hosted lifecycle proof and provider-session rotation remain explicitly open.
+
+## Hosted owner lifecycle checkpoint — 2026-07-29
+
+The signed-in owner session completed the approved two-stage path on private
+version 8. The already-submitted Answer remained in `awaiting_confirmation`
+after a full page reload. A separate owner confirmation created Knowledge
+Version `kv_fc242a590384160214f64207` and Audit Event
+`ae_fc242a590384160214f64207`. A second full reload returned the same confirmed
+value and identifiers from hosted D1. Production logs show the corresponding
+interview GET/POST/GET requests returned HTTP 200 with normal outcomes.
+
+The authenticated capability endpoint also reported D1, R2, and private
+identity headers present. This accepts Sites-hosted D1 for the narrow owner
+policy slice. It does not prove R2 object durability, provider-session rotation,
+hosted cross-principal isolation, or any broader Wave 0 capability.

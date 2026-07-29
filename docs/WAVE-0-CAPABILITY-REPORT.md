@@ -30,12 +30,14 @@ provider credentials remain prohibited.
 | Anonymous denial | Pass | Anonymous `GET /api/capabilities` returns HTTP 401 from the Sites sign-in gate. |
 | Exact-source release | Pass | Site source `8af8294…` was pushed, packaged, saved as version 8, and deployed successfully with environment revision 1. Versions 4–7 were superseded during adversarial convergence and are not accepted releases. |
 | Local build | Pass | Lint, production build, five persistence/security tests, React Doctor 100/100, and a zero-vulnerability production dependency audit pass. |
-| D1/R2 declaration | Partial | Bindings are declared. Local Miniflare tests prove the two-stage D1 lifecycle, reload, idempotent retries, concurrent-writer exclusion, and cross-owner query isolation. Authenticated hosted persistence is still awaiting the owner browser proof. R2 remains probe-only. |
+| Authenticated hosted bindings | Pass | The signed-in capability probe returned authenticated identity headers, D1 `true`, and R2 `true`. D1 executed a hosted query. R2 object write/read/delete durability remains a separate unproven test. |
+| Owner-authenticated hosted D1 lifecycle | Pass | The submitted Answer appeared as awaiting confirmation after a full reload. A separate confirmation produced Knowledge Version `kv_fc242a590384160214f64207` and Audit Event `ae_fc242a590384160214f64207`; both identifiers and the confirmed value remained identical after a second full reload. Production worker logs record successful HTTP 200 GET/POST/GET requests with `outcome=ok`. |
+| Hosted cross-principal isolation | Unproven | Local cross-owner tests pass, but a second invited real principal is still required to exercise the Sites identity boundary against the hosted D1 data. |
 | Server secrets | Partial | Sites environment revision 1 contains secret `OWNER_SUBJECT_PEPPER`; its value is not returned or committed. Coordinated rotation and identity migration remain unproven. |
 | Mutation/CSRF controls | Partial | Local handler tests prove trusted injected identity, spoofed-header denial, exact Origin, Fetch Metadata, JSON and streaming byte bounds, one-time owner-bound CSRF, replay denial, and cross-owner rejection. Unexpected handler faults are classified as 5xx. The platform does not expose a stable session ID, so provider-session rotation and stale-session behavior remain unproven. |
 | Exact-policy confirmation | Pass locally | The immutable Answer stores the canonical policy payload and digest. Pending review and Confirmation read that snapshot, not a later compiled question. Drift and integrity tests pass. Any pre-snapshot Answer/Confirmation is shown as review-required, its derived knowledge is superseded, and a new two-stage review is opened while preserving the legacy records and quarantine audit. Concurrent different-key restarts converge on one deterministic replacement session, question, and audit event. |
 | Legacy-workspace coexistence | Pass locally | If both a legacy SHA-owner workspace and a current HMAC-owner workspace exist, reads retain the current workspace while idempotently archiving the detached legacy sessions, superseding unbound derived knowledge, and appending one quarantine audit. Concurrent coexistence reads are tested. |
-| Adversarial convergence | Pass for BLOCKER/HIGH | Independent product and security re-reviews of version 8 both returned CLEAN with no remaining BLOCKER or HIGH finding. Lower-risk hardening and the explicitly pending hosted proof remain tracked by this report. |
+| Adversarial convergence | Pass for BLOCKER/HIGH | Independent product and security re-reviews of version 8 both returned CLEAN with no remaining BLOCKER or HIGH finding. Lower-risk hardening and the remaining Wave 0 gates stay tracked by this report. |
 | Scheduler | Unproven | No hosted idempotent scheduled job has been exercised. |
 | Runner callback | Unproven | Assignment token, expiry, revocation, limits, and spend reservation are not implemented. |
 | Gmail | Blocked | A controlled Google account, OAuth client, PKCE flow, protected refresh-token store, and restricted thread test are required. |
@@ -64,8 +66,8 @@ provider credentials remain prohibited.
 - Do not upload the July 24 operational lead files.
 - Do not configure Gmail, provider, runner, or model credentials in source or D1.
 - Do not represent fixture buttons or counters as completed external actions.
-- Re-run this report after authenticated hosted storage, scheduler, Runner,
-  Gmail, export/restore, and failure-recovery tests exist.
+- Re-run this report after hosted cross-principal and R2 round-trip tests,
+  scheduler, Runner, Gmail, export/restore, and failure-recovery tests exist.
 
 ## Inputs needed to unblock the gate
 
@@ -73,8 +75,6 @@ provider credentials remain prohibited.
 2. A decision and proof path for scheduled execution and Runner callbacks on
    Sites, or selection of a compatible worker/queue host behind the existing
    ports.
-3. An owner-authenticated hosted initialize → submit → reload → confirm →
-   reload test. A second real principal is required before cross-principal
-   isolation can be claimed at the hosted edge.
+3. A second invited real principal for hosted cross-principal isolation proof.
 4. An owner-supplied one-time export passphrase during the restore drill; it is
    never stored.

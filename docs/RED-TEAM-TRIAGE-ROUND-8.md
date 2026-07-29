@@ -28,3 +28,9 @@ both returned **CLEAN**, with no remaining BLOCKER or HIGH finding. This closes
 the adversarial implementation loop for the narrow persisted interview slice;
 it does not close the separately disclosed hosted-authentication evidence gap
 or the broader Wave 0 gates.
+
+After convergence, the signed-in owner completed the hosted proof. The pending
+Answer survived reload; a separate confirmation created Knowledge Version
+`kv_fc242a590384160214f64207` and Audit Event
+`ae_fc242a590384160214f64207`; and the confirmed state survived another full
+reload. Production interview requests returned HTTP 200 with normal outcomes.
