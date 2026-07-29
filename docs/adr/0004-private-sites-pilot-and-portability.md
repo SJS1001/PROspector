@@ -123,3 +123,21 @@ one quarantine audit. The private deployment succeeded with environment
 revision 1. Authenticated hosted lifecycle proof remains the next evidence item
 for this narrow slice; provider-session rotation and broader Wave 0 capabilities
 remain blocked.
+
+## Capability checkpoint — private version 8
+
+The final security attack identified a coexistence case: version 5 could have
+created a new HMAC-owner workspace while a version-4 SHA-owner workspace still
+held an old confirmation. Returning the current workspace first would leave the
+detached legacy knowledge marked confirmed.
+
+Version 8, source `8af82949ad7b9a064836477cf656eea94bab9392`,
+checks both owner subjects. When both workspaces exist, it retains the current
+workspace and idempotently quarantines the detached legacy workspace: unbound
+derived knowledge becomes superseded, sessions are archived, questions are
+superseded, and one audit event is appended. Historical Answers and
+Confirmations remain unchanged. Concurrent coexistence reads are tested and
+produce one quarantine audit.
+
+The private deployment succeeded with environment revision 1. Authenticated
+hosted lifecycle proof and provider-session rotation remain explicitly open.
