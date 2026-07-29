@@ -83,3 +83,27 @@ authenticated hosted browser create/reload/confirm proof is still outstanding,
 so D1 durability at the hosted edge and provider-session rotation remain
 partial. The narrow policy exception does not authorize real leads, contacts,
 outreach, schedules, Gmail, imports, or exports.
+
+## Capability checkpoint — private version 6
+
+A second product attack found that version 5 Confirmation could derive policy
+content from the then-current compiled constant instead of the exact payload
+reviewed when the Answer was submitted. It also found that a version-4 record
+could be interpreted as valid despite lacking the corrected checkpoint.
+
+Version 6, source `04d037f14566c883a786b2fbfbcbb0e4f8787d8b`, stores a
+canonical policy snapshot and digest in the immutable Answer. Pending review,
+Confirmation, and the resulting Knowledge Version are all derived from that
+snapshot. A tested drift case changes the question after submission and proves
+the pending and confirmed policy remain the reviewed version.
+
+Pre-snapshot records are never returned as confirmed knowledge. They enter an
+explicit review-required state. Restarting the review preserves the old Answer
+and Confirmation, appends a quarantine audit event, supersedes derived
+knowledge, archives the old session, and opens a fresh two-stage review. The
+legacy email-derived owner subject is migrated to the HMAC subject on first
+access without rewriting prior audit events.
+
+This closes the two product HIGH findings locally. Authenticated hosted
+initialize/submit/reload/confirm/reload evidence remains outstanding and Wave 0
+remains blocked for every broader capability.

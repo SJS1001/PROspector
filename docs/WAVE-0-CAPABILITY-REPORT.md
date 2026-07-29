@@ -4,11 +4,11 @@ Date: 2026-07-29
 
 Site project: `appgprj_6a6a2e5c533081919e9c47dd6dd6ceba`
 
-Saved version: 5
+Saved version: 6
 
-Site source commit: `d5552cdcd7c1539ced00429ea657770f47594d84`
+Site source commit: `04d037f14566c883a786b2fbfbcbb0e4f8787d8b`
 
-Application code commit: `4807bed`
+Application code commit: `de146b2`
 
 The Git commit containing this report is the release-evidence commit; it is
 intentionally separate so the report can record the deployment that followed
@@ -28,11 +28,12 @@ provider credentials remain prohibited.
 |---|---|---|
 | Owner-only hosting | Pass | Sites reports custom access with Steven Smith as the sole allowed user and no allowed groups. |
 | Anonymous denial | Pass | Anonymous `GET /api/capabilities` returns HTTP 401 from the Sites sign-in gate. |
-| Exact-source release | Pass | Site source `d5552cd…` was pushed, packaged, saved as version 5, and deployed successfully. Version 4's one-click lifecycle was superseded after adversarial review and is not the accepted release. |
+| Exact-source release | Pass | Site source `04d037f…` was pushed, packaged, saved as version 6, and deployed successfully with environment revision 1. Versions 4 and 5 were superseded after adversarial review and are not accepted releases. |
 | Local build | Pass | Lint, production build, five persistence/security tests, React Doctor 100/100, and a zero-vulnerability production dependency audit pass. |
 | D1/R2 declaration | Partial | Bindings are declared. Local Miniflare tests prove the two-stage D1 lifecycle, reload, idempotent retries, concurrent-writer exclusion, and cross-owner query isolation. Authenticated hosted persistence is still awaiting the owner browser proof. R2 remains probe-only. |
 | Server secrets | Partial | Sites environment revision 1 contains secret `OWNER_SUBJECT_PEPPER`; its value is not returned or committed. Coordinated rotation and identity migration remain unproven. |
 | Mutation/CSRF controls | Partial | Local handler tests prove trusted injected identity, spoofed-header denial, exact Origin, Fetch Metadata, JSON and streaming byte bounds, one-time owner-bound CSRF, replay denial, and cross-owner rejection. Unexpected handler faults are classified as 5xx. The platform does not expose a stable session ID, so provider-session rotation and stale-session behavior remain unproven. |
+| Exact-policy confirmation | Pass locally | The immutable Answer stores the canonical policy payload and digest. Pending review and Confirmation read that snapshot, not a later compiled question. Drift and integrity tests pass. Any pre-snapshot Answer/Confirmation is shown as review-required, its derived knowledge is superseded, and a new two-stage review is opened while preserving the legacy records and quarantine audit. |
 | Scheduler | Unproven | No hosted idempotent scheduled job has been exercised. |
 | Runner callback | Unproven | Assignment token, expiry, revocation, limits, and spend reservation are not implemented. |
 | Gmail | Blocked | A controlled Google account, OAuth client, PKCE flow, protected refresh-token store, and restricted thread test are required. |
