@@ -4,11 +4,15 @@ Date: 2026-07-29
 
 Site project: `appgprj_6a6a2e5c533081919e9c47dd6dd6ceba`
 
-Saved version: 1
+Saved version: 2
 
-Site source commit: `04ace2d04da5493b354ec9cf806c811257b85fc9`
+Site source commit: `1024e422636a3eea80636562f2b487a9eed58d9a`
 
-Repository commit: `ec2f9a0`
+Application code commit: `317923d`
+
+The Git commit containing this report is the release-evidence commit; it is
+intentionally separate so the report can record the deployment that followed
+the application commit.
 
 ## Outcome
 
@@ -21,7 +25,7 @@ but no sensitive or operational data may be activated.
 |---|---|---|
 | Owner-only hosting | Pass | Sites reports custom access with Steven Smith as the sole allowed user and no allowed groups. |
 | Anonymous denial | Pass | Anonymous `GET /api/capabilities` returns HTTP 401 from the Sites sign-in gate. |
-| Exact-source release | Pass | Site-only commit was pushed to the Sites source repository, packaged, saved as version 1, and deployed successfully. |
+| Exact-source release | Pass | Site-only commit was pushed to the Sites source repository, packaged, saved as version 2, and deployed successfully. Version 2 replaces the misleading live-state language found by the first implementation red-team. |
 | Local build | Pass | Lint, production build, rendered-output test, and a zero-vulnerability production dependency audit pass. |
 | D1/R2 declaration | Partial | Bindings are declared and local simulated probes pass; authenticated hosted persistence and isolation are not yet exercised. |
 | Server secrets | Unproven | No production secret is configured, which prevents leakage but does not prove the storage/rotation contract. |

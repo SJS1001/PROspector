@@ -25,6 +25,11 @@ Version 1 of the fixture-only pilot was deployed from site source commit
 `04ace2d04da5493b354ec9cf806c811257b85fc9` at
 `https://prospector-steven-pilot.djstif.chatgpt.site`.
 
+After implementation red-team, version 2 replaced it from site source commit
+`1024e422636a3eea80636562f2b487a9eed58d9a`. Version 2 persistently labels all
+data as synthetic and disables every control that could appear to make a
+durable decision or external action.
+
 The deployment proved an owner-only custom access policy: the sole allowlisted
 user is Steven Smith, there are no allowed groups, and an unauthenticated
 request to `/api/capabilities` returned `401 Sign in required`. The build and
