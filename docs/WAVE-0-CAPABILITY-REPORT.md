@@ -4,11 +4,11 @@ Date: 2026-07-29
 
 Site project: `appgprj_6a6a2e5c533081919e9c47dd6dd6ceba`
 
-Saved version: 2
+Saved version: 3
 
-Site source commit: `1024e422636a3eea80636562f2b487a9eed58d9a`
+Site source commit: `e8f83d92cb189b5b6bd030da30b9ac0a6520860d`
 
-Application code commit: `317923d`
+Application code commit: `f15fc2d`
 
 The Git commit containing this report is the release-evidence commit; it is
 intentionally separate so the report can record the deployment that followed
@@ -25,8 +25,8 @@ but no sensitive or operational data may be activated.
 |---|---|---|
 | Owner-only hosting | Pass | Sites reports custom access with Steven Smith as the sole allowed user and no allowed groups. |
 | Anonymous denial | Pass | Anonymous `GET /api/capabilities` returns HTTP 401 from the Sites sign-in gate. |
-| Exact-source release | Pass | Site-only commit was pushed to the Sites source repository, packaged, saved as version 2, and deployed successfully. Version 2 replaces the misleading live-state language found by the first implementation red-team. |
-| Local build | Pass | Lint, production build, rendered-output test, and a zero-vulnerability production dependency audit pass. |
+| Exact-source release | Pass | Site-only commit was pushed to the Sites source repository, packaged, saved as version 3, and deployed successfully. Version 2 removed the misleading live-state language; version 3 adds rendered native-disabled regression coverage. |
+| Local build | Pass | Lint, production build, build/source smoke, rendered fixture-safety test, and a zero-vulnerability production dependency audit pass. |
 | D1/R2 declaration | Partial | Bindings are declared and local simulated probes pass; authenticated hosted persistence and isolation are not yet exercised. |
 | Server secrets | Unproven | No production secret is configured, which prevents leakage but does not prove the storage/rotation contract. |
 | Session/CSRF controls | Unproven | The current slice has no consequential mutation route. Rotation, Origin, Fetch-Metadata, and stale-session tests do not exist yet. |

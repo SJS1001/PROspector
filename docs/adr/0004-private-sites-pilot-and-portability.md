@@ -30,6 +30,11 @@ After implementation red-team, version 2 replaced it from site source commit
 data as synthetic and disables every control that could appear to make a
 durable decision or external action.
 
+Version 3, from site source commit
+`e8f83d92cb189b5b6bd030da30b9ac0a6520860d`, adds a rendered regression test
+that verifies those consequential controls carry the native `disabled`
+attribute across all six views.
+
 The deployment proved an owner-only custom access policy: the sole allowlisted
 user is Steven Smith, there are no allowed groups, and an unauthenticated
 request to `/api/capabilities` returned `401 Sign in required`. The build and
