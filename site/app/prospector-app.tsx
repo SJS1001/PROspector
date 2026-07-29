@@ -258,6 +258,15 @@ function Knowledge({ setView }: { setView: (view: View) => void }) {
     });
   }
 
+  function restartReview() {
+    if (interview?.status !== "review_required") return;
+    pendingKey.current ??= crypto.randomUUID();
+    void mutate({
+      action: "restart_unbound_review",
+      idempotencyKey: pendingKey.current,
+    });
+  }
+
   return <>
     <PageHeading eyebrow="OWNER-SCOPED · LIVE D1 SLICE" title="Consensus Interview" copy="This is the first persisted workflow. Evidence and inference remain separate until your explicit confirmation is written with an audit event." />
     <div className="knowledge-layout">
@@ -289,6 +298,12 @@ function Knowledge({ setView }: { setView: (view: View) => void }) {
           <div className="answer-actions"><button className="selected" type="button" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : "Confirm submitted answer"}</button><button type="button" disabled title="Reject and correction history are the next slice">Reject disabled</button><button type="button" disabled title="Rescoping is the next slice">Rescope disabled</button></div>
           <div className="saved">Submitted {new Date(interview.answer.submittedAt).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })}</div>
         </>}
+        {interview?.status === "review_required" && <>
+          <span className="question-number">REVIEW REQUIRED · EARLIER DECISION QUARANTINED</span>
+          <h2>This policy must be reviewed again.</h2>
+          <p className="question-copy">An earlier answer was saved without an immutable snapshot of the exact policy shown. It is not treated as confirmed knowledge. Restarting preserves its audit history, marks any derived knowledge superseded, and opens the corrected two-stage review.</p>
+          <div className="answer-actions"><button className="selected" type="button" disabled={busy} onClick={restartReview}>{busy ? "Restarting…" : "Start corrected review"}</button></div>
+        </>}
         {interview?.status === "confirmed" && <>
           <span className="question-number">CONFIRMED KNOWLEDGE · VERSIONED</span>
           <h2>Historian evidence counts as partial readiness.</h2>
@@ -297,7 +312,7 @@ function Knowledge({ setView }: { setView: (view: View) => void }) {
           <div className="saved">Recorded in D1. Applying this policy to scoring and prospecting remains disabled pending integration proof.</div>
         </>}
       </section>
-      <aside className="panel scope-card"><span className="eyebrow">CURRENT SCOPE</span><h3>{interview && interview.status !== "uninitialized" ? interview.workspace.companyName : "Digitalrain"}</h3><ol><li className={interview?.status === "confirmed" ? "done" : "current"}>Company knowledge <span>{interview?.status === "confirmed" ? "1 confirmed" : interview?.status === "awaiting_confirmation" ? "Awaiting confirmation" : "In progress"}</span></li><li>Product · ONE <span>Fixture only</span></li><li>Play · Mining <span>Fixture only</span></li><li>Profile · Operating <span>Fixture only</span></li></ol><button className="outline" type="button" onClick={() => setView("Morning Brief")}>Return to brief</button></aside>
+      <aside className="panel scope-card"><span className="eyebrow">CURRENT SCOPE</span><h3>{interview && interview.status !== "uninitialized" ? interview.workspace.companyName : "Digitalrain"}</h3><ol><li className={interview?.status === "confirmed" ? "done" : "current"}>Company knowledge <span>{interview?.status === "confirmed" ? "1 confirmed" : interview?.status === "awaiting_confirmation" ? "Awaiting confirmation" : interview?.status === "review_required" ? "Review required" : "In progress"}</span></li><li>Product · ONE <span>Fixture only</span></li><li>Play · Mining <span>Fixture only</span></li><li>Profile · Operating <span>Fixture only</span></li></ol><button className="outline" type="button" onClick={() => setView("Morning Brief")}>Return to brief</button></aside>
     </div>
   </>;
 }

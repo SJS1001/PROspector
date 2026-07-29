@@ -20,6 +20,7 @@ test("build/source smoke identifies the fixture-only workbench and removes the s
   assert.match(app, /0 live prospects/);
   assert.match(app, /Submit answer for confirmation/);
   assert.match(app, /Confirm submitted answer/);
+  assert.match(app, /Start corrected review/);
   assert.match(app, /Applying this policy to scoring and prospecting remains disabled/);
   assert.match(app, /Fixture candidate · not operationally qualified/);
   assert.doesNotMatch(app, /Connected · advisory|Last run 06:00|Eligible now<\/dt><dd>3 prospects/);

@@ -5,6 +5,7 @@ import {
   InterviewConflictError,
   principalFromIdentity,
   readInterviewState,
+  restartUnboundReview,
   submitRecommendationAnswer,
   type InterviewPrincipal,
   type InterviewState,
@@ -58,6 +59,10 @@ export async function handleInterviewPost(
       state = await confirmSubmittedAnswer(dependencies.database, principal, {
         answerId: String(body.answerId ?? ""),
         expectedSessionRevision: Number(body.expectedSessionRevision),
+        idempotencyKey: String(body.idempotencyKey ?? ""),
+      });
+    } else if (body.action === "restart_unbound_review") {
+      state = await restartUnboundReview(dependencies.database, principal, {
         idempotencyKey: String(body.idempotencyKey ?? ""),
       });
     } else {

@@ -58,6 +58,12 @@ test("owner-scoped interview separates answer submission from confirmation", asy
     assert.equal(await count(database, "interview_confirmations"), 0);
     assert.equal(await count(database, "knowledge_versions"), 0);
     assert.equal(await count(database, "audit_events"), 2);
+    const storedProposal = await database
+      .prepare("SELECT proposal_json, proposal_digest FROM interview_answers WHERE id = ?")
+      .bind(awaiting.answer.id)
+      .first();
+    assert.notEqual(storedProposal.proposal_digest, "legacy-unbound");
+    assert.match(storedProposal.proposal_json, /Reserve score 2/);
     assert.deepEqual(
       await domain.submitRecommendationAnswer(database, owner, answerInput),
       awaiting,
@@ -69,6 +75,14 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       }),
       (error) => error?.code === "interview_conflict",
     );
+    await database
+      .prepare("UPDATE interview_questions SET recommendation = ? WHERE id = ?")
+      .bind("A later deployment changed this policy.", active.question.id)
+      .run();
+    const driftSafePending = await domain.readInterviewState(database, owner);
+    assert.equal(driftSafePending.status, "awaiting_confirmation");
+    assert.match(driftSafePending.question.recommendation, /Reserve score 2/);
+    assert.doesNotMatch(driftSafePending.question.recommendation, /later deployment/);
 
     const confirmationInput = {
       answerId: awaiting.answer.id,
@@ -83,6 +97,11 @@ test("owner-scoped interview separates answer submission from confirmation", asy
     assert.equal(confirmed.status, "confirmed");
     assert.equal(confirmed.confirmed.value.score, 1);
     assert.equal(confirmed.confirmed.value.classification, "partial_readiness");
+    const knowledge = await database
+      .prepare("SELECT source_digest FROM knowledge_versions WHERE id = ?")
+      .bind(confirmed.confirmed.knowledgeVersionId)
+      .first();
+    assert.equal(knowledge.source_digest, storedProposal.proposal_digest);
     assert.deepEqual(
       await domain.confirmSubmittedAnswer(database, owner, confirmationInput),
       confirmed,
@@ -152,6 +171,44 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       .all();
     assert.equal(auditRows.results.every((row) => row.actor_id.length === 64), true);
     assert.doesNotMatch(JSON.stringify(auditRows.results), /owner@example|other@example|historian connectivity demonstrates/i);
+
+    await database
+      .prepare("UPDATE workspaces SET owner_subject = ? WHERE id = ?")
+      .bind(outsider.legacySubject, outsiderActive.workspace.id)
+      .run();
+    assert.equal((await domain.readInterviewState(database, outsider)).status, "confirmed");
+    const migratedOwner = await database
+      .prepare("SELECT owner_subject FROM workspaces WHERE id = ?")
+      .bind(outsiderActive.workspace.id)
+      .first();
+    assert.equal(migratedOwner.owner_subject, outsider.subject);
+
+    await database
+      .prepare("UPDATE interview_answers SET proposal_json = '{}', proposal_digest = 'legacy-unbound' WHERE id = ?")
+      .bind(awaiting.answer.id)
+      .run();
+    assert.equal((await domain.readInterviewState(database, owner)).status, "review_required");
+    const restarted = await domain.restartUnboundReview(database, owner, {
+      idempotencyKey: "0198a4b0-0000-7000-8000-000000000008",
+    });
+    assert.equal(restarted.status, "active");
+    assert.deepEqual(
+      await domain.restartUnboundReview(database, owner, {
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000008",
+      }),
+      restarted,
+    );
+    const superseded = await database
+      .prepare("SELECT status FROM knowledge_versions WHERE id = ?")
+      .bind(confirmed.confirmed.knowledgeVersionId)
+      .first();
+    assert.equal(superseded.status, "superseded");
+    const legacyConfirmation = await database
+      .prepare("SELECT decision FROM interview_confirmations WHERE answer_id = ?")
+      .bind(awaiting.answer.id)
+      .first();
+    assert.equal(legacyConfirmation.decision, "accept");
+    assert.equal((await domain.readInterviewState(database, owner)).status, "active");
   } finally {
     await vite.close();
     await miniflare.dispose();
@@ -163,6 +220,7 @@ export async function applyMigrations(database) {
     "0000_jittery_meteorite.sql",
     "0001_true_spencer_smythe.sql",
     "0002_eager_supreme_intelligence.sql",
+    "0003_acoustic_magik.sql",
   ]) {
     const sql = await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {

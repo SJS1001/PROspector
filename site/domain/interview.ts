@@ -11,7 +11,11 @@ export const INITIAL_QUESTION = {
     "Score 1 — partial readiness. Reserve score 2 for sourced evidence that usable operational data is accessible.",
 } as const;
 
-export type InterviewPrincipal = { subject: string; displayName: string };
+export type InterviewPrincipal = {
+  subject: string;
+  legacySubject: string;
+  displayName: string;
+};
 
 type QuestionView = {
   id: string;
@@ -21,6 +25,17 @@ type QuestionView = {
   inference: string;
   provenance: string;
   recommendation: string;
+};
+
+type ProposalSnapshot = {
+  questionId: string;
+  questionRevision: number;
+  prompt: string;
+  premise: string;
+  inference: string;
+  provenance: string;
+  recommendation: string;
+  value: { score: number; classification: string; rationale: string };
 };
 
 export type InterviewState =
@@ -39,6 +54,12 @@ export type InterviewState =
       session: { id: string; revision: number };
       question: QuestionView;
       answer: { id: string; operationDigest: string; submittedAt: number };
+    }
+  | {
+      status: "review_required";
+      displayName: string;
+      workspace: { id: string; companyName: string };
+      reason: "legacy_unbound_decision";
     }
   | {
       status: "confirmed";
@@ -66,6 +87,7 @@ export async function principalFromIdentity(
   if (subjectPepper.length < 32) throw new Error("Identity protection is unavailable");
   return {
     subject: await hmacSha256(subjectPepper, `prospector-owner:${normalized}`),
+    legacySubject: await sha256(`prospector-owner:${normalized}`),
     displayName,
   };
 }
@@ -74,22 +96,23 @@ export async function readInterviewState(
   database: D1Database,
   principal: InterviewPrincipal,
 ): Promise<InterviewState> {
-  const workspace = await database
-    .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
-    .bind(principal.subject)
-    .first<{ id: string; company_name: string }>();
+  const workspace = await workspaceForPrincipal(database, principal);
   if (!workspace) return { status: "uninitialized", displayName: principal.displayName };
 
   const confirmed = await database
     .prepare(
       `SELECT c.knowledge_version_id, c.created_at, k.value_json, a.id AS audit_id
        FROM interview_confirmations c
+       JOIN interview_answers ans
+         ON ans.id = c.answer_id AND ans.workspace_id = c.workspace_id
        JOIN knowledge_versions k
          ON k.id = c.knowledge_version_id AND k.workspace_id = c.workspace_id
        JOIN audit_events a
          ON a.subject_id = c.id AND a.workspace_id = c.workspace_id
         AND a.action = 'interview.recommendation_confirmed'
        WHERE c.workspace_id = ? AND c.decision = 'accept'
+         AND c.operation_digest <> 'legacy-unbound'
+         AND ans.proposal_digest <> 'legacy-unbound'
        ORDER BY c.created_at DESC LIMIT 1`,
     )
     .bind(workspace.id)
@@ -113,12 +136,48 @@ export async function readInterviewState(
     };
   }
 
+  const unbound = await database
+    .prepare(
+      `SELECT ans.id
+       FROM interview_answers ans
+       JOIN interview_sessions s
+         ON s.id = ans.session_id AND s.workspace_id = ans.workspace_id
+       LEFT JOIN interview_confirmations c
+         ON c.answer_id = ans.id AND c.workspace_id = ans.workspace_id
+       WHERE ans.workspace_id = ? AND ans.proposal_digest = 'legacy-unbound'
+         AND (
+           s.state = 'awaiting_confirmation'
+           OR (
+             c.decision = 'accept'
+             AND NOT EXISTS (
+               SELECT 1 FROM audit_events quarantine
+               WHERE quarantine.workspace_id = ans.workspace_id
+                 AND quarantine.action = 'interview.unbound_review_restarted'
+                 AND quarantine.subject_type = 'interview_answer'
+                 AND quarantine.subject_id = ans.id
+             )
+           )
+         )
+       ORDER BY ans.created_at DESC LIMIT 1`,
+    )
+    .bind(workspace.id)
+    .first<{ id: string }>();
+  if (unbound) {
+    return {
+      status: "review_required",
+      displayName: principal.displayName,
+      workspace: { id: workspace.id, companyName: workspace.company_name },
+      reason: "legacy_unbound_decision",
+    };
+  }
+
   const current = await database
     .prepare(
       `SELECT s.id AS session_id, s.revision AS session_revision, s.state,
               q.id AS question_id, q.revision AS question_revision,
               q.prompt, q.research_json, q.recommendation,
-              ans.id AS answer_id, ans.operation_digest, ans.created_at AS answer_created_at
+              ans.id AS answer_id, ans.operation_digest, ans.proposal_json,
+              ans.proposal_digest, ans.created_at AS answer_created_at
        FROM interview_sessions s
        JOIN interview_questions q
          ON q.id = s.active_question_id AND q.workspace_id = s.workspace_id
@@ -140,6 +199,8 @@ export async function readInterviewState(
       recommendation: string;
       answer_id: string | null;
       operation_digest: string | null;
+      proposal_json: string | null;
+      proposal_digest: string | null;
       answer_created_at: number | null;
     }>();
   if (!current) throw new InterviewConflictError("Interview state is incomplete");
@@ -168,11 +229,30 @@ export async function readInterviewState(
     question,
   };
   if (current.state === "awaiting_confirmation") {
-    if (!current.answer_id || !current.operation_digest || current.answer_created_at === null)
+    if (
+      !current.answer_id ||
+      !current.operation_digest ||
+      !current.proposal_json ||
+      !current.proposal_digest ||
+      current.answer_created_at === null
+    )
       throw new InterviewConflictError("Submitted answer is incomplete");
+    const snapshot = await parseProposalSnapshot(
+      current.proposal_json,
+      current.proposal_digest,
+    );
     return {
       status: "awaiting_confirmation",
       ...base,
+      question: {
+        id: snapshot.questionId,
+        revision: snapshot.questionRevision,
+        prompt: snapshot.prompt,
+        premise: snapshot.premise,
+        inference: snapshot.inference,
+        provenance: snapshot.provenance,
+        recommendation: snapshot.recommendation,
+      },
       answer: {
         id: current.answer_id,
         operationDigest: current.operation_digest,
@@ -246,24 +326,16 @@ export async function submitRecommendationAnswer(
   input: { questionId: string; expectedRevision: number; idempotencyKey: string },
 ): Promise<InterviewState> {
   validateQuestionInput(input);
-  const [workspace, operationDigest] = await Promise.all([
-    ownedWorkspace(database, principal),
-    sha256(
-      JSON.stringify({
-        action: "submit_recommendation_answer",
-        questionId: input.questionId,
-        expectedRevision: input.expectedRevision,
-        choice: "accept_recommendation",
-      }),
-    ),
-  ]);
+  const workspace = await ownedWorkspace(database, principal);
   const previous = await database
     .prepare(
-      "SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1",
+      `SELECT operation_digest, proposal_digest
+       FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1`,
     )
     .bind(workspace.id, input.idempotencyKey)
-    .first<{ operation_digest: string }>();
+    .first<{ operation_digest: string; proposal_digest: string }>();
   if (previous) {
+    const operationDigest = await answerOperationDigest(input, previous.proposal_digest);
     if (previous.operation_digest !== operationDigest)
       throw new InterviewConflictError("Idempotency key was used for another operation");
     return readInterviewState(database, principal);
@@ -271,7 +343,7 @@ export async function submitRecommendationAnswer(
 
   const current = await database
     .prepare(
-      `SELECT q.id, q.revision, q.session_id
+      `SELECT q.id, q.revision, q.session_id, q.prompt, q.research_json, q.recommendation
        FROM interview_questions q
        JOIN interview_sessions s
          ON s.id = q.session_id AND s.workspace_id = q.workspace_id
@@ -280,11 +352,34 @@ export async function submitRecommendationAnswer(
        LIMIT 1`,
     )
     .bind(workspace.id, input.questionId)
-    .first<{ id: string; revision: number; session_id: string }>();
+    .first<{
+      id: string;
+      revision: number;
+      session_id: string;
+      prompt: string;
+      research_json: string;
+      recommendation: string;
+    }>();
   if (!current || current.revision !== input.expectedRevision)
     throw new InterviewConflictError("This question changed; reload before answering");
 
-  const digest = await sha256(`${workspace.id}:${input.idempotencyKey}`);
+  const research = parseResearch(current.research_json);
+  const proposal: ProposalSnapshot = {
+    questionId: current.id,
+    questionRevision: current.revision,
+    prompt: current.prompt,
+    premise: research.premise,
+    inference: research.inference,
+    provenance: research.provenance,
+    recommendation: current.recommendation,
+    value: confirmedPolicyValue(),
+  };
+  const proposalJson = JSON.stringify(proposal);
+  const [proposalDigest, digest] = await Promise.all([
+    sha256(proposalJson),
+    sha256(`${workspace.id}:${input.idempotencyKey}`),
+  ]);
+  const operationDigest = await answerOperationDigest(input, proposalDigest);
   const answerId = `ia_${digest.slice(0, 24)}`;
   const auditId = `ae_${digest.slice(0, 24)}`;
   const now = Date.now();
@@ -307,8 +402,9 @@ export async function submitRecommendationAnswer(
         .prepare(
           `INSERT INTO interview_answers
            (id, workspace_id, session_id, question_id, question_revision, choice,
-            correction_json, idempotency_key, operation_digest, created_at)
-           VALUES (?, ?, ?, ?, ?, 'accept_recommendation', NULL, ?, ?, ?)`,
+            correction_json, idempotency_key, operation_digest, proposal_json,
+            proposal_digest, created_at)
+           VALUES (?, ?, ?, ?, ?, 'accept_recommendation', NULL, ?, ?, ?, ?, ?)`,
         )
         .bind(
           answerId,
@@ -318,6 +414,8 @@ export async function submitRecommendationAnswer(
           input.expectedRevision,
           input.idempotencyKey,
           operationDigest,
+          proposalJson,
+          proposalDigest,
           now,
         ),
       database
@@ -331,7 +429,11 @@ export async function submitRecommendationAnswer(
           workspace.id,
           principal.subject,
           answerId,
-          JSON.stringify({ questionRevision: input.expectedRevision, operationDigest }),
+          JSON.stringify({
+            questionRevision: input.expectedRevision,
+            operationDigest,
+            proposalDigest,
+          }),
           now,
         ),
     ]);
@@ -363,7 +465,7 @@ export async function confirmSubmittedAnswer(
   const answer = await database
     .prepare(
       `SELECT ans.id AS answer_id, ans.operation_digest AS answer_digest,
-              ans.question_id, ans.session_id
+              ans.question_id, ans.session_id, ans.proposal_json, ans.proposal_digest
        FROM interview_answers ans
        WHERE ans.workspace_id = ? AND ans.id = ? LIMIT 1`,
     )
@@ -373,6 +475,8 @@ export async function confirmSubmittedAnswer(
       answer_digest: string;
       question_id: string;
       session_id: string;
+      proposal_json: string;
+      proposal_digest: string;
     }>();
   const [operationDigest, previous] = await Promise.all([
     sha256(
@@ -381,6 +485,7 @@ export async function confirmSubmittedAnswer(
         answerId: input.answerId,
         expectedSessionRevision: input.expectedSessionRevision,
         answerDigest: answer?.answer_digest ?? "missing",
+        proposalDigest: answer?.proposal_digest ?? "missing",
         decision: "accept",
       }),
     ),
@@ -397,29 +502,33 @@ export async function confirmSubmittedAnswer(
     return readInterviewState(database, principal);
   }
   if (!answer) throw new InterviewConflictError("This answer changed; reload before confirming");
-
-  const current = await database
-    .prepare(
-      `SELECT ans.id AS answer_id, ans.operation_digest AS answer_digest,
-              ans.question_id, ans.session_id, q.revision AS question_revision
-       FROM interview_answers ans
-       JOIN interview_sessions s
-         ON s.id = ans.session_id AND s.workspace_id = ans.workspace_id
-       JOIN interview_questions q
-         ON q.id = ans.question_id AND q.workspace_id = ans.workspace_id
-       WHERE ans.workspace_id = ? AND ans.id = ?
-         AND s.state = 'awaiting_confirmation' AND s.revision = ?
-         AND s.active_question_id = q.id AND q.status = 'answered'
-       LIMIT 1`,
-    )
-    .bind(workspace.id, input.answerId, input.expectedSessionRevision)
-    .first<{
-      answer_id: string;
-      answer_digest: string;
-      question_id: string;
-      session_id: string;
-      question_revision: number;
-    }>();
+  if (answer.proposal_digest === "legacy-unbound")
+    throw new InterviewConflictError("This earlier answer must be reviewed again");
+  const [proposal, current] = await Promise.all([
+    parseProposalSnapshot(answer.proposal_json, answer.proposal_digest),
+    database
+      .prepare(
+        `SELECT ans.id AS answer_id, ans.operation_digest AS answer_digest,
+                ans.question_id, ans.session_id, q.revision AS question_revision
+         FROM interview_answers ans
+         JOIN interview_sessions s
+           ON s.id = ans.session_id AND s.workspace_id = ans.workspace_id
+         JOIN interview_questions q
+           ON q.id = ans.question_id AND q.workspace_id = ans.workspace_id
+         WHERE ans.workspace_id = ? AND ans.id = ?
+           AND s.state = 'awaiting_confirmation' AND s.revision = ?
+           AND s.active_question_id = q.id AND q.status = 'answered'
+         LIMIT 1`,
+      )
+      .bind(workspace.id, input.answerId, input.expectedSessionRevision)
+      .first<{
+        answer_id: string;
+        answer_digest: string;
+        question_id: string;
+        session_id: string;
+        question_revision: number;
+      }>(),
+  ]);
   if (!current) throw new InterviewConflictError("This answer changed; reload before confirming");
 
   const digest = await sha256(`${workspace.id}:${input.idempotencyKey}`);
@@ -427,13 +536,8 @@ export async function confirmSubmittedAnswer(
   const knowledgeId = `kv_${digest.slice(0, 24)}`;
   const auditId = `ae_${digest.slice(0, 24)}`;
   const now = Date.now();
-  const value = {
-    score: 1,
-    classification: "partial_readiness",
-    rationale:
-      "Historian connectivity demonstrates feasibility, not confirmed permission or usable data access.",
-  };
-  const sourceDigest = await sha256(JSON.stringify(INITIAL_QUESTION));
+  const value = proposal.value;
+  const sourceDigest = answer.proposal_digest;
   try {
     await database.batch([
       database
@@ -516,6 +620,149 @@ export async function confirmSubmittedAnswer(
   return readInterviewState(database, principal);
 }
 
+export async function restartUnboundReview(
+  database: D1Database,
+  principal: InterviewPrincipal,
+  input: { idempotencyKey: string },
+): Promise<InterviewState> {
+  validateIdempotencyKey(input.idempotencyKey);
+  const workspace = await ownedWorkspace(database, principal);
+  const unbound = await database
+    .prepare(
+      `SELECT ans.id AS answer_id, ans.session_id, ans.question_id,
+              c.knowledge_version_id
+       FROM interview_answers ans
+       JOIN interview_sessions s
+         ON s.id = ans.session_id AND s.workspace_id = ans.workspace_id
+       LEFT JOIN interview_confirmations c
+         ON c.answer_id = ans.id AND c.workspace_id = ans.workspace_id
+       WHERE ans.workspace_id = ? AND ans.proposal_digest = 'legacy-unbound'
+         AND (
+           s.state = 'awaiting_confirmation'
+           OR (
+             c.decision = 'accept'
+             AND NOT EXISTS (
+               SELECT 1 FROM audit_events quarantine
+               WHERE quarantine.workspace_id = ans.workspace_id
+                 AND quarantine.action = 'interview.unbound_review_restarted'
+                 AND quarantine.subject_type = 'interview_answer'
+                 AND quarantine.subject_id = ans.id
+             )
+           )
+         )
+       ORDER BY ans.created_at DESC LIMIT 1`,
+    )
+    .bind(workspace.id)
+    .first<{
+      answer_id: string;
+      session_id: string;
+      question_id: string;
+      knowledge_version_id: string | null;
+    }>();
+  if (!unbound) return readInterviewState(database, principal);
+
+  const [operationDigest, identityDigest] = await Promise.all([
+    sha256(
+      JSON.stringify({
+        action: "restart_unbound_review",
+        answerId: unbound.answer_id,
+      }),
+    ),
+    sha256(`${workspace.id}:restart:${input.idempotencyKey}`),
+  ]);
+  const sessionId = `is_${identityDigest.slice(0, 24)}`;
+  const questionId = `iq_${identityDigest.slice(0, 24)}`;
+  const auditId = `ae_${identityDigest.slice(0, 24)}`;
+  const previous = await database
+    .prepare("SELECT detail_json FROM audit_events WHERE id = ? AND workspace_id = ? LIMIT 1")
+    .bind(auditId, workspace.id)
+    .first<{ detail_json: string }>();
+  if (previous) {
+    const detail = JSON.parse(previous.detail_json) as { operationDigest?: string };
+    if (detail.operationDigest !== operationDigest)
+      throw new InterviewConflictError("Idempotency key was used for another operation");
+    return readInterviewState(database, principal);
+  }
+
+  const now = Date.now();
+  try {
+    const statements = [
+      database
+        .prepare(
+          "UPDATE interview_sessions SET state = 'archived', active_question_id = NULL, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ?",
+        )
+        .bind(now, unbound.session_id, workspace.id),
+      database
+        .prepare(
+          "UPDATE interview_questions SET status = 'superseded', updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ?",
+        )
+        .bind(now, unbound.question_id, workspace.id),
+      database
+        .prepare(
+          `INSERT INTO interview_sessions
+           (id, workspace_id, created_at, updated_at, revision, scope_type, scope_id, state, active_question_id)
+           VALUES (?, ?, ?, ?, 1, 'company', ?, 'awaiting_answer', ?)`,
+        )
+        .bind(sessionId, workspace.id, now, now, workspace.id, questionId),
+      database
+        .prepare(
+          `INSERT INTO interview_questions
+           (id, workspace_id, created_at, updated_at, revision, session_id, version,
+            prompt, research_json, recommendation, status)
+           VALUES (?, ?, ?, ?, 1, ?, 1, ?, ?, ?, 'active')`,
+        )
+        .bind(
+          questionId,
+          workspace.id,
+          now,
+          now,
+          sessionId,
+          INITIAL_QUESTION.prompt,
+          JSON.stringify({
+            premise: INITIAL_QUESTION.premise,
+            inference: INITIAL_QUESTION.inference,
+            provenance: INITIAL_QUESTION.provenance,
+          }),
+          INITIAL_QUESTION.recommendation,
+        ),
+      database
+        .prepare(
+          `INSERT INTO audit_events
+           (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at)
+           VALUES (?, ?, 'owner', ?, 'interview.unbound_review_restarted', 'interview_answer', ?, ?, ?)`,
+        )
+        .bind(
+          auditId,
+          workspace.id,
+          principal.subject,
+          unbound.answer_id,
+          JSON.stringify({ operationDigest, restartedSessionId: sessionId }),
+          now,
+        ),
+    ];
+    if (unbound.knowledge_version_id) {
+      statements.splice(
+        2,
+        0,
+        database
+          .prepare(
+            "UPDATE knowledge_versions SET status = 'superseded', updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ?",
+          )
+          .bind(now, unbound.knowledge_version_id, workspace.id),
+      );
+    }
+    await database.batch(statements);
+  } catch {
+    const retry = await database
+      .prepare("SELECT id FROM audit_events WHERE id = ? AND workspace_id = ? LIMIT 1")
+      .bind(auditId, workspace.id)
+      .first<{ id: string }>();
+    if (!retry)
+      throw new InterviewConflictError("The review restart conflicted; reload before retrying");
+  }
+  return readInterviewState(database, principal);
+}
+
 function validateQuestionInput(input: {
   questionId: string;
   expectedRevision: number;
@@ -528,18 +775,98 @@ function validateQuestionInput(input: {
   validateIdempotencyKey(input.idempotencyKey);
 }
 
+async function answerOperationDigest(
+  input: { questionId: string; expectedRevision: number },
+  proposalDigest: string,
+) {
+  return sha256(
+    JSON.stringify({
+      action: "submit_recommendation_answer",
+      questionId: input.questionId,
+      expectedRevision: input.expectedRevision,
+      choice: "accept_recommendation",
+      proposalDigest,
+    }),
+  );
+}
+
+function parseResearch(raw: string) {
+  const research = JSON.parse(raw) as {
+    premise?: string;
+    evidence?: string;
+    inference?: string;
+    provenance?: string;
+  };
+  return {
+    premise: research.premise ?? research.evidence ?? "No premise was recorded.",
+    inference: research.inference ?? "No inference was recorded.",
+    provenance:
+      research.provenance ??
+      "Legacy policy question created before provenance was stored separately.",
+  };
+}
+
+async function parseProposalSnapshot(raw: string, expectedDigest: string) {
+  if ((await sha256(raw)) !== expectedDigest)
+    throw new InterviewConflictError("The submitted policy snapshot failed integrity checks");
+  const proposal = JSON.parse(raw) as Partial<ProposalSnapshot>;
+  if (
+    typeof proposal.questionId !== "string" ||
+    !Number.isInteger(proposal.questionRevision) ||
+    typeof proposal.prompt !== "string" ||
+    typeof proposal.premise !== "string" ||
+    typeof proposal.inference !== "string" ||
+    typeof proposal.provenance !== "string" ||
+    typeof proposal.recommendation !== "string" ||
+    typeof proposal.value?.score !== "number" ||
+    typeof proposal.value.classification !== "string" ||
+    typeof proposal.value.rationale !== "string"
+  )
+    throw new InterviewConflictError("The submitted policy snapshot is incomplete");
+  return proposal as ProposalSnapshot;
+}
+
+function confirmedPolicyValue() {
+  return {
+    score: 1,
+    classification: "partial_readiness",
+    rationale:
+      "Historian connectivity demonstrates feasibility, not confirmed permission or usable data access.",
+  };
+}
+
 function validateIdempotencyKey(value: string) {
   if (!/^[a-f0-9-]{20,80}$/i.test(value))
     throw new InterviewConflictError("Invalid idempotency key");
 }
 
 async function ownedWorkspace(database: D1Database, principal: InterviewPrincipal) {
-  const workspace = await database
-    .prepare("SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1")
-    .bind(principal.subject)
-    .first<{ id: string }>();
+  const workspace = await workspaceForPrincipal(database, principal);
   if (!workspace) throw new InterviewConflictError("Workspace is not initialized");
   return workspace;
+}
+
+async function workspaceForPrincipal(
+  database: D1Database,
+  principal: InterviewPrincipal,
+): Promise<{ id: string; company_name: string } | null> {
+  const current = await database
+    .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
+    .bind(principal.subject)
+    .first<{ id: string; company_name: string }>();
+  if (current) return current;
+
+  const legacy = await database
+    .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
+    .bind(principal.legacySubject)
+    .first<{ id: string; company_name: string }>();
+  if (!legacy) return null;
+
+  await database
+    .prepare("UPDATE workspaces SET owner_subject = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND owner_subject = ?")
+    .bind(principal.subject, Date.now(), legacy.id, principal.legacySubject)
+    .run();
+  return legacy;
 }
 
 function idsFor(subject: string) {

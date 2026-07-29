@@ -22,6 +22,13 @@
       "when": 1785347991552,
       "tag": "0002_eager_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785348830511,
+      "tag": "0003_acoustic_magik",
+      "breakpoints": true
     }
   ]
 }

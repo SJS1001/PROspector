@@ -135,6 +135,7 @@ async function applyMigrations(database) {
     "0000_jittery_meteorite.sql",
     "0001_true_spencer_smythe.sql",
     "0002_eager_supreme_intelligence.sql",
+    "0003_acoustic_magik.sql",
   ]) {
     const sql = await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
