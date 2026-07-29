@@ -28,13 +28,11 @@ test("fixture renders every consequential control natively disabled", async () =
       renderToStaticMarkup(createElement(ProspectorApp, { initialView })),
     ).join("\n");
 
-    assert.match(html, /Fixture-only capability pilot/);
+    assert.match(html, /Controlled capability pilot/);
     for (const label of [
       "Prospecting disabled",
       "Approve disabled",
       "Defer disabled",
-      "Accept disabled",
-      "Correct disabled",
       "Explore disabled",
       "Dismiss disabled",
       "Prospect disabled",

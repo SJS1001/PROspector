@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { InterviewState } from "../domain/interview";
 
 type View = "Morning Brief" | "Knowledge" | "Market Discovery" | "Review Queue" | "Prospects" | "Exports & History";
 
@@ -74,8 +75,8 @@ export function ProspectorApp({ initialView = "Morning Brief" }: { initialView?:
         </header>
 
         <div className="fixture-banner" role="status">
-          <strong>Fixture-only capability pilot</strong>
-          <span>All companies, signals, scores, schedules, and counts shown below are synthetic. Live storage, research, exports, Gmail, and calling are disabled until Wave 0 passes.</span>
+          <strong>Controlled capability pilot</strong>
+          <span>The Consensus Interview stores one real owner-confirmed decision and audit event. All prospecting, signal, schedule, export, Gmail, and calling data remains synthetic and disabled.</span>
         </div>
 
         <div className="content">
@@ -152,19 +153,104 @@ function SignalRow({ item }: { item: (typeof signals)[number] }) {
 }
 
 function Knowledge({ setView }: { setView: (view: View) => void }) {
+  const [interview, setInterview] = useState<InterviewState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pendingKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/interview", {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("The secure interview could not be loaded.");
+        const value = await response.json() as InterviewState;
+        if (!cancelled) setInterview(value);
+      } catch (cause) {
+        if (!cancelled)
+          setError(cause instanceof Error ? cause.message : "The secure interview could not be loaded.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function mutate(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/interview", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-prospector-intent": "interview-mutation",
+        },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        let message = "The decision was not saved.";
+        try {
+          const failure = await response.json() as { message?: string };
+          message = failure.message ?? message;
+        } catch {
+          // The status is authoritative even if an intermediary returned no JSON.
+        }
+        throw new Error(message);
+      }
+      const value = await response.json() as InterviewState;
+      pendingKey.current = null;
+      setInterview(value);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The decision was not saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirm() {
+    if (interview?.status !== "active") return;
+    pendingKey.current ??= crypto.randomUUID();
+    void mutate({
+      action: "confirm_recommendation",
+      questionId: interview.question.id,
+      expectedRevision: interview.question.revision,
+      idempotencyKey: pendingKey.current,
+    });
+  }
+
   return <>
-    <PageHeading eyebrow="CONFIRMED KNOWLEDGE" title="Consensus Interview" copy="One question at a time. Evidence and inference stay separate until you confirm the decision." />
+    <PageHeading eyebrow="OWNER-SCOPED · LIVE D1 SLICE" title="Consensus Interview" copy="This is the first persisted workflow. Evidence and inference remain separate until your explicit confirmation is written with an audit event." />
     <div className="knowledge-layout">
       <section className="panel question-card">
-        <span className="question-number">QUESTION 08 OF 11 · OPERATING SITES</span>
-        <h2>How should historian evidence affect data-readiness scoring?</h2>
-        <p className="question-copy">A public source confirms that a site operates a connected plant historian, but does not confirm that Digitalrain could access the data.</p>
-        <div className="finding-grid"><div><b>Evidence</b><p>A connected historian makes technical integration plausible.</p></div><div><b>Inference</b><p>Access, quality, and internal permission are still unknown.</p></div></div>
-        <div className="recommendation"><span>RECOMMENDED</span><b>Score 1 — partial readiness</b><p>Reserve score 2 for sourced evidence that usable operational data is accessible.</p></div>
-        <div className="answer-actions"><button type="button" disabled title="Requires persisted confirmation and audit">Accept disabled</button><button type="button" disabled title="Requires persisted confirmation and audit">Correct disabled</button><button type="button" disabled title="Requires persisted confirmation and audit">Defer disabled</button></div>
-        <div className="saved">Interaction preview only. No answer or knowledge change can be recorded yet.</div>
+        {!interview && !error && <div className="loading-state">Loading the owner-scoped interview…</div>}
+        {error && <div className="error-state" role="alert">{error}</div>}
+        {interview?.status === "uninitialized" && <>
+          <span className="question-number">SECURE WORKSPACE SETUP</span>
+          <h2>Initialize Digitalrain’s private knowledge workspace?</h2>
+          <p className="question-copy">This creates one owner-scoped workspace, one interview session, and an append-only initialization audit event. It does not activate prospecting or external services.</p>
+          <button className="primary" type="button" disabled={busy} onClick={() => void mutate({ action: "bootstrap" })}>{busy ? "Initializing…" : "Initialize secure workspace"}</button>
+        </>}
+        {interview?.status === "active" && <>
+          <span className="question-number">QUESTION 01 · COMPANY KNOWLEDGE · REVISION {interview.question.revision}</span>
+          <h2>{interview.question.prompt}</h2>
+          <p className="question-copy">This decision controls how future evidence will be interpreted; it does not qualify any current prospect.</p>
+          <div className="finding-grid"><div><b>Evidence</b><p>{interview.question.evidence}</p></div><div><b>Inference</b><p>{interview.question.inference}</p></div></div>
+          <div className="recommendation"><span>RECOMMENDED</span><b>Score 1 — partial readiness</b><p>{interview.question.recommendation}</p></div>
+          <div className="answer-actions"><button className="selected" type="button" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : "Accept and confirm recommendation"}</button><button type="button" disabled title="Correction history is the next slice">Correct disabled</button><button type="button" disabled title="Deferral history is the next slice">Defer disabled</button></div>
+          <div className="saved">The enabled action is an explicit confirmation. It atomically records the Answer, Confirmed Knowledge Version, and Audit Event.</div>
+        </>}
+        {interview?.status === "confirmed" && <>
+          <span className="question-number">CONFIRMED KNOWLEDGE · VERSIONED</span>
+          <h2>Historian evidence counts as partial readiness.</h2>
+          <div className="recommendation confirmed-knowledge"><span>CONFIRMED BY OWNER</span><b>Score {interview.confirmed.value.score} — {interview.confirmed.value.classification.replaceAll("_", " ")}</b><p>{interview.confirmed.value.rationale}</p></div>
+          <dl className="confirmation-proof"><div><dt>Knowledge version</dt><dd>{interview.confirmed.knowledgeVersionId}</dd></div><div><dt>Audit event</dt><dd>{interview.confirmed.auditEventId}</dd></div><div><dt>Confirmed</dt><dd>{new Date(interview.confirmed.confirmedAt).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })}</dd></div></dl>
+          <div className="saved">Reload-safe: this state is read from hosted D1, not browser memory.</div>
+        </>}
       </section>
-      <aside className="panel scope-card"><span className="eyebrow">CURRENT SCOPE</span><h3>Operating sites</h3><ol><li className="done">Company <span>Confirmed</span></li><li className="done">Product · ONE <span>Ready</span></li><li className="done">Play · Mining <span>Ready</span></li><li className="current">Profile · Operating <span>8 / 11</span></li></ol><button className="outline" type="button" onClick={() => setView("Morning Brief")}>Return to brief</button></aside>
+      <aside className="panel scope-card"><span className="eyebrow">CURRENT SCOPE</span><h3>{interview && interview.status !== "uninitialized" ? interview.workspace.companyName : "Digitalrain"}</h3><ol><li className={interview?.status === "confirmed" ? "done" : "current"}>Company knowledge <span>{interview?.status === "confirmed" ? "1 confirmed" : "In progress"}</span></li><li>Product · ONE <span>Fixture only</span></li><li>Play · Mining <span>Fixture only</span></li><li>Profile · Operating <span>Fixture only</span></li></ol><button className="outline" type="button" onClick={() => setView("Morning Brief")}>Return to brief</button></aside>
     </div>
   </>;
 }
