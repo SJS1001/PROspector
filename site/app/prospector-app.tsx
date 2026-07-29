@@ -25,8 +25,8 @@ const discovery = [
   { market: "Marine port operations", fit: "Medium", reason: "ONE capabilities transfer; proof and buyer language differ", buyer: "Port operations VP" },
 ];
 
-export function ProspectorApp() {
-  const [view, setView] = useState<View>("Morning Brief");
+export function ProspectorApp({ initialView = "Morning Brief" }: { initialView?: View } = {}) {
+  const [view, setView] = useState<View>(initialView);
   const [profile, setProfile] = useState("Operating sites");
   const [query, setQuery] = useState("");
 
