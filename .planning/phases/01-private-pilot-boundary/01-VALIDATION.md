@@ -38,13 +38,13 @@ created: 2026-07-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 01-W0-01 | TBD | 0 | REQ-company-workspace-isolation | T-01 spoofed/second principal | Non-owner receives neutral denial and cannot read or bootstrap | integration | `cd site && node --test tests/pilot-access.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-W0-02 | TBD | 0 | REQ-private-human-governed-gtm | T-02 forged proof state | Only evidence records produce `proven`; bindings alone remain `unproven` | unit | `cd site && node --test tests/capability-state.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-W0-03 | TBD | 0 | REQ-company-workspace-isolation | T-03 cross-prefix object access | R2 keys are server-derived and cross-workspace access is impossible | unit/integration | `cd site && node --test tests/object-storage.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-W0-04 | TBD | 0 | Both | T-04 capability leak | Capability route is no-store, owner-only, and exposes no email or workspace detail to denials | route | `cd site && node --test tests/capabilities-route.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-REG-01 | TBD | any | REQ-private-human-governed-gtm | T-05 mutation bypass | Origin, Fetch Metadata, intent, CSRF, type, and body bounds fail closed | integration | `cd site && node --test tests/request-security.test.mjs tests/interview-handler.test.mjs` | ✅ | ⬜ pending |
-| 01-REG-02 | TBD | any | REQ-private-human-governed-gtm | T-06 adjacent-state authority | Answer remains separate from Confirmation and no later effect control is enabled | integration/render | `cd site && node --test tests/interview-repository.test.mjs tests/fixture-safety.test.mjs` | ✅ | ⬜ pending |
-| 01-REG-03 | TBD | final | Both | T-07 UI overclaims capability | Pilot Status renders Proven/Blocked/Unproven and disabled broader workflows | render | `cd site && node --test tests/rendered-html.test.mjs tests/fixture-safety.test.mjs` | ✅ extend | ⬜ pending |
+| 01-W0-01 | 01 | 1 | REQ-company-workspace-isolation | T-01 spoofed/second principal | Non-owner receives neutral denial and cannot read or bootstrap | integration | `cd site && node --test tests/pilot-access.test.mjs` | ❌ W0 | ⬜ pending |
+| 01-W0-02 | 01 | 1 | REQ-private-human-governed-gtm | T-02 forged proof state | Only evidence records produce `proven`; bindings alone remain `unproven` | unit | `cd site && node --test tests/capability-state.test.mjs` | ❌ W0 | ⬜ pending |
+| 01-W0-03 | 01 | 1 | REQ-company-workspace-isolation | T-03 cross-prefix object access | R2 keys are server-derived and cross-workspace access is impossible | unit/integration | `cd site && node --test tests/object-storage.test.mjs` | ❌ W0 | ⬜ pending |
+| 01-W0-04 | 01 | 1 | Both | T-04 capability leak | Capability route is no-store, owner-only, and exposes no email or workspace detail to denials | route | `cd site && node --test tests/capabilities-route.test.mjs` | ❌ W0 | ⬜ pending |
+| 01-REG-01 | 02 | 2 | REQ-private-human-governed-gtm | T-05 mutation bypass | Origin, Fetch Metadata, intent, CSRF, type, and body bounds fail closed | integration | `cd site && node --test tests/request-security.test.mjs tests/interview-handler.test.mjs` | ✅ | ⬜ pending |
+| 01-REG-02 | 02 | 2 | REQ-private-human-governed-gtm | T-06 adjacent-state authority | Answer remains separate from Confirmation and no later effect control is enabled | integration/render | `cd site && node --test tests/interview-repository.test.mjs tests/fixture-safety.test.mjs` | ✅ | ⬜ pending |
+| 01-REG-03 | 04 | 3 | Both | T-07 UI overclaims capability | Pilot Status renders Proven/Blocked/Unproven and disabled broader workflows | render | `cd site && node --test tests/rendered-html.test.mjs tests/fixture-safety.test.mjs` | ✅ extend | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

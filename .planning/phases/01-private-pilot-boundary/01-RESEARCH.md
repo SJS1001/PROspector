@@ -306,16 +306,16 @@ Every PLAN.md must include a `<threat_model>` block. Any unresolved HIGH threat 
 | A2 | A controlled second real principal can be supplied for final negative hosted proof without enabling invitations. | Without it, Phase 1 can be code-complete but cannot be fully verified. |
 | A3 | The connected Sites runtime supports the R2 operations needed by a narrow probe. | If the binding is present but operations fail, keep R2 blocked and use the provider-neutral fallback decision. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which trusted control-plane value identifies the sole pilot owner?**
+   - **RESOLVED:** Use a server-only `PILOT_OWNER_EMAIL` secret containing the normalized owner email. Compare it to the trusted Sites identity before deriving or resolving a workspace; never return, persist, or log the secret value.
    - Known: Sites provides trusted email identity headers and the application already HMACs email with `OWNER_SUBJECT_PEPPER`.
-   - Plan-safe answer: add a secret/binding containing the admitted owner email digest or normalized email, compare server-side, and never expose it.
    - Verification: confirm deployment secret exists without printing it.
 
 2. **How is the second-principal proof executed?**
+   - **RESOLVED:** Automate the full deny contract locally and retain a blocking end-of-phase hosted verification checkpoint for a controlled second principal asserted by Sites; do not enable invitations.
    - Known: invitations remain disabled and one user is currently available.
-   - Plan-safe answer: automate all negative behavior locally, then retain one manual hosted checkpoint for a controlled second principal.
 
 ## Sources
 

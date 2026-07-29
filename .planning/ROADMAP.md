@@ -33,8 +33,15 @@ PROspector moves from its narrow hosted interview proof to a safe private operat
   2. The operator must explicitly confirm consequential knowledge and authorize spend or outreach; no workflow silently sends, spends, or introduces CRM opportunity, forecast, contract, revenue, or customer state.
   3. The owner can see an auditable capability status that keeps real leads, contacts, credentials, imports, schedules, exports, and provider effects disabled until their accepted gates are proven.
   4. Controlled hosted proof demonstrates trusted identity, D1 and R2 durability/isolation, mutation protection, secrets handling, audit visibility, and provider-neutral boundary behavior without placing secrets or operational data in Git.
-**Plans**: TBD  
+**Plans**: 5 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `01-01-PLAN.md` — Create the failing single-owner, evidence-state, storage, and route contracts.
+- [ ] `01-02-PLAN.md` — Enforce server-only single-owner admission before every interview operation.
+- [ ] `01-03-PLAN.md` — Build the provider-neutral capability and object-storage proof core.
+- [ ] `01-04-PLAN.md` — Wire secure capability APIs and the verified Pilot Status UI.
+- [ ] `01-05-PLAN.md` — Deploy exact source and complete controlled hosted boundary proof.
 
 ### Phase 2: Consensus Knowledge and Commercial Model
 **Goal**: The owner can establish authoritative commercial knowledge and scope it correctly through a research-first, versioned, auditable decision workflow.  
