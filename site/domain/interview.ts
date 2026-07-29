@@ -850,16 +850,26 @@ async function workspaceForPrincipal(
   database: D1Database,
   principal: InterviewPrincipal,
 ): Promise<{ id: string; company_name: string } | null> {
-  const current = await database
-    .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
-    .bind(principal.subject)
-    .first<{ id: string; company_name: string }>();
-  if (current) return current;
-
-  const legacy = await database
-    .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
-    .bind(principal.legacySubject)
-    .first<{ id: string; company_name: string }>();
+  const [current, legacy] = await Promise.all([
+    database
+      .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
+      .bind(principal.subject)
+      .first<{ id: string; company_name: string }>(),
+    database
+      .prepare("SELECT id, company_name FROM workspaces WHERE owner_subject = ? LIMIT 1")
+      .bind(principal.legacySubject)
+      .first<{ id: string; company_name: string }>(),
+  ]);
+  if (current) {
+    if (legacy && legacy.id !== current.id)
+      await quarantineDetachedLegacyWorkspace(
+        database,
+        principal,
+        current.id,
+        legacy.id,
+      );
+    return current;
+  }
   if (!legacy) return null;
 
   await database
@@ -867,6 +877,58 @@ async function workspaceForPrincipal(
     .bind(principal.subject, Date.now(), legacy.id, principal.legacySubject)
     .run();
   return legacy;
+}
+
+async function quarantineDetachedLegacyWorkspace(
+  database: D1Database,
+  principal: InterviewPrincipal,
+  currentWorkspaceId: string,
+  legacyWorkspaceId: string,
+) {
+  const digest = await sha256(
+    `${currentWorkspaceId}:quarantine-detached:${legacyWorkspaceId}`,
+  );
+  const auditId = `ae_detached_${digest.slice(0, 16)}`;
+  const now = Date.now();
+  await database.batch([
+    database
+      .prepare(
+        `UPDATE knowledge_versions SET status = 'superseded', updated_at = ?, revision = revision + 1
+         WHERE workspace_id = ? AND status = 'confirmed'
+           AND id IN (
+             SELECT c.knowledge_version_id FROM interview_confirmations c
+             JOIN interview_answers ans
+               ON ans.id = c.answer_id AND ans.workspace_id = c.workspace_id
+             WHERE c.workspace_id = ?
+               AND (c.operation_digest = 'legacy-unbound' OR ans.proposal_digest = 'legacy-unbound')
+           )`,
+      )
+      .bind(now, legacyWorkspaceId, legacyWorkspaceId),
+    database
+      .prepare(
+        "UPDATE interview_sessions SET state = 'archived', active_question_id = NULL, updated_at = ?, revision = revision + 1 WHERE workspace_id = ? AND state <> 'archived'",
+      )
+      .bind(now, legacyWorkspaceId),
+    database
+      .prepare(
+        "UPDATE interview_questions SET status = 'superseded', updated_at = ?, revision = revision + 1 WHERE workspace_id = ? AND status <> 'superseded'",
+      )
+      .bind(now, legacyWorkspaceId),
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO audit_events
+         (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at)
+         VALUES (?, ?, 'owner', ?, 'workspace.detached_legacy_quarantined', 'workspace', ?, ?, ?)`,
+      )
+      .bind(
+        auditId,
+        legacyWorkspaceId,
+        principal.subject,
+        legacyWorkspaceId,
+        JSON.stringify({ currentWorkspaceId }),
+        now,
+      ),
+  ]);
 }
 
 function idsFor(subject: string) {

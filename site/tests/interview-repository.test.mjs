@@ -172,16 +172,67 @@ test("owner-scoped interview separates answer submission from confirmation", asy
     assert.equal(auditRows.results.every((row) => row.actor_id.length === 64), true);
     assert.doesNotMatch(JSON.stringify(auditRows.results), /owner@example|other@example|historian connectivity demonstrates/i);
 
+    const legacyPrincipal = {
+      subject: outsider.legacySubject,
+      legacySubject: "f".repeat(64),
+      displayName: "Legacy outsider",
+    };
+    const legacyActive = await domain.bootstrapInterview(database, legacyPrincipal);
+    const legacyAwaiting = await domain.submitRecommendationAnswer(database, legacyPrincipal, {
+      questionId: legacyActive.question.id,
+      expectedRevision: legacyActive.question.revision,
+      idempotencyKey: "0198a4b0-0000-7000-8000-000000000010",
+    });
+    const legacyConfirmed = await domain.confirmSubmittedAnswer(database, legacyPrincipal, {
+      answerId: legacyAwaiting.answer.id,
+      expectedSessionRevision: legacyAwaiting.session.revision,
+      idempotencyKey: "0198a4b0-0000-7000-8000-000000000011",
+    });
+    await database
+      .prepare("UPDATE interview_answers SET proposal_json = '{}', proposal_digest = 'legacy-unbound' WHERE id = ?")
+      .bind(legacyAwaiting.answer.id)
+      .run();
+    await database
+      .prepare("UPDATE interview_confirmations SET operation_digest = 'legacy-unbound' WHERE answer_id = ?")
+      .bind(legacyAwaiting.answer.id)
+      .run();
+    const coexistenceReads = await Promise.all([
+      domain.readInterviewState(database, outsider),
+      domain.readInterviewState(database, outsider),
+    ]);
+    assert.equal(coexistenceReads.every((state) => state.status === "confirmed"), true);
+    const detachedKnowledge = await database
+      .prepare("SELECT status FROM knowledge_versions WHERE id = ?")
+      .bind(legacyConfirmed.confirmed.knowledgeVersionId)
+      .first();
+    assert.equal(detachedKnowledge.status, "superseded");
+    const detachedSession = await database
+      .prepare("SELECT state FROM interview_sessions WHERE id = ?")
+      .bind(legacyAwaiting.session.id)
+      .first();
+    assert.equal(detachedSession.state, "archived");
+    const detachedAudits = await database
+      .prepare("SELECT COUNT(*) AS count FROM audit_events WHERE workspace_id = ? AND action = 'workspace.detached_legacy_quarantined'")
+      .bind(legacyActive.workspace.id)
+      .first();
+    assert.equal(Number(detachedAudits.count), 1);
+
+    const migrationPrincipal = await domain.principalFromIdentity(
+      "migration@example.com",
+      "Migration Owner",
+      SUBJECT_PEPPER,
+    );
+    const migrationActive = await domain.bootstrapInterview(database, migrationPrincipal);
     await database
       .prepare("UPDATE workspaces SET owner_subject = ? WHERE id = ?")
-      .bind(outsider.legacySubject, outsiderActive.workspace.id)
+      .bind(migrationPrincipal.legacySubject, migrationActive.workspace.id)
       .run();
-    assert.equal((await domain.readInterviewState(database, outsider)).status, "confirmed");
+    assert.equal((await domain.readInterviewState(database, migrationPrincipal)).status, "active");
     const migratedOwner = await database
       .prepare("SELECT owner_subject FROM workspaces WHERE id = ?")
-      .bind(outsiderActive.workspace.id)
+      .bind(migrationActive.workspace.id)
       .first();
-    assert.equal(migratedOwner.owner_subject, outsider.subject);
+    assert.equal(migratedOwner.owner_subject, migrationPrincipal.subject);
 
     await database
       .prepare("UPDATE interview_answers SET proposal_json = '{}', proposal_digest = 'legacy-unbound' WHERE id = ?")
