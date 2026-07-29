@@ -33,11 +33,29 @@ export async function readBoundedJson(
   request: Request,
   maximumBytes: number,
 ): Promise<Record<string, unknown>> {
-  const rawBody = await request.text();
-  if (new TextEncoder().encode(rawBody).byteLength > maximumBytes) {
-    const error = new Error("payload_too_large") as Error & { status?: number };
-    error.status = 413;
-    throw error;
+  if (!request.body) return {};
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maximumBytes) {
+      await reader.cancel();
+      const error = new Error("payload_too_large") as Error & { status?: number };
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(value);
   }
-  return JSON.parse(rawBody) as Record<string, unknown>;
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(body)) as Record<string, unknown>;
 }
