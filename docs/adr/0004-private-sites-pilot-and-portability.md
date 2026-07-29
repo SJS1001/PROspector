@@ -107,3 +107,19 @@ access without rewriting prior audit events.
 This closes the two product HIGH findings locally. Authenticated hosted
 initialize/submit/reload/confirm/reload evidence remains outstanding and Wave 0
 remains blocked for every broader capability.
+
+## Capability checkpoint — private version 7
+
+The final product attack found that two tabs could restart the same quarantined
+legacy Answer with different idempotency keys and create two active replacement
+sessions. Version 7, source
+`99c14a124bec8f97a4b1db66d04d6a7ac2edc7c8`, derives the replacement
+session, question, and quarantine audit identities from the legacy Answer
+itself. Competing requests therefore converge on the same replacement.
+
+The required race test runs two different keys concurrently and proves both
+requests resolve to one authoritative active session, one active question, and
+one quarantine audit. The private deployment succeeded with environment
+revision 1. Authenticated hosted lifecycle proof remains the next evidence item
+for this narrow slice; provider-session rotation and broader Wave 0 capabilities
+remain blocked.
