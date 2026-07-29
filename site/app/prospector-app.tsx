@@ -28,17 +28,12 @@ const discovery = [
 export function ProspectorApp() {
   const [view, setView] = useState<View>("Morning Brief");
   const [profile, setProfile] = useState("Operating sites");
-  const [decisions, setDecisions] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
 
   const filteredSignals = useMemo(
     () => signals.filter((item) => `${item.company} ${item.target} ${item.signal}`.toLowerCase().includes(query.toLowerCase())),
     [query],
   );
-
-  function decide(company: string, decision: string) {
-    setDecisions((current) => ({ ...current, [company]: decision }));
-  }
 
   return (
     <main className="app-shell">
@@ -57,13 +52,13 @@ export function ProspectorApp() {
           {views.map((item) => (
             <button key={item.label} type="button" className={view === item.label ? "active" : ""} onClick={() => setView(item.label)}>
               <span>{item.key}</span>{item.label}
-              {item.label === "Review Queue" && <em>4</em>}
+              {item.label === "Review Queue" && <em>4 sample</em>}
             </button>
           ))}
         </nav>
 
         <div className="rail-foot">
-          <div className="runner"><i /><div><b>Codex runner</b><span>Connected · advisory</span></div></div>
+          <div className="runner"><i /><div><b>Codex runner</b><span>Not connected · fixture mode</span></div></div>
           <button type="button" onClick={() => setView("Knowledge")}>Workspace settings <span>→</span></button>
         </div>
       </aside>
@@ -73,16 +68,21 @@ export function ProspectorApp() {
           <div className="crumbs"><span>Digitalrain</span><b>/</b><span>ONE</span><b>/</b><strong>ONE for Mining</strong></div>
           <div className="top-actions">
             <label className="search"><span>⌕</span><input aria-label="Search prospects" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" /></label>
-            <button className="quiet" type="button">Last run 06:00</button>
+            <button className="quiet" type="button" disabled>No live runs</button>
             <div className="avatar" title="Owner">SS</div>
           </div>
         </header>
 
+        <div className="fixture-banner" role="status">
+          <strong>Fixture-only capability pilot</strong>
+          <span>All companies, signals, scores, schedules, and counts shown below are synthetic. Live storage, research, exports, Gmail, and calling are disabled until Wave 0 passes.</span>
+        </div>
+
         <div className="content">
-          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} query={query} items={filteredSignals} decisions={decisions} decide={decide} setView={setView} />}
+          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={setView} />}
           {view === "Knowledge" && <Knowledge setView={setView} />}
           {view === "Market Discovery" && <MarketDiscovery />}
-          {view === "Review Queue" && <ReviewQueue items={filteredSignals} decisions={decisions} decide={decide} />}
+          {view === "Review Queue" && <ReviewQueue items={filteredSignals} />}
           {view === "Prospects" && <Prospects items={filteredSignals} />}
           {view === "Exports & History" && <Exports />}
         </div>
@@ -95,28 +95,28 @@ function PageHeading({ eyebrow, title, copy, action }: { eyebrow: string; title:
   return <div className="page-heading"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{copy}</p></div>{action}</div>;
 }
 
-function MorningBrief({ profile, setProfile, items, decisions, decide, setView }: { profile: string; setProfile: (value: string) => void; query: string; items: typeof signals; decisions: Record<string, string>; decide: (company: string, decision: string) => void; setView: (view: View) => void }) {
+function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: View) => void }) {
   return <>
-    <PageHeading eyebrow="WEDNESDAY · 29 JULY" title="Good morning, Steven." copy="Your evidence-backed work for today, separated from what still needs judgment." action={<button className="primary" type="button">Run prospecting <span>↗</span></button>} />
+    <PageHeading eyebrow="WEDNESDAY · 29 JULY · SYNTHETIC FIXTURE" title="Good morning, Steven." copy="A non-operational example of how evidence-backed work will be separated from decisions." action={<button className="primary" type="button" disabled title="Available after Wave 0">Prospecting disabled</button>} />
 
     <div className="context-strip">
-      <div><span>PRODUCT</span><b>ONE</b><small>Ready</small></div>
-      <div><span>MARKET PLAY</span><b>ONE for Mining</b><small>Ready</small></div>
+      <div><span>PRODUCT</span><b>ONE</b><small>Fixture · Ready example</small></div>
+      <div><span>MARKET PLAY</span><b>ONE for Mining</b><small>Fixture · Ready example</small></div>
       <label><span>CUSTOMER PROFILE</span><select value={profile} onChange={(event) => setProfile(event.target.value)}><option>Operating sites</option><option>Greenfield projects</option></select><small className={profile === "Operating sites" ? "ready" : "draft"}>{profile === "Operating sites" ? "Ready · weekdays 06:00" : "Draft · runs disabled"}</small></label>
     </div>
 
     <section className="metrics" aria-label="Weekly metrics">
-      <article><span>EXPORT-READY THIS WEEK</span><strong>3 <small>/ 7</small></strong><div className="meter"><i style={{ width: "43%" }} /></div><p>4 remain · quality gates unchanged</p></article>
-      <article><span>AWAITING YOUR REVIEW</span><strong>{Object.keys(decisions).length ? 4 - Object.keys(decisions).length : 4}</strong><p>2 high-confidence · 2 need context</p></article>
-      <article><span>ACTIVE SIGNALS</span><strong>11</strong><p>8 Tier 1 · 3 independent Tier 2</p></article>
-      <article className="risk"><span>OUTBOUND PAUSED</span><strong>0</strong><p>No drift or suppression conflicts</p></article>
+      <article><span>SAMPLE EXPORT-READY</span><strong>3 <small>/ 7</small></strong><div className="meter"><i style={{ width: "43%" }} /></div><p>Illustrative target only</p></article>
+      <article><span>SAMPLE REVIEW QUEUE</span><strong>4</strong><p>Fixture records · actions disabled</p></article>
+      <article><span>SAMPLE SIGNALS</span><strong>11</strong><p>Illustrative source mix</p></article>
+      <article className="risk"><span>LIVE OUTBOUND</span><strong>Off</strong><p>Wave 0 safety gate</p></article>
     </section>
 
     <div className="two-column">
       <section className="panel review-panel">
         <div className="panel-title"><div><span>TODAY’S PRIORITY</span><h2>Evidence review</h2></div><button type="button" onClick={() => setView("Review Queue")}>Open queue →</button></div>
         <div className="signal-list">
-          {items.slice(0, 3).map((item) => <SignalRow key={item.company} item={item} decision={decisions[item.company]} decide={decide} />)}
+          {items.slice(0, 3).map((item) => <SignalRow key={item.company} item={item} />)}
           {!items.length && <div className="empty">No prospects match that search.</div>}
         </div>
       </section>
@@ -129,8 +129,8 @@ function MorningBrief({ profile, setProfile, items, decisions, decide, setView }
           <button className="dark" type="button" onClick={() => setView("Knowledge")}>Answer in Consensus Interview</button>
         </section>
         <section className="panel run-card">
-          <div className="panel-title"><div><span>NEXT RUN</span><h2>Thursday, 06:00</h2></div><i className="pulse" /></div>
-          <dl><div><dt>Window</dt><dd>Last success + 24h overlap</dd></div><div><dt>Runner</dt><dd>Codex · scoped context</dd></div><div><dt>Budget</dt><dd>No paid enrichment</dd></div></dl>
+          <div className="panel-title"><div><span>SCHEDULE FIXTURE</span><h2>Not activated</h2></div><i className="pulse" /></div>
+          <dl><div><dt>Planned window</dt><dd>Last success + 24h overlap</dd></div><div><dt>Runner</dt><dd>Not connected</dd></div><div><dt>Budget</dt><dd>No authority granted</dd></div></dl>
         </section>
       </aside>
     </div>
@@ -143,16 +143,15 @@ function MorningBrief({ profile, setProfile, items, decisions, decide, setView }
   </>;
 }
 
-function SignalRow({ item, decision, decide }: { item: (typeof signals)[number]; decision?: string; decide: (company: string, decision: string) => void }) {
+function SignalRow({ item }: { item: (typeof signals)[number] }) {
   return <article className="signal-row">
     <div className="score"><b>{item.score}</b><span>/10</span></div>
-    <div className="signal-copy"><div><strong>{item.company}</strong><span>· {item.target}</span></div><p>{item.signal}</p><small><b>{item.tier}</b> Primary evidence · {item.age} ago</small></div>
-    {decision ? <div className={`decision ${decision.toLowerCase()}`}>{decision}</div> : <div className="row-actions"><button type="button" onClick={() => decide(item.company, "Approved")}>Approve</button><button type="button" onClick={() => decide(item.company, "Deferred")}>Defer</button></div>}
+    <div className="signal-copy"><div><strong>{item.company}</strong><span>· {item.target}</span></div><p>{item.signal}</p><small><b>{item.tier}</b> Synthetic source tier · {item.age} sample age · {item.status}</small></div>
+    <div className="row-actions"><button type="button" disabled title="Requires a persisted, audited decision workflow">Approve disabled</button><button type="button" disabled title="Requires a persisted, audited decision workflow">Defer disabled</button></div>
   </article>;
 }
 
 function Knowledge({ setView }: { setView: (view: View) => void }) {
-  const [answer, setAnswer] = useState<string | null>(null);
   return <>
     <PageHeading eyebrow="CONFIRMED KNOWLEDGE" title="Consensus Interview" copy="One question at a time. Evidence and inference stay separate until you confirm the decision." />
     <div className="knowledge-layout">
@@ -162,8 +161,8 @@ function Knowledge({ setView }: { setView: (view: View) => void }) {
         <p className="question-copy">A public source confirms that a site operates a connected plant historian, but does not confirm that Digitalrain could access the data.</p>
         <div className="finding-grid"><div><b>Evidence</b><p>A connected historian makes technical integration plausible.</p></div><div><b>Inference</b><p>Access, quality, and internal permission are still unknown.</p></div></div>
         <div className="recommendation"><span>RECOMMENDED</span><b>Score 1 — partial readiness</b><p>Reserve score 2 for sourced evidence that usable operational data is accessible.</p></div>
-        <div className="answer-actions"><button className={answer === "accept" ? "selected" : ""} type="button" onClick={() => setAnswer("accept")}>Accept recommendation</button><button className={answer === "correct" ? "selected" : ""} type="button" onClick={() => setAnswer("correct")}>Correct it</button><button className={answer === "defer" ? "selected" : ""} type="button" onClick={() => setAnswer("defer")}>Decide later</button></div>
-        {answer && <div className="saved">Decision staged. Confirmed knowledge changes only when you finish this step.</div>}
+        <div className="answer-actions"><button type="button" disabled title="Requires persisted confirmation and audit">Accept disabled</button><button type="button" disabled title="Requires persisted confirmation and audit">Correct disabled</button><button type="button" disabled title="Requires persisted confirmation and audit">Defer disabled</button></div>
+        <div className="saved">Interaction preview only. No answer or knowledge change can be recorded yet.</div>
       </section>
       <aside className="panel scope-card"><span className="eyebrow">CURRENT SCOPE</span><h3>Operating sites</h3><ol><li className="done">Company <span>Confirmed</span></li><li className="done">Product · ONE <span>Ready</span></li><li className="done">Play · Mining <span>Ready</span></li><li className="current">Profile · Operating <span>8 / 11</span></li></ol><button className="outline" type="button" onClick={() => setView("Morning Brief")}>Return to brief</button></aside>
     </div>
@@ -171,18 +170,17 @@ function Knowledge({ setView }: { setView: (view: View) => void }) {
 }
 
 function MarketDiscovery() {
-  const [choice, setChoice] = useState<Record<string, string>>({});
-  return <><PageHeading eyebrow="PRODUCT · ONE" title="Market Discovery" copy="Evidence-backed places ONE may fit. Nothing activates until you explore and confirm it." action={<button className="primary" type="button">Discover markets</button>} /><div className="proposal-grid">{discovery.map((item) => <article className="panel proposal" key={item.market}><span className="fit-pill">{item.fit} fit</span><h2>{item.market}</h2><p>{item.reason}</p><dl><div><dt>Likely buyer</dt><dd>{item.buyer}</dd></div><div><dt>Risk</dt><dd>Proof and language need market validation</dd></div></dl>{choice[item.market] ? <div className="saved">Marked {choice[item.market]}</div> : <div className="proposal-actions"><button type="button" onClick={() => setChoice({ ...choice, [item.market]: "Explore" })}>Explore</button><button type="button" onClick={() => setChoice({ ...choice, [item.market]: "Deferred" })}>Defer</button><button type="button" onClick={() => setChoice({ ...choice, [item.market]: "Dismissed" })}>Dismiss</button></div>}</article>)}</div></>;
+  return <><PageHeading eyebrow="PRODUCT · ONE · SYNTHETIC FIXTURE" title="Market Discovery" copy="An interaction example only. No proposal is persisted or activated." action={<button className="primary" type="button" disabled title="Available after Wave 0">Discovery disabled</button>} /><div className="proposal-grid">{discovery.map((item) => <article className="panel proposal" key={item.market}><span className="fit-pill">Synthetic · {item.fit} fit</span><h2>{item.market}</h2><p>{item.reason}</p><dl><div><dt>Likely buyer</dt><dd>{item.buyer}</dd></div><div><dt>Risk</dt><dd>Proof and language need market validation</dd></div></dl><div className="proposal-actions"><button type="button" disabled>Explore disabled</button><button type="button" disabled>Defer disabled</button><button type="button" disabled>Dismiss disabled</button></div></article>)}</div></>;
 }
 
-function ReviewQueue({ items, decisions, decide }: { items: typeof signals; decisions: Record<string, string>; decide: (company: string, decision: string) => void }) {
-  return <><PageHeading eyebrow="OPERATING SITES" title="Review Queue" copy="Qualification is explainable. Your decision controls whether enrichment can begin." /><section className="panel queue"><div className="queue-head"><span>SCORE</span><span>PROSPECT & SIGNAL</span><span>EVIDENCE</span><span>DECISION</span></div>{items.map((item) => <SignalRow key={item.company} item={item} decision={decisions[item.company]} decide={decide} />)}</section></>;
+function ReviewQueue({ items }: { items: typeof signals }) {
+  return <><PageHeading eyebrow="OPERATING SITES · SYNTHETIC FIXTURE" title="Review Queue" copy="A layout preview. Qualification and decisions are not yet operational." /><section className="panel queue"><div className="queue-head"><span>SCORE</span><span>PROSPECT & SIGNAL</span><span>EVIDENCE</span><span>DECISION</span></div>{items.map((item) => <SignalRow key={item.company} item={item} />)}</section></>;
 }
 
 function Prospects({ items }: { items: typeof signals }) {
-  return <><PageHeading eyebrow="ONE FOR MINING" title="Prospect Workspace" copy="Account identity is shared. Evidence, qualification, contacts, and outreach remain play-specific." /><section className="prospect-grid">{items.map((item) => <article className="panel prospect-card" key={item.company}><div className="prospect-top"><span>{item.tier}</span><b>{item.score}/10</b></div><h2>{item.company}</h2><p>{item.target}</p><div className="mini-steps"><i className="on" /><i className="on" /><i /><i /><i /></div><small>Qualified · awaiting operator review</small><button className="outline" type="button">Open prospect</button></article>)}</section></>;
+  return <><PageHeading eyebrow="ONE FOR MINING · SYNTHETIC FIXTURE" title="Prospect Workspace" copy="A layout preview. No account or qualification shown here exists in live storage." /><section className="prospect-grid">{items.map((item) => <article className="panel prospect-card" key={item.company}><div className="prospect-top"><span>Synthetic · {item.tier}</span><b>{item.score}/10 sample</b></div><h2>{item.company}</h2><p>{item.target}</p><div className="mini-steps"><i className="on" /><i className="on" /><i /><i /><i /></div><small>Fixture candidate · not operationally qualified</small><button className="outline" type="button" disabled>Prospect disabled</button></article>)}</section></>;
 }
 
 function Exports() {
-  return <><PageHeading eyebrow="PORTABILITY & HANDOFF" title="Exports & History" copy="CRM handoff stays separate from a complete, restorable Company Workspace export." /><div className="export-grid"><section className="panel export-card"><span className="file-mark">CSV</span><h2>CRM Handoff</h2><p>One row per verified, non-suppressed contact with stable Prospect IDs and approved package references.</p><dl><div><dt>Eligible now</dt><dd>3 prospects · 5 contacts</dd></div><div><dt>Last export</dt><dd>Never</dd></div></dl><button className="primary" type="button">Preview CSV</button></section><section className="panel export-card"><span className="file-mark safe">LOCK</span><h2>Company Workspace Export</h2><p>Encrypted, versioned, integrity-checked knowledge, history, objects, and suppression tombstones.</p><dl><div><dt>Restore drill</dt><dd>Required before activation</dd></div><div><dt>Hosted retention</dt><dd>7 days</dd></div></dl><button className="outline" type="button">Prepare export</button></section></div></>;
+  return <><PageHeading eyebrow="PORTABILITY & HANDOFF" title="Exports & History" copy="These controls stay disabled until live eligibility and restore safety are proven." /><div className="export-grid"><section className="panel export-card"><span className="file-mark">CSV</span><h2>CRM Handoff</h2><p>Planned: one row per verified, non-suppressed contact with stable Prospect IDs and approved package references.</p><dl><div><dt>Eligible now</dt><dd>0 live prospects</dd></div><div><dt>Last export</dt><dd>Never</dd></div></dl><button className="primary" type="button" disabled title="Available after Wave 3">CSV disabled</button></section><section className="panel export-card"><span className="file-mark safe">LOCK</span><h2>Company Workspace Export</h2><p>Planned: encrypted, versioned, integrity-checked knowledge, history, objects, and suppression tombstones.</p><dl><div><dt>Restore drill</dt><dd>Not yet completed</dd></div><div><dt>Hosted retention</dt><dd>Not activated</dd></div></dl><button className="outline" type="button" disabled title="Available after Wave 0">Export disabled</button></section></div></>;
 }

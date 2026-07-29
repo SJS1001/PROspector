@@ -1,6 +1,6 @@
 # PROspector Implementation Plan
 
-Status: Ready for adversarial review
+Status: In progress — Wave 0 is blocked at the controlled-integration gate
 
 The build proceeds only when the preceding gate has evidence. “Complete” means the acceptance tests pass; it does not mean files merely exist.
 
