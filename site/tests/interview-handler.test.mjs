@@ -22,12 +22,15 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
       new URL("../domain/interview-handler.ts", import.meta.url).pathname,
     );
     const anonymous = dependencies(database, null);
-    assert.equal((await handleInterviewGet(anonymous)).status, 401);
-    assert.equal(
-      (await handleInterviewPost(mutation("bootstrap", "fake", {
+    assert.deepEqual(
+      await denied(await handleInterviewGet(anonymous)),
+      { error: "private_workspace_unavailable" },
+    );
+    assert.deepEqual(
+      await denied(await handleInterviewPost(mutation("bootstrap", "fake", {
         "oai-authenticated-user-email": "owner@example.com",
-      }), anonymous)).status,
-      401,
+      }), anonymous)),
+      { error: "private_workspace_unavailable" },
     );
 
     const owner = dependencies(database, {
@@ -51,15 +54,21 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
       email: "outsider@example.com",
       displayName: "Outsider",
     });
-    const outsiderInitial = await json(await handleInterviewGet(outsider));
-    assert.equal(
-      (await handleInterviewPost(mutation("bootstrap", state.csrfToken), outsider)).status,
-      403,
+    const countsBeforeOutsider = await rowCounts(database);
+    assert.deepEqual(
+      await denied(await handleInterviewGet(outsider)),
+      { error: "private_workspace_unavailable" },
     );
-    const outsiderActive = await json(
-      await handleInterviewPost(mutation("bootstrap", outsiderInitial.csrfToken), outsider),
+    assert.deepEqual(
+      await denied(
+        await handleInterviewPost(
+          mutation("bootstrap", state.csrfToken),
+          outsider,
+        ),
+      ),
+      { error: "private_workspace_unavailable" },
     );
-    assert.equal(outsiderActive.status, "active");
+    assert.deepEqual(await rowCounts(database), countsBeforeOutsider);
 
     const answerBody = {
       action: "submit_recommendation_answer",
@@ -69,16 +78,6 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
     };
     state = await json(await handleInterviewPost(mutation(answerBody, state.csrfToken), owner));
     assert.equal(state.status, "awaiting_confirmation");
-
-    const crossOwnerBody = {
-      ...answerBody,
-      idempotencyKey: "0198a4b0-1000-7000-8000-000000000002",
-    };
-    const crossOwner = await handleInterviewPost(
-      mutation(crossOwnerBody, outsiderActive.csrfToken),
-      outsider,
-    );
-    assert.equal(crossOwner.status, 409);
 
     state = await json(await handleInterviewPost(mutation({
       action: "confirm_submitted_answer",
@@ -105,6 +104,7 @@ function dependencies(database, identity) {
   return {
     database,
     subjectPepper: SUBJECT_PEPPER,
+    pilotOwnerEmail: "owner@example.com",
     getIdentity: async () => identity,
   };
 }
@@ -128,6 +128,40 @@ async function json(response) {
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   return response.json();
+}
+
+async function denied(response) {
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.json();
+  assert.doesNotMatch(
+    JSON.stringify(body),
+    /owner@example|outsider@example|digitalrain|workspace|audit|capabilit/i,
+  );
+  return body;
+}
+
+async function rowCounts(database) {
+  const tables = [
+    "workspaces",
+    "interview_sessions",
+    "interview_questions",
+    "interview_answers",
+    "interview_confirmations",
+    "knowledge_versions",
+    "audit_events",
+    "csrf_tokens",
+  ];
+  return Object.fromEntries(
+    await Promise.all(
+      tables.map(async (table) => {
+        const row = await database
+          .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
+          .first();
+        return [table, Number(row.count)];
+      }),
+    ),
+  );
 }
 
 async function applyMigrations(database) {

@@ -46,12 +46,30 @@ test("owner-scoped interview separates answer submission from confirmation", asy
     assert.equal(await count(database, "interview_questions"), 1);
     assert.equal(await count(database, "audit_events"), 1);
 
-    const answerInput = {
-      questionId: active.question.id,
-      expectedRevision: active.question.revision,
-      idempotencyKey: "0198a4b0-0000-7000-8000-000000000001",
-    };
-    const awaiting = await domain.submitRecommendationAnswer(database, owner, answerInput);
+    const answerInputs = [
+      {
+        questionId: active.question.id,
+        expectedRevision: active.question.revision,
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000001",
+      },
+      {
+        questionId: active.question.id,
+        expectedRevision: active.question.revision,
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000003",
+      },
+    ];
+    const answerRace = await Promise.allSettled(
+      answerInputs.map((input) =>
+        domain.submitRecommendationAnswer(database, owner, input),
+      ),
+    );
+    assert.equal(answerRace.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(answerRace.filter((result) => result.status === "rejected").length, 1);
+    const winningAnswerIndex = answerRace.findIndex(
+      (result) => result.status === "fulfilled",
+    );
+    const awaiting = answerRace[winningAnswerIndex].value;
+    const answerInput = answerInputs[winningAnswerIndex];
     assert.equal(awaiting.status, "awaiting_confirmation");
     assert.equal(awaiting.session.revision, 2);
     assert.equal(await count(database, "interview_answers"), 1);
@@ -84,16 +102,36 @@ test("owner-scoped interview separates answer submission from confirmation", asy
     assert.match(driftSafePending.question.recommendation, /Reserve score 2/);
     assert.doesNotMatch(driftSafePending.question.recommendation, /later deployment/);
 
-    const confirmationInput = {
-      answerId: awaiting.answer.id,
-      expectedSessionRevision: awaiting.session.revision,
-      idempotencyKey: "0198a4b0-0000-7000-8000-000000000002",
-    };
-    const confirmed = await domain.confirmSubmittedAnswer(
-      database,
-      owner,
-      confirmationInput,
+    const confirmationInputs = [
+      {
+        answerId: awaiting.answer.id,
+        expectedSessionRevision: awaiting.session.revision,
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000002",
+      },
+      {
+        answerId: awaiting.answer.id,
+        expectedSessionRevision: awaiting.session.revision,
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000004",
+      },
+    ];
+    const confirmationRace = await Promise.allSettled(
+      confirmationInputs.map((input) =>
+        domain.confirmSubmittedAnswer(database, owner, input),
+      ),
     );
+    assert.equal(
+      confirmationRace.filter((result) => result.status === "fulfilled").length,
+      1,
+    );
+    assert.equal(
+      confirmationRace.filter((result) => result.status === "rejected").length,
+      1,
+    );
+    const winningConfirmationIndex = confirmationRace.findIndex(
+      (result) => result.status === "fulfilled",
+    );
+    const confirmed = confirmationRace[winningConfirmationIndex].value;
+    const confirmationInput = confirmationInputs[winningConfirmationIndex];
     assert.equal(confirmed.status, "confirmed");
     assert.equal(confirmed.confirmed.value.score, 1);
     assert.equal(confirmed.confirmed.value.classification, "partial_readiness");
@@ -118,53 +156,40 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       (error) => error?.code === "interview_conflict",
     );
 
-    const outsiderActive = await domain.bootstrapInterview(database, outsider);
-    assert.equal(outsiderActive.status, "active");
-    assert.notEqual(outsiderActive.workspace.id, active.workspace.id);
+    const countsBeforeOutsider = {
+      workspaces: await count(database, "workspaces"),
+      answers: await count(database, "interview_answers"),
+      confirmations: await count(database, "interview_confirmations"),
+      knowledge: await count(database, "knowledge_versions"),
+      audits: await count(database, "audit_events"),
+    };
+    assert.equal((await domain.readInterviewState(database, outsider)).status, "uninitialized");
     await assert.rejects(
       domain.submitRecommendationAnswer(database, outsider, {
         ...answerInput,
-        idempotencyKey: "0198a4b0-0000-7000-8000-000000000003",
+        idempotencyKey: "0198a4b0-0000-7000-8000-000000000005",
       }),
       (error) => error?.code === "interview_conflict",
     );
-
-    const answerRace = await Promise.allSettled([
-      domain.submitRecommendationAnswer(database, outsider, {
-        questionId: outsiderActive.question.id,
-        expectedRevision: outsiderActive.question.revision,
-        idempotencyKey: "0198a4b0-0000-7000-8000-000000000004",
-      }),
-      domain.submitRecommendationAnswer(database, outsider, {
-        questionId: outsiderActive.question.id,
-        expectedRevision: outsiderActive.question.revision,
-        idempotencyKey: "0198a4b0-0000-7000-8000-000000000005",
-      }),
-    ]);
-    assert.equal(answerRace.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(answerRace.filter((result) => result.status === "rejected").length, 1);
-
-    const outsiderAwaiting = await domain.readInterviewState(database, outsider);
-    assert.equal(outsiderAwaiting.status, "awaiting_confirmation");
-    const confirmationRace = await Promise.allSettled([
+    await assert.rejects(
       domain.confirmSubmittedAnswer(database, outsider, {
-        answerId: outsiderAwaiting.answer.id,
-        expectedSessionRevision: outsiderAwaiting.session.revision,
+        answerId: awaiting.answer.id,
+        expectedSessionRevision: awaiting.session.revision,
         idempotencyKey: "0198a4b0-0000-7000-8000-000000000006",
       }),
-      domain.confirmSubmittedAnswer(database, outsider, {
-        answerId: outsiderAwaiting.answer.id,
-        expectedSessionRevision: outsiderAwaiting.session.revision,
-        idempotencyKey: "0198a4b0-0000-7000-8000-000000000007",
-      }),
-    ]);
-    assert.equal(confirmationRace.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(confirmationRace.filter((result) => result.status === "rejected").length, 1);
-    assert.equal((await domain.readInterviewState(database, outsider)).status, "confirmed");
+      (error) => error?.code === "interview_conflict",
+    );
     assert.equal((await domain.readInterviewState(database, owner)).status, "confirmed");
-    assert.equal(await count(database, "interview_answers"), 2);
-    assert.equal(await count(database, "interview_confirmations"), 2);
-    assert.equal(await count(database, "knowledge_versions"), 2);
+    assert.deepEqual(
+      {
+        workspaces: await count(database, "workspaces"),
+        answers: await count(database, "interview_answers"),
+        confirmations: await count(database, "interview_confirmations"),
+        knowledge: await count(database, "knowledge_versions"),
+        audits: await count(database, "audit_events"),
+      },
+      countsBeforeOutsider,
+    );
 
     const auditRows = await database
       .prepare("SELECT actor_id, detail_json FROM audit_events ORDER BY created_at")
@@ -173,9 +198,9 @@ test("owner-scoped interview separates answer submission from confirmation", asy
     assert.doesNotMatch(JSON.stringify(auditRows.results), /owner@example|other@example|historian connectivity demonstrates/i);
 
     const legacyPrincipal = {
-      subject: outsider.legacySubject,
+      subject: owner.legacySubject,
       legacySubject: "f".repeat(64),
-      displayName: "Legacy outsider",
+      displayName: "Legacy owner",
     };
     const legacyActive = await domain.bootstrapInterview(database, legacyPrincipal);
     const legacyAwaiting = await domain.submitRecommendationAnswer(database, legacyPrincipal, {
@@ -197,8 +222,8 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       .bind(legacyAwaiting.answer.id)
       .run();
     const coexistenceReads = await Promise.all([
-      domain.readInterviewState(database, outsider),
-      domain.readInterviewState(database, outsider),
+      domain.readInterviewState(database, owner),
+      domain.readInterviewState(database, owner),
     ]);
     assert.equal(coexistenceReads.every((state) => state.status === "confirmed"), true);
     const detachedKnowledge = await database
@@ -216,23 +241,6 @@ test("owner-scoped interview separates answer submission from confirmation", asy
       .bind(legacyActive.workspace.id)
       .first();
     assert.equal(Number(detachedAudits.count), 1);
-
-    const migrationPrincipal = await domain.principalFromIdentity(
-      "migration@example.com",
-      "Migration Owner",
-      SUBJECT_PEPPER,
-    );
-    const migrationActive = await domain.bootstrapInterview(database, migrationPrincipal);
-    await database
-      .prepare("UPDATE workspaces SET owner_subject = ? WHERE id = ?")
-      .bind(migrationPrincipal.legacySubject, migrationActive.workspace.id)
-      .run();
-    assert.equal((await domain.readInterviewState(database, migrationPrincipal)).status, "active");
-    const migratedOwner = await database
-      .prepare("SELECT owner_subject FROM workspaces WHERE id = ?")
-      .bind(migrationActive.workspace.id)
-      .first();
-    assert.equal(migratedOwner.owner_subject, migrationPrincipal.subject);
 
     await database
       .prepare("UPDATE interview_answers SET proposal_json = '{}', proposal_digest = 'legacy-unbound' WHERE id = ?")
