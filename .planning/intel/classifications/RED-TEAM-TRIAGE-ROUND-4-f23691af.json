@@ -1,0 +1,25 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-ROUND-4.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Adversarial Convergence Triage — Round 4",
+  "summary": "Records three validated red-team findings and their fixes for import persistence, ancestor lifecycle availability, and the Consensus Interview state contract.",
+  "scope": [
+    "Import Batch",
+    "Import Item",
+    "Identity Proposal",
+    "Effective Availability",
+    "ancestor suspension",
+    "Consensus Interview",
+    "Session",
+    "Question",
+    "Answer",
+    "Recommendation",
+    "Confirmation"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

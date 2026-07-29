@@ -1,0 +1,35 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-2026-07-29.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Clean Adversarial Review Triage — 2026-07-29",
+  "summary": "Summarizes adversarial review findings, their grounded dispositions, contract resolutions, and the operator-accepted legal-policy risk before implementation.",
+  "scope": [
+    "adversarial review findings",
+    "implementation contracts",
+    "legacy enrichment",
+    "Sites compatibility",
+    "authorization",
+    "Runner credentials",
+    "suppression",
+    "workspace export",
+    "prompt injection",
+    "policy risk"
+  ],
+  "cross_refs": [
+    "IMPLEMENTATION-SPEC.md",
+    "README.md:46-49",
+    "ADR-0005",
+    "config.yaml:30-32",
+    "pipeline.py:75-89",
+    "verify.py:58-59",
+    "ADR-0004",
+    "mcp_server.py:35-47",
+    "discover.py:33-34",
+    "MIGRATION-ONE-MINING.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

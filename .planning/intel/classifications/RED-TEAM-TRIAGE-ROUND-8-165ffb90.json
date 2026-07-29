@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-ROUND-8.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Red-Team Triage — Round 8",
+  "summary": "Documents the legacy-workspace quarantine correction, clean adversarial convergence, and successful hosted lifecycle proof for the persisted interview slice.",
+  "scope": [
+    "owner identity migration",
+    "HMAC workspace",
+    "SHA workspace",
+    "legacy knowledge quarantine",
+    "Interview Sessions",
+    "Questions",
+    "Answers",
+    "Confirmations",
+    "audit events",
+    "hosted lifecycle proof"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

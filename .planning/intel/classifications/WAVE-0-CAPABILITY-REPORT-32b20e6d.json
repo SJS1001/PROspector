@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/WAVE-0-CAPABILITY-REPORT.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Wave 0 Capability Report",
+  "summary": "Reports Wave 0 capability evidence, the blocked pilot status, approved data-handling exception, safe operating boundary, and inputs required to unblock deployment.",
+  "scope": [
+    "Wave 0",
+    "private pilot",
+    "Sites deployment",
+    "owner authentication",
+    "D1 persistence",
+    "R2 bindings",
+    "security controls",
+    "Consensus Interview",
+    "safe operating boundary",
+    "deployment gates"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Capability status and verification evidence dominate, though the safe operating boundary and unblock conditions also contain technical constraints."
+}

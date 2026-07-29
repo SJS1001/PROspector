@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/adr/0001-generic-company-product-play-model.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "ADR-0001: Generic Company, Product, and Market Play model",
+  "summary": "Records the commercial hierarchy, workspace isolation, and scope boundaries for company-wide identity versus Market Play-specific prospecting data.",
+  "scope": [
+    "Company",
+    "Product",
+    "Market Play",
+    "Customer Profile",
+    "Offer",
+    "Company Workspace",
+    "Organizations",
+    "Contacts",
+    "Accounts",
+    "Targets"
+  ],
+  "cross_refs": [],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

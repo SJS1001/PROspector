@@ -1,0 +1,39 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/IMPLEMENTATION-SPEC.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "PROspector Implementation Contract",
+  "summary": "Defines testable pilot implementation invariants for security, data, configuration, workflows, integrations, compliance controls, observability, and release behavior.",
+  "scope": [
+    "trust boundaries",
+    "authorization",
+    "browser sessions",
+    "CSRF",
+    "core records",
+    "typed configurations",
+    "readiness",
+    "imports",
+    "jobs",
+    "source ingestion",
+    "qualification",
+    "prospect lifecycle",
+    "contact identity",
+    "Market Play Proposals",
+    "Outreach Packages",
+    "AI Runner budgets",
+    "Gmail",
+    "suppression",
+    "retention",
+    "workspace export",
+    "audit",
+    "database changes",
+    "release invariants"
+  ],
+  "cross_refs": [
+    "DIRECTION.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

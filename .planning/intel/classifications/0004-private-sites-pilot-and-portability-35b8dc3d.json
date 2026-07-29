@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/adr/0004-private-sites-pilot-and-portability.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "ADR-0004: Private Sites pilot with a portability boundary",
+  "summary": "Accepts a private Codex Sites pilot with D1/R2 storage, provider-neutral boundaries, restricted data activation, and Company Workspace Export portability.",
+  "scope": [
+    "Codex Sites",
+    "Company Workspace",
+    "D1",
+    "R2",
+    "provider-neutral ports",
+    "Company Workspace Export",
+    "owner identity",
+    "Answer lifecycle",
+    "Confirmation lifecycle",
+    "Wave 0 capabilities"
+  ],
+  "cross_refs": [],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-ROUND-2.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Clean Adversarial Review Triage — Round 2",
+  "summary": "Records validated product and security review findings and the contract changes made before the next clean adversarial review.",
+  "scope": [
+    "Outreach Package approval",
+    "migration inputs",
+    "Gmail integration",
+    "configuration rollover",
+    "transactional outbox",
+    "source tiers",
+    "suppression",
+    "CSRF controls",
+    "retention inventory",
+    "budget controls"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
