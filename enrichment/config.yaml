@@ -1,0 +1,39 @@
+# ONE for Mining — OSS enrichment pipeline config
+
+# Certification gate: ONLY leads that pass are enriched (this is the "warm certified" rule).
+gate:
+  allowed_tracks: [operating, greenfield]   # beachheads only; channel/multiplier are logged, not enriched
+  require_pain_signal: true                  # must match >=1 pain from the taxonomy
+  require_domain: true                       # must have a resolvable company domain
+  nightly_cap: 10                            # max leads enriched per run (cost guard)
+  dedup_days: 30                             # don't re-enrich an account seen in this window
+
+# Mining-tuned target roles (discovery prioritises these; others are de-ranked)
+target_titles:
+  - Plant Manager
+  - Processing Manager
+  - Metallurgy Manager
+  - Metallurgist
+  - General Manager Operations
+  - Operations Manager
+  - COO
+  - VP Operations
+  - Project Director
+  - Commissioning Manager
+  - Maintenance Manager
+
+discovery:
+  use_theharvester: true
+  theharvester_sources: "bing,duckduckgo,crtsh,rapiddns"
+  hunter_api_key_env: HUNTER_API_KEY         # optional; if set, Hunter domain-search is used (gives name+title+email)
+
+verify:
+  method: mx            # mx | smtp | hunter | none   (smtp is often blocked; hunter needs a key)
+  accept_threshold: 0.6 # keep emails at/above this confidence
+
+output:
+  dir: ./out
+  formats: [csv, json]
+
+state:
+  db: ./state/enriched.json   # dedup ledger

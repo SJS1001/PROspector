@@ -1,0 +1,9 @@
+# Core (pipeline runs with just these)
+dnspython>=2.4        # MX lookups for email verification
+PyYAML>=6.0           # config file
+
+# Optional (enable richer discovery/verification)
+requests>=2.31        # Hunter.io API discovery/verification (only if you set HUNTER_API_KEY)
+# theHarvester is a separate CLI tool, install it on its own:
+#   pipx install theHarvester        (recommended)
+#   or: git clone https://github.com/laramies/theHarvester && pip install -e .

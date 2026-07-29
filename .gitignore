@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Enrichment runtime outputs (generated, may contain personal data — DO NOT COMMIT)
+enrichment/out/
+enrichment/state/
+out/
+state/
+
+# OS
+.DS_Store

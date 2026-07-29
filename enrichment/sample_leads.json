@@ -1,0 +1,44 @@
+{
+  "leads": [
+    {
+      "company": "Northvale Copper Concentrator",
+      "domain": "example.com",
+      "track": "operating",
+      "pains": [3, 4],
+      "country": "Australia",
+      "commodity": "copper",
+      "signal": "Commissioned new concentrator 14 months ago; reported recovery below design in H1 update.",
+      "source_url": "https://im-mining.com/example"
+    },
+    {
+      "company": "Fjord Rare Earths (greenfield)",
+      "domain": "example.org",
+      "track": "greenfield",
+      "pains": [3],
+      "country": "Norway",
+      "commodity": "rare earths",
+      "signal": "Reached FID; construction to start Q4; commissioning targeted in 18 months.",
+      "source_url": "https://miningweekly.com/example"
+    },
+    {
+      "company": "Generic Mining Fund LP",
+      "domain": "fund.example",
+      "track": "multiplier",
+      "pains": [],
+      "country": "UK",
+      "commodity": "diversified",
+      "signal": "Announced portfolio digital mandate.",
+      "source_url": "https://example.com/fund"
+    },
+    {
+      "company": "Tiny Exploration Junior",
+      "domain": null,
+      "track": "operating",
+      "pains": [5],
+      "country": "Canada",
+      "commodity": "gold",
+      "signal": "Drilling results only; no plant.",
+      "disqualified": true
+    }
+  ]
+}
