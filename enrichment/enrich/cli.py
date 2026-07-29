@@ -7,6 +7,7 @@ Examples:
 """
 from __future__ import annotations
 import argparse
+import os
 import sys
 
 try:
@@ -27,6 +28,12 @@ def load_cfg(path: str) -> dict:
 
 
 def main(argv=None):
+    if os.environ.get("PROSPECTOR_ENABLE_UNSAFE_LEGACY") != "acknowledged-local-migration-only":
+        sys.exit(
+            "Blocked: this archived pipeline can promote guessed/MX-only emails and "
+            "bypass the new approval ledger. It is migration evidence, not a production "
+            "runtime. See docs/IMPLEMENTATION-SPEC.md."
+        )
     ap = argparse.ArgumentParser(description="ONE for Mining — OSS contact enrichment")
     ap.add_argument("--config", default="config.yaml")
     src = ap.add_mutually_exclusive_group(required=True)
