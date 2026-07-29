@@ -47,3 +47,20 @@ loop at Wave 0 without broadening scope:
 Until those inputs exist, “complete” means the planning, adversarial consensus,
 private fixture deployment, and truthful capability report are complete. It
 does not mean the product roadmap or any Wave gate is complete.
+
+## Final convergence checkpoint
+
+After the fixes above, a second product review returned **PASS — CLEAN** with
+no blocker, high, medium, or low findings. A final security review also returned
+**PASS** with no locally fixable blocker or high finding.
+
+The converged application is repository commit `f15fc2d`, deployed as private
+Sites version 3 from site source commit
+`e8f83d92cb189b5b6bd030da30b9ac0a6520860d`. The release adds a rendered test
+across all six views and asserts native `disabled` attributes on consequential
+fixture controls. Lint, build, two tests, production dependency audit, exact
+source comparison, owner-only policy, and anonymous HTTP 401 checks passed.
+
+This PASS applies only to the honest, private, synthetic capability-pilot
+boundary. It does not change the Wave 0 blocked result or authorize live data
+and external effects.
