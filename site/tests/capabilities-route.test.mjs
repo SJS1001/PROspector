@@ -58,6 +58,49 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
       (await handleCapabilityProbePost(probeRequest({ csrf: "" }), owner)).status,
       403,
     );
+    assert.equal(
+      (await handleCapabilityProbePost(
+        probeRequest({ body: JSON.stringify({ key: "foreign" }) }),
+        owner,
+      )).status,
+      400,
+    );
+
+    const missingStorage = dependencies(
+      { email: "owner@example.com", displayName: "Owner" },
+      { objectStorage: false },
+    );
+    assert.equal(
+      (await handleCapabilityProbePost(probeRequest(), missingStorage)).status,
+      409,
+    );
+
+    const probeDependencies = dependencies(
+      { email: "owner@example.com", displayName: "Owner" },
+      { proofStatus: "proven" },
+    );
+    const firstProbe = await handleCapabilityProbePost(
+      probeRequest(),
+      probeDependencies,
+    );
+    assert.equal(firstProbe.status, 200);
+    assert.equal((await firstProbe.json()).proof.status, "proven");
+    assert.equal(probeDependencies.proofRuns(), 1);
+    assert.equal(
+      (await handleCapabilityProbePost(probeRequest(), probeDependencies)).status,
+      403,
+    );
+
+    const failedProof = dependencies(
+      { email: "owner@example.com", displayName: "Owner" },
+      { proofStatus: "blocked" },
+    );
+    const failedResponse = await handleCapabilityProbePost(
+      probeRequest(),
+      failedProof,
+    );
+    assert.equal(failedResponse.status, 200);
+    assert.equal((await failedResponse.json()).proof.status, "blocked");
   } finally {
     await vite.close();
   }
@@ -72,7 +115,9 @@ test("capability routes cannot treat a binding as accepted proof", async () => {
   assert.doesNotMatch(routeSource, /r2:\s*Boolean\s*\(\s*bindings\.FILES\s*\)/);
 });
 
-function dependencies(identity) {
+function dependencies(identity, options = {}) {
+  const consumedTokens = new Set();
+  let proofRuns = 0;
   return {
     database: {},
     pilotOwnerEmail: "owner@example.com",
@@ -82,18 +127,35 @@ function dependencies(identity) {
     readEvidence: async () => [],
     prerequisites: {
       database: true,
-      objectStorage: true,
+      objectStorage: options.objectStorage ?? true,
       secrets: true,
     },
     issueCsrfToken: async () => "csrf-safe-token",
     consumeCsrfToken: async (_subject, token) => {
-      if (!token) throw Object.assign(new Error("invalid"), {
+      if (!token || consumedTokens.has(token)) throw Object.assign(new Error("invalid"), {
         code: "invalid_csrf_token",
       });
+      consumedTokens.add(token);
     },
     runStorageProof: async () => {
-      throw new Error("not expected in contract test");
+      proofRuns += 1;
+      return {
+        status: options.proofStatus ?? "proven",
+        probeId: "a".repeat(32),
+        checkedAt: Date.now(),
+        evidenceReference: "r2-proof-" + "a".repeat(32),
+        digest: "b".repeat(64),
+        steps: {
+          put: true,
+          read: true,
+          digest: true,
+          delete: true,
+          absence: true,
+        },
+        reason: "Fixed proof result.",
+      };
     },
+    proofRuns: () => proofRuns,
   };
 }
 

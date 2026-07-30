@@ -1,12 +1,13 @@
 import { env } from "cloudflare:workers";
-import { handleCapabilitiesGet } from "../../../domain/capability-handler";
+import { handleCapabilityProbePost } from "../../../domain/capability-handler";
 import {
   capabilityDependencies,
   type CapabilityBindings,
 } from "../capability-runtime";
 
-export async function GET() {
-  return handleCapabilitiesGet(
+export async function POST(request: Request) {
+  return handleCapabilityProbePost(
+    request,
     capabilityDependencies(env as unknown as CapabilityBindings),
   );
 }
