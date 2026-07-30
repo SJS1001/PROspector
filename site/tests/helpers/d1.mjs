@@ -41,6 +41,10 @@ export const FORBIDDEN_OPERATIONAL_TABLES = [
   "manual_calls",
   "export_jobs",
   "external_effects",
+  "credential_records",
+  "provider_credentials",
+  "workspace_archives",
+  "workspace_archive_objects",
 ];
 
 export async function createD1Fixture(name = "prospector-authority-test") {
@@ -136,7 +140,7 @@ export async function snapshotForbiddenOperationalRows(database) {
 }
 
 export async function assertForbiddenOperationalRowsUnchanged(database, before) {
-  assert.deepEqual(await snapshotForbiddenOperationalRows(database), before, "Phase 3 authority commands must not create downstream operational effects");
+  assert.deepEqual(await snapshotForbiddenOperationalRows(database), before, "Authority commands must not create downstream operational effects");
 }
 
 export async function countRows(database, table, where = "1 = 1", bindings = []) {
