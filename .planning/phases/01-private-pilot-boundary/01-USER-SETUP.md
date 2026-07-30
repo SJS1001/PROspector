@@ -2,7 +2,7 @@
 
 **Generated:** 2026-07-29  
 **Phase:** 01-private-pilot-boundary  
-**Status:** Incomplete
+**Status:** Complete
 
 The deployment needs one server-only value identifying the sole pilot owner. Do not commit the value or expose it to client code.
 
@@ -10,11 +10,11 @@ The deployment needs one server-only value identifying the sole pilot owner. Do 
 
 | Status | Variable | Source | Add to |
 |--------|----------|--------|--------|
-| [ ] | `PILOT_OWNER_EMAIL` | The exact email of the approved account asserted by Codex Sites authentication | Codex Sites runtime environment/secret configuration |
+| [x] | `PILOT_OWNER_EMAIL` | The exact email of the approved account asserted by Codex Sites authentication | Codex Sites runtime environment/secret configuration |
 
 ## Dashboard Configuration
 
-- [ ] **Configure the sole pilot owner**
+- [x] **Configure the sole pilot owner**
   - Location: Codex Sites project → Runtime environment variables
   - Set: `PILOT_OWNER_EMAIL` to the approved owner account email
   - Notes: Use the identity asserted by Sites. Do not add it to `.env`, Git, browser state, logs, API responses, or audit details.

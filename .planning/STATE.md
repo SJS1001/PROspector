@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Session resumed; completing 01-05 hosted proof"
-last_updated: "2026-07-30T14:30:00Z"
+stopped_at: "01-05 automated hosted proof complete; real second-principal checkpoint required"
+last_updated: "2026-07-30T15:55:00Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 7
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 
 Phase: 1 (Private Pilot Boundary) — EXECUTING
 Plan: 5 of 5
-Status: Executing hosted deployment proof
+Status: Blocking human verification — second hosted principal
 Last activity: 2026-07-30
 
 Progress: [████████░░] 80%
@@ -74,8 +74,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1 evidence still needs R2 write/read/delete durability and a second real principal for hosted isolation proof.
-- The live Sites project is owner-accessible in the browser, but the current Sites control-plane session returns `project_not_found` for project reads, environment reads, source credentials, and version saves.
+- Version 10 is deployed from exact Sites source `d6b3b61…`; hosted R2 lifecycle and clean fresh-client log transport are proven.
+- Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
+- Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
 - The required fresh-agent red-team stage cannot start while three earlier planning-agent slots remain occupied; no same-agent audit may be represented as independent red-team evidence.
 - Later capability gates need a controlled Google OAuth client/account, scheduled execution and runner callback proof or a compatible host, and an owner-supplied one-time export passphrase for the restore drill.
 - Do not upload the July 24 operational lead files or enable broader live effects under the current capability boundary.

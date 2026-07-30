@@ -1,22 +1,23 @@
 # Phase 1 Hosted Boundary Proof
 
-Date: 2026-07-29
+Date: 2026-07-30
 
 ## Release provenance
 
 | Field | Value |
 |---|---|
 | Sites project | `appgprj_6a6a2e5c533081919e9c47dd6dd6ceba` |
-| Application code commit | `26f7331331f4de8b433ca48abe07e47174b36a51` |
-| Sites source commit | Blocked — source repository credential is unavailable while the project returns `project_not_found` |
-| Saved version | Blocked — existing project returns `project_not_found` to this Sites control-plane session |
-| Deployment | Blocked — no duplicate project or open-world deployment created |
+| Application code commit | `e74ed96` |
+| Sites source commit | `d6b3b6196cfe88e1141c9e5e8dd42a4cefb0dcdd` |
+| Saved version | 10 — `appgprj_6a6a2e5c533081919e9c47dd6dd6ceba~appgver_cdb9f5bb06d881918d7ef49d9c7048eb` |
+| Archive content hash | `sha256:b71cb76dfb8764740c4fe5978e032a9b461390d18878ea3a3ebb530ceeb3afe7` |
+| Deployment | `appgdep_6a6b71f7af98819199eed2257292d777` — succeeded |
 | Production URL | `https://prospector-steven-pilot.djstif.chatgpt.site/` |
-| Runtime environment revision | Not inspected — existing project is unavailable to this control-plane session |
+| Runtime environment revision | 2 |
 
-The release archive must be built from the exact pushed source commit above. A
-later evidence-only commit may update this record without changing the deployed
-application source.
+The saved Sites version references the exact pushed site-only commit. The
+archive was built after lint, production build, and all tests passed from
+application commit `e74ed96`.
 
 ## Safe proof contract
 
@@ -36,54 +37,67 @@ node scripts/hosted-boundary-proof.mjs \
   --base-url https://prospector-steven-pilot.djstif.chatgpt.site/
 ```
 
-The owner modes use a local, operator-supplied authenticated-session transport
-that is never printed or persisted by the harness. The signed-in browser proof
-may exercise the same checks without extracting browser session material.
+Authenticated harness modes accept only a local operator-supplied Cookie
+transport and never print or persist it. Browser proof does not extract browser
+session material.
 
 ## Outcomes
 
 | Check | Outcome | Evidence |
 |---|---|---|
-| Exact tested source deployed | Blocked | GitHub app source `26f7331…` and archive SHA-256 `65e64349…` are verified; Sites project read, source credential, and version save all return `project_not_found` |
-| Unauthenticated capability denial | Pass | HTTP 401 at the private Sites gate; no private metadata observed |
-| Owner capability read | Pending | Status distribution pending |
-| Foreign-origin mutation denial | Pending | Redacted HTTP status pending |
-| Missing CSRF denial | Pending | Redacted HTTP status pending |
-| Malformed body denial | Pending | Redacted HTTP status pending |
-| One-time CSRF replay denial | Pending | Redacted HTTP status pending |
-| R2 write/read/digest/delete/absence | Pending | Opaque evidence reference pending |
-| Durable evidence after reload | Pending | Opaque evidence reference and timestamp pending |
-| Controlled second real principal | Pending | Required hosted checkpoint |
-| Second-principal state/object delta | Pending | Required zero-delta checkpoint |
-| Hosted log hygiene | Pending | Redacted route/status inspection pending |
+| Exact tested source deployed | Pass | Version 10 saved from Sites source `d6b3b61…`; deployment reached `succeeded` with environment revision 2 |
+| Unauthenticated capability denial | Pass | HTTP 401 at the private Sites gate; neutral response and no private metadata |
+| Owner capability read | Pass | HTTP 200; status distribution Proven 5, Blocked 0, Unproven 3; no owner email returned |
+| Foreign-origin mutation denial | Pass locally; hosted operator check pending | Route test and redacted harness assert HTTP 403; authenticated browser transport is not extracted |
+| Missing CSRF denial | Pass locally; hosted operator check pending | Route test and redacted harness assert HTTP 403 |
+| Malformed body denial | Pass locally; hosted operator check pending | Route test and redacted harness assert HTTP 400 |
+| One-time CSRF replay denial | Pass locally; hosted operator check pending | Route test and redacted harness assert HTTP 403 |
+| R2 write/read/digest/delete/absence | Pass hosted | Fixed owner proof completed all five steps at `2026-07-30T15:49:48.528Z` |
+| Durable evidence after reload | Pass hosted | R2 remains Proven with opaque reference `ae_cap_99ea450032f22a841ffbafbf` |
+| Controlled second real principal | Pending — blocking | Requires a separate Sites-asserted identity; no application invitation or allowlist workaround was enabled |
+| Second-principal state/object delta | Pending — blocking | Zero-delta verification follows the real second-principal attempts |
+| Hosted log hygiene | Pass for fresh version 10 client; legacy event recorded below | Fresh proof: POST `/api/capability-probe`, HTTP 200, outcome `ok`; Cookie redacted, deprecated custom CSRF header absent, no raw CSRF cookie value |
+
+## Security remediation evidence
+
+Version 9 sent a one-time CSRF value in a custom request header that the Sites
+worker logger did not redact. Version 10 moves the one-time value to a
+`HttpOnly; Secure; SameSite=Strict; Path=/` cookie, removes it from response
+JSON and client state, and updates the proof harness accordingly.
+
+One already-open, stale browser tab sent the deprecated header once after the
+version 10 deployment. Its value is intentionally omitted from this record. A
+new cache-busted tab then produced the accepted version 10 proof: the custom
+header was absent, the Cookie header was redacted, and no raw cookie value was
+present. The stale tab is not accepted evidence and must not be reused.
 
 ## Local release evidence
 
 - `npm run lint`: pass.
 - `npm test`: pass; production build plus 15/15 tests.
-- `node scripts/hosted-boundary-proof.mjs --help`: pass.
-- Exact application commit on GitHub: `26f7331331f4de8b433ca48abe07e47174b36a51`.
-- Deployable archive: `/private/tmp/prospector-26f7331.tar.gz`; SHA-256
-  begins `65e64349`; required Sites metadata and server entrypoint are present.
-
-The currently live owner-authenticated site was inspected in the signed-in
-browser and still renders the prior fixture/capability release. It is not
-evidence for the new Phase 1 source.
+- Hosted proof harness regression: pass, including denial, malformed request,
+  replay, complete storage lifecycle, and durable reload assertions.
+- React Doctor 0.9.2: 100/100, no issues.
+- Repository and built-bundle search: no deprecated custom CSRF request header
+  in production source or compiled output.
 
 ## Review status
 
-The fresh-agent red-team stage could not start because this task's three earlier
-planning agents still occupy all available subagent slots. Per the red-team
-protocol, this is `REDTEAM-BLOCKED`; no same-agent review is represented as an
-independent red team.
-
-A separate release audit found and fixed a mechanical blocker before deployment:
-the first harness revision used a non-existent storage capability ID and a stale
-evidence shape. The corrected harness now has end-to-end regression coverage for
-the complete denial, proof, replay, and durable-evidence sequence.
+The required fresh-agent red-team stage remains `REDTEAM-BLOCKED`: three
+earlier planning agents still occupy the available subagent slots, and the
+protocol forbids representing a same-agent review as independent red-team
+evidence.
 
 ## Boundary retained
 
 Gmail, the scheduler, Runner callbacks, live prospect data, imports, exports,
 outbound messages, and outbound calls remain blocked or unproven. A successful
 storage proof does not authorize or demonstrate any of those capabilities.
+
+## Blocking checkpoint
+
+Phase 1 remains open until a real second signed-in principal attempts the app,
+`/api/interview`, `/api/capabilities`, and `/api/capability-probe`, observes only
+neutral denial, and the owner session confirms zero new workspace, object,
+proof, or audit state. This checkpoint cannot be replaced by local headers,
+mocks, or an application invitation.
