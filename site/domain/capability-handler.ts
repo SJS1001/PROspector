@@ -5,7 +5,7 @@ import {
   type CapabilityId,
   type ObjectStorageProof,
 } from "./capabilities";
-import { CsrfTokenError } from "./csrf";
+import { csrfTokenFromRequest, CsrfTokenError, withCsrfCookie } from "./csrf";
 import type { InterviewPrincipal } from "./interview";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
@@ -63,14 +63,17 @@ export async function handleCapabilitiesGet(
         evidence: evidence.get(capabilityId) ?? null,
       }),
     );
-    return json({
+    const response = json({
       ok: true,
       owner: { admitted: true },
       workspace: { companyName: workspace.companyName },
       overallStatus: overallStatus(capabilities.map((item) => item.status)),
       capabilities,
-      csrfToken: await dependencies.issueCsrfToken(principal.subject),
     });
+    return withCsrfCookie(
+      response,
+      await dependencies.issueCsrfToken(principal.subject),
+    );
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "capability_status_unavailable" }, 503);
@@ -92,7 +95,7 @@ export async function handleCapabilityProbePost(
 
     await dependencies.consumeCsrfToken(
       principal.subject,
-      request.headers.get("x-prospector-csrf") ?? "",
+      csrfTokenFromRequest(request),
     );
     const body = await readBoundedJson(request, 256);
     if (Object.keys(body).length !== 0) {
@@ -113,11 +116,14 @@ export async function handleCapabilityProbePost(
     }
 
     const proof = await dependencies.runStorageProof(workspace, principal);
-    return json({
+    const response = json({
       ok: proof.status === "proven",
       proof,
-      csrfToken: await dependencies.issueCsrfToken(principal.subject),
     });
+    return withCsrfCookie(
+      response,
+      await dependencies.issueCsrfToken(principal.subject),
+    );
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (

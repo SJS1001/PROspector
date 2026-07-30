@@ -88,7 +88,7 @@ async function main() {
   });
 
   if (options.mode === "owner-proof") {
-    await runOwnerProof(baseUrl, headers, initial.body.csrfToken);
+    await runOwnerProof(baseUrl, headers, initial.csrfCookie);
   }
 }
 
@@ -213,12 +213,12 @@ async function readOwnerState(baseUrl, headers) {
   assert(response.status === 200 && body.ok === true, "owner_read_failed");
   assertNoStore(response);
   assertCapabilityState(body);
-  return { response, body };
+  return { response, body, csrfCookie: csrfCookieFromResponse(response) };
 }
 
-async function runOwnerProof(baseUrl, headers, initialCsrfToken) {
+async function runOwnerProof(baseUrl, headers, initialCsrfCookie) {
   const foreign = await postProbe(baseUrl, headers, {
-    csrfToken: initialCsrfToken,
+    csrfCookie: initialCsrfCookie,
     origin: "https://invalid.example",
     fetchSite: "cross-site",
     body: "{}",
@@ -236,7 +236,7 @@ async function runOwnerProof(baseUrl, headers, initialCsrfToken) {
 
   const malformedState = await readOwnerState(baseUrl, headers);
   const malformed = await postProbe(baseUrl, headers, {
-    csrfToken: malformedState.body.csrfToken,
+    csrfCookie: malformedState.csrfCookie,
     body: "{",
   });
   assert(malformed.response.status === 400, "malformed_body_not_denied");
@@ -244,9 +244,9 @@ async function runOwnerProof(baseUrl, headers, initialCsrfToken) {
   emit({ ok: true, check: "malformed_body_denial", status: 400 });
 
   const proofState = await readOwnerState(baseUrl, headers);
-  const usedToken = proofState.body.csrfToken;
+  const usedToken = proofState.csrfCookie;
   const proofResult = await postProbe(baseUrl, headers, {
-    csrfToken: usedToken,
+    csrfCookie: usedToken,
     body: "{}",
   });
   assert(proofResult.response.status === 200, "storage_proof_failed");
@@ -262,7 +262,7 @@ async function runOwnerProof(baseUrl, headers, initialCsrfToken) {
   });
 
   const replay = await postProbe(baseUrl, headers, {
-    csrfToken: usedToken,
+    csrfCookie: usedToken,
     body: "{}",
   });
   assert(replay.response.status === 403, "csrf_replay_not_denied");
@@ -294,14 +294,16 @@ async function runOwnerProof(baseUrl, headers, initialCsrfToken) {
 async function postProbe(
   baseUrl,
   sessionHeaders,
-  { csrfToken = "", origin, fetchSite, body },
+  { csrfCookie = "", origin, fetchSite, body },
 ) {
   const target = new URL("/api/capability-probe", baseUrl);
   const headers = {
     ...sessionHeaders,
     "content-type": "application/json",
     "x-prospector-intent": "capability-proof",
-    ...(csrfToken ? { "x-prospector-csrf": csrfToken } : {}),
+    ...(csrfCookie
+      ? { cookie: [sessionHeaders.cookie, csrfCookie].filter(Boolean).join("; ") }
+      : {}),
     origin: origin ?? target.origin,
     "sec-fetch-site": fetchSite ?? "same-origin",
   };
@@ -320,8 +322,7 @@ function assertCapabilityState(body) {
     body &&
       Array.isArray(body.capabilities) &&
       body.capabilities.length > 0 &&
-      typeof body.csrfToken === "string" &&
-      body.csrfToken.length > 0,
+      !("csrfToken" in body),
     "invalid_capability_response",
   );
   assert(
@@ -348,7 +349,7 @@ function assertProofShape(body) {
   assert(
     body?.ok === true &&
       JSON.stringify(bodyKeys) ===
-        JSON.stringify(["csrfToken", "ok", "proof"]) &&
+        JSON.stringify(["ok", "proof"]) &&
       JSON.stringify(proofKeys) ===
         JSON.stringify([
           "checkedAt",
@@ -367,12 +368,24 @@ function assertProofShape(body) {
       typeof proof.evidenceReference === "string" &&
       proof.evidenceReference === `r2-proof-${proof.probeId}` &&
       typeof proof.reason === "string" &&
-      typeof body.csrfToken === "string" &&
-      body.csrfToken.length > 0 &&
       PROOF_STEPS.every((step) => proof.steps?.[step] === true),
     "invalid_fixed_probe_response",
   );
   return proof;
+}
+
+function csrfCookieFromResponse(response) {
+  const setCookie = response.headers.get("set-cookie") ?? "";
+  const match = setCookie.match(
+    /(?:^|[,;]\s*)(__Host-prospector-csrf=[A-Za-z0-9_-]{43})(?:;|$)/u,
+  );
+  assert(match, "csrf_cookie_required");
+  assert(/(?:^|;)\s*Path=\/(?:;|$)/iu.test(setCookie), "csrf_cookie_path_required");
+  assert(/(?:^|;)\s*Max-Age=900(?:;|$)/iu.test(setCookie), "csrf_cookie_ttl_required");
+  assert(/(?:^|;)\s*HttpOnly(?:;|$)/iu.test(setCookie), "csrf_cookie_http_only_required");
+  assert(/(?:^|;)\s*Secure(?:;|$)/iu.test(setCookie), "csrf_cookie_secure_required");
+  assert(/(?:^|;)\s*SameSite=Strict(?:;|$)/iu.test(setCookie), "csrf_cookie_same_site_required");
+  return match[1];
 }
 
 function assertNoStore(response) {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InterviewState } from "../domain/interview";
 
-type InterviewApiState = InterviewState & { csrfToken: string };
+type InterviewApiState = InterviewState;
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
 type CapabilityItem = {
@@ -21,7 +21,6 @@ export type CapabilityApiState = {
   workspace: { companyName: string };
   overallStatus: CapabilityStatus;
   capabilities: CapabilityItem[];
-  csrfToken: string;
 };
 type View = "Pilot Status" | "Morning Brief" | "Knowledge" | "Market Discovery" | "Review Queue" | "Prospects" | "Exports & History";
 
@@ -179,13 +178,18 @@ function PilotStatus({
     setRunningProof(true);
     setError(false);
     try {
+      const primed = await fetchCapabilityState();
+      if (primed.kind === "unauthorized") {
+        onUnauthorized();
+        return;
+      }
+      setState(primed.value);
       const response = await fetch("/api/capability-probe", {
         method: "POST",
         credentials: "same-origin",
         headers: {
           "content-type": "application/json",
           "x-prospector-intent": "capability-proof",
-          "x-prospector-csrf": state.csrfToken,
         },
         body: "{}",
       });
@@ -355,7 +359,6 @@ function normalizeCapabilityState(value: unknown): CapabilityApiState {
     candidate.ok !== true ||
     !candidate.workspace ||
     typeof candidate.workspace.companyName !== "string" ||
-    typeof candidate.csrfToken !== "string" ||
     !Array.isArray(candidate.capabilities)
   ) {
     throw new Error("invalid_capability_state");
@@ -385,7 +388,6 @@ function normalizeCapabilityState(value: unknown): CapabilityApiState {
     workspace: candidate.workspace,
     overallStatus,
     capabilities,
-    csrfToken: candidate.csrfToken,
   };
 }
 
@@ -518,7 +520,6 @@ function Knowledge({ setView }: { setView: (view: View) => void }) {
         headers: {
           "content-type": "application/json",
           "x-prospector-intent": "interview-mutation",
-          "x-prospector-csrf": interview.csrfToken,
         },
         body: JSON.stringify(body),
       });

@@ -47,7 +47,6 @@ test("Pilot Status renders the evidence hierarchy and a neutral denial", async (
       owner: { admitted: true },
       workspace: { companyName: "Digitalrain" },
       overallStatus: "blocked",
-      csrfToken: "test-token",
       capabilities: [
         capability("trusted_owner_identity", "Trusted owner identity", "proven"),
         capability("single_workspace_authorization", "Single-workspace authorization", "unproven"),

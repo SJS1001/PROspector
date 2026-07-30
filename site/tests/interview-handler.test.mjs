@@ -37,16 +37,20 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
       email: "owner@example.com",
       displayName: "Owner",
     });
-    let state = await json(await handleInterviewGet(owner));
+    let result = await stateResult(await handleInterviewGet(owner));
+    let state = result.state;
+    let csrfCookie = result.csrfCookie;
     assert.equal(state.status, "uninitialized");
-    assert.match(state.csrfToken, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal("csrfToken" in state, false);
 
     assert.equal((await handleInterviewPost(mutation("bootstrap", ""), owner)).status, 403);
-    const foreign = mutation("bootstrap", state.csrfToken, { origin: "https://attacker.example" });
+    const foreign = mutation("bootstrap", csrfCookie, { origin: "https://attacker.example" });
     assert.equal((await handleInterviewPost(foreign, owner)).status, 403);
 
-    const bootstrapToken = state.csrfToken;
-    state = await json(await handleInterviewPost(mutation("bootstrap", bootstrapToken), owner));
+    const bootstrapToken = csrfCookie;
+    result = await stateResult(await handleInterviewPost(mutation("bootstrap", bootstrapToken), owner));
+    state = result.state;
+    csrfCookie = result.csrfCookie;
     assert.equal(state.status, "active");
     assert.equal((await handleInterviewPost(mutation("bootstrap", bootstrapToken), owner)).status, 403);
 
@@ -62,7 +66,7 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
     assert.deepEqual(
       await denied(
         await handleInterviewPost(
-          mutation("bootstrap", state.csrfToken),
+          mutation("bootstrap", csrfCookie),
           outsider,
         ),
       ),
@@ -76,15 +80,18 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
       expectedRevision: state.question.revision,
       idempotencyKey: "0198a4b0-1000-7000-8000-000000000001",
     };
-    state = await json(await handleInterviewPost(mutation(answerBody, state.csrfToken), owner));
+    result = await stateResult(await handleInterviewPost(mutation(answerBody, csrfCookie), owner));
+    state = result.state;
+    csrfCookie = result.csrfCookie;
     assert.equal(state.status, "awaiting_confirmation");
 
-    state = await json(await handleInterviewPost(mutation({
+    result = await stateResult(await handleInterviewPost(mutation({
       action: "confirm_submitted_answer",
       answerId: state.answer.id,
       expectedSessionRevision: state.session.revision,
       idempotencyKey: "0198a4b0-1000-7000-8000-000000000003",
-    }, state.csrfToken), owner));
+    }, csrfCookie), owner));
+    state = result.state;
     assert.equal(state.status, "confirmed");
     assert.equal((await json(await handleInterviewGet(owner))).status, "confirmed");
 
@@ -116,7 +123,7 @@ function mutation(body, csrf, extraHeaders = {}) {
       origin: ORIGIN,
       "sec-fetch-site": "same-origin",
       "x-prospector-intent": "interview-mutation",
-      "x-prospector-csrf": csrf,
+      ...(csrf ? { cookie: csrf } : {}),
       "content-type": "application/json",
       ...extraHeaders,
     },
@@ -128,6 +135,15 @@ async function json(response) {
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   return response.json();
+}
+
+async function stateResult(response) {
+  const csrfCookie = response.headers.get("set-cookie") ?? "";
+  assert.match(
+    csrfCookie,
+    /^__Host-prospector-csrf=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=900; HttpOnly; Secure; SameSite=Strict$/,
+  );
+  return { state: await json(response), csrfCookie: csrfCookie.split(";", 1)[0] };
 }
 
 async function denied(response) {

@@ -28,7 +28,7 @@ test("hosted proof harness validates denial and durable R2 evidence", async () =
     const url = new URL(input);
     const headers = new Headers(options.headers);
     if (url.pathname === "/api/capabilities" && !options.method) {
-      if (headers.get("cookie") !== "session=controlled-test") {
+      if (!headers.get("cookie")?.includes("session=controlled-test")) {
         return json(404, { error: "private_workspace_unavailable" });
       }
       state.token += 1;
@@ -54,7 +54,8 @@ test("hosted proof harness validates denial and durable R2 evidence", async () =
               : {}),
           },
         ],
-        csrfToken: `csrf-${state.token}`,
+      }, {
+        "set-cookie": `__Host-prospector-csrf=${String(state.token).padStart(43, "a")}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Strict`,
       });
     }
 
@@ -68,9 +69,9 @@ test("hosted proof harness validates denial and durable R2 evidence", async () =
       ) {
         return json(403, { error: "foreign_origin" });
       }
-      const token = headers.get("x-prospector-csrf");
+      const token = headers.get("cookie")?.match(/__Host-prospector-csrf=([A-Za-z0-9_-]{43})/)?.[1];
       if (
-        !token?.startsWith("csrf-") ||
+        !token ||
         state.usedTokens.has(token)
       ) {
         return json(403, { error: "invalid_csrf_token" });
@@ -98,7 +99,6 @@ test("hosted proof harness validates denial and durable R2 evidence", async () =
           reason:
             "The fixed write, read, digest, delete, and absence proof passed.",
         },
-        csrfToken: "csrf-after-proof",
       });
     }
 
@@ -113,7 +113,7 @@ test("hosted proof harness validates denial and durable R2 evidence", async () =
     await runOwnerProof(
       baseUrl,
       { cookie: "session=controlled-test" },
-      initial.body.csrfToken,
+      initial.csrfCookie,
     );
     assert.equal(state.proofRecorded, true);
   } finally {
@@ -148,12 +148,13 @@ test("hosted proof harness rejects untrusted destinations and identity headers",
   }
 });
 
-function json(status, value) {
+function json(status, value, headers = {}) {
   return Response.json(value, {
     status,
     headers: {
       "cache-control": "no-store",
       "content-type": "application/json; charset=utf-8",
+      ...headers,
     },
   });
 }

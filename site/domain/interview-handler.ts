@@ -1,4 +1,10 @@
-import { consumeCsrfToken, CsrfTokenError, issueCsrfToken } from "./csrf";
+import {
+  consumeCsrfToken,
+  csrfTokenFromRequest,
+  CsrfTokenError,
+  issueCsrfToken,
+  withCsrfCookie,
+} from "./csrf";
 import {
   bootstrapInterview,
   confirmSubmittedAnswer,
@@ -43,7 +49,7 @@ export async function handleInterviewPost(
     await consumeCsrfToken(
       dependencies.database,
       principal.subject,
-      request.headers.get("x-prospector-csrf") ?? "",
+      csrfTokenFromRequest(request),
     );
     const body = await readBoundedJson(request, 8192);
     let state: InterviewState;
@@ -95,7 +101,11 @@ async function stateResponse(
   principal: InterviewPrincipal,
   state: InterviewState,
 ) {
-  return json({ ...state, csrfToken: await issueCsrfToken(database, principal.subject) });
+  const response = json(state);
+  return withCsrfCookie(
+    response,
+    await issueCsrfToken(database, principal.subject),
+  );
 }
 
 function json(value: unknown, status = 200) {

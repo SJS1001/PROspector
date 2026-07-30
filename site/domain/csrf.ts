@@ -2,6 +2,28 @@ export class CsrfTokenError extends Error {
   readonly code = "invalid_csrf_token";
 }
 
+export const CSRF_COOKIE_NAME = "__Host-prospector-csrf";
+
+export function csrfTokenFromRequest(request: Request): string {
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+    const name = part.slice(0, separator).trim();
+    if (name === CSRF_COOKIE_NAME) return part.slice(separator + 1).trim();
+  }
+  return "";
+}
+
+export function csrfCookie(token: string): string {
+  return `${CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Strict`;
+}
+
+export function withCsrfCookie(response: Response, token: string): Response {
+  response.headers.append("set-cookie", csrfCookie(token));
+  return response;
+}
+
 export async function issueCsrfToken(
   database: D1Database,
   principalSubject: string,

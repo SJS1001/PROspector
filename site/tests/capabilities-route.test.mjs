@@ -38,7 +38,11 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     const body = await response.json();
+    const csrfCookie = response.headers.get("set-cookie");
     assert.equal(Array.isArray(body.capabilities), true);
+    assert.equal("csrfToken" in body, false);
+    assert.match(csrfCookie, /^__Host-prospector-csrf=[A-Za-z0-9_-]+;/);
+    assert.match(csrfCookie, /Path=\/; Max-Age=900; HttpOnly; Secure; SameSite=Strict$/);
     assert.equal(
       body.capabilities.every((item) =>
         ["proven", "blocked", "unproven"].includes(item.status),
@@ -60,7 +64,7 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
     );
     assert.equal(
       (await handleCapabilityProbePost(
-        probeRequest({ body: JSON.stringify({ key: "foreign" }) }),
+        probeRequest({ body: JSON.stringify({ key: "foreign" }), csrf: csrfCookie }),
         owner,
       )).status,
       400,
@@ -71,7 +75,7 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
       { objectStorage: false },
     );
     assert.equal(
-      (await handleCapabilityProbePost(probeRequest(), missingStorage)).status,
+      (await handleCapabilityProbePost(probeRequest({ csrf: csrfCookie }), missingStorage)).status,
       409,
     );
 
@@ -80,14 +84,14 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
       { proofStatus: "proven" },
     );
     const firstProbe = await handleCapabilityProbePost(
-      probeRequest(),
+      probeRequest({ csrf: csrfCookie }),
       probeDependencies,
     );
     assert.equal(firstProbe.status, 200);
     assert.equal((await firstProbe.json()).proof.status, "proven");
     assert.equal(probeDependencies.proofRuns(), 1);
     assert.equal(
-      (await handleCapabilityProbePost(probeRequest(), probeDependencies)).status,
+      (await handleCapabilityProbePost(probeRequest({ csrf: csrfCookie }), probeDependencies)).status,
       403,
     );
 
@@ -96,7 +100,7 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
       { proofStatus: "blocked" },
     );
     const failedResponse = await handleCapabilityProbePost(
-      probeRequest(),
+      probeRequest({ csrf: csrfCookie }),
       failedProof,
     );
     assert.equal(failedResponse.status, 200);
@@ -130,7 +134,7 @@ function dependencies(identity, options = {}) {
       objectStorage: options.objectStorage ?? true,
       secrets: true,
     },
-    issueCsrfToken: async () => "csrf-safe-token",
+    issueCsrfToken: async () => "a".repeat(43),
     consumeCsrfToken: async (_subject, token) => {
       if (!token || consumedTokens.has(token)) throw Object.assign(new Error("invalid"), {
         code: "invalid_csrf_token",
@@ -161,7 +165,7 @@ function dependencies(identity, options = {}) {
 
 function probeRequest({
   origin = ORIGIN,
-  csrf = "csrf-safe-token",
+  csrf = `__Host-prospector-csrf=${"a".repeat(43)}`,
   body = "{}",
 } = {}) {
   return new Request(`${ORIGIN}/api/capability-probe`, {
@@ -170,7 +174,7 @@ function probeRequest({
       origin,
       "sec-fetch-site": "same-origin",
       "x-prospector-intent": "capability-proof",
-      "x-prospector-csrf": csrf,
+      ...(csrf ? { cookie: csrf } : {}),
       "content-type": "application/json",
     },
     body,
