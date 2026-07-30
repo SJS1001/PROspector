@@ -9,8 +9,8 @@ Requirements for the initial private operating pilot. Each requirement maps to e
 
 ### Product Boundary and Workspace
 
-- [ ] **REQ-private-human-governed-gtm**: The operator can use PROspector as a private, human-governed go-to-market workspace in which consequential knowledge and external actions require explicit confirmation, no workflow silently authorizes spend or outreach, and no CRM opportunity/revenue model is introduced.
-- [ ] **REQ-company-workspace-isolation**: The owner can operate exactly one isolated Company Workspace whose data is not pooled, whose pilot invitations are disabled, and whose history is auditable and exportable.
+- [x] **REQ-private-human-governed-gtm**: The operator can use PROspector as a private, human-governed go-to-market workspace in which consequential knowledge and external actions require explicit confirmation, no workflow silently authorizes spend or outreach, and no CRM opportunity/revenue model is introduced.
+- [x] **REQ-company-workspace-isolation**: The owner can operate exactly one isolated Company Workspace whose data is not pooled, whose pilot invitations are disabled, and whose history is auditable and exportable.
 
 ### Commercial Knowledge
 
@@ -71,8 +71,8 @@ These items are acknowledged directions, not committed v1 scope. Promotion to v1
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-private-human-governed-gtm | Phase 1 | Pending |
-| REQ-company-workspace-isolation | Phase 1 | Pending |
+| REQ-private-human-governed-gtm | Phase 1 | Complete |
+| REQ-company-workspace-isolation | Phase 1 | Complete |
 | REQ-commercial-hierarchy | Phase 2 | Pending |
 | REQ-consensus-interview | Phase 2 | Pending |
 | REQ-versioned-knowledge-and-drift | Phase 2 | Pending |
