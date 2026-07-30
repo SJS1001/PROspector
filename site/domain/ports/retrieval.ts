@@ -9,6 +9,8 @@ export type RetrievalRequest = Readonly<{
   maximumBytes: number;
   maximumRedirects: number;
   timeoutMs: number;
+  /** Future adapters must validate every redirect before connecting and pin its public resolution. */
+  maximumDecompressedBytes?: number;
 }>;
 
 export type RetrievedDocument = Readonly<{
@@ -24,7 +26,7 @@ export type RetrievalPort = Readonly<{
 
 export const SAFE_RETRIEVAL_REQUIREMENTS = Object.freeze([
   "https_only", "public_address_and_redirect_validation", "dns_connection_pinning",
-  "mime_byte_decompression_and_timeout_caps", "sandboxed_text_extraction", "escaped_text_only",
+  "mime_byte_decompression_and_timeout_caps", "bounded_redirects_and_wall_clock_timeout", "sandboxed_text_extraction", "escaped_text_only",
   "no_cookies_credentials_or_privileged_browser_authority",
 ] as const);
 

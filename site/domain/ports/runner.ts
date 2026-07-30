@@ -14,6 +14,9 @@ export type RunnerAssignmentEnvelope = Readonly<{
   instructionVersion: string;
   toolConfigurationDigest: string;
   quotas: Readonly<{ maxBytes: number; maxFindings: number; maxSources: number }>;
+  /** No credentials, failover policy, application authority, or terminal claim is ever delivered. */
+  scope?: "runner.observations.append/v1";
+  allowedTools?: readonly string[];
 }>;
 
 export type RunnerPort = Readonly<{
