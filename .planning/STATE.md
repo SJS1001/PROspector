@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "01-05 Task 1 blocked: persisted Sites project returns project_not_found"
-last_updated: "2026-07-30T00:35:00Z"
+stopped_at: "Session resumed; completing 01-05 hosted proof"
+last_updated: "2026-07-30T14:30:00Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 7
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 
 Phase: 1 (Private Pilot Boundary) — EXECUTING
 Plan: 5 of 5
-Status: Blocked at hosted deployment proof
+Status: Executing hosted deployment proof
 Last activity: 2026-07-30
 
 Progress: [████████░░] 80%
@@ -90,5 +90,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-07-30T00:19:36.850Z
-Stopped at: 01-05 Task 1 blocked on existing Sites control-plane access
+Stopped at: Session resumed, proceeding to 01-05 hosted deployment and proof
 Resume file: None
