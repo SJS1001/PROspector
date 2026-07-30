@@ -1,0 +1,2 @@
+import React from "react";
+export function ProfileReadiness({ readiness }: { readiness: { status?: string } }) { return <section><h2>Profile Readiness</h2>{readiness.status === "missing" ? <p role="alert">This profile is not ready. Confirm the required item before creating a configuration candidate.</p> : <p>Candidate — not active</p>}<button disabled>Create Profile configuration candidate</button><p>Activation preserves history, queues one initial prospecting run, and starts this profile’s schedule. It does not authorize contact, spend, export, or outreach.</p></section>; }
