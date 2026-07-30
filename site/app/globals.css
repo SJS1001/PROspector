@@ -132,6 +132,7 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .knowledge-workspace :focus-visible { outline:2px solid var(--green); outline-offset:2px; }
 .knowledge-workspace .question-card { padding:24px; }
 .knowledge-workspace .question-card h2 { max-width:680px; margin:16px 0 8px; font-size:16px; font-weight:760; letter-spacing:0; }
+.knowledge-workspace .active-question-card h2 { font-size:28px; }
 .knowledge-workspace .recommendation { margin-top:16px; padding:16px; background:var(--green); }
 .knowledge-workspace .recommendation h3 { color:var(--white); }
 .knowledge-workspace .recommendation p { color:var(--white); font-size:12px; }

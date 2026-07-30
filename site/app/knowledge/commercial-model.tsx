@@ -6,15 +6,16 @@ import type { CommercialHierarchyNode, CommercialModelProjection } from "../../d
 type DraftType = "product" | "market_play" | "customer_profile";
 export type CommercialCommand = { type: DraftType; parentId: string; name: string; expectedRevision: number; operationKey: string };
 
-export function CommercialModelView({ projection, operationKey, knowledgeCounts = new Map(), onCreateDraft, onProposeChange }: {
+export function CommercialModelView({ projection, operationKey, knowledgeCounts = new Map(), selectedId, onSelect, onCreateDraft, onProposeChange }: {
   projection: CommercialModelProjection;
   operationKey: string;
   knowledgeCounts?: ReadonlyMap<string, { confirmed: number; proposed: number }>;
+  selectedId: string;
+  onSelect(id: string): void;
   onCreateDraft(command: CommercialCommand): void;
   onProposeChange(node: CommercialHierarchyNode): void;
 }) {
   const nodes = allNodes(projection);
-  const [selectedId, setSelectedId] = useState(projection.path[0]?.id ?? "");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(nodes.map((node) => node.id)));
   const selected = nodes.find((node) => node.id === selectedId) ?? projection.path[0];
   if (!selected) return <section className="panel" role="alert">Commercial hierarchy is unavailable. Mutation controls are hidden until the current version can be checked.</section>;
@@ -26,7 +27,7 @@ export function CommercialModelView({ projection, operationKey, knowledgeCounts 
     <section className="panel" aria-label="Commercial hierarchy">
       <h2>Commercial Model</h2>
       <p>Company-wide identity stays separate from Market Play and Customer Profile relationships.</p>
-      <Tree node={projection.path.find((node) => node.type === "company")!} descendantsFor={descendantsFor} selectedId={selected.id} expanded={expanded} onToggle={toggle} onSelect={setSelectedId} />
+      <Tree node={projection.path.find((node) => node.type === "company")!} descendantsFor={descendantsFor} selectedId={selected.id} expanded={expanded} onToggle={toggle} onSelect={onSelect} />
     </section>
     <section className="panel">
       <span className="eyebrow">{selected.type.replaceAll("_", " ")}</span>

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
 const LOCAL_VIEWS = ["Commercial Model", "Interview", "Knowledge Library", "Drift & Replacements"];
@@ -73,5 +75,43 @@ test("commercial hierarchy, counts, locators, and pending copy use projected dat
   assert.match(workspace, /item\.destination\.locator \?\? commercialLocator/);
   assert.match(workspace, /if \(!locator\) throw new Error\("destination_locator_unavailable"\)/);
   assert.match(workspace, /function countsByDestination/);
+  assert.match(workspace, /function scopePathFor/);
+  assert.match(workspace, /aria-label="Selected commercial scope"/);
+  assert.doesNotMatch(workspace, /index === scope\.length - 1/);
   for (const pending of ["Submitting answer…", "Recording owner decision…", "Creating replacement candidate…", "Activating replacement…"]) assert.match(workspace, new RegExp(pending));
+});
+
+test("quarantined Knowledge projections render as metadata only without a value", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const { KnowledgeLibraryView } = await vite.ssrLoadModule(new URL("../app/knowledge/knowledge-library.tsx", import.meta.url).pathname);
+    const base = {
+      type: "knowledge_proposal",
+      revision: 1,
+      status: "proposed",
+      origin: "quarantined_upload",
+      kind: "uploaded_evidence",
+      digest: "a".repeat(64),
+      destination: { scopeType: "company", id: "company-1", locator: "Example Company" },
+      provenance: { reference: "opaque-upload-reference", custody: "quarantine", privacy: "private" },
+      immutable: true,
+      quarantine: { status: "unscanned" },
+    };
+    const html = renderToStaticMarkup(React.createElement(KnowledgeLibraryView, {
+      items: [
+        { ...base, id: "quarantine-without-value" },
+        { ...base, id: "quarantine-defensive-redaction", value: { excerpt: "RAW_QUARANTINED_CONTENT_MUST_NOT_RENDER" } },
+      ],
+      operationKey: "test-operation-key",
+      onIntake() { throw new Error("SSR must not invoke intake"); },
+      onReviewProposal() { throw new Error("SSR must not invoke review"); },
+      onProposeChange() { throw new Error("SSR must not invoke edit"); },
+    }));
+    assert.match(html, /Quarantined upload content is withheld/);
+    assert.match(html, /metadata-only quarantined proposal/);
+    assert.doesNotMatch(html, /RAW_QUARANTINED_CONTENT_MUST_NOT_RENDER/);
+    assert.doesNotMatch(html, /Review proposal against this exact snapshot/);
+  } finally {
+    await vite.close();
+  }
 });
