@@ -551,27 +551,23 @@ Every consequential Phase 2 test should pair its positive authority assertion wi
 
 All other recommendations are derived from locked project documents, inspected source, successful local tests, or cited official documentation. [VERIFIED: research audit]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which malware/secret-scanning capability will release uploaded objects from quarantine?**
    - What we know: the implementation contract requires scanning before content is available, and no scanner/package/port exists. [VERIFIED: Implementation Spec §8 and environment audit]
-   - What's unclear: the approved hosted scanner/provider and its privacy/retention contract. [VERIFIED: no project decision found]
-   - Recommendation: implement quarantine metadata now; do not add an external scanner adapter or activate parsing/rendering until a later explicit provider and trust-boundary decision updates the accepted port list. [VERIFIED: safest in-scope path]
+   - Resolution: no scanner/provider is authorized in Phase 2. Arbitrary file upload, upload release, parsing, rendering, and promotion remain disabled; repository custody metadata may represent a quarantined object only, and no runtime command may create or release it. Safe repository research, bounded owner plain-text import, and allowlisted reuse/package intake do not use this upload path. [VERIFIED: fail-closed decision required by the accepted trust boundary]
 
 2. **What rows exist in hosted D1 immediately before the Phase 2 migration?**
    - What we know: hosted owner lifecycle created an authoritative historian Knowledge Version and audit lineage. [VERIFIED: ADR-0004]
-   - What's unclear: exact counts across scaffold tables after the latest deployment. [VERIFIED: hosted DB not queried in this session]
-   - Recommendation: planner adds a read-only count/digest preflight and post-backfill invariant check before enabling new writes. [VERIFIED: expand/migrate/contract policy]
+   - Resolution: exact hosted rows are evidence, not a planning assumption. A read-only old-schema preflight must record migration IDs, counts, opaque digests, foreign-key state, and absence of the Phase 2 gate before any deployment or migration; mismatch pauses release. After additive 0004, the same counts/digests/lineage and `foreign_key_check` must be re-proved before exact reviewed route deployment. [VERIFIED: expand/migrate/contract policy]
 
 3. **What is the initial Offer?**
    - What we know: Company, Product, Market Play, and two Profile names are locked; no Offer name or value is specified. [VERIFIED: `02-CONTEXT.md`]
-   - What's unclear: the owner's concrete entry point for Operating. [VERIFIED: source review]
-   - Recommendation: do not seed a placeholder; make Offer the first hierarchy-completion interview decision and append it only after owner confirmation. [VERIFIED: hierarchy and confirmation contracts]
+   - Resolution: no Offer is seeded. The initial hierarchy stops at Operating/Greenfield; the first Offer is created only from an explicit owner-confirmed hierarchy-completion interview decision, preserving Profile parentage and immutable decision lineage. [VERIFIED: hierarchy and confirmation contracts]
 
 4. **Can hosted Phase 2 execution begin before Phase 1's second-principal proof?**
    - What we know: ROADMAP makes Phase 2 depend on Phase 1, and STATE still marks the non-substitutable second real principal checkpoint open. [VERIFIED: `.planning/ROADMAP.md`, `.planning/STATE.md`]
-   - What's unclear: only when the owner can perform that external checkpoint. [VERIFIED: external dependency]
-   - Recommendation: local planning/implementation may proceed, but hosted activation and any broader real data remain gated. [VERIFIED: accepted pilot boundary]
+   - Resolution: local implementation may proceed behind an absent gate, but hosted migration/activation cannot proceed until the real Phase 1 second-principal proof succeeds. `human_needed` pauses the hosted release and never counts as completion. After proof, release still requires backward-compatible deployment, additive migration, post-migration proof, exact reviewed-source deployment, real-principal/negative/log/review proof, separate `consensus_knowledge` activation authorization, and owner lifecycle proof. [VERIFIED: accepted pilot boundary]
 
 ## Environment Availability
 
@@ -706,7 +702,7 @@ Security enforcement is enabled because `.planning/config.json` does not set `se
 - Standard stack: HIGH for retained dependencies; MEDIUM for `uuid` until human package verification. [VERIFIED: manifest/registry/audit]
 - Architecture: HIGH — directly constrained by accepted ADRs, Context, UI contract, inspected D1 code, and official D1 semantics. [VERIFIED: source set]
 - Pitfalls: HIGH — most are already represented by Phase 1 red-team incidents or direct schema gaps. [VERIFIED: ADR-0004 and codebase]
-- Upload activation: MEDIUM — quarantine behavior is clear, but scanner selection is undecided. [VERIFIED: open dependency]
+- Upload activation: HIGH for the Phase 2 decision — arbitrary file upload remains disabled because no scanner/provider is authorized; no upload-release behavior is claimed. [VERIFIED: resolved fail-closed dependency]
 
 **Research date:** 2026-07-30  
 **Valid until:** 2026-08-29 for project architecture; re-check package/D1/Next versions before install or deployment because those are fast-moving. [VERIFIED: date-based recommendation]

@@ -1,7 +1,7 @@
 ---
 phase: 2
 slug: consensus-knowledge-and-commercial-model
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-07-30
@@ -93,7 +93,7 @@ Render nodes in stable parent-child order with type, name, and lifecycle/knowled
 - Customer Profiles: **Operating** and **Greenfield** under ONE for Mining; Greenfield remains **Draft / nurture**.
 - Offers: concrete entry points nested under the applicable Customer Profile.
 
-The tree must visually distinguish the entity type from its name. Expansion state is local UI state; selecting a node updates the detail view without changing authority. Creation/editing flows open an inline panel, create Draft hierarchy or Proposed Knowledge only, and show the exact destination before submission.
+The tree must visually distinguish the entity type from its name. Expansion state is local UI state; selecting a node updates the detail view without changing authority. Generic creation flows may create Draft Product, Market Play, or Customer Profile only; they never expose direct Offer creation. The first Offer is created only by Accept, Correct, or Rescope of the exact hierarchy-completion interview proposal and then displays its Profile parent plus question, answer, decision, Knowledge Version, and audit lineage. Editing flows create Proposed Knowledge only and show the exact destination before submission.
 
 ### Entity detail
 
@@ -385,11 +385,12 @@ Phase 2 uses the established manual components and native HTML only. Any later r
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Operational boundary: PASS
 
-**Approval:** pending
+**Approval:** UI-SPEC VERIFIED

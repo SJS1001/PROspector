@@ -53,8 +53,30 @@ Plans:
   3. Reloads, retries, stale tabs, and concurrent answers converge on one authoritative active question and never create duplicate answers, confirmations, or hidden overwrites.
   4. Uploads, imports, research, edits, and reusable knowledge enter as Proposed Knowledge with provenance; the owner can review and promote them without creating unauthorized Runs, Accounts, Contacts, or Prospects.
   5. The owner can inspect drift impact, activate immutable replacement configurations, preserve historical snapshots, invalidate affected approvals, and pause only high-risk outbound reached by the recorded dependency graph.
-**Plans**: TBD  
+**Plans**: 20 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `02-01-PLAN.md` — Create full-chain D1, commercial-model, and immutable-knowledge Wave 0 contracts.
+- [ ] `02-02-PLAN.md` — Create interview concurrency, secure handler, drift/replacement, and Knowledge UI Wave 0 contracts.
+- [ ] `02-03-PLAN.md` — Complete the blocking `uuid@14.0.1` package-legitimacy checkpoint.
+- [ ] `02-04-PLAN.md` — Add the audited UUIDv7 dependency and additive authority schema/backfill.
+- [ ] `02-05-PLAN.md` — Implement the owner-scoped commercial aggregate and Proposed/Confirmed Knowledge authority.
+- [ ] `02-06-PLAN.md` — Generalize the research-first, two-stage, concurrency-safe Consensus Interview.
+- [ ] `02-07-PLAN.md` — Implement dependency-reached drift and separate immutable replacement activation.
+- [ ] `02-08-PLAN.md` — Expose owner-only, CSRF-protected, activation-gated Knowledge APIs.
+- [ ] `02-09-PLAN.md` — Build Commercial Model, Interview, Knowledge Library, and Drift leaf views.
+- [ ] `02-10-PLAN.md` — Compose and style the authoritative Knowledge workspace while preserving disabled effects.
+- [ ] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
+- [ ] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
+- [ ] `02-13-PLAN.md` — Deploy backward-compatible code to the existing private project behind an absent gate.
+- [ ] `02-14-PLAN.md` — Apply additive migration 0004 and prove post-migration invariants.
+- [ ] `02-15-PLAN.md` — Accept fresh independent review of the exact deployment source.
+- [ ] `02-16-PLAN.md` — Deploy the exact reviewed source with hosted mutations still disabled.
+- [ ] `02-17-PLAN.md` — Accept real post-deploy principal, mutation-negative, and clean-log proof.
+- [ ] `02-18-PLAN.md` — Obtain separate owner authorization for `consensus_knowledge` only.
+- [ ] `02-19-PLAN.md` — Activate and verify the exact narrow `consensus_knowledge` gate.
+- [ ] `02-20-PLAN.md` — Accept the complete hosted owner lifecycle and zero-effect proof.
 
 ### Phase 3: Product Readiness and Market Discovery
 **Goal**: The owner can make a Product Ready from complete confirmed policy and receive bounded, replayable Market Play proposals without activating prospecting.  
@@ -127,7 +149,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
-| 2. Consensus Knowledge and Commercial Model | 0/TBD | Not started | - |
+| 2. Consensus Knowledge and Commercial Model | 0/20 | Not started | - |
 | 3. Product Readiness and Market Discovery | 0/TBD | Not started | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/TBD | Not started | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/TBD | Not started | - |
