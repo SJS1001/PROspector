@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Session resumed, proceeding to 01-05 hosted deployment and proof
-last_updated: "2026-07-30T17:48:37.006Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-07-30T17:59:20.924Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 25
-  completed_plans: 9
+  completed_plans: 10
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ Plan: 5 of 5
 Status: Phase complete — ready for verification
 Last activity: 2026-07-30
 
-Progress: [████░░░░░░] 36%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [████░░░░░░] 36%
 | Phase 02 P01 | 25min | 3 tasks | 4 files |
 | Phase 02 P03 | 4min | 1 tasks | 1 files |
 | Phase 02 P04 | 31min | 2 tasks | 8 files |
+| Phase 02 P05 | 24min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Owner explicitly approved uuid@14.0.1; Plan 04 may install only that exact package.
 - [Phase 02]: Use uuid.v7() only for new opaque entity IDs; never substitute a package or hand-roll UUIDv7.
 - [Phase 02]: Plan 04 pins uuid@14.0.1 and keeps consensus_knowledge activation absent behind an immutable complete tuple. — Additive migration preserves valid historian authority and explicitly quarantines legacy-unbound records.
+- [Phase 02]: Commercial initialization seeds exactly Digitalrain -> ONE -> ONE for Mining with Draft/nurture Operating and Greenfield Profiles, never an Offer. — Locked hierarchy seed and Offer lineage boundary.
+- [Phase 02]: Knowledge intake remains immutable Proposed state; only Accept, Correct, or Rescope appends a Confirmed Version. — Prevents proposed evidence from gaining authority or operational effect.
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T17:48:05.663Z
-Stopped at: Session resumed, proceeding to 01-05 hosted deployment and proof
+Last session: 2026-07-30T17:59:20.919Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
