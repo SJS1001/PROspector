@@ -1,0 +1,7 @@
+{
+  "workflow": {
+    "_auto_chain_active": true,
+    "use_worktrees": false
+  },
+  "runtime": "codex"
+}

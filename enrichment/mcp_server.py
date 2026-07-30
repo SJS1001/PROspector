@@ -11,6 +11,12 @@ Then register it as a local MCP server in your client.
 from __future__ import annotations
 import os
 
+if os.environ.get("PROSPECTOR_ENABLE_UNSAFE_LEGACY") != "acknowledged-local-migration-only":
+    raise SystemExit(
+        "Blocked: the archived MCP enrichment server bypasses PROspector approval, "
+        "verification, budget, and suppression controls. It must not be deployed."
+    )
+
 try:
     import yaml
     from mcp.server.fastmcp import FastMCP

@@ -1,0 +1,26 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/DIRECTION.md",
+  "type": "PRD",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "PROspector Product Direction",
+  "summary": "Defines PROspector's product scope, operating model, human-control requirements, prospecting lifecycle, pilot architecture, and initial success target.",
+  "scope": [
+    "Company Workspace",
+    "Products",
+    "Market Plays",
+    "Customer Profiles",
+    "Consensus Interview",
+    "Market Discovery",
+    "Prospecting",
+    "AI Runners",
+    "contact enrichment",
+    "outreach",
+    "CRM Handoff",
+    "pilot architecture"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Product requirements and scope dominate, but the accepted-status header, embedded technical constraints, and pilot architecture create ADR/SPEC ambiguity."
+}

@@ -1,0 +1,29 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-IMPLEMENTATION.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Implementation Red-Team Triage",
+  "summary": "Records product and security red-team findings, their dispositions, implemented truthfulness fixes, remaining Wave 0 blockers, and the final fixture-only convergence result.",
+  "scope": [
+    "product findings",
+    "security findings",
+    "Wave 0 gates",
+    "synthetic fixtures",
+    "private pilot",
+    "Google OAuth",
+    "scheduler",
+    "Runner callbacks",
+    "D1",
+    "R2",
+    "export and restore",
+    "release verification"
+  ],
+  "cross_refs": [
+    "ADR-0004",
+    "WAVE-0-CAPABILITY-REPORT.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

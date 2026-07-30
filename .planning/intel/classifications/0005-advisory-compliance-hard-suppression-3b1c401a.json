@@ -1,0 +1,25 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/adr/0005-advisory-compliance-hard-suppression.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "ADR-0005: Advisory compliance with hard suppression controls",
+  "summary": "Chooses operator-accountable compliance advisories while hard-enforcing sender identity, unsubscribe, immutable approval, company-wide suppression, and transactional send-time checks.",
+  "scope": [
+    "Outreach Advisory",
+    "jurisdiction",
+    "consent basis",
+    "sender identity",
+    "unsubscribe path",
+    "message approval",
+    "Company-wide suppression",
+    "send-time suppression check",
+    "Compliance Policies"
+  ],
+  "cross_refs": [
+    "README"
+  ],
+  "locked": true,
+  "precedence": null,
+  "notes": "Status is written as \"Accepted risk\"; treated as an accepted decision with an explicitly acknowledged risk."
+}

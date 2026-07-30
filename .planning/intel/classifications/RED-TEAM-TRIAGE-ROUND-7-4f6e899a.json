@@ -1,0 +1,23 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-ROUND-7.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Red-Team Triage — Round 7",
+  "summary": "Records resolution and verification of a concurrent legacy-review restart defect while preserving the authenticated hosted lifecycle proof as a Wave 0 evidence gap.",
+  "scope": [
+    "legacy-review restarts",
+    "idempotency keys",
+    "legacy Answer",
+    "replacement session",
+    "quarantine audit event",
+    "concurrency test",
+    "private Sites deployment",
+    "hosted lifecycle proof",
+    "Wave 0"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

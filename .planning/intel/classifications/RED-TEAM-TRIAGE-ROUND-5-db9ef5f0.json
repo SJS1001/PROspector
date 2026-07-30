@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/RED-TEAM-TRIAGE-ROUND-5.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Red-Team Triage — Round 5",
+  "summary": "Documents accepted findings, implemented corrections, remaining constraints, and local evidence for the corrected Consensus Interview pilot slice.",
+  "scope": [
+    "Consensus Interview",
+    "Answer lifecycle",
+    "Confirmation lifecycle",
+    "policy provenance",
+    "idempotency keys",
+    "owner identity",
+    "CSRF tokens",
+    "route authorization",
+    "request body limits",
+    "local test evidence"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

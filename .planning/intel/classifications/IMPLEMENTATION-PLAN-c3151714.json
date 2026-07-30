@@ -1,0 +1,28 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/IMPLEMENTATION-PLAN.md",
+  "type": "SPEC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "PROspector Implementation Plan",
+  "summary": "Defines the phased technical build, gated acceptance contracts, deployment sequence, and completion criteria for the private PROspector pilot.",
+  "scope": [
+    "Codex Sites application",
+    "D1 repositories",
+    "R2 object storage",
+    "Company Workspace",
+    "Consensus Interview",
+    "Market Discovery",
+    "prospecting",
+    "Gmail integration",
+    "CRM handoff",
+    "deployment gates"
+  ],
+  "cross_refs": [
+    "ADR-0004",
+    "MIGRATION-ONE-MINING.md",
+    "IMPLEMENTATION-SPEC.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -10,5 +10,11 @@ enrichment/state/
 out/
 state/
 
+# Owner-supplied imports/exports may contain business or personal data
+private-imports/
+workspace-exports/
+site/.dev.vars
+site/.wrangler/
+
 # OS
 .DS_Store

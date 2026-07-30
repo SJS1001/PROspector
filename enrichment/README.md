@@ -1,6 +1,8 @@
 # ONE for Mining — OSS Contact Enrichment Pipeline
 
-A self-hosted, open-source enrichment engine you own — the pragmatic version of "build our own Apollo." It takes the companies the nightly prospector finds, applies the **certification gate** (only warm, ICP-fit leads get enriched), then discovers and verifies contacts using free/OSS tools, with an optional paid API for better coverage.
+> **Archived unsafe prototype — do not use for production contacts or outreach.** This code can generate email patterns, treat MX-only domain checks as sufficient confidence, call a paid provider without the new approval-grant ledger, and export the result. It is retained only as migration evidence. The generic PROspector runtime must follow `docs/IMPLEMENTATION-SPEC.md`. The CLI and MCP entry points require an explicit local-only acknowledgement and remain ineligible for deployment.
+
+Historically, this was described as a self-hosted enrichment engine. That description is preserved below for forensic context, not as current operating guidance.
 
 It does **not** replicate Apollo's contact *database* (that's Apollo's moat — contributed + licensed data you can't legally recreate). It owns the *orchestration* and rents the *data layer* only when needed.
 

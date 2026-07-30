@@ -1,0 +1,40 @@
+{
+  "source_path": "/Users/stevensmith/Documents/PROspector/docs/MIGRATION-ONE-MINING.md",
+  "type": "SPEC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "ONE for Mining Migration Manifest",
+  "summary": "Specifies how legacy ONE for Mining artifacts and July 24 data are classified, transformed, validated, reviewed, and imported into PROspector.",
+  "scope": [
+    "ONE for Mining migration",
+    "legacy source artifacts",
+    "confirmed and proposed knowledge",
+    "Import Batches",
+    "field mappings",
+    "UUIDv5 identifiers",
+    "identity proposals",
+    "readiness review",
+    "acceptance checks"
+  ],
+  "cross_refs": [
+    "source/Digitalrain-ONE-for-Mining.md",
+    "source/Miningbrochure.md",
+    "strategy/CONTEXT.md",
+    "CONTEXT.md",
+    "strategy/ICP-MINING.md",
+    "strategy/SALES-MARKETING-PLAN.md",
+    "strategy/BATTLECARD-MINING.md",
+    "strategy/EVENTS-ORGS-CACHE.md",
+    "assets/ONE-PAGER.md",
+    "assets/SECURITY-ONE-PAGER.md",
+    "assets/CHANNELS-AND-SOCIAL.md",
+    "ops/nightly-agent-prompt.md",
+    "ops/SETUP-RUNBOOK.md",
+    "/Users/stevensmith/Desktop/digest-2026-07-24.md",
+    "/Users/stevensmith/Desktop/leads-2026-07-24.json",
+    "IMPLEMENTATION-SPEC.md"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
