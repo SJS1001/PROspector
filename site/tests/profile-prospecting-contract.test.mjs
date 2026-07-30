@@ -1,15 +1,69 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   applyMigrations,
   assertForbiddenOperationalRowsUnchanged,
   createD1Fixture,
+  countRows,
+  seedBoundHistorian,
   snapshotForbiddenOperationalRows,
 } from "./helpers/d1.mjs";
 
 const NOW = 1_780_000_000_000;
 const OWNER = { subject: "phase4-contract-owner", displayName: "Phase 4 contract owner" };
+
+test("04-02 full chain installs constrained Phase 4 persistence without Phase 5–7 effect tables", async () => {
+  const fixture = await createD1Fixture("phase4-schema-contract");
+  try {
+    const historian = await seedBoundHistorian(fixture.database);
+    await applyMigrations(fixture.database);
+    const expected = [
+      "profile_configuration_candidates", "profile_configuration_activations", "prospecting_schedules", "prospecting_runs", "prospecting_run_events",
+      "runner_assignments", "runner_assignment_revocations", "runner_submissions", "prospecting_source_lineage", "prospecting_signals",
+      "prospecting_candidates", "qualification_assessments", "profile_prospects", "prospect_review_decisions", "prospect_cooldowns", "prospect_reentry_events",
+    ];
+    for (const table of expected) {
+      const row = await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").bind(table).first();
+      assert.equal(row?.name, table, `${table} must be in the additive 0007 schema`);
+      assert.equal(await countRows(fixture.database, table), 0);
+    }
+    for (const table of ["enriched_contacts", "enrichment_grants", "outreach_packages", "message_versions", "message_dispatches", "export_jobs", "provider_credentials", "provider_secrets"]) {
+      const row = await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").bind(table).first();
+      assert.equal(row, null, `${table} belongs to a later effect phase and must be absent`);
+    }
+    for (const trigger of ["runner_submission_scope_insert", "runner_assignment_secret_immutable_update", "qualification_assessment_immutable_update", "prospect_review_immutable_update"]) {
+      const row = await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?").bind(trigger).first();
+      assert.equal(row?.name, trigger, `${trigger} must enforce D1-side containment`);
+    }
+    for (const [table, index] of [
+      ["profile_configuration_activations", "profile_configuration_activation_candidate_unique"],
+      ["prospecting_schedules", "prospecting_schedule_active_profile_unique"],
+      ["prospecting_runs", "prospecting_initial_run_unique"],
+      ["runner_assignments", "runner_assignment_token_hash_unique"],
+      ["profile_prospects", "profile_prospect_active_fingerprint_unique"],
+      ["prospect_cooldowns", "prospect_cooldown_active_unique"],
+    ]) {
+      const indexes = await fixture.database.prepare(`PRAGMA index_list('${table}')`).all();
+      assert.ok(indexes.results.some((entry) => entry.name === index), `${index} must arbitrate duplicate active Phase 4 facts`);
+    }
+    for (const [table, referencedTable] of [
+      ["prospecting_runs", "typed_configurations"],
+      ["runner_submissions", "runner_assignments"],
+      ["prospecting_signals", "prospecting_source_lineage"],
+      ["qualification_assessments", "prospecting_candidates"],
+      ["prospect_review_decisions", "profile_prospects"],
+    ]) {
+      const foreignKeys = await fixture.database.prepare(`PRAGMA foreign_key_list('${table}')`).all();
+      assert.ok(foreignKeys.results.some((entry) => entry.table === referencedTable), `${table} must retain its ${referencedTable} lineage FK`);
+    }
+    const replayedHistorian = await fixture.database.prepare("SELECT id FROM knowledge_versions WHERE id = ?").bind(historian.knowledgeVersionId).first();
+    assert.equal(replayedHistorian?.id, historian.knowledgeVersionId, "0007 must preserve prior Phase 2/3 historian rows");
+    const migration = await readFile(new URL("../drizzle/0007_profile_prospecting.sql", import.meta.url), "utf8");
+    assert.doesNotMatch(migration, /(?:DROP INDEX|ALTER TABLE)\s+`private_synthetic_proof_/i, "0007 must be strictly additive from committed 0006");
+  } finally { await fixture.dispose(); }
+});
 
 async function loadProfileReadiness(fixture) {
   try {

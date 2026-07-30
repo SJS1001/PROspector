@@ -11,10 +11,30 @@ export const MIGRATION_FILENAMES = [
   "0004_consensus_knowledge.sql",
   "0005_even_mastermind.sql",
   "0006_private-proof-run-binding.sql",
+  "0007_profile_prospecting.sql",
 ];
 
 const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, 4);
 const appliedMigrations = new WeakMap();
+
+export const PHASE4_PERSISTENCE_TABLES = [
+  "profile_configuration_candidates",
+  "profile_configuration_activations",
+  "prospecting_schedules",
+  "prospecting_runs",
+  "prospecting_run_events",
+  "runner_assignments",
+  "runner_assignment_revocations",
+  "runner_submissions",
+  "prospecting_source_lineage",
+  "prospecting_signals",
+  "prospecting_candidates",
+  "qualification_assessments",
+  "profile_prospects",
+  "prospect_review_decisions",
+  "prospect_cooldowns",
+  "prospect_reentry_events",
+];
 
 export const FORBIDDEN_OPERATIONAL_TABLES = [
   "profile_readiness_activations",
@@ -43,6 +63,7 @@ export const FORBIDDEN_OPERATIONAL_TABLES = [
   "external_effects",
   "credential_records",
   "provider_credentials",
+  "provider_secrets",
   "workspace_archives",
   "workspace_archive_objects",
 ];

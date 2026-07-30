@@ -50,6 +50,13 @@
       "when": 1785444101801,
       "tag": "0006_private-proof-run-binding",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785445481627,
+      "tag": "0007_profile_prospecting",
+      "breakpoints": true
     }
   ]
 }
