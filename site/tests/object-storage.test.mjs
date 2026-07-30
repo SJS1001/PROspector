@@ -9,11 +9,11 @@ test("workspace object prefix is opaque and rejects traversal", async () => {
     const storage = await vite.ssrLoadModule(
       new URL("../domain/ports/object-storage.ts", import.meta.url).pathname,
     );
-    const prefix = storage.workspaceObjectPrefix("ws_123-safe");
+    const prefix = await storage.workspaceObjectPrefix("ws_123-safe");
     assert.match(prefix, /^workspaces\/[a-f0-9]{32,64}\/capability-probes\/$/);
     assert.doesNotMatch(prefix, /ws_123-safe/);
-    assert.throws(() => storage.workspaceObjectPrefix("../foreign"));
-    assert.throws(() => storage.workspaceObjectPrefix(""));
+    await assert.rejects(storage.workspaceObjectPrefix("../foreign"));
+    await assert.rejects(storage.workspaceObjectPrefix(""));
 
     const source = await readFile(
       new URL("../domain/ports/object-storage.ts", import.meta.url),
@@ -21,6 +21,32 @@ test("workspace object prefix is opaque and rejects traversal", async () => {
     );
     assert.match(source, /export interface ObjectStoragePort/);
     assert.doesNotMatch(source, /R2Bucket|cloudflare:workers/);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("R2 adapter derives keys inside its admitted workspace scope", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const { R2ObjectStorage } = await vite.ssrLoadModule(
+      new URL(
+        "../adapters/cloudflare/r2-object-storage.ts",
+        import.meta.url,
+      ).pathname,
+    );
+    const bucket = new MemoryBucket();
+    const storage = new R2ObjectStorage(bucket, "ws_owner-scope");
+    const probeId = "a".repeat(32);
+    await storage.put(probeId, new Uint8Array([1, 2, 3]));
+    assert.equal(bucket.objects.size, 1);
+    const [key] = bucket.objects.keys();
+    assert.match(
+      key,
+      /^workspaces\/[a-f0-9]{64}\/capability-probes\/a{32}$/,
+    );
+    assert.doesNotMatch(key, /owner-scope/);
+    await assert.rejects(storage.get("../foreign"));
   } finally {
     await vite.close();
   }
@@ -89,6 +115,30 @@ class MemoryObjectStorage {
 
   async exists(probeId) {
     return this.objects.has(probeId);
+  }
+}
+
+class MemoryBucket {
+  constructor() {
+    this.objects = new Map();
+  }
+
+  async put(key, bytes) {
+    this.objects.set(key, new Uint8Array(bytes));
+  }
+
+  async get(key) {
+    const bytes = this.objects.get(key);
+    if (!bytes) return null;
+    return { arrayBuffer: async () => new Uint8Array(bytes).buffer };
+  }
+
+  async delete(key) {
+    this.objects.delete(key);
+  }
+
+  async head(key) {
+    return this.objects.has(key) ? {} : null;
   }
 }
 

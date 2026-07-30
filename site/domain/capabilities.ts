@@ -1,3 +1,5 @@
+import type { ObjectStoragePort } from "./ports/object-storage";
+
 export type CapabilityStatus = "proven" | "blocked" | "unproven";
 
 export const CAPABILITY_IDS = {
@@ -40,6 +42,22 @@ export type ProjectedCapability = {
   unavailableEffects: string[];
   checkedAt?: number;
   evidenceReference?: string;
+};
+
+export type ObjectStorageProof = {
+  status: "proven" | "blocked";
+  probeId: string;
+  checkedAt: number;
+  evidenceReference: string;
+  digest: string;
+  steps: {
+    put: boolean;
+    read: boolean;
+    digest: boolean;
+    delete: boolean;
+    absence: boolean;
+  };
+  reason: string;
 };
 
 type ProjectionInput = {
@@ -183,6 +201,73 @@ export function projectCapabilityState(
   };
 }
 
+export async function runObjectStorageProof(
+  storage: ObjectStoragePort,
+): Promise<ObjectStorageProof> {
+  const probeId = randomHex(16);
+  const bytes = new Uint8Array(64);
+  crypto.getRandomValues(bytes);
+  const expectedDigest = await sha256(bytes);
+  const checkedAt = Date.now();
+  const evidenceReference = `r2-proof-${probeId}`;
+  const steps = {
+    put: false,
+    read: false,
+    digest: false,
+    delete: false,
+    absence: false,
+  };
+
+  try {
+    await storage.put(probeId, bytes);
+    steps.put = true;
+
+    const restored = await storage.get(probeId);
+    if (!restored) throw new Error("read_failed");
+    steps.read = true;
+    steps.digest = (await sha256(restored)) === expectedDigest;
+    if (!steps.digest) throw new Error("digest_mismatch");
+
+    await storage.delete(probeId);
+    steps.delete = true;
+    steps.absence = !(await storage.exists(probeId));
+    if (!steps.absence) throw new Error("residual_object");
+
+    return {
+      status: "proven",
+      probeId,
+      checkedAt,
+      evidenceReference,
+      digest: expectedDigest,
+      steps,
+      reason: "The fixed write, read, digest, delete, and absence proof passed.",
+    };
+  } catch {
+    if (steps.put && !steps.absence) {
+      try {
+        await storage.delete(probeId);
+        steps.delete = true;
+      } catch {
+        steps.delete = false;
+      }
+      try {
+        steps.absence = !(await storage.exists(probeId));
+      } catch {
+        steps.absence = false;
+      }
+    }
+    return {
+      status: "blocked",
+      probeId,
+      checkedAt,
+      evidenceReference,
+      digest: expectedDigest,
+      steps,
+      reason: "The fixed storage lifecycle proof did not complete.",
+    };
+  }
+}
+
 function evidenceDetails(evidence: CapabilityEvidence) {
   return {
     checkedAt: evidence.checkedAt,
@@ -201,4 +286,17 @@ function safeReason(value: string | undefined, fallback: string) {
     return fallback;
   }
   return value;
+}
+
+function randomHex(byteLength: number) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256(bytes: Uint8Array) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
