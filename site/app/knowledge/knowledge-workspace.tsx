@@ -15,12 +15,13 @@ export const HIERARCHY_SCOPE_LEGEND = ["Company", "Product", "Market Play", "Cus
 type LocalView = (typeof KNOWLEDGE_LOCAL_VIEWS)[number];
 type Projection = { commercial: CommercialModelProjection; interview: InterviewState; library: KnowledgeItemProjection[]; drift: DriftProjection[]; replacements: ReplacementProjection[] };
 type WorkspaceState = { kind: "loading" } | { kind: "ready"; value: Projection } | { kind: "unavailable"; message: string } | { kind: "unauthorized" } | { kind: "unknown"; message: string };
+type MutationNotice = { message: string; actionLabel: "Load current version" | "Check current version" };
 
 export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [state, setState] = useState<WorkspaceState>({ kind: "loading" });
   const [view, setView] = useState<LocalView>("Interview");
   const [pending, setPending] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<MutationNotice | null>(null);
   const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
   const operationKeys = useRef(new Map<string, string>());
 
@@ -30,7 +31,13 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
       const response = await fetch("/api/knowledge", { credentials: "same-origin", cache: "no-store" });
       if (response.status === 404) { onUnauthorized(); setState({ kind: "unauthorized" }); return; }
       if (!response.ok) { setState({ kind: "unavailable", message: "Authoritative knowledge could not be loaded. No authority has changed. Retry the knowledge load." }); return; }
-      const value = normalizeProjection(await response.json());
+      let value: Projection;
+      try {
+        value = normalizeProjection(await response.json());
+      } catch {
+        setState({ kind: "unknown", message: "Authoritative knowledge could not be verified. Reload this view." });
+        return;
+      }
       setState({ kind: "ready", value });
       setNotice(null);
     } catch {
@@ -66,19 +73,19 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
         if (!refreshed.ok) throw new Error("csrf_recovery_unavailable");
         response = await post();
       }
-      if (response.status === 409) { setNotice("This item changed in another tab. Your action was not applied. Review the current version before continuing."); return; }
+      if (response.status === 409) { setNotice({ message: "This item changed in another tab. Your action was not applied. Review the current version before continuing.", actionLabel: "Load current version" }); return; }
       if (!response.ok) throw new Error("mutation_unavailable");
       const value = normalizeProjection(await response.json());
       operationKeys.current.delete(logicalKey);
       setState({ kind: "ready", value });
     } catch {
-      setNotice("The outcome could not be verified. Nothing will be retried automatically. Check the current version.");
+      setNotice({ message: "The outcome could not be verified. Nothing will be retried automatically. Check the current version.", actionLabel: "Check current version" });
     } finally { setPending(null); }
   }, [keyFor, onUnauthorized, state.kind]);
 
   if (state.kind === "loading") return <section className="panel loading-state" role="status">Loading authoritative knowledge…</section>;
   if (state.kind === "unauthorized") return null;
-  if (state.kind !== "ready") return <section className="error-state" role="alert"><p>{state.message}</p><button className="outline" type="button" onClick={() => void load()}>Retry knowledge load</button></section>;
+  if (state.kind !== "ready") return <section className="error-state" role="alert"><p>{state.message}</p><button className="outline" type="button" onClick={() => void load()}>{state.kind === "unknown" ? "Reload this view" : "Retry knowledge load"}</button></section>;
 
   const { commercial, interview, library, drift, replacements } = state.value;
   const mutating = pending !== null;
@@ -92,21 +99,21 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
     <div className="page-heading"><div><span className="eyebrow">OWNER-SCOPED · VERSIONED KNOWLEDGE</span><h1>Consensus knowledge</h1><p>Build the commercial model, review one decision at a time, and keep every source, version, and downstream impact visible.</p></div><button className="primary" type="button" onClick={() => setView("Interview")}>Review current question</button></div>
     <nav className="knowledge-local-nav" aria-label="Knowledge views">{KNOWLEDGE_LOCAL_VIEWS.map((item) => <button key={item} type="button" aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>{item}</button>)}</nav>
     <nav className="knowledge-scope" aria-label="Selected commercial scope">{selectedPath.map((node, index) => <button key={node.id} type="button" aria-current={index === selectedPath.length - 1 ? "page" : undefined} onClick={() => { setSelectedScopeId(node.id); setView("Commercial Model"); }}>{node.name}</button>)}</nav>
-    {notice && <section className="error-state" role="alert"><p>{notice}</p><button className="outline" type="button" onClick={() => void load()}>Check current version</button></section>}
+    {notice && <section className="error-state" role="alert"><p>{notice.message}</p><button className="outline" type="button" onClick={() => void load()}>{notice.actionLabel}</button></section>}
     {disabled}
     <fieldset className="knowledge-action-boundary" disabled={mutating || notice !== null}><legend className="sr-only">Authoritative knowledge actions</legend>
       {view === "Commercial Model" && <CommercialModelView projection={commercial} knowledgeCounts={knowledgeCounts} selectedId={selectedScope?.id ?? ""} onSelect={setSelectedScopeId} operationKey="commercial" onCreateDraft={(command) => void dispatch("create_hierarchy_draft", `draft:${command.type}:${command.parentId}:${command.name}`, draftPayload(command))} onProposeChange={(node) => void dispatch("propose_owner_edit", `owner-edit:${node.id}`, proposalPayload(node, commercial))} />}
-      {view === "Interview" && <InterviewPane state={interview} commercial={commercial} selectedPath={selectedPath} pendingAction={pending} dispatch={dispatch} />}
-      {view === "Knowledge Library" && <KnowledgeLibraryView items={locatedLibrary} operationKey="library" pendingAction={pending} onIntake={(command) => void dispatch(command.action, `${command.action}:${command.source.reference}:${command.text}`, intakePayload(command))} onReviewProposal={(command) => void dispatch("review_knowledge_proposal", `review:${command.proposalId}:${command.decision}`, reviewPayload(command))} onProposeChange={(item) => void dispatch("propose_owner_edit", `owner-edit:${item.id}`, proposalPayload(item))} />}
+      {view === "Interview" && <InterviewPane state={interview} commercial={commercial} destinations={nodes} selectedPath={selectedPath} pendingAction={pending} dispatch={dispatch} />}
+      {view === "Knowledge Library" && <KnowledgeLibraryView items={locatedLibrary} destinations={nodes} operationKey="library" pendingAction={pending} onIntake={(command) => void dispatch(command.action, `${command.action}:${command.source.reference}:${command.text}`, intakePayload(command))} onReviewProposal={(command) => void dispatch("review_knowledge_proposal", `review:${command.proposalId}:${command.decision}`, reviewPayload(command))} onProposeChange={(item) => void dispatch("propose_owner_edit", `owner-edit:${item.id}`, proposalPayload(item))} />}
       {view === "Drift & Replacements" && <DriftReplacementsView drift={drift} candidates={replacements} operationKey="replacement" pendingAction={pending} onCreateCandidate={(command) => void dispatch("create_replacement_candidate", `candidate:${command.proposedVersionId}`, candidatePayload(command))} onActivateReplacement={(command) => void dispatch("activate_replacement", `activate:${command.candidateId}`, activationPayload(command))} />}
     </fieldset>
   </section>;
 }
 
-function InterviewPane({ state, commercial, selectedPath, pendingAction, dispatch }: { state: InterviewState; commercial: CommercialModelProjection; selectedPath: readonly CommercialHierarchyNode[]; pendingAction: string | null; dispatch: (action: string, logicalKey: string, fields: Record<string, unknown>) => Promise<void> }) {
+function InterviewPane({ state, commercial, destinations, selectedPath, pendingAction, dispatch }: { state: InterviewState; commercial: CommercialModelProjection; destinations: readonly CommercialHierarchyNode[]; selectedPath: readonly CommercialHierarchyNode[]; pendingAction: string | null; dispatch: (action: string, logicalKey: string, fields: Record<string, unknown>) => Promise<void> }) {
   if (state.status === "uninitialized") return <section className="panel"><h2>Commercial workspace is unavailable</h2><p>Authoritative workspace initialization must be completed by the admitted server boundary.</p></section>;
   const selected = selectedPath.at(-1);
-  return <div className="interview-layout"><ConsensusInterviewView state={state} pendingAction={pendingAction} answerOperationKey="interview-answer" decisionOperationKey="interview-decision" onSubmitAnswer={(command) => void dispatch("submit_interview_answer", `answer:${command.questionId}:${command.expectedRevision}`, answerPayload(command))} onRecordDecision={(command) => void dispatch("record_interview_decision", `decision:${command.answerId}:${command.decision}`, decisionPayload(command))} /><aside className="panel interview-scope" aria-label="Selected commercial scope"><span className="eyebrow">SELECTED COMMERCIAL SCOPE</span><h2>{selected?.name ?? commercial.workspace.companyName}</h2><ol>{selectedPath.map((node, index) => <li key={node.id} className={index === selectedPath.length - 1 ? "current" : "done"}><span>{node.type.replaceAll("_", " ")}</span><b>{node.name}</b></li>)}</ol><p>This is the browsing scope selected in the Commercial Model. It does not change the question destination shown in the decision card or authorize a later operational effect.</p></aside></div>;
+  return <div className="interview-layout"><ConsensusInterviewView state={state} destinations={destinations} pendingAction={pendingAction} answerOperationKey="interview-answer" decisionOperationKey="interview-decision" onSubmitAnswer={(command) => void dispatch("submit_interview_answer", `answer:${command.questionId}:${command.expectedRevision}`, answerPayload(command))} onRecordDecision={(command) => void dispatch("record_interview_decision", `decision:${command.answerId}:${command.decision}`, decisionPayload(command))} /><aside className="panel interview-scope" aria-label="Selected commercial scope"><span className="eyebrow">SELECTED COMMERCIAL SCOPE</span><h2>{selected?.name ?? commercial.workspace.companyName}</h2><ol>{selectedPath.map((node, index) => <li key={node.id} className={index === selectedPath.length - 1 ? "current" : "done"}><span>{node.type.replaceAll("_", " ")}</span><b>{node.name}</b></li>)}</ol><p>This is the browsing scope selected in the Commercial Model. It does not change the question destination shown in the decision card or authorize a later operational effect.</p></aside></div>;
 }
 
 function draftPayload(command: CommercialCommand) { return { type: command.type, parentId: command.parentId, name: command.name, expectedRevision: command.expectedRevision }; }
@@ -127,10 +134,17 @@ function pendingCopy(pending: string) { if (pending.startsWith("answer:")) retur
 function normalizeProjection(value: unknown): Projection {
   if (!isRecord(value) || !isRecord(value.commercial) || !isRecord(value.interview) || !Array.isArray(value.library) || !Array.isArray(value.drift) || !Array.isArray(value.replacements)) throw new Error("malformed_projection");
   const commercial = value.commercial as unknown as CommercialModelProjection;
-  if (!Array.isArray(commercial.path) || !commercial.path.length || !commercial.path.every(validNode)) throw new Error("malformed_commercial_projection");
+  const collections = [commercial.path, commercial.products, commercial.plays, commercial.profiles, commercial.offers];
+  if (collections.some((collection) => !Array.isArray(collection)) || !commercial.path.length || collections.some((collection) => !collection.every(validNode))) throw new Error("malformed_commercial_projection");
+  const seen = new Map<string, CommercialHierarchyNode>();
+  for (const node of collections.flat()) {
+    const prior = seen.get(node.id);
+    if (prior && (prior.type !== node.type || prior.parentId !== node.parentId || prior.name !== node.name)) throw new Error("conflicting_commercial_projection");
+    seen.set(node.id, node);
+  }
   const interview = value.interview as InterviewState;
   if (typeof interview.status !== "string") throw new Error("malformed_interview_projection");
   return { commercial, interview, library: value.library as KnowledgeItemProjection[], drift: value.drift as DriftProjection[], replacements: value.replacements as ReplacementProjection[] };
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
-function validNode(value: unknown): value is CommercialHierarchyNode { return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && typeof value.type === "string"; }
+function validNode(value: unknown): value is CommercialHierarchyNode { return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && ["company", "product", "market_play", "customer_profile", "offer"].includes(String(value.type)) && (value.parentId === null || typeof value.parentId === "string") && typeof value.revision === "number"; }

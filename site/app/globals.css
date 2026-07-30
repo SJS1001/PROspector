@@ -97,7 +97,7 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .knowledge-workspace h2 { font-size:16px; font-weight:760; line-height:1.2; }
 .knowledge-workspace h3 { font-size:16px; font-weight:760; line-height:1.2; }
 .knowledge-workspace .eyebrow,.knowledge-workspace .question-number { color:var(--teal); font-size:10px; font-weight:760; line-height:1.2; letter-spacing:1.15px; }
-.knowledge-workspace button,.knowledge-workspace input,.knowledge-workspace textarea { min-height:44px; font-size:12px; font-weight:400; }
+.knowledge-workspace button,.knowledge-workspace input,.knowledge-workspace select,.knowledge-workspace textarea { min-height:44px; font-size:12px; font-weight:400; }
 .knowledge-workspace button { font-weight:760; }
 .knowledge-workspace .primary { border-color:var(--green); background:var(--green); color:var(--white); padding:8px 16px; font-size:12px; font-weight:760; }
 .knowledge-workspace .outline { padding:8px 16px; font-size:12px; font-weight:760; }
@@ -120,8 +120,9 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .knowledge-library-view > .panel > div button[aria-current="page"] { border-color:var(--green); background:var(--green); color:var(--white); }
 .knowledge-workspace form,.knowledge-workspace fieldset { display:grid; gap:8px; margin:16px 0 0; border:0; padding:0; }
 .knowledge-workspace label { display:grid; gap:4px; color:var(--muted); }
-.knowledge-workspace input,.knowledge-workspace textarea { width:100%; border:1px solid var(--line); border-radius:7px; background:var(--white); color:var(--ink); padding:8px; }
+.knowledge-workspace input,.knowledge-workspace select,.knowledge-workspace textarea { width:100%; border:1px solid var(--line); border-radius:7px; background:var(--white); color:var(--ink); padding:8px; }
 .knowledge-workspace textarea { min-height:96px; resize:vertical; }
+.knowledge-workspace .control-reason { color:var(--muted); font-size:11px; line-height:1.45; }
 .knowledge-workspace .confirmation-proof div { align-items:start; }
 .knowledge-workspace .confirmation-proof dt,.knowledge-workspace .confirmation-proof dd { font-size:10px; }
 .knowledge-workspace .confirmation-proof dd,.knowledge-workspace code { font-family:var(--font-geist-mono); overflow-wrap:anywhere; text-align:left; }

@@ -42,18 +42,33 @@ test("Knowledge UI contract keeps authority distinct from operational effects", 
 });
 
 test("correction and rescope decisions use native required form submission", async () => {
-  const [interview, library] = await Promise.all([
+  const [interview, library, destinations, workspace] = await Promise.all([
     readFile(new URL("../app/knowledge/consensus-interview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/knowledge/knowledge-library.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/knowledge/commercial-destination-select.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/knowledge/knowledge-workspace.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(interview, /<form onSubmit=/);
   assert.match(interview, /<button className="primary" type="submit"/);
   assert.match(interview, /<input required value=\{value\}/);
   assert.match(interview, /<textarea required value=\{reason\}/);
+  assert.match(interview, /selectedCommercialDestination\(destinations, destinationId\)/);
+  assert.doesNotMatch(interview, /destination: \{ \.\.\.destination, locator: value\.trim\(\) \}/);
   assert.doesNotMatch(interview, /QUESTION 1 \/ 1/);
   assert.match(library, /<form onSubmit=/);
-  assert.match(library, /<button className="primary" type="submit">\{reviewLabel\}/);
+  assert.match(library, /selectedCommercialDestination\(destinations, destinationId\)/);
   assert.match(library, /correction: correction\.trim\(\)/);
+  assert.doesNotMatch(library, /scopeType: item\.destination\.scopeType, locator: correction\.trim\(\)/);
+  assert.match(destinations, /scopeType: destination\.type/);
+  assert.match(destinations, /id: destination\.id/);
+  assert.match(destinations, /locator: destination\.name/);
+  assert.match(destinations, /path\.join\(" \/ "\)/);
+  assert.match(destinations, /<select/);
+  assert.match(destinations, /disabled=\{!destinations\.length\}/);
+  assert.match(workspace, /destinations=\{nodes\}/);
+  assert.match(workspace, /actionLabel: "Load current version"/);
+  assert.match(workspace, /Authoritative knowledge could not be verified\. Reload this view\./);
+  assert.match(workspace, /state\.kind === "unknown" \? "Reload this view" : "Retry knowledge load"/);
 });
 
 test("unsafe drift and activation commands stay unavailable without exact server authority", async () => {
@@ -63,6 +78,31 @@ test("unsafe drift and activation commands stay unavailable without exact server
   assert.match(drift, /disabled=\{!activationReady\}/);
   assert.doesNotMatch(drift, /expectedOwnerRevision: 1/);
   assert.match(drift, /Activation preserves the current snapshot as history/);
+  assert.match(drift, /if \(active\) activeHeading\.current\?\.focus\(\)/);
+  assert.match(drift, /\{active \? "Replacement active" : "Replacement candidate"\}/);
+});
+
+test("commercial destination selector disambiguates duplicate names and returns only projected authority", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const picker = await vite.ssrLoadModule(new URL("../app/knowledge/commercial-destination-select.tsx", import.meta.url).pathname);
+    const nodes = [
+      { id: "company-1", type: "company", parentId: null, name: "Example", lifecycle: "active", revision: 1 },
+      { id: "product-1", type: "product", parentId: "company-1", name: "ONE", lifecycle: "active", revision: 1 },
+      { id: "play-1", type: "market_play", parentId: "product-1", name: "Operations", lifecycle: "draft", revision: 1 },
+      { id: "play-2", type: "market_play", parentId: "product-1", name: "Operations", lifecycle: "draft", revision: 1 },
+    ];
+    assert.equal(picker.destinationLabel(nodes[2], nodes), "Market Play · Example / ONE / Operations · ref play-1");
+    assert.notEqual(picker.destinationLabel(nodes[2], nodes), picker.destinationLabel(nodes[3], nodes));
+    assert.deepEqual(picker.selectedCommercialDestination(nodes, "play-2"), {
+      scopeType: "market_play",
+      id: "play-2",
+      locator: "Operations",
+    });
+    assert.equal(picker.selectedCommercialDestination(nodes, "attacker-supplied-id"), null);
+  } finally {
+    await vite.close();
+  }
 });
 
 test("commercial hierarchy, counts, locators, and pending copy use projected data", async () => {
