@@ -3,15 +3,20 @@ phase: 02-consensus-knowledge-and-commercial-model
 review: ui
 audited: 2026-07-30
 baseline: 02-UI-SPEC.md
+source_commit: 0267b85
+fix_commits: [44a9f48, 91f42fc, 991a92b]
 screenshots: not-captured-no-dev-server
-overall_score: 11/24
+overall_score: 15/24
+status: acceptance_blockers
 ---
 
 # Phase 2 — UI Review
 
 **Audited:** 2026-07-30  
 **Baseline:** Approved `02-UI-SPEC.md` and locked `02-CONTEXT.md`  
-**Screenshots:** Not captured — no dev server responded on localhost ports 3000, 5173, or 8080. Findings are code-backed; `needs_human_review: true` applies only to unverified rendered visual balance.
+**Fixes re-reviewed:** `44a9f48`, `91f42fc`, `991a92b`
+
+**Screenshots:** Not captured — no dev server responded on localhost ports 3000, 5173, or 8080. Code and SSR findings are definitive; rendered balance, contrast, and viewport fit remain `needs_human_review: true`.
 
 ---
 
@@ -19,79 +24,116 @@ overall_score: 11/24
 
 | Pillar | Score | Key Finding |
 |--------|-------|-------------|
-| 1. Copywriting | 2/4 | Several contract-critical empty, drift, and pending messages are replaced by ambiguous or generic copy. |
-| 2. Visuals | 2/4 | The commercial tree cannot render the complete hierarchy projection or truthful counts; rendered composition still needs human review. |
-| 3. Color | 2/4 | Phase-specific semantic treatments are present, but primary controls use off-contract green and the inherited stylesheet has uncontrolled color proliferation. |
-| 4. Typography | 2/4 | The Knowledge UI inherits extra sizes and weights, including 25px/11px and 730/800 rather than the four-size/two-weight contract. |
-| 5. Spacing | 2/4 | The implemented screen retains non-token 28px, 15px, 18px, and 20px spacing in active Knowledge component styles. |
-| 6. Experience Design | 1/4 | Required correction/rescope inputs are bypassable and Drift omits the required four review actions. |
+| 1. Copywriting | 3/4 | Required empty-state copy is now exact; concurrency recovery still collapses distinct cases into one notice/CTA. |
+| 2. Visuals | 2/4 | The selected hierarchy path and active-question hierarchy are fixed, but core interview, drift, replacement, and authority-detail content remains absent from server projections. |
+| 3. Color | 3/4 | Semantic Phase 2 treatments match the contract in code; rendered 60/30/10 balance and contrast were not available to verify. |
+| 4. Typography | 3/4 | The active question is restored to 28px and scoped styles match the declared scale; rendered wrapping remains unverified. |
+| 5. Spacing | 3/4 | The 4px spacing scale, 320px rails, targets, and breakpoints are represented; actual viewport fit remains unverified. |
+| 6. Experience Design | 1/4 | Quarantine SSR is fixed, but exact-ID rescope is incomplete and required drift/replacement tasks remain impossible from the current read models. |
 
-**Overall: 11/24**
+**Overall: 15/24**
+
+---
+
+## Fix-Commit Verification
+
+| Requested verification | Result | Evidence |
+|---|---|---|
+| Quarantine SSR | **FIXED** | The projection is a discriminated union; quarantined cards branch before content access, render fixed metadata-only copy, suppress even defensively supplied raw content, and expose no review control. The SSR regression passes. [knowledge-library.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-library.tsx:5) [knowledge-library.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-library.tsx:24) [knowledge-ui.test.mjs](/Users/stevensmith/Documents/PROspector/site/tests/knowledge-ui.test.mjs:85) |
+| Exact destination IDs | **PARTIALLY FIXED** | Owner-edit payloads now carry the projected node ID and locator; the server validates ID, scope type, workspace, hierarchy ancestry, and locator agreement, and ambiguous name-only lookup fails closed. Proposal and interview **rescope** controls still send free-text locators without projected IDs. [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:113) [knowledge.ts](/Users/stevensmith/Documents/PROspector/site/domain/knowledge.ts:122) [knowledge-library.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-library.tsx:29) [consensus-interview.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/consensus-interview.tsx:16) |
+| Selection | **FIXED** | Selection is workspace-owned, tree selection updates the shared scope, and breadcrumbs/sidebar derive the actual ancestor chain instead of treating the last flattened item as current. [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:24) [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:85) [commercial-model.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/commercial-model.tsx:9) |
+| Proposed/Confirmed counts | **FIXED FOR AVAILABLE DATA** | Counts are computed per exact destination ID from the live library and shown for the selected node. The contract's third count, unresolved drift, is still absent from the commercial projection/UI. [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:89) [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:124) [commercial-model.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/commercial-model.tsx:23) |
 
 ---
 
 ## Top 3 Priority Fixes
 
-1. **BLOCKER — prevent invalid immutable decisions.** Correction/rescope controls declare `required` but their `type="button"` handlers dispatch blank values. Use real forms or explicit validity checks, disable submission until all required fields are valid, focus the first invalid field, and preserve the exact reviewed snapshot while pending.
-2. **BLOCKER — complete the Drift owner workflow.** Every drift card must expose Accept, Reject, Correct, and Rescope with the same exact-snapshot semantics as proposal review; do not leave only candidate creation.
-3. **WARNING — render the authoritative commercial model, not the active path.** Build the tree from all server-projected children (including Greenfield/sibling plays/offers), and display actual confirmed/proposed/drift counts rather than the literal `Server projection required` placeholder.
+1. **BLOCKER — replace free-text rescope locators with exact projected-node selection.** Valid duplicate hierarchy names cannot currently be selected for proposal or interview rescope. Pass `{scopeType, id, locator}` from a hierarchy picker and retain the server's ancestry validation.
+2. **BLOCKER — return complete drift and replacement projections.** Supply proposal/revision/destination review bindings, current/proposed/provenance/path/impact data, candidate configuration references, expected owner revision, and activation-result lineage so the contracted review and activation flows can run.
+3. **BLOCKER — complete the remaining authoritative read models.** Preserve structured interview evidence/destination/prerequisites, per-entity unresolved-drift and correct lifecycle/nurture state, and full Confirmed Knowledge provenance/decision/dependency lineage.
+
+---
+
+## Open Findings by Boundary
+
+### Local UI findings
+
+1. **BLOCKER — UI-B1: rescope is not bound to an exact projected destination ID.** Both rescope forms accept a string and submit it as `locator`; they do not present the projected hierarchy or send its ID. The server safely rejects ambiguous names, but the owner then cannot complete a valid rescope to either duplicate-named node. [knowledge-library.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-library.tsx:29) [consensus-interview.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/consensus-interview.tsx:16)
+2. **WARNING — UI-W1: stale-revision recovery uses the wrong CTA and generic state.** A 409 shows the required alert sentence, but the button is `Check current version`, not `Load current version`; answer-submitted-elsewhere, decision-completed-elsewhere, and superseded-question states are not distinguished. The action boundary now remains disabled until reconciliation, which closes the prior unsafe re-enable defect. [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:69) [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:95) [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:97)
+3. **WARNING — UI-W2: replacement success has no explicit focus transfer.** The active result has visible status and localized live content, but activation does not move focus to `Replacement active` as required. [drift-replacements.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/drift-replacements.tsx:16)
+
+### Backend/read-model contract gaps
+
+1. **BLOCKER — API-B1: drift review cannot be represented.** `readDrift` returns only ID, risk, status, and impact digest. It omits proposal/revision/destination bindings, values, provenance, paths, reached artifacts/counts, containment, and candidate inputs. [knowledge-handler.ts](/Users/stevensmith/Documents/PROspector/site/domain/knowledge-handler.ts:162)
+2. **BLOCKER — API-B2: replacement activation cannot be represented.** `readReplacements` returns only ID, status, digest, and revision. Required configuration references, proposed version, impact digest, expected owner revision, activation time/owner/audit, and preserved snapshot are absent. [knowledge-handler.ts](/Users/stevensmith/Documents/PROspector/site/domain/knowledge-handler.ts:163)
+3. **BLOCKER — API-B3: Interview discards structured research-first authority on read.** `QuestionView` exposes legacy premise/inference/provenance/recommendation fields; stored evidence findings, exact destination, and prerequisite versions are compressed or omitted. [interview.ts](/Users/stevensmith/Documents/PROspector/site/domain/interview.ts:20) [interview.ts](/Users/stevensmith/Documents/PROspector/site/domain/interview.ts:293)
+4. **WARNING — API-B4: Commercial detail lacks required drift/lifecycle truth.** The local selection path is now correct, but every projected profile is still marked `nurture` and entity detail has no unresolved-drift count. [commercial-model.ts](/Users/stevensmith/Documents/PROspector/site/domain/commercial-model.ts:99) [commercial-model.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/commercial-model.tsx:35)
+5. **WARNING — API-B5: Confirmed Knowledge authority detail is incomplete.** The version read omits confirmation time, audit reference, full provenance, successor links, and dependencies while the card claims those lineages exist. [knowledge.ts](/Users/stevensmith/Documents/PROspector/site/domain/knowledge.ts:145) [knowledge-library.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-library.tsx:29)
+
+### External evidence blockers — not local UI defects
+
+- Plan 02-12 still requires a real second signed-in principal boundary proof with zero owner-side delta.
+- Plan 02-12 still requires an accepted, read-only hosted D1 schema-0003 baseline.
+- No local test, SSR render, screenshot, report, fixture, or digest substitutes for either checkpoint. No hosted migration, deployment, activation, access-policy, secret, or control-plane action was attempted.
 
 ---
 
 ## Detailed Findings
 
-### Pillar 1: Copywriting (2/4)
+### Pillar 1: Copywriting (3/4)
 
-- **WARNING:** The required empty-state copy is not implemented. The Library says `No proposed Knowledge` / `No reviewable proposed knowledge matches this scope` rather than the specified `No proposed knowledge to review` heading and explanatory body; the confirmed equivalent is also different. This removes the owner guidance that explains how authority is established. [knowledge-library.tsx](../../../site/app/knowledge/knowledge-library.tsx:13)
-- **WARNING:** The required empty-drift heading/body is replaced with only `No unresolved drift is recorded.` The owner loses the explicit statement that confirmed knowledge and active configurations have no differences requiring review. [drift-replacements.tsx](../../../site/app/knowledge/drift-replacements.tsx:13)
-- **WARNING:** Mutation progress is a generic `Saving the reviewed authority snapshot…`; the contract requires action-specific labels such as `Submitting answer…` and `Activating replacement…`. [knowledge-workspace.tsx](../../../site/app/knowledge/knowledge-workspace.tsx:85)
-- **WARNING:** The active-question metadata hard-codes `QUESTION 1 / 1`, `COMPANY`, `Prerequisites: none recorded`, and retrieval metadata instead of rendering the authoritative question number, destination, prerequisite versions, source date, and retrieval time. [consensus-interview.tsx](../../../site/app/knowledge/consensus-interview.tsx:17)
+- **PASS:** Proposed, Confirmed, and drift empty-state headings and bodies now match the locked contract exactly. [knowledge-library.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-library.tsx:16) [drift-replacements.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/drift-replacements.tsx:13)
+- **WARNING:** The 409 recovery CTA and distinct concurrency messages remain off-contract as UI-W1 describes.
+- **WARNING — backend-dependent:** Honest `not included in the current server projection` messages avoid fabricated authority, but are not acceptable final copy for evidence metadata, destinations, prerequisites, or lineage.
 
 ### Pillar 2: Visuals (2/4)
 
-- **WARNING:** `CommercialModelView` constructs its tree only from `projection.path` and `projection.offers`; sibling customer profiles/market plays outside the current path cannot appear. That fails the contract’s visible nested Digitalrain → ONE → ONE for Mining → Operating + Greenfield model and prevents a complete scope visual. [commercial-model.tsx](../../site/app/knowledge/commercial-model.tsx:17) [commercial-model.tsx](../../site/app/knowledge/commercial-model.tsx:19)
-- **WARNING:** Entity detail displays literal placeholders for confirmed/proposed/drift counts, rather than the required authoritative counts; this is a visible incomplete state in the central detail panel. [commercial-model.tsx](../../site/app/knowledge/commercial-model.tsx:31)
-- **WARNING:** The Commercial Model uses a 320px tree rail as required, but the Interview view has no actual scope sidebar; the fixed two-column interview composition is absent from the React structure. [commercial-model.tsx](../../site/app/knowledge/commercial-model.tsx:22) [knowledge-workspace.tsx](../../site/app/knowledge/knowledge-workspace.tsx:94)
-- `needs_human_review: true` — no running client was available to verify hierarchy density, focal hierarchy, 60/30/10 distribution, or overflow at 1440/768/375px.
+- **PASS:** The hierarchy is nested; shared selection now drives a real ancestor path and Interview sidebar; the active question is again the 28px focal point. [commercial-model.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/commercial-model.tsx:26) [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:87) [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:135)
+- **WARNING:** Missing backend fields leave visible cards dominated by `Not included in projection` and contract-gap prose instead of the required evidence, impact, activation, and lineage hierarchy.
+- `needs_human_review: true` — hierarchy density, contrast, clipping, and visual balance could not be assessed at 1440×900, 768×1024, or 375×812.
 
-### Pillar 3: Color (2/4)
+### Pillar 3: Color (3/4)
 
-- **WARNING:** The contract reserves `#194b38` for primary CTA/active local navigation/focus, but `.primary` renders `#153f30`. This creates a second competing authority green. [globals.css](../../site/app/globals.css:19) [globals.css](../../site/app/globals.css:102)
-- **WARNING:** The Phase 2 view uses `fit-pill` for both Proposed Knowledge and High-risk drift; the class is amber only because it is later overridden, while the global class is green. The state treatment is therefore context-dependent rather than a dedicated semantic token. [globals.css](../../site/app/globals.css:26) [globals.css](../../site/app/globals.css:123) [drift-replacements.tsx](../../site/app/knowledge/drift-replacements.tsx:15)
-- **WARNING:** The stylesheet contains a large uncontrolled set of hard-coded greens/greys/ambers beyond the design tokens. This prevents proving the required 60/30/10 distribution and makes semantic corrections fragile. [globals.css](../../site/app/globals.css:3)
+- **PASS:** Scoped primary, active navigation, focus, Proposed/high-risk, Confirmed/active, neutral, and error treatments use the declared green/amber/neutral/red roles with text labels. [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:102) [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:139)
+- **WARNING:** `needs_human_review: true` — without a rendered client, the specified 60/30/10 distribution and actual contrast cannot be proven.
 
-### Pillar 4: Typography (2/4)
+### Pillar 4: Typography (3/4)
 
-- **WARNING:** The Phase 2 contract permits only 10px/12px/16px/28px and 400/760. Active shared styles retain 9px, 11px, 25px, 34px, 730, and 800; Knowledge controls inherit 11px/730 from `.primary`. [globals.css](../../site/app/globals.css:19) [globals.css](../../site/app/globals.css:24) [globals.css](../../site/app/globals.css:95)
-- **WARNING:** Mono references use a generic system monospace stack instead of the specified Geist Mono, despite the contract requiring the font for digests, IDs, and source references. [globals.css](../../site/app/globals.css:25)
+- **PASS:** Scoped body, metadata, headings, buttons, digests, and IDs use the declared 10/12/16/28px sizes, 400/760 weights, and Geist Mono roles. The active question now overrides the generic card heading to 28px across breakpoints. [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:95) [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:135)
+- **WARNING:** `needs_human_review: true` — long-question wrapping and hierarchy-label legibility were not render-tested.
 
-### Pillar 5: Spacing (2/4)
+### Pillar 5: Spacing (3/4)
 
-- **WARNING:** The active question card retains 28px padding, which is not in the declared 4/8/16/24/32/48/64 spacing scale. [globals.css](../../site/app/globals.css:24)
-- **WARNING:** Shared controls used by the Knowledge workspace apply 10px × 15px padding, and other live panel rules use 18px/20px. These conflict with the contract’s prescribed 44px targets and spacing scale rather than extending it cleanly. [globals.css](../../site/app/globals.css:19) [globals.css](../../site/app/globals.css:22) [globals.css](../../site/app/globals.css:107)
-- **WARNING:** At 1050px the Commercial layout stacks correctly, but the specified 300–320px Interview sidebar has not been implemented, so its responsive transition cannot be audited. [globals.css](../../site/app/globals.css:130) [knowledge-workspace.tsx](../../site/app/knowledge/knowledge-workspace.tsx:94)
+- **PASS:** Scoped layout uses 4/8/16/24px spacing, 320px hierarchy/interview rails, 44px targets, and the declared 1050/760/480 responsive thresholds. [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:104) [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:145) [globals.css](/Users/stevensmith/Documents/PROspector/site/app/globals.css:153)
+- **WARNING:** `needs_human_review: true` — 375px action stacking, long immutable IDs, hierarchy names, and path overflow were not available for screenshot inspection.
 
 ### Pillar 6: Experience Design (1/4)
 
-- **BLOCKER:** Stage 1 correction/rescope values and reasons can be blank. The fields are marked `required`, but the submission control is `type="button"`, so browser validity never runs and the callback dispatches the empty strings. This permits an invalid authority mutation attempt rather than moving focus to a required field. [consensus-interview.tsx](../../site/app/knowledge/consensus-interview.tsx:17)
-- **BLOCKER:** The same bypass exists for Stage 2 Correct/Rescope and proposal review Correct/Rescope. `required` inputs live outside a submitted form and callbacks remain enabled with empty correction/reason/destination values. [consensus-interview.tsx](../../site/app/knowledge/consensus-interview.tsx:18) [knowledge-library.tsx](../../site/app/knowledge/knowledge-library.tsx:23)
-- **BLOCKER:** Drift cards do not render Accept, Reject, Correct, or Rescope, although every card must provide them. The implementation has only `Create replacement candidate` plus explanatory text, so an owner cannot perform the required drift review task. [drift-replacements.tsx](../../site/app/knowledge/drift-replacements.tsx:15)
-- **WARNING:** All mutation controls are globally disabled through a surrounding fieldset, but leaf components do not receive action/pending state. Consequently the UI cannot show the action-specific pending labels or retain a distinct disabled reason beside each unavailable action. [knowledge-workspace.tsx](../../site/app/knowledge/knowledge-workspace.tsx:85) [knowledge-workspace.tsx](../../site/app/knowledge/knowledge-workspace.tsx:92)
-- **WARNING:** The stale/unknown issue controls in the Interview leaf have no callback, so their visible `Check current version` button does nothing when that prop is used. [consensus-interview.tsx](../../site/app/knowledge/consensus-interview.tsx:12)
-- **WARNING:** Candidate activation does not render the mandatory full impact summary, preserved prior snapshot link, activation-success timestamp/owner/audit reference, or exact activation boundary statement immediately above the CTA. [drift-replacements.tsx](../../site/app/knowledge/drift-replacements.tsx:16)
+- **PASS:** Metadata-only quarantine rendering is safe and total; the SSR regression covers missing `value` and defensive raw-value redaction. [knowledge-ui.test.mjs](/Users/stevensmith/Documents/PROspector/site/tests/knowledge-ui.test.mjs:85)
+- **PASS:** Owner-edit commands now bind exact projected IDs; selection/path and available count behavior are correct; stale/network notices keep mutations disabled until reconciliation. [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:97) [knowledge-workspace.tsx](/Users/stevensmith/Documents/PROspector/site/app/knowledge/knowledge-workspace.tsx:113)
+- **BLOCKER — local UI:** Exact-ID rescope remains unavailable for duplicate-name hierarchy nodes (UI-B1).
+- **BLOCKER — backend projection:** Drift review and replacement activation cannot be completed (API-B1/API-B2).
+- **BLOCKER — backend projection:** Research-first Interview confirmation cannot display exact evidence, destination, or prerequisites (API-B3).
+- **WARNING:** Replacement activation success has no explicit focus transfer (UI-W2).
 
 ---
 
 ## Files Audited
 
-- `02-CONTEXT.md`, `02-UI-SPEC.md`, and Phase 2 plans/summaries 01–11
-- `site/app/knowledge/knowledge-workspace.tsx`
-- `site/app/knowledge/commercial-model.tsx`
-- `site/app/knowledge/consensus-interview.tsx`
-- `site/app/knowledge/knowledge-library.tsx`
-- `site/app/knowledge/drift-replacements.tsx`
-- `site/app/prospector-app.tsx`
-- `site/app/globals.css`
-- `site/tests/knowledge-ui.test.mjs`, `site/tests/rendered-html.test.mjs`, `site/tests/fixture-safety.test.mjs`
+- Repository continuation, Phase 2 state/roadmap/activation, active reviews, `02-CONTEXT.md`, and `02-UI-SPEC.md`
+- Current `02-12-PLAN.md` and dependency `02-11-SUMMARY.md`
+- Phase 2 Knowledge React components and scoped CSS
+- Commercial, interview, knowledge, handler, drift, and replacement domain modules
+- Phase 2 UI, repository, drift/replacement, handler, migration, and rendered-output tests
+- Fix patches `44a9f48`, `91f42fc`, and `991a92b`
 
-**Verification:** the focused UI/render/fixture tests and lint pass. `components.json` is absent, so the Registry Safety audit is not applicable.
+## Verification
+
+- Node.js `v24.16.0` — meets the 22.13+ requirement
+- Production build within `npm test` — **PASS**
+- `node --test tests/knowledge-ui.test.mjs` — **PASS, 6/6**, including quarantine SSR
+- `npm run lint` — **PASS**
+- Full `npm test` test phase — started after a successful build, then interrupted to conclude the requested review; no failure was observed before interruption
+- Screenshot detection — no dev server on 3000, 5173, or 8080
+- Registry audit — not applicable; `components.json` is absent and the UI contract declares no registry blocks
+- Only this UI review was edited; no implementation or hosted state was changed

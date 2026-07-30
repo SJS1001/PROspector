@@ -1,138 +1,65 @@
 ---
 phase: 02-consensus-knowledge-and-commercial-model
-reviewed: 2026-07-30T18:49:59Z
+reviewed: 2026-07-30T19:35:48Z
 depth: deep
-files_reviewed: 32
+review_type: final_local_fix_re_review
+reviewed_commits: [44a9f48, 91f42fc, 991a92b, 1eeb098]
+files_reviewed: 14
 files_reviewed_list:
-  - site/tests/helpers/d1.mjs
-  - site/tests/migration-chain.test.mjs
-  - site/tests/commercial-model-repository.test.mjs
-  - site/tests/knowledge-repository.test.mjs
-  - site/tests/interview-repository.test.mjs
-  - site/tests/interview-handler.test.mjs
-  - site/tests/knowledge-handler.test.mjs
-  - site/tests/drift-replacement.test.mjs
-  - site/tests/knowledge-ui.test.mjs
-  - site/package.json
-  - site/package-lock.json
-  - site/db/schema.ts
-  - site/drizzle/0004_consensus_knowledge.sql
-  - site/drizzle/meta/0004_snapshot.json
-  - site/drizzle/meta/_journal.json
-  - site/domain/commercial-model.ts
-  - site/domain/knowledge.ts
-  - site/domain/interview.ts
-  - site/domain/interview-handler.ts
-  - site/domain/drift.ts
-  - site/domain/replacement.ts
-  - site/domain/knowledge-handler.ts
-  - site/app/api/knowledge/route.ts
+  - site/app/globals.css
   - site/app/knowledge/commercial-model.tsx
   - site/app/knowledge/consensus-interview.tsx
-  - site/app/knowledge/knowledge-library.tsx
   - site/app/knowledge/drift-replacements.tsx
+  - site/app/knowledge/knowledge-library.tsx
   - site/app/knowledge/knowledge-workspace.tsx
-  - site/app/prospector-app.tsx
-  - site/app/globals.css
-  - site/scripts/phase2-hosted-preflight.mjs
-  - site/scripts/phase2-gate.mjs
+  - site/domain/interview-handler.ts
+  - site/domain/interview.ts
+  - site/domain/knowledge-handler.ts
+  - site/domain/knowledge.ts
+  - site/domain/replacement.ts
+  - site/tests/drift-replacement.test.mjs
+  - site/tests/knowledge-repository.test.mjs
+  - site/tests/knowledge-ui.test.mjs
 findings:
-  critical: 5
-  warning: 4
+  critical: 0
+  warning: 0
   info: 0
-  total: 9
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 02: Code Review Report
 
-**Reviewed:** 2026-07-30T18:49:59Z
+**Reviewed:** 2026-07-30T19:35:48Z
 **Depth:** deep
-**Files Reviewed:** 32
-**Status:** issues_found
+**Files Reviewed:** 14
+**Fix commits:** `44a9f48`, `91f42fc`, `991a92b`, `1eeb098`
+**Status:** clean
 
 ## Summary
 
-The Phase 2 implementation contains fail-open activation tooling, authority writes which can commit after an optimistic-concurrency check has failed, broken first-Offer lineage enforcement, and an unscanned-source disclosure path. These are release blockers. The review traced the D1 schema, domain commands, handler gate, CLI gate writer, and React transport. Phase 12+ hosted activation evidence was treated as out of scope; the locally callable bypass that defeats its blocked boundary is reported below.
+CR-06, CR-07, CR-08, WR-05, and WR-06 are closed by the four reviewed commits. Quarantined projections now render without content, exact destination IDs are validated within the authorized hierarchy while ambiguous locators fail closed, public scope tokens survive the projection-to-mutation boundary, custody stores the submitted-content digest, and replacement candidate creation rolls back when its active-configuration guard loses.
 
-## Critical Issues
+All reviewed files meet the local quality standard. No open local code-review findings remain. Hosted activation evidence remains a separate checkpoint and was not substituted with local results.
 
-### CR-01: The local gate writer can activate Phase 2 with fabricated evidence
+Verification used Node.js `v24.16.0`. The focused Phase 2 suite passed 23/23, the final knowledge boundary recheck passed 15/15, and `npm run lint` passed. The full `npm test` build succeeded and all Phase 2 tests passed; the aggregate result was 45/58 because 13 later Phase 3 RED contract tests require the not-yet-implemented `site/domain/product-readiness.ts`. Those Phase 3 failures are outside this review scope and were not counted as Phase 2 findings.
 
-**File:** `site/scripts/phase2-gate.mjs:28-67`
+## Narrative Findings (AI reviewer)
 
-**Issue:** `activate` is a publicly callable CLI action and its only protection is syntactic prefix/regex checks in `assertEvidenceRelations`. Any operator with normal Wrangler/D1 credentials can provide values such as `authorization-x`, `appgprj_x~appgdep_y`, and `independent-review-x`; line 67 then executes the immutable insert. There is no separately authenticated human authorization, evidence verification, or Plan 19-only runtime interlock. `handleKnowledgePost` accepts that row as activation based only on nonempty columns and a 64-character digest at `site/domain/knowledge-handler.ts:149-152`. This locally bypasses the explicitly blocked hosted activation boundary.
+### Targeted Finding Resolution
 
-**Fix:** Remove or hard-disable `activate` until its separately authorized release plan. When activation is introduced, require a verified, server-side authorization artifact and recompute/verify the canonical tuple digest in the handler before enabling writes; do not treat user-supplied reference-shaped strings as proof.
+| Finding | Status | Re-review evidence |
+|---|---|---|
+| CR-06 — quarantined proposal UI crash | **CLOSED** | `knowledge-library.tsx:5-8,24-29` models a quarantined projection without `value`, renders fixed withheld-content text, and hides review controls. `knowledge-ui.test.mjs:85-117` covers both an omitted value and defensive redaction of an unexpected raw value. |
+| CR-07 — ambiguous hierarchy destination resolution | **CLOSED** | `knowledge.ts:122-141` validates exact IDs inside the workspace/type/ancestry query, verifies any supplied locator matches, and rejects zero or multiple locator matches. `knowledge-handler.ts:177-178` preserves IDs across the HTTP boundary, and `knowledge-repository.test.mjs:77-100` covers duplicate names, mismatched locators, exact IDs, and foreign workspaces. |
+| WR-05 — quarantine custody stored a metadata digest | **CLOSED** | `knowledge.ts:21-35` binds the SHA-256 of the submitted content to `source_custody.object_digest`; `knowledge-repository.test.mjs:64-69` verifies that digest while proving raw content is absent from persistence and projections. |
+| WR-06 — replacement candidate active-config race | **CLOSED** | `replacement.ts:60-68` conditionally inserts the authority command against the exact active configuration identity and revision, then makes the drift row depend on that command. Foreign keys make every later snapshot/candidate row roll back when the guard loses. `drift-replacement.test.mjs:65-110` injects that race and proves no partial command, drift, candidate, configuration, or audit remains. |
+| CR-08 — projected scope tokens rejected on mutation | **CLOSED** | `knowledge.ts:144-147` canonicalizes both proposal and version projections from database `play`/`profile` tokens to public `market_play`/`customer_profile` tokens, preserves already-public tokens, and fails closed for any unknown stored type. The focused handler/repository/UI boundary suite passes 15/15. |
 
-### CR-02: Proposal review can promote stale knowledge after its revision guard loses a race
-
-**File:** `site/domain/knowledge.ts:52-82`
-
-**Issue:** The code reads and validates `proposal.revision` at line 59, but the batch at lines 65-81 inserts the authority command, decision, Knowledge Item, and confirmed Knowledge Version before issuing the guarded proposal update at line 78. SQLite/D1 does not make an `UPDATE ... WHERE revision = ?` that changes zero rows fail the batch. A concurrent reviewer can therefore change the proposal between the read and batch: this invocation still commits a confirmed version and audit record even though its final `UPDATE` matched nothing. That violates immutable authority and the required D1 concurrency contract.
-
-**Fix:** Put the revision predicate on an insert whose success is required (for example an `INSERT ... SELECT ... FROM knowledge_proposals WHERE id = ? AND revision = ? AND status = 'proposed'`), or perform the guarded update first and explicitly abort/roll back when `meta.changes !== 1` before any decision/version insert. Add a two-key concurrent-review regression test proving only one decision/version commits.
-
-### CR-03: The first-Offer lineage does not bind the Offer's profile to the confirmed proposal
-
-**File:** `site/domain/commercial-model.ts:162-178`
-
-**Issue:** `materializeOfferFromConfirmedHierarchyDecision` proves only that the supplied question, answer, decision, version, command, audit event, and arbitrary `profileId` are in the same workspace. Its query at lines 165-171 never joins `knowledge_proposals.destination_scope_id` (or the stored snapshot destination) to `p.id`. The migration trigger repeats the same omission at `site/drizzle/0004_consensus_knowledge.sql:415-421`. A valid hierarchy decision for one profile can consequently be used to create an Offer under another profile in the workspace, breaking first-Offer parentage and immutable decision lineage.
-
-**Fix:** Require the proposal/version's destination scope to be `customer_profile` and equal `NEW.profile_id`/`input.profileId` in both the helper query and `offer_lineage_insert`; ideally make the exact profile ID a stored, foreign-keyed lineage field rather than resolving a display locator after the decision.
-
-### CR-04: The generalized decision splits one authority transition into multiple transactions
-
-**File:** `site/domain/interview.ts:627-663`
-
-**Issue:** `recordInterviewDecision` first commits `reviewKnowledgeProposal` (including a confirmed version) at lines 627-633, then separately attempts to close the question/session and insert the interview confirmation at lines 639-647, and later creates the Offer in a third write at lines 655-661. If the latter batch loses a concurrent race or fails, the catch at lines 648-650 throws while leaving already-confirmed knowledge with no corresponding interview confirmation; a retry finds the preexisting proposal decision and cannot restore a coherent atomically linked decision. The final Offer operation can similarly fail after the confirmation has committed. This violates the Answer → Decision → Confirmed Version/Offer atomic lineage promised by the phase.
-
-**Fix:** Move proposal decision, version, answer binding, interview confirmation, audit, session/question transition, and any Offer materialization into one database transaction with all state predicates enforced as required inserts/updates. Add failure-injection and concurrent-decision tests asserting no partial authority state remains.
-
-### CR-05: Quarantined upload content is returned and rendered despite the quarantine
-
-**File:** `site/domain/knowledge.ts:30-43, 96`
-
-**Issue:** A `quarantined_upload` stores `value.excerpt` in `source_excerpts.content` and `knowledge_proposals.value_json` at lines 30-33. `proposalById` unconditionally deserializes and returns that value at line 96. The Knowledge API's library projection includes those proposal objects (`readKnowledgeLibrary` at line 85), and the UI renders `item.value.excerpt` at `site/app/knowledge/knowledge-library.tsx:23`. The `readKnowledgeContent` denial at lines 87-88 does not protect this already exposed path. Thus unscanned content is disclosed/rendered as normal plain text.
-
-**Fix:** For quarantined inputs, persist only opaque custody metadata and a digest—never an excerpt/value available to normal projection. Exclude quarantined proposals from `listKnowledge` or return a redacted metadata-only view, and add an API/UI regression test that the raw upload text cannot appear in any response or rendered output.
-
-## Warnings
-
-### WR-01: Draft creation can commit after the parent revision check loses a race
-
-**File:** `site/domain/commercial-model.ts:142-158`
-
-**Issue:** The first batch statement conditionally inserts an authority command only if the parent still has the expected revision (lines 143-145), but the draft entity and audit inserts are unconditional following statements. If the guarded `INSERT ... SELECT` produces zero rows, D1 still commits the child entity/audit. The optimistic concurrency control is therefore advisory rather than enforced.
-
-**Fix:** Make the child insert depend on the same parent/revision predicate, or update the parent revision first and require one changed row before creating the child. Add a race test which mutates the parent after lookup and proves no draft/audit is created.
-
-### WR-02: Retry paths accept a reused idempotency key for different operations
-
-**File:** `site/domain/knowledge.ts:57-63`; `site/domain/replacement.ts:49-53`
-
-**Issue:** Both functions look up a prior command/key and return its result without comparing its stored `operation_digest` to the digest calculated for the new request. Unlike `initializeCommercialModel` and `activateReplacement`, a reused key with a changed decision, correction, target, candidate input, or revision silently returns an unrelated prior result instead of a conflict.
-
-**Fix:** Select `operation_digest` with the prior row and reject when it differs from the newly computed digest. Cover changed-payload same-key retries for review and candidate creation.
-
-### WR-03: The Knowledge UI cannot propose a change from a confirmed Knowledge card
-
-**File:** `site/app/knowledge/knowledge-workspace.tsx:107`
-
-**Issue:** For a `KnowledgeItemProjection`, `proposalPayload` uses `source.destination.id` as `destination.locator`. The domain resolver only looks up a destination by `name` (`site/domain/knowledge.ts:94`), so the UUID-like scope ID emitted by the UI cannot resolve. Clicking “Propose change” on every confirmed card returns `command_conflict`.
-
-**Fix:** Return a display locator/name in the server projection and send it, or change the command contract to accept a server-validated scope ID and resolve it with workspace/type checks.
-
-### WR-04: The D1 immutability trigger permits semantic/digest mutation of confirmed versions
-
-**File:** `site/drizzle/0004_consensus_knowledge.sql:430-431`
-
-**Issue:** The trigger protects only five columns. It permits updates to `value_digest`, `knowledge_item_id`, `scope_type`, `scope_id`, and `kind`, allowing the recorded digest, owner/scope, or current-item linkage of a confirmed version to change in place. This undermines the stated immutable authority even if the current domain code does not perform such an update.
-
-**Fix:** Use a before-update trigger that rejects every update except the explicitly allowed lifecycle fields (`status`, timestamps, and revision if supersession is required), and separately assert that no update can alter a version's semantic value, digest, scope, or lineage.
+The nine findings closed in the preceding re-review remain closed; none of these four commits regressed their authority, atomicity, quarantine, immutability, or gate protections.
 
 ---
 
-_Reviewed: 2026-07-30T18:49:59Z_
+_Reviewed: 2026-07-30T19:35:48Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
