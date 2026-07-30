@@ -21,7 +21,7 @@
    If the branch already exists locally, use `git switch codex/generic-prospector-pilot` followed by `git pull --ff-only`.
 3. Read this file, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the current phase's `*-PLAN.md`/`*-SUMMARY.md` files.
 4. Install and verify the application from `site/` with Node.js 22.13 or newer: `npm ci`, `npm test`, and `npm run lint`.
-5. First remediate and independently re-review the open local findings in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. Then resume Phase 2 from Plan 02-12 after reading `02-ACTIVATION.md`. Plan 02-12 is a real hosted-evidence checkpoint, not an implementation task that can be marked complete locally.
+5. Confirm the current Phase 2 code/security audit results and note the source revision of the UI review, then resume Phase 2 from Plan 02-12 after reading `02-ACTIVATION.md`. Plan 02-12 is a real hosted-evidence checkpoint, not an implementation task that can be marked complete locally.
 6. Use `gpt-5.6-terra` medium for implementation/planning, Terra low for routine checks, and Sol medium only for final security/red-team or a demonstrated hard blocker.
 
 Do not rely on a Codex conversation, local task IDs, or uncommitted work as authority. Git commits and repository artifacts are the portable source of truth.
@@ -30,7 +30,7 @@ GSD skills and `gsd-sdk` are account-level tools, not repository dependencies. I
 
 ## Paste-ready prompt for another Codex account
 
-> Continue the PROspector project from `https://github.com/SJS1001/PROspector.git` on branch `codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the Phase 2 activation/audit files before changing anything. Treat Git and committed repository artifacts as the source of truth, preserve all human/hosted evidence gates, keep the existing Sites project private, never create a replacement Sites project, and never reveal or alter secrets. Install with `cd site && npm ci`, run the tests and lint, remediate and re-review open local Phase 2 findings, then stop at Plan 02-12 unless the named real-principal and hosted D1 prerequisites are genuinely available. Continue later plans only in dependency order and never fabricate completion evidence.
+> Continue the PROspector project from `https://github.com/SJS1001/PROspector.git` on branch `codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the Phase 2 activation/audit files before changing anything. Treat Git and committed repository artifacts as the source of truth, preserve all human/hosted evidence gates, keep the existing Sites project private, never create a replacement Sites project, and never reveal or alter secrets. Install with `cd site && npm ci`, run `npm test` and `npm run lint`, and preserve the clean local Phase 2 implementation. Plan 02-12 remains blocked until its real-principal and hosted D1 prerequisites genuinely exist. Phase 3 local code/preflight exists through Plan 03-08 but has no completion summaries; Plans 03-09 through 03-11 are human/hosted gates. Phase 4 implementation is underway from its checked 12-plan sequence. Continue only in dependency order and never fabricate completion evidence.
 
 ## Current state
 
@@ -39,12 +39,14 @@ GSD skills and `gsd-sdk` are account-level tools, not repository dependencies. I
 - Phase 2 completed locally: Wave 0 RED contracts, exact `uuid@14.0.1` approval, additive migration `0004_consensus_knowledge.sql`, commercial hierarchy authority, and Proposed/Confirmed Knowledge authority.
 - Phase 2 Plan 02-12 is blocked on two non-substitutable prerequisites: a real second signed-in principal for hosting-boundary denial/zero-state-delta proof, and an owner-side read-only hosted D1 baseline for migrations 0000-0003. No `02-12-SUMMARY.md` exists by design.
 - Phase 2 Plans 02-13 through 02-20 remain dependency-blocked behind Plan 02-12.
-- Independent Phase 2 code, security, and UI audits are recorded in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`; local remediation work must be integrated and re-audited before any hosted activation.
-- Phase 4 preparation was integrated at `91d59cc`.
-- Phase 5 preparation was integrated at `9eb7e7f`.
-- Phase 6 preparation was integrated at `f60ad82`.
+- Independent Phase 2 code, security, and UI audits are recorded in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. The final code re-review after `2e879dc` and `45bcdc1` is clean; security has no open local implementation threats. Hosted evidence remains separate and blocked.
+- Phase 3 plans 03-01 through 03-08 have local implementation, tests, UI, race hardening, and a fail-closed offline release preflight on the branch. No `03-01-SUMMARY.md` through `03-08-SUMMARY.md` exists, so those plans are not recorded complete.
+- Phase 3 Plans 03-09 through 03-11 require explicit owner authorization, controlled hosted proof, and owner lifecycle acceptance. They remain incomplete and cannot be replaced by local evidence.
+- Phase 4 context/research/UI/validation and 12 checked plans are committed. Wave 1 is underway: RED contracts and additive profile-prospecting persistence are committed, but no Phase 4 plan summary exists.
+- Phase 5 preparation and 9 checked plans are committed through `9a7f85a`; execution has not started.
+- Phase 6 preparation and 10 checked plans are committed through `9c2facd`; execution has not started.
 - Phase 7 preparation was integrated at `fc3f46f` and `e39ef11`.
-- Phase 3 context, research, validation, patterns, approved UI contract, and 11 independently checked plans were integrated at `dfa51f2`. Execution remains gated on Phase 2 completion and the explicit capability evidence named in those plans.
+- Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -76,10 +78,11 @@ Use these existing artifacts rather than restating product decisions:
 
 ## Verification baseline
 
-- After Plan 02-11, the canonical local suite passes 37/37 with loopback permission. Lint and build pass. A sandbox-only Miniflare loopback `EPERM` is not a product regression; rerun with loopback permission rather than changing code to bypass it.
-- Migration 0000–0004 focused suite passes 3/3.
-- No intended local RED failures remain through Plan 02-11. Plans 02-12 onward contain non-substitutable hosted evidence and authorization checkpoints.
-- Before merging parallel work, run the plan-specific focused tests; after each wave, run `cd site && npm test && npm run lint` when the validation contract says the full suite is expected green.
+- The latest clean Phase 2 re-review after `2e879dc` and `45bcdc1` verified CR-09 through CR-11 and WR-07 closed, including server-derived candidate authority, reduced UI mutation payloads, and forged/stale request rejection.
+- `npm test` and `npm run lint` passed at that Phase 2 review checkpoint. Subsequent branch commits add Phase 3/4 work and test-runner isolation, so rerun the canonical commands before treating the current checkout as verified.
+- Phase 3 has a focused local `test:phase3` contract and an offline fail-closed release preflight. The preflight must remain nonzero without the required owner/hosted evidence; that result is expected and is not a local implementation failure.
+- A sandbox-only Miniflare loopback `EPERM` is an environment restriction; rerun with loopback permission rather than weakening tests or runtime.
+- No completion summary may be created for a blocked plan. Local code, fixtures, tests, digests, and status prose do not satisfy Plans 02-12 or 03-09 through 03-11.
 
 ## Suggested skills for the next account
 

@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: blocked
 stopped_at: Plan 02-12 hosted evidence prerequisites
-last_updated: "2026-07-30T20:00:00.000Z"
+last_updated: "2026-07-30T22:00:00.000Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 36
+  total_plans: 67
   completed_plans: 16
-  percent: 44
+  percent: 24
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 12 of 20
 Status: Plans 02-01 through 02-11 implemented locally; Plan 02-12 requires non-substitutable hosted proof
 Last activity: 2026-07-30
 
-Progress: [████░░░░░░] 44% of currently planned plans
+Progress: [██░░░░░░░░] 24% of currently planned plans
 
 ## Performance Metrics
 
@@ -79,7 +79,12 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Commercial initialization seeds exactly Digitalrain -> ONE -> ONE for Mining with Draft/nurture Operating and Greenfield Profiles, never an Offer. — Locked hierarchy seed and Offer lineage boundary.
 - [Phase 02]: Knowledge intake remains immutable Proposed state; only Accept, Correct, or Rescope appends a Confirmed Version. — Prevents proposed evidence from gaining authority or operational effect.
 - [Phase 02]: Plan 02-12 cannot receive a completion summary until a real second signed-in principal and owner-side read-only hosted D1 baseline are both available.
-- [Phase 02]: Independent code, security, and UI reviews identified local remediation work that must be fixed and re-audited before hosted activation continues.
+- [Phase 02]: Final independent code re-review after 2e879dc and 45bcdc1 is clean; security has zero open local implementation threats. External hosted evidence remains blocked.
+- [Phase 03]: Local implementation, UI, tests, race hardening, and fail-closed offline preflight exist through Plan 03-08, but no completion summaries exist and the Phase 2 dependency is not accepted.
+- [Phase 03]: Plans 03-09 through 03-11 are explicit owner/hosted proof and lifecycle gates; local evidence cannot complete them.
+- [Phase 04]: Twelve checked plans exist. Wave 1 RED contracts and additive persistence are committed; no plan is recorded complete.
+- [Phase 05]: Nine checked plans exist; execution has not started.
+- [Phase 06]: Ten checked plans exist; execution has not started.
 
 ### Pending Todos
 
@@ -90,7 +95,9 @@ None yet.
 - Version 10 is deployed from exact Sites source `d6b3b61…`; hosted R2 lifecycle and clean fresh-client log transport are proven.
 - Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
-- Fresh-agent code, security, and UI audits completed; their reports are the active local remediation baseline.
+- Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.
+- Phase 3 local work through Plan 03-08 is preparatory while Phase 2 is incomplete; Plans 03-09 through 03-11 remain non-substitutable owner/hosted checkpoints.
+- Phase 4 Wave 1 is underway; later Phase 4 work and all Phase 5/6 execution remain dependency-gated.
 - Later capability gates need a controlled Google OAuth client/account, scheduled execution and runner callback proof or a compatible host, and an owner-supplied one-time export passphrase for the restore drill.
 - Do not upload the July 24 operational lead files or enable broader live effects under the current capability boundary.
 

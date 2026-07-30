@@ -91,7 +91,10 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] `03-01-PLAN.md` through `03-11-PLAN.md` — Independently checked implementation sequence; execution remains dependency-gated on Phase 2 acceptance.
+- [ ] `03-01-PLAN.md` through `03-08-PLAN.md` — Local implementation, UI, tests, hardening, and fail-closed offline preflight are committed, but no completion summaries exist and Phase 2 acceptance remains outstanding.
+- [ ] `03-09-PLAN.md` — Obtain exact owner authorization for the narrow private synthetic hosted proof.
+- [ ] `03-10-PLAN.md` — Perform the controlled private hosted no-effect proof.
+- [ ] `03-11-PLAN.md` — Accept the owner lifecycle and record the separate transport-capability disposition.
 
 ### Phase 4: Profile Readiness and Evidence-Based Prospecting
 **Goal**: The owner can activate a complete Customer Profile and receive explainable, deterministically qualified prospects from scoped, untrusted runner contributions.  
@@ -103,8 +106,12 @@ Plans:
   3. Every Signal shows its URL, application-assigned tier, publication/event dates, retrieval time, excerpt, and lineage; Tier 3 cannot qualify alone, successful discovery uses a 24-hour overlap, and material evidence older than 30 days is context unless reconfirmed.
   4. Application code reproduces the five-dimension Mining score, 7/10 threshold, non-zero pain/timing rule, independent-source requirement, and hard disqualifiers from the recorded configuration, with explicit Passed, NotQualified, InsufficientEvidence, or Disqualified outcomes.
   5. The Review Queue lets the owner Approve, Reject, or Defer a Qualified Prospect with a reason, preserves cooldown/re-entry rules and visible funnel losses, and never treats a state transition as authorization for the next external effect.
-**Plans**: TBD  
+**Plans**: 12 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `04-01-PLAN.md` — Establish Wave 1 profile-prospecting RED contracts. Contracts are committed; no summary exists.
+- [ ] `04-02-PLAN.md` through `04-12-PLAN.md` — Checked implementation and acceptance sequence; additive persistence is committed and later dependency gates remain in force.
 
 ### Phase 5: Controlled Enrichment and Verified Contacts
 **Goal**: The owner can obtain usable business contact points for approved prospects without exceeding explicit authority or promoting unverified suggestions.  
@@ -116,8 +123,11 @@ Plans:
   3. Generated, inferred, directory-only, domain-valid, or MX-only details remain visibly labelled Contact Suggestions and cannot enter Enriched Contact, CRM export, package approval, click-to-call, or send eligibility.
   4. Eligible business contact points show authoritative source or mailbox verification, method, confidence, and time; freshness is rechecked at package, export, call, and send boundaries and stale points return to NeedsReview.
   5. The owner can review ambiguous identity merge/split suggestions while preserving source lineage, Market Play relevance, contact associations, and every suppression subject.
-**Plans**: TBD  
+**Plans**: 9 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `05-01-PLAN.md` through `05-09-PLAN.md` — Checked controlled-enrichment and verified-contact sequence; execution has not started.
 
 ### Phase 6: Governed Outreach and Suppression
 **Goal**: The operator can prepare and execute tightly controlled Gmail and manual-call outreach while exact approvals and Company-wide suppression win every race.  
@@ -129,8 +139,11 @@ Plans:
   3. Final dispatch holds a fenced send lease and rechecks the exact digest, approval, package/configuration/entity state, sender identity, unsubscribe, compliance acknowledgement, drift, and current suppression; ambiguous Gmail acceptance becomes DeliveryUnknown and is never resent automatically.
   4. Exact email/domain, E.164 phone, Contact, Organization, and all-Company suppression is enforced transactionally at call/send time, survives deletion/import/export/restore and identity merges, and is written before unsubscribe or explicit do-not-contact success is reported.
   5. Reply, bounce, suppression, pause, archive, or high-risk drift stops applicable follow-ups; manual phone remains verified-number click-to-call with a package-derived script and reasoned manual outcome, while compliance guidance is visibly advisory rather than legal approval.
-**Plans**: TBD  
+**Plans**: 10 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `06-01-PLAN.md` through `06-10-PLAN.md` — Checked governed-outreach and suppression sequence; execution has not started.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  
@@ -153,8 +166,8 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
 | 2. Consensus Knowledge and Commercial Model | 11/20 | Blocked at hosted evidence | - |
-| 3. Product Readiness and Market Discovery | 0/11 | Planned; dependency-blocked | - |
-| 4. Profile Readiness and Evidence-Based Prospecting | 0/TBD | Not started | - |
-| 5. Controlled Enrichment and Verified Contacts | 0/TBD | Not started | - |
-| 6. Governed Outreach and Suppression | 0/TBD | Not started | - |
+| 3. Product Readiness and Market Discovery | 0/11 | Local 03-01..08 present without summaries; 03-09..11 external gates | - |
+| 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
+| 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |
+| 6. Governed Outreach and Suppression | 0/10 | Planned; dependency-gated | - |
 | 7. Mining Pilot Handoff and Recovery | 0/TBD | Not started | - |
