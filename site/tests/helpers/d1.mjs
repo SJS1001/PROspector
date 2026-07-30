@@ -12,6 +12,7 @@ export const MIGRATION_FILENAMES = [
 ];
 
 const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, -1);
+const appliedMigrations = new WeakMap();
 
 export const FORBIDDEN_OPERATIONAL_TABLES = [
   "runs",
@@ -55,12 +56,19 @@ async function applyLegacyMigrations(database) {
 }
 
 async function applyMigrationFiles(database, filenames) {
+  let applied = appliedMigrations.get(database);
+  if (!applied) {
+    applied = new Set();
+    appliedMigrations.set(database, applied);
+  }
   for (const filename of filenames) {
+    if (applied.has(filename)) continue;
     const sql = await readFile(new URL(`../../drizzle/${filename}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
       const trimmed = statement.trim();
       if (trimmed) await database.prepare(trimmed).run();
     }
+    applied.add(filename);
   }
 }
 
