@@ -26,6 +26,37 @@ async function seedProfileAuthority(fixture) {
     fixture.database.prepare("UPDATE customer_profiles SET timezone = 'America/Toronto', weekly_target = 1 WHERE id = ?").bind(profile.id),
   ]);
   const row = await fixture.database.prepare("SELECT revision FROM customer_profiles WHERE id = ?").bind(profile.id).first();
+  // Phase 4 must consume persisted Phase 2/3 facts.  This deliberately builds
+  // the minimum accepted Play, confirmed Offer lineage, and exact current
+  // Profile versions instead of passing a client-shaped authority object.
+  const profileRow = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=?").bind(profile.id).first();
+  await fixture.database.prepare("UPDATE market_plays SET lifecycle = 'active' WHERE id = ?").bind(profileRow.play_id).run();
+  const workspaceId = workspace.id;
+  const commandId = "phase4-authority-command";
+  await fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'test.profile.authority',?,?,1,'profile',?,'accepted')").bind(commandId, workspaceId, now, now, "0198f400-0000-7000-8000-000000000099", "1".repeat(64), profile.id).run();
+  const categories = ["fit", "disqualifier", "roles", "signals", "timezone", "rubric", "proof_policy", "contact_policy", "outreach_policy", "schedule", "output_target"];
+  for (const [index, kind] of categories.entries()) {
+    const itemId = `phase4-item-${index}`; const versionId = `phase4-version-${index}`;
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO knowledge_items (id,workspace_id,created_at,updated_at,revision,company_id,scope_type,scope_id,kind,slot,current_version_id) VALUES (?,?,?,?,1,?,'profile',?,?, 'default',NULL)").bind(itemId,workspaceId,now,now,(await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspaceId).first()).id,profile.id,kind),
+      fixture.database.prepare("INSERT INTO knowledge_versions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,kind,value_json,status,source_digest,knowledge_item_id,proposal_id,decision_id,authority_command_id,value_digest,predecessor_version_id) VALUES (?,?,?,?,1,'profile',?,?, '{}','confirmed',?,?,?,?,?,?,NULL)").bind(versionId,workspaceId,now,now,profile.id,kind,"a".repeat(64),itemId,null,null,commandId,"a".repeat(64)),
+      fixture.database.prepare("UPDATE knowledge_items SET current_version_id=? WHERE id=?").bind(versionId,itemId),
+    ]);
+  }
+  const offerVersion = "phase4-offer-version", offerItem = "phase4-offer-item";
+  await fixture.database.prepare("INSERT INTO knowledge_items (id,workspace_id,created_at,updated_at,revision,company_id,scope_type,scope_id,kind,slot,current_version_id) VALUES (?,?,?,?,1,?,'profile',?,'fit','offer',NULL)").bind(offerItem, workspaceId, now, now, (await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspaceId).first()).id, profile.id).run();
+  const proposalId = "phase4-offer-proposal", decisionId = "phase4-offer-decision", questionId = "phase4-offer-question", answerId = "phase4-offer-answer", sessionId = "phase4-offer-session", auditId = "phase4-offer-audit";
+  await fixture.database.batch([
+    fixture.database.prepare("INSERT INTO interview_sessions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,state,active_question_id) VALUES (?,?,?,?,1,'profile',?,'complete',NULL)").bind(sessionId,workspaceId,now,now,profile.id),
+    fixture.database.prepare("INSERT INTO interview_questions (id,workspace_id,created_at,updated_at,revision,session_id,version,prompt,research_json,recommendation,status) VALUES (?,?,?,?,1,?,1,'offer','{}',NULL,'answered')").bind(questionId,workspaceId,now,now,sessionId),
+    fixture.database.prepare("INSERT INTO interview_answers (id,workspace_id,session_id,question_id,question_revision,choice,correction_json,idempotency_key,created_at,proposal_json,proposal_digest,operation_digest) VALUES (?,?,?,?,1,'accept',NULL,?,?, '{}',?,?)").bind(answerId,workspaceId,sessionId,questionId,"0198f400-0000-7000-8000-000000000098",now,"b".repeat(64),"c".repeat(64)),
+    fixture.database.prepare("INSERT INTO knowledge_proposals (id,workspace_id,created_at,updated_at,revision,company_id,source_id,excerpt_id,destination_scope_type,destination_scope_id,kind,value_json,provenance_json,proposal_digest,origin,status) VALUES (?,?,?,?,1,?,NULL,NULL,'profile',?,'fit','{}','{}',?,'test','accepted')").bind(proposalId,workspaceId,now,now,(await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspaceId).first()).id,profile.id,"d".repeat(64)),
+    fixture.database.prepare("INSERT INTO proposal_decisions (id,workspace_id,created_at,updated_at,revision,proposal_id,answer_id,authority_command_id,decision,reviewed_snapshot_digest,operation_digest,idempotency_key) VALUES (?,?,?,?,1,?,?,?,'accept',?,?,?)").bind(decisionId,workspaceId,now,now,proposalId,answerId,commandId,"e".repeat(64),"f".repeat(64),"0198f400-0000-7000-8000-000000000097"),
+    fixture.database.prepare("INSERT INTO knowledge_versions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,kind,value_json,status,source_digest,knowledge_item_id,proposal_id,decision_id,authority_command_id,value_digest,predecessor_version_id) VALUES (?,?,?,?,1,'profile',?,?, '{}','confirmed',?,?,?,?,?,?,NULL)").bind(offerVersion,workspaceId,now,now,profile.id,"fit","a".repeat(64),offerItem,proposalId,decisionId,commandId,"a".repeat(64)),
+    fixture.database.prepare("UPDATE knowledge_items SET current_version_id=? WHERE id=?").bind(offerVersion,offerItem),
+    fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES (?,?,'owner',?,'test.offer','offer',?,'{}',?)").bind(auditId,workspaceId,OWNER.subject,profile.id,now),
+    fixture.database.prepare("INSERT INTO offers (id,workspace_id,created_at,updated_at,revision,profile_id,name,value_json,question_id,answer_id,proposal_id,decision_id,knowledge_version_id,authority_command_id,audit_event_id) VALUES ('phase4-offer',?,?,?,1,?,'Offer','{}',?,?,?,?,?,?,?)").bind(workspaceId,now,now,profile.id,questionId,answerId,proposalId,decisionId,offerVersion,commandId,auditId),
+  ]);
   return { profileId: profile.id, revision: Number(row.revision) };
 }
 
@@ -164,5 +195,42 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
     for (const table of ["runner_assignments", "accounts", "contacts", "prospects"]) {
       assert.equal(await countRows(fixture.database, table), before[table]?.count ?? 0, `${table} must remain unaffected`);
     }
+  } finally { await fixture.dispose(); }
+});
+
+test("04-03 readiness classification is table-driven and never trusts a client authority shape", async () => {
+  const fixture = await createD1Fixture("phase4-readiness-matrix");
+  try {
+    await applyMigrations(fixture.database);
+    const profile = await loadProfileReadiness(fixture);
+    const complete = profile.PROFILE_READINESS_CATEGORIES.map((category, index) => ({ id: `v-${index}`, digest: "a".repeat(64), kind: ({ fit_target:"fit", disqualifier:"disqualifier", roles:"roles", signals:"signals", geography_language:"timezone", rubric:"rubric", proof_guardrail:"proof_policy", contact_strategy:"contact_policy", outreach_strategy:"outreach_policy", schedule_timezone:"schedule", compliance:"proof_policy", output_policy:"output_target" })[category], scope_type:"profile", scope_id:"p", status:"confirmed" }));
+    const authority = { productConfiguration:{ id:"pc", digest:"b".repeat(64) }, acceptedPlay:{ id:"play", revision:1 }, offer:{ id:"offer", knowledgeVersionId:"v", digest:"c".repeat(64) } };
+    for (const [name, versions, expected] of [
+      ["complete", complete, "complete"],
+      ["missing", complete.filter((v) => v.kind !== "fit"), "missing"],
+      ["stale", complete.map((v) => v.kind === "fit" ? { ...v, status:"proposed" } : v), "stale"],
+      ["wrong-scoped", complete.map((v) => v.kind === "fit" ? { ...v, scope_id:"foreign" } : v), "wrong-scoped"],
+    ]) {
+      const result = profile.evaluateProfileReadiness({ profile:{ id:"p", lifecycle:"draft" }, authority, versions });
+      if (expected === "complete") assert.equal(result.complete, true, name);
+      else assert.equal(result.items.find((item) => item.category === "fit_target").status, expected, name);
+    }
+  } finally { await fixture.dispose(); }
+});
+
+test("04-03 Profile schedule utility matrix retains namespace, offset, and successful-only overlap window", async () => {
+  const fixture = await createD1Fixture("phase4-schedule-matrix");
+  try {
+    await applyMigrations(fixture.database);
+    const schedule = await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-schedule.ts", import.meta.url).pathname);
+    const cases = [
+      ["profile namespace", () => schedule.profileSlotKey("profile-a", "2026-11-01", "06:00", -300), /^profile:profile-a:slot:2026-11-01T06:00:offset:-300$/],
+      ["DST offset remains part of identity", () => schedule.profileSlotKey("profile-a", "2026-11-01", "06:00", -240), /^profile:profile-a:slot:2026-11-01T06:00:offset:-240$/],
+    ];
+    for (const [, create, matcher] of cases) assert.match(create(), matcher);
+    assert.notEqual(schedule.profileSlotKey("profile-a", "2026-11-01", "06:00", -240), schedule.profileSlotKey("profile-a", "2026-11-01", "06:00", -300));
+    assert.deepEqual(schedule.profileSourceWindow(null, NOW), { lowerExclusive:null, upperInclusive:NOW });
+    assert.deepEqual(schedule.profileSourceWindow(NOW, NOW + 2 * 86_400_000), { lowerExclusive:NOW - 86_400_000, upperInclusive:NOW + 2 * 86_400_000 });
+    assert.throws(() => schedule.profileSlotKey("", "bad", "6", 0), /schedule slot/i);
   } finally { await fixture.dispose(); }
 });
