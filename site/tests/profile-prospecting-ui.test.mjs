@@ -34,8 +34,8 @@ test("Review Queue renders authoritative Account/Target and completed decision l
       id: "prospect-1", assessment_id: "assessment-1", revision: 2, offer_id: "offer-1", score: 8, outcome: "Passed", configuration_digest: "a".repeat(64),
       account: { id: "account-1", value: "Exact Account" }, target: { id: "target-1", value: "Exact Target" }, cooldownState: "reentered",
       decisionHistory: [{ decision: "reject", decision_at: 1_780_000_000_000, owner_subject: "owner-1", audit_event_id: "audit-1" }],
-      cooldownHistory: [{ status: "active", ends_at: 1_780_100_000_000 }], reentryHistory: [{ event_kind: "sourced_disproof", created_at: 1_780_200_000_000 }],
+      cooldownHistory: [], reentryHistory: [{ event_kind: "sourced_disproof", created_at: 1_780_200_000_000, prior_prospect_id: "prospect-prior", event_json: '{"assessmentId":"assessment-1","priorProspectId":"prospect-prior","reenteredProspectId":"prospect-1"}' }],
     }] }));
-    for (const value of ["Exact Account", "account-1", "Exact Target", "target-1", "Decision: reject", "owner owner-1", "audit audit-1", "sourced_disproof", "Decision and re-entry lineage"]) assert.match(html, new RegExp(value));
+    for (const value of ["Exact Account", "account-1", "Exact Target", "target-1", "Decision: reject", "owner owner-1", "audit audit-1", "sourced_disproof", "prospect-prior", "reentered", "Decision and re-entry lineage"]) assert.match(html, new RegExp(value));
   } finally { await vite.close(); }
 });
