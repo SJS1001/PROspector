@@ -140,7 +140,7 @@ async function projectionResponse(database: D1Database, principal: InterviewPrin
   const [commercial, interview, library, drift, replacements] = await Promise.all([
     readCommercialModel(database, principal), readInterviewState(database, principal), readKnowledgeLibrary(database, principal), readDrift(database, principal), readReplacements(database, principal),
   ]);
-  return withCsrfCookie(json({ commercial, interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
+  return withCsrfCookie(json({ commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
 }
 
 async function phase2SchemaAvailable(database: D1Database) {
@@ -159,9 +159,105 @@ async function writesActivated(database: D1Database, principal: InterviewPrincip
   const expected = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   return row.tuple_digest === expected;
 }
-async function readDrift(database: D1Database, principal: InterviewPrincipal) { return rowsForOwner(database, principal, "SELECT kd.id, kd.risk_kind AS riskKind, kd.status, ds.impact_digest AS impactDigest FROM knowledge_drifts kd LEFT JOIN drift_impact_snapshots ds ON ds.drift_id = kd.id WHERE kd.workspace_id = ? ORDER BY kd.created_at, kd.id"); }
-async function readReplacements(database: D1Database, principal: InterviewPrincipal) { return rowsForOwner(database, principal, "SELECT id, status, candidate_digest AS digest, revision FROM replacement_candidates WHERE workspace_id = ? ORDER BY created_at, id"); }
+async function readDrift(database: D1Database, principal: InterviewPrincipal) {
+  const rows = await rowsForOwner(database, principal, `SELECT kd.id, kd.risk_kind AS riskKind, kd.status,
+      kd.current_version_id AS currentVersionId, kd.proposed_version_id AS proposedVersionId,
+      kp.id AS proposalId, kp.revision AS proposalRevision, kp.destination_scope_type AS destinationScopeType,
+      kp.destination_scope_id AS destinationScopeId, kp.value_json AS proposedValueJson, kp.provenance_json AS provenanceJson,
+      current.value_json AS currentValueJson, ds.impact_json AS impactJson, ds.impact_digest AS impactDigest,
+      rc.id AS replacementCandidateId
+    FROM knowledge_drifts kd
+    JOIN knowledge_proposals kp ON kp.id = kd.proposal_id AND kp.workspace_id = kd.workspace_id
+    JOIN knowledge_versions current ON current.id = kd.current_version_id AND current.workspace_id = kd.workspace_id
+    JOIN knowledge_versions proposed ON proposed.id = kd.proposed_version_id AND proposed.workspace_id = kd.workspace_id
+    LEFT JOIN drift_impact_snapshots ds ON ds.drift_id = kd.id AND ds.workspace_id = kd.workspace_id
+    LEFT JOIN replacement_candidates rc ON rc.impact_snapshot_id = ds.id AND rc.workspace_id = kd.workspace_id
+    WHERE kd.workspace_id = ? ORDER BY CASE kd.status WHEN 'open' THEN 0 ELSE 1 END, kd.created_at, kd.id`);
+  return rows.map((row) => {
+    const impact = objectJson(row.impactJson);
+    const currentValue = objectJson(row.currentValueJson);
+    const proposedValue = objectJson(row.proposedValueJson);
+    const destinationScopeType = publicScopeToken(String(row.destinationScopeType));
+    return {
+      id: row.id, riskKind: row.riskKind, status: row.status,
+      currentVersionId: row.currentVersionId, proposedVersionId: row.proposedVersionId,
+      currentValue: excerptOrNull(currentValue), proposedValue: excerptOrNull(proposedValue),
+      provenance: objectJson(row.provenanceJson),
+      destination: { scopeType: destinationScopeType, id: row.destinationScopeId },
+      review: row.status === "open" ? {
+        action: "review_knowledge_proposal", proposalId: row.proposalId, expectedRevision: Number(row.proposalRevision),
+        predecessorVersionId: row.currentVersionId,
+        destination: { scopeType: destinationScopeType, id: row.destinationScopeId },
+        decisions: ["accept", "reject", "correct", "rescope"],
+      } : null,
+      paths: impact ? reachedArtifacts(impact).map((artifact) => artifact.path).filter(Array.isArray) : [],
+      artifacts: impact ? reachedArtifacts(impact) : [],
+      counts: impact && isRecord(impact.counts) ? impact.counts : {},
+      containment: impact && typeof impact.containment === "string" ? impact.containment : null,
+      impactDigest: typeof row.impactDigest === "string" ? row.impactDigest : null,
+      replacementCandidateId: typeof row.replacementCandidateId === "string" ? row.replacementCandidateId : null,
+      candidate: null,
+    };
+  });
+}
+async function readReplacements(database: D1Database, principal: InterviewPrincipal) {
+  const rows = await rowsForOwner(database, principal, `SELECT rc.id, rc.status, rc.candidate_digest AS digest, rc.revision,
+      rc.current_configuration_id AS currentConfigurationId, rc.candidate_configuration_id AS candidateConfigurationId,
+      rc.proposed_version_id AS storedProposedVersionId, rc.expected_owner_revision AS expectedOwnerRevision,
+      ds.impact_digest AS impactDigest, pd.decision AS driftDecision, approved.id AS approvedVersionId,
+      previous.digest AS previousConfigurationDigest, previous.manifest_json AS previousManifestJson,
+      candidate.digest AS candidateConfigurationDigest, candidate.manifest_json AS candidateManifestJson,
+      ca.id AS activationId, ca.created_at AS activatedAt, ca.previous_configuration_id AS activatedPreviousConfigurationId,
+      ca.next_configuration_id AS activatedNextConfigurationId, ca.expected_owner_revision AS activatedExpectedOwnerRevision,
+      ae.id AS auditEventId, ae.actor_id AS activatedBy
+    FROM replacement_candidates rc
+    JOIN drift_impact_snapshots ds ON ds.id = rc.impact_snapshot_id AND ds.workspace_id = rc.workspace_id
+    JOIN knowledge_drifts kd ON kd.id = ds.drift_id AND kd.workspace_id = rc.workspace_id
+    LEFT JOIN proposal_decisions pd ON pd.proposal_id = kd.proposal_id AND pd.workspace_id = rc.workspace_id
+    LEFT JOIN knowledge_versions approved ON approved.decision_id = pd.id AND approved.workspace_id = rc.workspace_id
+    LEFT JOIN typed_configurations previous ON previous.id = rc.current_configuration_id AND previous.workspace_id = rc.workspace_id
+    JOIN typed_configurations candidate ON candidate.id = rc.candidate_configuration_id AND candidate.workspace_id = rc.workspace_id
+    LEFT JOIN configuration_activations ca ON ca.replacement_candidate_id = rc.id AND ca.workspace_id = rc.workspace_id
+    LEFT JOIN audit_events ae ON ae.id = (SELECT e.id FROM audit_events e WHERE e.workspace_id = rc.workspace_id
+      AND e.subject_type = 'replacement_candidate' AND e.subject_id = rc.id AND e.action = 'replacement.activated'
+      ORDER BY e.created_at DESC, e.id DESC LIMIT 1)
+    WHERE rc.workspace_id = ? ORDER BY rc.created_at, rc.id`);
+  return rows.map((row) => ({
+    id: row.id, status: row.status, digest: row.digest, revision: Number(row.revision), immutable: true,
+    currentConfigurationId: row.currentConfigurationId ?? null,
+    candidateConfigurationId: row.candidateConfigurationId,
+    proposedVersionId: row.approvedVersionId ?? row.storedProposedVersionId,
+    expectedOwnerRevision: Number(row.expectedOwnerRevision),
+    impactDigest: row.impactDigest,
+    driftDecision: row.driftDecision ?? null,
+    previousSnapshot: row.currentConfigurationId ? { id: row.currentConfigurationId, digest: row.previousConfigurationDigest ?? null, manifest: objectJson(row.previousManifestJson) } : null,
+    candidateSnapshot: { id: row.candidateConfigurationId, digest: row.candidateConfigurationDigest, manifest: objectJson(row.candidateManifestJson) },
+    activation: row.activationId ? {
+      id: row.activationId, activatedAt: Number(row.activatedAt), activatedBy: row.activatedBy ?? null, auditEventId: row.auditEventId ?? null,
+      previousConfigurationId: row.activatedPreviousConfigurationId ?? null, nextConfigurationId: row.activatedNextConfigurationId,
+      expectedOwnerRevision: Number(row.activatedExpectedOwnerRevision),
+    } : null,
+    activatedAt: row.activationId ? Number(row.activatedAt) : null,
+    activatedBy: row.activationId ? row.activatedBy ?? null : null,
+    auditEventId: row.activationId ? row.auditEventId ?? null : null,
+  }));
+}
 async function rowsForOwner(database: D1Database, principal: InterviewPrincipal, statement: string) { const workspace = await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string }>(); return workspace ? (await database.prepare(statement).bind(workspace.id).all()).results : []; }
+function commercialWithDriftTruth<T extends { path: Array<Record<string, unknown>>; products: Array<Record<string, unknown>>; plays: Array<Record<string, unknown>>; profiles: Array<Record<string, unknown>>; offers: Array<Record<string, unknown>> }>(commercial: T, drift: Array<Record<string, unknown>>) {
+  const unresolved = new Map<string, number>();
+  for (const item of drift) if (item.status !== "resolved" && isRecord(item.destination) && typeof item.destination.id === "string") unresolved.set(item.destination.id, (unresolved.get(item.destination.id) ?? 0) + 1);
+  const enrich = (node: Record<string, unknown>) => {
+    const lifecycle = typeof node.lifecycle === "string" ? node.lifecycle : "unknown";
+    const projected = { ...node, unresolvedDriftCount: unresolved.get(String(node.id)) ?? 0 };
+    if (node.type === "customer_profile" && lifecycle !== "nurture") delete projected.nurtureState;
+    return projected;
+  };
+  return { ...commercial, path: commercial.path.map(enrich), products: commercial.products.map(enrich), plays: commercial.plays.map(enrich), profiles: commercial.profiles.map(enrich), offers: commercial.offers.map(enrich) };
+}
+function objectJson(value: unknown): Record<string, unknown> | null { if (typeof value !== "string") return null; try { const parsed = JSON.parse(value); return isRecord(parsed) ? parsed : null; } catch { return null; } }
+function excerptOrNull(value: Record<string, unknown> | null) { return value && typeof value.excerpt === "string" ? value.excerpt : null; }
+function reachedArtifacts(impact: Record<string, unknown>) { return Array.isArray(impact.reachedArtifacts) ? impact.reachedArtifacts.filter(isRecord) : []; }
+function publicScopeToken(value: string) { return value === "play" ? "market_play" : value === "profile" ? "customer_profile" : value; }
 async function authenticatedPrincipal(dependencies: KnowledgeHandlerDependencies) { return admitPilotOwner(await dependencies.getIdentity(), dependencies.pilotOwnerEmail, dependencies.subjectPepper); }
 function json(value: unknown, status = 200) { return Response.json(value, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } }); }
 function privateWorkspaceUnavailable() { return json({ error: "private_workspace_unavailable" }, 404); }

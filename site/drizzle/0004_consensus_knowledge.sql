@@ -151,12 +151,14 @@ CREATE TABLE `knowledge_drifts` (
 	`revision` integer DEFAULT 1 NOT NULL,
 	`knowledge_item_id` text NOT NULL,
 	`current_version_id` text NOT NULL,
+	`proposed_version_id` text NOT NULL,
 	`proposal_id` text NOT NULL,
 	`risk_kind` text NOT NULL,
 	`dependency_digest` text NOT NULL,
 	`status` text NOT NULL,
 	FOREIGN KEY (`knowledge_item_id`) REFERENCES `knowledge_items`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`current_version_id`) REFERENCES `knowledge_versions`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`proposed_version_id`) REFERENCES `knowledge_versions`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`proposal_id`) REFERENCES `knowledge_proposals`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
@@ -294,11 +296,14 @@ CREATE TABLE `replacement_candidates` (
 	`current_configuration_id` text,
 	`candidate_configuration_id` text NOT NULL,
 	`impact_snapshot_id` text NOT NULL,
+	`proposed_version_id` text NOT NULL,
+	`expected_owner_revision` integer NOT NULL,
 	`candidate_digest` text NOT NULL,
 	`status` text DEFAULT 'proposed' NOT NULL,
 	FOREIGN KEY (`current_configuration_id`) REFERENCES `typed_configurations`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`candidate_configuration_id`) REFERENCES `typed_configurations`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`impact_snapshot_id`) REFERENCES `drift_impact_snapshots`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`impact_snapshot_id`) REFERENCES `drift_impact_snapshots`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`proposed_version_id`) REFERENCES `knowledge_versions`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `replacement_candidate_digest_unique` ON `replacement_candidates` (`workspace_id`,`candidate_digest`);--> statement-breakpoint
@@ -397,7 +402,8 @@ ALTER TABLE `knowledge_versions` ADD `proposal_id` text;--> statement-breakpoint
 ALTER TABLE `knowledge_versions` ADD `decision_id` text;--> statement-breakpoint
 ALTER TABLE `knowledge_versions` ADD `authority_command_id` text;--> statement-breakpoint
 ALTER TABLE `knowledge_versions` ADD `value_digest` text;--> statement-breakpoint
-CREATE UNIQUE INDEX `knowledge_current_version_item_unique` ON `knowledge_versions` (`knowledge_item_id`);--> statement-breakpoint
+ALTER TABLE `knowledge_versions` ADD `predecessor_version_id` text REFERENCES knowledge_versions(id);--> statement-breakpoint
+CREATE INDEX `knowledge_version_item_idx` ON `knowledge_versions` (`knowledge_item_id`,`created_at`);--> statement-breakpoint
 ALTER TABLE `products` ADD `company_id` text;--> statement-breakpoint
 CREATE INDEX `products_company_idx` ON `products` (`workspace_id`,`company_id`);--> statement-breakpoint
 CREATE TRIGGER `products_company_scope_insert` BEFORE INSERT ON `products`
@@ -442,7 +448,10 @@ SELECT 'knowledge-item-' || k.id, k.workspace_id, k.created_at, k.updated_at, 1,
 WHERE k.source_digest IS NOT NULL AND k.source_digest != 'legacy-unbound' AND NOT EXISTS (SELECT 1 FROM `knowledge_items` ki WHERE ki.current_version_id = k.id);--> statement-breakpoint
 UPDATE `knowledge_versions` SET `knowledge_item_id` = (SELECT ki.id FROM `knowledge_items` ki WHERE ki.current_version_id = `knowledge_versions`.`id`), `value_digest` = `source_digest`
 WHERE `source_digest` IS NOT NULL AND `source_digest` != 'legacy-unbound';--> statement-breakpoint
-CREATE TRIGGER `knowledge_version_immutable_update` BEFORE UPDATE OF knowledge_item_id, proposal_id, decision_id, authority_command_id, scope_type, scope_id, kind, value_json, value_digest, source_digest ON `knowledge_versions`
+CREATE TRIGGER `knowledge_version_predecessor_insert` BEFORE INSERT ON `knowledge_versions`
+WHEN NEW.predecessor_version_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM knowledge_versions p WHERE p.id = NEW.predecessor_version_id AND p.workspace_id = NEW.workspace_id)
+BEGIN SELECT RAISE(ABORT, 'knowledge predecessor workspace mismatch'); END;--> statement-breakpoint
+CREATE TRIGGER `knowledge_version_immutable_update` BEFORE UPDATE OF knowledge_item_id, proposal_id, decision_id, authority_command_id, predecessor_version_id, scope_type, scope_id, kind, value_json, value_digest, source_digest ON `knowledge_versions`
 BEGIN SELECT RAISE(ABORT, 'knowledge versions are immutable'); END;--> statement-breakpoint
 INSERT INTO `interview_authority_bindings` (`answer_id`, `confirmation_id`, `knowledge_version_id`, `knowledge_item_id`, `proposal_id`, `created_at`)
 SELECT a.id, c.id, k.id, ki.id, NULL, c.created_at FROM `interview_answers` a JOIN `interview_confirmations` c ON c.answer_id = a.id JOIN `knowledge_versions` k ON k.id = c.knowledge_version_id JOIN `knowledge_items` ki ON ki.current_version_id = k.id

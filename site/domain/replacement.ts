@@ -37,8 +37,8 @@ export async function createReplacementCandidate(database: D1Database, principal
   validateKey(input.idempotencyKey);
   validateRevision(input.expectedOwnerRevision);
   const workspace = await ownedWorkspace(database, principal);
-  const current = await version(database, workspace.id, input.currentVersionId);
-  const proposed = await version(database, workspace.id, input.proposedVersionId);
+  const current = await version(database, workspace.id, input.currentVersionId, true);
+  const proposed = await version(database, workspace.id, input.proposedVersionId, false);
   const active = await database.prepare("SELECT id, digest, revision FROM typed_configurations WHERE workspace_id = ? AND owner_type = ? AND owner_id = ? AND kind = ? AND active = 1 LIMIT 1").bind(workspace.id, input.ownerType, input.ownerId, input.kind).first<{ id: string; digest: string; revision: number }>();
   if (!active) return { status: "no_replacement_required", authoritativeVersionId: proposed.id };
   if (active.revision !== input.expectedOwnerRevision) throw new ReplacementConflictError("Active configuration changed; refresh the preview");
@@ -46,6 +46,7 @@ export async function createReplacementCandidate(database: D1Database, principal
   const impactDigest = await sha256(impact.canonicalJson);
   const manifestJson = stable(input.manifest);
   const candidateDigest = await sha256(stable({ currentConfigurationDigest: active.digest, proposedVersionDigest: proposed.value_digest, impactDigest, manifestJson, ownerType: input.ownerType, ownerId: input.ownerId, kind: input.kind }));
+  const driftProposalDigest = await sha256(stable({ authority: "drift_review", currentVersionId: current.id, proposedVersionId: proposed.id, impactDigest, candidateDigest }));
   const operationDigest = await sha256(stable({ action: "create_replacement_candidate", candidateDigest, expectedOwnerRevision: input.expectedOwnerRevision }));
   const prior = await database.prepare("SELECT id, operation_digest FROM authority_commands WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ id: string; operation_digest: string }>();
   if (prior) {
@@ -55,16 +56,19 @@ export async function createReplacementCandidate(database: D1Database, principal
   const existing = await database.prepare("SELECT id FROM replacement_candidates WHERE workspace_id = ? AND candidate_digest = ? LIMIT 1").bind(workspace.id, candidateDigest).first<{ id: string }>();
   if (existing) return readCandidateById(database, workspace.id, existing.id);
   const now = Date.now();
-  const commandId = v7(); const driftId = v7(); const snapshotId = v7(); const configurationId = v7(); const candidateId = v7();
+  const commandId = v7(); const driftId = v7(); const driftProposalId = v7(); const snapshotId = v7(); const configurationId = v7(); const candidateId = v7();
   try {
     await database.batch([
       database.prepare("INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) SELECT ?, ?, ?, ?, 1, 'replacement.candidate', ?, ?, ?, 'typed_configuration', ?, 'accepted' WHERE EXISTS (SELECT 1 FROM typed_configurations WHERE id = ? AND workspace_id = ? AND owner_type = ? AND owner_id = ? AND kind = ? AND active = 1 AND revision = ?)").bind(commandId, workspace.id, now, now, input.idempotencyKey, operationDigest, input.expectedOwnerRevision, active.id, active.id, workspace.id, input.ownerType, input.ownerId, input.kind, input.expectedOwnerRevision),
-      database.prepare("INSERT INTO knowledge_drifts (id, workspace_id, created_at, updated_at, revision, knowledge_item_id, current_version_id, proposal_id, risk_kind, dependency_digest, status) SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'reviewed' WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)").bind(driftId, workspace.id, now, now, current.knowledge_item_id, current.id, proposed.proposal_id, input.riskKind, impactDigest, commandId, workspace.id),
+      database.prepare(`INSERT INTO knowledge_proposals (id, workspace_id, created_at, updated_at, revision, company_id, source_id, excerpt_id, destination_scope_type, destination_scope_id, kind, value_json, provenance_json, proposal_digest, origin, status)
+        SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed'
+        WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)`).bind(driftProposalId, workspace.id, now, now, workspace.companyId, proposed.source_id, proposed.excerpt_id, proposed.destination_scope_type, proposed.destination_scope_id, proposed.kind, proposed.value_json, proposed.provenance_json, driftProposalDigest, proposed.origin, commandId, workspace.id),
+      database.prepare("INSERT INTO knowledge_drifts (id, workspace_id, created_at, updated_at, revision, knowledge_item_id, current_version_id, proposed_version_id, proposal_id, risk_kind, dependency_digest, status) SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'open' WHERE EXISTS (SELECT 1 FROM knowledge_proposals WHERE id = ? AND workspace_id = ? AND status = 'proposed')").bind(driftId, workspace.id, now, now, current.knowledge_item_id, current.id, proposed.id, driftProposalId, input.riskKind, impactDigest, driftProposalId, workspace.id),
       database.prepare("INSERT INTO drift_impact_snapshots (id, workspace_id, drift_id, impact_json, impact_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(snapshotId, workspace.id, driftId, impact.canonicalJson, impactDigest, now),
       database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0)").bind(configurationId, workspace.id, now, now, workspace.companyId, input.ownerType, input.ownerId, input.kind, candidateDigest, manifestJson),
       ...[...new Set(input.dependencyEdges.filter((edge) => edge.toType === "configuration" && edge.toId === active.id).map((edge) => edge.fromId))].sort().map((knowledgeVersionId) => database.prepare("INSERT INTO configuration_knowledge_dependencies (configuration_id, knowledge_version_id, created_at) VALUES (?, ?, ?)").bind(configurationId, knowledgeVersionId, now)),
-      database.prepare("INSERT INTO replacement_candidates (id, workspace_id, created_at, updated_at, revision, owner_type, owner_id, current_configuration_id, candidate_configuration_id, impact_snapshot_id, candidate_digest, status) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'proposed')").bind(candidateId, workspace.id, now, now, input.ownerType, input.ownerId, active.id, configurationId, snapshotId, candidateDigest),
-      database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, 'replacement.candidate_created', 'replacement_candidate', ?, ?, ?)").bind(v7(), workspace.id, principal.subject, candidateId, stable({ impactDigest, candidateDigest, status: REPLACEMENT_CANDIDATE_STATUS }), now),
+      database.prepare("INSERT INTO replacement_candidates (id, workspace_id, created_at, updated_at, revision, owner_type, owner_id, current_configuration_id, candidate_configuration_id, impact_snapshot_id, proposed_version_id, expected_owner_revision, candidate_digest, status) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed')").bind(candidateId, workspace.id, now, now, input.ownerType, input.ownerId, active.id, configurationId, snapshotId, proposed.id, input.expectedOwnerRevision, candidateDigest),
+      database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, 'replacement.candidate_created', 'replacement_candidate', ?, ?, ?)").bind(v7(), workspace.id, principal.subject, candidateId, stable({ driftId, driftProposalId, proposedVersionId: proposed.id, impactDigest, candidateDigest, expectedOwnerRevision: input.expectedOwnerRevision, status: REPLACEMENT_CANDIDATE_STATUS }), now),
     ]);
   } catch (error) {
     if (!isConstraint(error)) throw error;
@@ -81,10 +85,13 @@ export async function activateReplacement(database: D1Database, principal: Inter
   const candidate = await candidateRow(database, workspace.id, input.candidateId);
   if (candidate.revision !== input.expectedCandidateRevision) throw new ReplacementConflictError("Replacement candidate changed; refresh the preview");
   if (candidate.impact_digest !== input.impactDigest) throw new ReplacementConflictError("Exact preview digest is required for activation");
+  if (candidate.expected_owner_revision !== input.expectedOwnerRevision) throw new ReplacementConflictError("Candidate owner revision changed; refresh the preview");
   const operationDigest = await sha256(stable({ action: "activate_replacement", candidateId: candidate.id, impactDigest: input.impactDigest, expectedOwnerRevision: input.expectedOwnerRevision, expectedCandidateRevision: input.expectedCandidateRevision }));
   const previous = await database.prepare("SELECT operation_digest FROM authority_commands WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
   if (previous) { if (previous.operation_digest !== operationDigest) throw new ReplacementConflictError("Idempotency key was used for another activation"); return readReplacementState(database, principal, candidate.id); }
   if (candidate.status === "activated") return readReplacementState(database, principal, candidate.id);
+  if (candidate.status !== "proposed") throw new ReplacementConflictError("Replacement candidate is no longer eligible for activation");
+  if (candidate.drift_status !== "resolved" || candidate.drift_decision !== "accept") throw new ReplacementConflictError("Owner must accept the exact open Drift review before activation");
   const active = await database.prepare("SELECT id, revision FROM typed_configurations WHERE workspace_id = ? AND owner_type = ? AND owner_id = ? AND kind = ? AND active = 1 LIMIT 1").bind(workspace.id, candidate.owner_type, candidate.owner_id, candidate.kind).first<{ id: string; revision: number }>();
   if (!active) return { status: "no_replacement_required", authoritativeVersionId: candidate.proposed_version_id };
   if (active.id !== candidate.current_configuration_id || active.revision !== input.expectedOwnerRevision) throw new ReplacementConflictError("Current configuration changed; refresh the preview");
@@ -119,18 +126,29 @@ async function ownedWorkspace(database: D1Database, principal: InterviewPrincipa
   if (!row) throw new ReplacementConflictError("Commercial workspace is unavailable");
   return { id: row.id, companyId: row.company_id };
 }
-async function version(database: D1Database, workspaceId: string, id: string) {
-  const row = await database.prepare("SELECT id, knowledge_item_id, proposal_id, source_digest, value_digest FROM knowledge_versions WHERE id = ? AND workspace_id = ? AND status = 'confirmed' LIMIT 1").bind(id, workspaceId).first<{ id: string; knowledge_item_id: string; proposal_id: string; source_digest: string | null; value_digest: string }>();
+async function version(database: D1Database, workspaceId: string, id: string, allowSuperseded: boolean) {
+  const row = await database.prepare(`SELECT kv.id, kv.knowledge_item_id, kv.proposal_id, kv.source_digest, kv.value_digest,
+      kp.source_id, kp.excerpt_id, kp.destination_scope_type, kp.destination_scope_id, kp.kind, kp.value_json, kp.provenance_json, kp.origin
+    FROM knowledge_versions kv JOIN knowledge_proposals kp ON kp.id = kv.proposal_id AND kp.workspace_id = kv.workspace_id
+    WHERE kv.id = ? AND kv.workspace_id = ? AND kv.status IN ('confirmed'${allowSuperseded ? ",'superseded'" : ""}) LIMIT 1`).bind(id, workspaceId).first<{ id: string; knowledge_item_id: string; proposal_id: string; source_digest: string | null; value_digest: string; source_id: string | null; excerpt_id: string | null; destination_scope_type: string; destination_scope_id: string; kind: string; value_json: string; provenance_json: string; origin: string }>();
   if (!row?.knowledge_item_id || !row.proposal_id || !row.value_digest) throw new ReplacementConflictError("Confirmed knowledge version with immutable lineage is required");
   return row;
 }
 async function candidateRow(database: D1Database, workspaceId: string, id: string) {
-  const row = await database.prepare("SELECT rc.id, rc.revision, rc.status, rc.owner_type, rc.owner_id, rc.current_configuration_id, rc.candidate_configuration_id, ds.impact_digest, kd.current_version_id AS proposed_version_id, tc.kind FROM replacement_candidates rc JOIN drift_impact_snapshots ds ON ds.id = rc.impact_snapshot_id JOIN knowledge_drifts kd ON kd.id = ds.drift_id JOIN typed_configurations tc ON tc.id = rc.candidate_configuration_id WHERE rc.id = ? AND rc.workspace_id = ? LIMIT 1").bind(id, workspaceId).first<{ id: string; revision: number; status: string; owner_type: "product" | "profile"; owner_id: string; current_configuration_id: string; candidate_configuration_id: string; impact_digest: string; proposed_version_id: string; kind: "product_discovery" | "profile_effective" }>();
+  const row = await database.prepare(`SELECT rc.id, rc.revision, rc.status, rc.owner_type, rc.owner_id,
+      rc.current_configuration_id, rc.candidate_configuration_id, rc.proposed_version_id, rc.expected_owner_revision,
+      ds.impact_digest, kd.status AS drift_status, pd.decision AS drift_decision, approved.id AS approved_version_id, tc.kind
+    FROM replacement_candidates rc JOIN drift_impact_snapshots ds ON ds.id = rc.impact_snapshot_id
+    JOIN knowledge_drifts kd ON kd.id = ds.drift_id
+    LEFT JOIN proposal_decisions pd ON pd.proposal_id = kd.proposal_id AND pd.workspace_id = kd.workspace_id
+    LEFT JOIN knowledge_versions approved ON approved.decision_id = pd.id AND approved.workspace_id = kd.workspace_id
+    JOIN typed_configurations tc ON tc.id = rc.candidate_configuration_id
+    WHERE rc.id = ? AND rc.workspace_id = ? LIMIT 1`).bind(id, workspaceId).first<{ id: string; revision: number; status: string; owner_type: "product" | "profile"; owner_id: string; current_configuration_id: string; candidate_configuration_id: string; impact_digest: string; proposed_version_id: string; expected_owner_revision: number; drift_status: string; drift_decision: string | null; approved_version_id: string | null; kind: "product_discovery" | "profile_effective" }>();
   if (!row) throw new ReplacementConflictError("Replacement candidate is unavailable");
   return row;
 }
 async function readCandidate(database: D1Database, workspaceId: string, commandId: string) { const row = await database.prepare("SELECT subject_id FROM authority_commands WHERE id = ? AND workspace_id = ? LIMIT 1").bind(commandId, workspaceId).first<{ subject_id: string }>(); if (!row) throw new ReplacementConflictError("Replacement command is unavailable"); return readCandidateById(database, workspaceId, row.subject_id); }
-async function readCandidateById(database: D1Database, workspaceId: string, candidateId: string) { const row = await candidateRow(database, workspaceId, candidateId); return { id: row.id, revision: row.revision, status: row.status === "proposed" ? REPLACEMENT_CANDIDATE_STATUS : row.status, currentConfigurationId: row.current_configuration_id, candidateConfigurationId: row.candidate_configuration_id, impactDigest: row.impact_digest, proposedVersionId: row.proposed_version_id, immutable: true }; }
+async function readCandidateById(database: D1Database, workspaceId: string, candidateId: string) { const row = await candidateRow(database, workspaceId, candidateId); return { id: row.id, revision: row.revision, status: row.status === "proposed" ? REPLACEMENT_CANDIDATE_STATUS : row.status, currentConfigurationId: row.current_configuration_id, candidateConfigurationId: row.candidate_configuration_id, impactDigest: row.impact_digest, proposedVersionId: row.approved_version_id ?? row.proposed_version_id, expectedOwnerRevision: row.expected_owner_revision, driftStatus: row.drift_status, immutable: true }; }
 function validateKey(value: string) { if (!/^[a-f0-9-]{20,80}$/i.test(value)) throw new ReplacementConflictError("Invalid idempotency key"); }
 function validateRevision(value: number) { if (!Number.isInteger(value) || value < 1) throw new ReplacementConflictError("Invalid expected revision"); }
 function isConstraint(error: unknown) { return error instanceof Error && /unique|constraint/i.test(error.message); }

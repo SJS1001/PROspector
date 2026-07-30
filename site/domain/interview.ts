@@ -20,11 +20,17 @@ export type InterviewPrincipal = {
 type QuestionView = {
   id: string;
   revision: number;
+  ordinal: number;
   prompt: string;
   premise: string;
   inference: string;
   provenance: string;
   recommendation: string;
+  evidenceFindings: Array<{ sourceTitle: string | null; sourceRef: string | null; sourceType: string | null; publishedAt: number | null; retrievedAt: number | null; excerpt: string }>;
+  inferenceDetail: { label: string; value: string } | null;
+  recommendationDetail: { rationale: string; value: { excerpt: string } | null } | null;
+  destination: InterviewDestination | null;
+  prerequisiteKnowledge: Array<{ id: string; digest: string }>;
 };
 
 type ProposalSnapshot = {
@@ -253,7 +259,7 @@ export async function readInterviewState(
   const current = await database
     .prepare(
       `SELECT s.id AS session_id, s.revision AS session_revision, s.state,
-              q.id AS question_id, q.revision AS question_revision,
+              s.scope_type, s.scope_id, q.id AS question_id, q.revision AS question_revision, q.version AS question_ordinal,
               q.prompt, q.research_json, q.recommendation,
               ans.id AS answer_id, ans.operation_digest, ans.proposal_json,
               ans.proposal_digest, ans.created_at AS answer_created_at
@@ -271,8 +277,11 @@ export async function readInterviewState(
       session_id: string;
       session_revision: number;
       state: "awaiting_answer" | "awaiting_confirmation";
+      scope_type: string;
+      scope_id: string;
       question_id: string;
       question_revision: number;
+      question_ordinal: number;
       prompt: string;
       research_json: string;
       recommendation: string;
@@ -290,9 +299,11 @@ export async function readInterviewState(
     inference?: string;
     provenance?: string;
   };
+  const structuredResearch = researchFirst(current.research_json);
   const question: QuestionView = {
     id: current.question_id,
     revision: current.question_revision,
+    ordinal: current.question_ordinal,
     prompt: current.prompt,
     premise: research.premise ?? research.evidence ?? "No premise was recorded.",
     inference: research.inference ?? "No inference was recorded.",
@@ -300,6 +311,11 @@ export async function readInterviewState(
       research.provenance ??
       "Legacy policy question created before provenance was stored separately.",
     recommendation: current.recommendation,
+    evidenceFindings: evidenceProjection(structuredResearch.evidenceFindings),
+    inferenceDetail: structuredResearch.inference,
+    recommendationDetail: current.recommendation ? { rationale: current.recommendation, value: null } : null,
+    destination: interviewDestination(current.scope_type, current.scope_id),
+    prerequisiteKnowledge: structuredResearch.prerequisiteKnowledge,
   };
   const base = {
     displayName: principal.displayName,
@@ -327,11 +343,17 @@ export async function readInterviewState(
       question: {
         id: snapshot.questionId,
         revision: snapshot.questionRevision,
+        ordinal: current.question_ordinal,
         prompt: generalized ? current.prompt : (snapshot as ProposalSnapshot).prompt,
         premise: generalized ? (snapshot as GeneralizedProposalSnapshot).evidenceFindings[0]?.excerpt ?? "No reliable evidence was recorded." : (snapshot as ProposalSnapshot).premise,
         inference: generalized ? (snapshot as GeneralizedProposalSnapshot).inference.value : (snapshot as ProposalSnapshot).inference,
         provenance: generalized ? "Repository-seeded evidence and owner answer snapshot." : (snapshot as ProposalSnapshot).provenance,
         recommendation: generalized ? (snapshot as GeneralizedProposalSnapshot).recommendation.rationale : (snapshot as ProposalSnapshot).recommendation,
+        evidenceFindings: generalized ? evidenceProjection((snapshot as GeneralizedProposalSnapshot).evidenceFindings) : [],
+        inferenceDetail: generalized ? (snapshot as GeneralizedProposalSnapshot).inference : null,
+        recommendationDetail: generalized ? { rationale: (snapshot as GeneralizedProposalSnapshot).recommendation.rationale, value: (snapshot as GeneralizedProposalSnapshot).recommendation.value ?? null } : null,
+        destination: generalized ? (snapshot as GeneralizedProposalSnapshot).destination : interviewDestination(current.scope_type, current.scope_id),
+        prerequisiteKnowledge: generalized ? (snapshot as GeneralizedProposalSnapshot).prerequisiteKnowledge : [],
       },
       answer: {
         id: current.answer_id,
@@ -1071,6 +1093,24 @@ function researchFirst(raw: string): {
     inference: { label: "Inference", value: research.inference ?? "No inference was recorded." },
     prerequisiteKnowledge,
   };
+}
+
+function evidenceProjection(findings: InterviewEvidenceFinding[]) {
+  return findings.map((finding) => ({
+    sourceTitle: typeof finding.sourceTitle === "string" ? finding.sourceTitle : null,
+    sourceRef: typeof finding.sourceRef === "string" ? finding.sourceRef : null,
+    sourceType: typeof finding.sourceType === "string" ? finding.sourceType : null,
+    publishedAt: typeof finding.publishedAt === "number" ? finding.publishedAt : null,
+    retrievedAt: typeof finding.retrievedAt === "number" ? finding.retrievedAt : null,
+    excerpt: typeof finding.excerpt === "string" ? finding.excerpt : "",
+  }));
+}
+
+function interviewDestination(scopeType: string, id: string): InterviewDestination | null {
+  const normalized = scopeType === "play" ? "market_play" : scopeType === "profile" ? "customer_profile" : scopeType;
+  return ["company", "product", "market_play", "customer_profile", "offer"].includes(normalized)
+    ? { scopeType: normalized as InterviewDestination["scopeType"], id }
+    : null;
 }
 
 function stableJson(value: unknown) {

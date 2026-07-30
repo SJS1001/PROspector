@@ -118,6 +118,13 @@ test("knowledge review appends immutable versions, converges retries, and enforc
     const correction = await knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: corrected.id, decision: "correct", correction: { excerpt: "Corrected bounded excerpt." }, predecessorVersionId: acceptedReview.version.id, expectedRevision: corrected.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000233" });
     assert.equal(correction.version.predecessorId, acceptedReview.version.id);
     assert.equal(correction.version.successorLineage.decision, "correct");
+    assert.equal(correction.version.knowledgeItemId, acceptedReview.version.knowledgeItemId, "same-scope successors retain stable Knowledge item identity");
+    assert.deepEqual(acceptedReview.version.successorIds, [], "the original response remains an immutable point-in-time projection");
+    const lineage = (await knowledge.listKnowledge(fixture.database, principal, {})).find((record) => record.id === acceptedReview.version.id);
+    assert.equal(lineage.status, "superseded");
+    assert.deepEqual(lineage.successorIds, [correction.version.id]);
+    assert.equal(lineage.confirmation.auditEventId !== null, true);
+    assert.equal(lineage.provenance.reference, "opaque:owner_edit");
     const rescoped = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("same_product_reuse", "0198a4b0-0000-7000-8000-000000000234"));
     const rescope = await knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: rescoped.id, decision: "rescope", destination: { scopeType: "market_play", locator: "ONE for Mining" }, predecessorVersionId: correction.version.id, expectedRevision: rescoped.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000235" });
     assert.equal(rescope.version.predecessorId, correction.version.id);
