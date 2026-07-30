@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { InterviewState } from "../domain/interview";
-
-type InterviewApiState = InterviewState;
+import { useCallback, useMemo, useState } from "react";
+import { KnowledgeWorkspace } from "./knowledge/knowledge-workspace";
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
 type CapabilityItem = {
@@ -45,6 +43,9 @@ const discovery = [
   { market: "Bulk materials terminals", fit: "High", reason: "Shared uptime and fragmented equipment-data problem", buyer: "Terminal operations director" },
   { market: "Marine port operations", fit: "Medium", reason: "ONE capabilities transfer; proof and buyer language differ", buyer: "Port operations VP" },
 ];
+
+// Kept as a stable source-level copy contract while the rendered controls live in KnowledgeWorkspace.
+export const KNOWLEDGE_FLOW_COPY = ["Consensus Interview", "Submit answer for confirmation", "Confirm submitted answer", "Start corrected review", "Applying this policy to scoring and prospecting remains disabled"] as const;
 
 export function ProspectorApp({
   initialView = "Pilot Status",
@@ -107,13 +108,13 @@ export function ProspectorApp({
 
         <div className="fixture-banner" role="status">
           <strong>Controlled capability pilot</strong>
-          <span>Only the owner-scoped Consensus Interview is live. Prospecting, contacts, imports, schedules, exports, credentials, Gmail, calling, paid work, and provider effects remain disabled until their own gates are proven.</span>
+          <span>Commercial knowledge is live. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, and outbound effects remain disabled.</span>
         </div>
 
         <div className="content">
           {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={() => setAccess("unauthorized")} />}
           {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={setView} />}
-          {view === "Knowledge" && <Knowledge setView={setView} />}
+          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={() => setAccess("unauthorized")} />}
           {view === "Market Discovery" && <MarketDiscovery />}
           {view === "Review Queue" && <ReviewQueue items={filteredSignals} />}
           {view === "Prospects" && <Prospects items={filteredSignals} />}
@@ -461,168 +462,6 @@ function SignalRow({ item }: { item: (typeof signals)[number] }) {
     <div className="signal-copy"><div><strong>{item.company}</strong><span>· {item.target}</span></div><p>{item.signal}</p><small><b>{item.tier}</b> Synthetic source tier · {item.age} sample age · {item.status}</small></div>
     <div className="row-actions"><button type="button" disabled title="Requires a persisted, audited decision workflow">Approve disabled</button><button type="button" disabled title="Requires a persisted, audited decision workflow">Defer disabled</button></div>
   </article>;
-}
-
-function Knowledge({ setView }: { setView: (view: View) => void }) {
-  const [interview, setInterview] = useState<InterviewApiState | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const pendingKey = useRef<string | null>(null);
-
-  const loadInterview = useCallback(async (cancelled?: () => boolean) => {
-    try {
-      const response = await fetch("/api/interview", {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error("The secure interview could not be loaded.");
-      const value = await response.json() as InterviewApiState;
-      if (!cancelled?.()) {
-        setInterview(value);
-        setError(null);
-      }
-    } catch (cause) {
-      if (!cancelled?.())
-        setError(cause instanceof Error ? cause.message : "The secure interview could not be loaded.");
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch("/api/interview", {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (!response.ok) throw new Error("The secure interview could not be loaded.");
-        const value = await response.json() as InterviewApiState;
-        if (!cancelled) {
-          setInterview(value);
-          setError(null);
-        }
-      } catch (cause) {
-        if (!cancelled)
-          setError(cause instanceof Error ? cause.message : "The secure interview could not be loaded.");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  async function mutate(body: Record<string, unknown>) {
-    if (!interview) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/interview", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-prospector-intent": "interview-mutation",
-        },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) {
-        let message = "The decision was not saved.";
-        try {
-          const failure = await response.json() as { message?: string };
-          message = failure.message ?? message;
-        } catch {
-          // The status is authoritative even if an intermediary returned no JSON.
-        }
-        throw new Error(message);
-      }
-      const value = await response.json() as InterviewApiState;
-      pendingKey.current = null;
-      setInterview(value);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The decision was not saved.");
-      await loadInterview();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function submit() {
-    if (interview?.status !== "active") return;
-    pendingKey.current ??= crypto.randomUUID();
-    void mutate({
-      action: "submit_recommendation_answer",
-      questionId: interview.question.id,
-      expectedRevision: interview.question.revision,
-      idempotencyKey: pendingKey.current,
-    });
-  }
-
-  function confirm() {
-    if (interview?.status !== "awaiting_confirmation") return;
-    pendingKey.current ??= crypto.randomUUID();
-    void mutate({
-      action: "confirm_submitted_answer",
-      answerId: interview.answer.id,
-      expectedSessionRevision: interview.session.revision,
-      idempotencyKey: pendingKey.current,
-    });
-  }
-
-  function restartReview() {
-    if (interview?.status !== "review_required") return;
-    pendingKey.current ??= crypto.randomUUID();
-    void mutate({
-      action: "restart_unbound_review",
-      idempotencyKey: pendingKey.current,
-    });
-  }
-
-  return <>
-    <PageHeading eyebrow="OWNER-SCOPED · LIVE D1 SLICE" title="Consensus Interview" copy="This is the first persisted workflow. Evidence and inference remain separate until your explicit confirmation is written with an audit event." />
-    <div className="knowledge-layout">
-      <section className="panel question-card">
-        {!interview && !error && <div className="loading-state">Loading the owner-scoped interview…</div>}
-        {error && <div className="error-state" role="alert">{error} <button type="button" onClick={() => { setError(null); void loadInterview(); }}>Retry</button></div>}
-        {interview?.status === "uninitialized" && <>
-          <span className="question-number">SECURE WORKSPACE SETUP</span>
-          <h2>Initialize Digitalrain’s private knowledge workspace?</h2>
-          <p className="question-copy">This creates one owner-scoped workspace, one interview session, and an append-only initialization audit event. It does not activate prospecting or external services.</p>
-          <button className="primary" type="button" disabled={busy} onClick={() => void mutate({ action: "bootstrap" })}>{busy ? "Initializing…" : "Initialize secure workspace"}</button>
-        </>}
-        {interview?.status === "active" && <>
-          <span className="question-number">QUESTION 01 · COMPANY KNOWLEDGE · REVISION {interview.question.revision}</span>
-          <h2>{interview.question.prompt}</h2>
-          <p className="question-copy">This records a policy proposal only. Applying it to scoring and prospecting remains a later, separately tested integration.</p>
-          <div className="finding-grid"><div><b>Policy premise · not external evidence</b><p>{interview.question.premise}</p></div><div><b>Inference</b><p>{interview.question.inference}</p></div></div>
-          <div className="saved">Provenance: {interview.question.provenance}</div>
-          <div className="recommendation"><span>RECOMMENDED</span><b>Score 1 — partial readiness</b><p>{interview.question.recommendation}</p></div>
-          <div className="answer-actions"><button className="selected" type="button" disabled={busy} onClick={submit}>{busy ? "Submitting…" : "Submit answer for confirmation"}</button><button type="button" disabled title="Correction history is the next slice">Correct disabled</button><button type="button" disabled title="Deferral history is the next slice">Defer disabled</button></div>
-          <div className="saved">This first step records an answer and audit event. It does not create confirmed knowledge.</div>
-        </>}
-        {interview?.status === "awaiting_confirmation" && <>
-          <span className="question-number">CONFIRM SUBMITTED ANSWER · SESSION REVISION {interview.session.revision}</span>
-          <h2>Confirm historian connectivity as partial readiness?</h2>
-          <p className="question-copy">Your submitted answer is saved, but it is not confirmed knowledge yet. This separate action creates the versioned policy and confirmation audit event.</p>
-          <div className="finding-grid"><div><b>Submitted answer</b><p>Accept the recommendation: score 1, partial readiness.</p></div><div><b>Boundary</b><p>Scoring integration remains disabled and no current prospect is qualified.</p></div></div>
-          <div className="recommendation"><span>READY FOR OWNER CONFIRMATION</span><b>Score 1 — partial readiness</b><p>{interview.question.recommendation}</p></div>
-          <div className="answer-actions"><button className="selected" type="button" disabled={busy} onClick={confirm}>{busy ? "Confirming…" : "Confirm submitted answer"}</button><button type="button" disabled title="Reject and correction history are the next slice">Reject disabled</button><button type="button" disabled title="Rescoping is the next slice">Rescope disabled</button></div>
-          <div className="saved">Submitted {new Date(interview.answer.submittedAt).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })}</div>
-        </>}
-        {interview?.status === "review_required" && <>
-          <span className="question-number">REVIEW REQUIRED · EARLIER DECISION QUARANTINED</span>
-          <h2>This policy must be reviewed again.</h2>
-          <p className="question-copy">An earlier answer was saved without an immutable snapshot of the exact policy shown. It is not treated as confirmed knowledge. Restarting preserves its audit history, marks any derived knowledge superseded, and opens the corrected two-stage review.</p>
-          <div className="answer-actions"><button className="selected" type="button" disabled={busy} onClick={restartReview}>{busy ? "Restarting…" : "Start corrected review"}</button></div>
-        </>}
-        {interview?.status === "confirmed" && <>
-          <span className="question-number">CONFIRMED KNOWLEDGE · VERSIONED</span>
-          <h2>Historian evidence counts as partial readiness.</h2>
-          <div className="recommendation confirmed-knowledge"><span>CONFIRMED BY OWNER</span><b>Score {interview.confirmed.value.score} — {interview.confirmed.value.classification.replaceAll("_", " ")}</b><p>{interview.confirmed.value.rationale}</p></div>
-          <dl className="confirmation-proof"><div><dt>Knowledge version</dt><dd>{interview.confirmed.knowledgeVersionId}</dd></div><div><dt>Audit event</dt><dd>{interview.confirmed.auditEventId}</dd></div><div><dt>Confirmed</dt><dd>{new Date(interview.confirmed.confirmedAt).toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "medium", timeStyle: "short" })}</dd></div></dl>
-          <div className="saved">Recorded in D1. Applying this policy to scoring and prospecting remains disabled pending integration proof.</div>
-        </>}
-      </section>
-      <aside className="panel scope-card"><span className="eyebrow">CURRENT SCOPE</span><h3>{interview && interview.status !== "uninitialized" ? interview.workspace.companyName : "Digitalrain"}</h3><ol><li className={interview?.status === "confirmed" ? "done" : "current"}>Company knowledge <span>{interview?.status === "confirmed" ? "1 confirmed" : interview?.status === "awaiting_confirmation" ? "Awaiting confirmation" : interview?.status === "review_required" ? "Review required" : "In progress"}</span></li><li>Product · ONE <span>Fixture only</span></li><li>Play · Mining <span>Fixture only</span></li><li>Profile · Operating <span>Fixture only</span></li></ol><button className="outline" type="button" onClick={() => setView("Morning Brief")}>Return to brief</button></aside>
-    </div>
-  </>;
 }
 
 function MarketDiscovery() {
