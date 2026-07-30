@@ -25,3 +25,17 @@ test("D-01/D-04/D-05 Phase 4 UI is evidence-first, explicit about blocked author
     assert.doesNotMatch(html, /dangerouslySetInnerHTML/);
   } finally { await vite.close(); }
 });
+
+test("Review Queue renders authoritative Account/Target and completed decision lineage", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const view = await vite.ssrLoadModule(new URL("../app/prospecting/review-queue.tsx", import.meta.url).pathname);
+    const html = renderToStaticMarkup(React.createElement(view.ReviewQueue, { busy: false, onCommand() { throw new Error("SSR must not mutate"); }, queue: [{
+      id: "prospect-1", assessment_id: "assessment-1", revision: 2, offer_id: "offer-1", score: 8, outcome: "Passed", configuration_digest: "a".repeat(64),
+      account: { id: "account-1", value: "Exact Account" }, target: { id: "target-1", value: "Exact Target" }, cooldownState: "reentered",
+      decisionHistory: [{ decision: "reject", decision_at: 1_780_000_000_000, owner_subject: "owner-1", audit_event_id: "audit-1" }],
+      cooldownHistory: [{ status: "active", ends_at: 1_780_100_000_000 }], reentryHistory: [{ event_kind: "sourced_disproof", created_at: 1_780_200_000_000 }],
+    }] }));
+    for (const value of ["Exact Account", "account-1", "Exact Target", "target-1", "Decision: reject", "owner owner-1", "audit audit-1", "sourced_disproof", "Decision and re-entry lineage"]) assert.match(html, new RegExp(value));
+  } finally { await vite.close(); }
+});
