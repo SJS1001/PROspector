@@ -26,7 +26,7 @@ test("capability handlers are owner-only, non-cacheable, and privacy preserving"
       assert.deepEqual(body, { error: "private_workspace_unavailable" });
       assert.doesNotMatch(
         JSON.stringify(body),
-        /owner@example|digitalrain|workspace|audit|capabilit/i,
+        /owner@example|digitalrain|ws_[a-z0-9]|audit|capabilit/i,
       );
     }
 

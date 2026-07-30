@@ -136,7 +136,7 @@ async function denied(response) {
   const body = await response.json();
   assert.doesNotMatch(
     JSON.stringify(body),
-    /owner@example|outsider@example|digitalrain|workspace|audit|capabilit/i,
+    /owner@example|outsider@example|digitalrain|ws_[a-z0-9]|audit|capabilit/i,
   );
   return body;
 }

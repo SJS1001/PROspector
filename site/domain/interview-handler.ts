@@ -3,18 +3,19 @@ import {
   bootstrapInterview,
   confirmSubmittedAnswer,
   InterviewConflictError,
-  principalFromIdentity,
   readInterviewState,
   restartUnboundReview,
   submitRecommendationAnswer,
   type InterviewPrincipal,
   type InterviewState,
 } from "./interview";
+import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
 
 export type InterviewHandlerDependencies = {
   database: D1Database;
   subjectPepper: string;
+  pilotOwnerEmail: string;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -23,9 +24,9 @@ export async function handleInterviewGet(
 ): Promise<Response> {
   try {
     const principal = await authenticatedPrincipal(dependencies);
-    if (!principal) return json({ error: "authentication_required" }, 401);
     return stateResponse(dependencies.database, principal, await readInterviewState(dependencies.database, principal));
-  } catch {
+  } catch (error) {
+    if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "server_error" }, 500);
   }
 }
@@ -37,7 +38,6 @@ export async function handleInterviewPost(
   let principal: InterviewPrincipal | null = null;
   try {
     principal = await authenticatedPrincipal(dependencies);
-    if (!principal) return json({ error: "authentication_required" }, 401);
     const rejected = validateSameOriginMutation(request, "interview-mutation", 8192);
     if (rejected) return json({ error: rejected.error }, rejected.status);
     await consumeCsrfToken(
@@ -70,6 +70,7 @@ export async function handleInterviewPost(
     }
     return stateResponse(dependencies.database, principal, state);
   } catch (error) {
+    if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError)
       return json({ error: error.code }, 403);
     if (error instanceof InterviewConflictError)
@@ -82,13 +83,11 @@ export async function handleInterviewPost(
 
 async function authenticatedPrincipal(dependencies: InterviewHandlerDependencies) {
   const identity = await dependencies.getIdentity();
-  return identity
-    ? principalFromIdentity(
-        identity.email,
-        identity.displayName,
-        dependencies.subjectPepper,
-      )
-    : null;
+  return admitPilotOwner(
+    identity,
+    dependencies.pilotOwnerEmail,
+    dependencies.subjectPepper,
+  );
 }
 
 async function stateResponse(
@@ -104,4 +103,8 @@ function json(value: unknown, status = 200) {
     status,
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
   });
+}
+
+function privateWorkspaceUnavailable() {
+  return json({ error: "private_workspace_unavailable" }, 404);
 }
