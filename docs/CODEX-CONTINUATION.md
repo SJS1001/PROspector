@@ -19,9 +19,9 @@ Do not rely on a Codex conversation, local task IDs, or uncommitted work as auth
 ## Current state
 
 - Phase 1 automated build is complete; real second-principal and control-plane proof remains non-substitutable and must not be fabricated.
-- Phase 2 has 20 independently verified plans. Plans 02-01 through 02-07 are complete.
+- Phase 2 has 20 independently verified plans. Plans 02-01 through 02-10 are complete.
 - Phase 2 completed locally: Wave 0 RED contracts, exact `uuid@14.0.1` approval, additive migration `0004_consensus_knowledge.sql`, commercial hierarchy authority, and Proposed/Confirmed Knowledge authority.
-- Phase 2 next: execute 02-08 secure activation-gated API, then continue 02-09 onward in dependency order.
+- Phase 2 next: execute 02-11 local read-only preflight/gate tooling, then begin the ordered hosted evidence sequence at 02-12.
 - Phase 4 preparation was integrated at `91d59cc`.
 - Phase 5 preparation was integrated at `9eb7e7f`.
 - Phase 6 preparation was integrated at `f60ad82`.
@@ -56,9 +56,9 @@ Use these existing artifacts rather than restating product decisions:
 
 ## Verification baseline
 
-- After Plan 02-07, the combined interview, knowledge, and drift suites pass 8/8 with loopback permission; three consecutive repeats passed. Lint and build pass.
+- After Plan 02-10, the canonical local suite passes 33/33 with loopback permission. Lint and build pass; Plan 10 React checks passed and its stale hook dependency warning was removed.
 - Migration 0000–0004 focused suite passes 3/3.
-- The remaining intended RED failures belong to Plans 02-08 through 02-10 until their production owners are implemented.
+- No intended local RED failures remain through Plan 02-10. Plans 02-12 onward contain non-substitutable hosted evidence and authorization checkpoints.
 - Before merging parallel work, run the plan-specific focused tests; after each wave, run `cd site && npm test && npm run lint` when the validation contract says the full suite is expected green.
 
 ## Suggested skills for the next account
