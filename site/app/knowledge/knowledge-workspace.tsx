@@ -73,7 +73,7 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
     } catch {
       setNotice("The outcome could not be verified. Nothing will be retried automatically. Check the current version.");
     } finally { setPending(null); }
-  }, [keyFor, load, onUnauthorized, state.kind]);
+  }, [keyFor, onUnauthorized, state.kind]);
 
   if (state.kind === "loading") return <section className="panel loading-state" role="status">Loading authoritative knowledge…</section>;
   if (state.kind === "unauthorized") return null;
