@@ -90,3 +90,43 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 @media (max-width:760px) { .app-shell { display:block; }.rail { position:relative; width:100%; height:auto; padding:14px; }.brand-block { border:0; padding-bottom:10px; }.workspace-picker,.rail-foot { display:none; }nav { display:flex; overflow-x:auto; }nav button { min-width:max-content; }.canvas { width:100%; }.topbar { padding:0 16px; }.crumbs span:first-child,.crumbs b:first-of-type,.quiet { display:none; }.fixture-banner { margin:14px 16px 0; flex-direction:column; gap:3px; }.fixture-banner strong { white-space:normal; }.content { padding:28px 16px 50px; }.page-heading { align-items:start; }.page-heading h1 { font-size:28px; }.context-strip { grid-template-columns:1fr; }.context-strip>* { border-right:0!important; border-bottom:1px solid var(--line); }.metrics { grid-template-columns:1fr 1fr; }.signal-row { grid-template-columns:45px 1fr; }.row-actions,.decision { grid-column:2; }.side-stack,.knowledge-layout,.proposal-grid,.prospect-grid,.export-grid,.owner-boundary,.unavailable-panel>div { grid-template-columns:1fr; }.owner-boundary>div+div { border-left:0; border-top:1px solid var(--line); }.discovery-tease { grid-template-columns:1fr; }.fit { border:0; padding:0; }.finding-grid { grid-template-columns:1fr; }.answer-actions { flex-wrap:wrap; }.search { display:none; }.pilot-status { gap:16px; }.boundary-summary { grid-template-columns:1fr; }.section-title { align-items:start; flex-direction:column; }.section-title .outline { width:100%; } }
 @media (max-width:480px) { .metrics { grid-template-columns:1fr; }.page-heading { display:block; }.page-heading>.primary { margin-top:16px; }.top-actions .avatar { display:none; }.boundary-summary dl { grid-template-columns:1fr; }.capability-card dl div { grid-template-columns:1fr; gap:4px; }.access-screen { padding:16px; }.access-screen section { padding:24px; } }
 @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; transition:none!important; } }
+
+/* Phase 2 Knowledge workspace: extends the existing paper/panel grammar. */
+.knowledge-workspace { display:grid; gap:16px; font-size:12px; font-weight:400; line-height:1.55; }
+.knowledge-workspace .page-heading h1 { font-size:28px; font-weight:760; line-height:1.05; }
+.knowledge-workspace h2 { font-size:16px; font-weight:760; line-height:1.2; }
+.knowledge-workspace h3 { font-size:16px; font-weight:760; line-height:1.2; }
+.knowledge-workspace button,.knowledge-workspace input,.knowledge-workspace textarea { min-height:44px; }
+.knowledge-local-nav,.knowledge-scope { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+.knowledge-local-nav button,.knowledge-scope button { flex:0 0 auto; border:1px solid var(--line); border-radius:7px; background:var(--white); color:var(--ink); padding:8px 16px; font-size:12px; font-weight:760; }
+.knowledge-local-nav button[aria-current="page"],.knowledge-scope button[aria-current="page"] { background:var(--green); border-color:var(--green); color:var(--white); }
+.knowledge-scope button { font-family:var(--font-geist-mono); font-size:12px; font-weight:400; }
+.knowledge-action-boundary { display:grid; gap:16px; min-width:0; margin:0; padding:0; border:0; }
+.knowledge-action-boundary:disabled { opacity:.72; }
+.commercial-model-view { grid-template-columns:320px minmax(0,1fr); }
+.commercial-model-view .panel,.knowledge-library-view .panel,.knowledge-workspace .panel { padding:24px; }
+.commercial-model-view ul { margin:8px 0 0; padding-left:16px; list-style:none; }
+.commercial-model-view li>div { display:flex; align-items:center; gap:4px; min-width:0; }
+.commercial-model-view li button { text-align:left; }
+.commercial-model-view li button:first-child { width:44px; padding:0; border:0; background:transparent; }
+.commercial-model-view li button:last-child { min-width:0; border:0; background:transparent; color:var(--ink); overflow-wrap:anywhere; }
+.knowledge-library-view { display:grid; gap:16px; }
+.knowledge-library-view > .panel > div { display:flex; flex-wrap:wrap; gap:8px; }
+.knowledge-library-view > .panel > div button { border:1px solid var(--line); background:var(--paper); border-radius:7px; padding:8px 16px; }
+.knowledge-library-view > .panel > div button[aria-current="page"] { border-color:var(--green); background:var(--green); color:var(--white); }
+.knowledge-workspace form,.knowledge-workspace fieldset { display:grid; gap:8px; margin:16px 0 0; border:0; padding:0; }
+.knowledge-workspace label { display:grid; gap:4px; color:var(--muted); }
+.knowledge-workspace input,.knowledge-workspace textarea { width:100%; border:1px solid var(--line); border-radius:7px; background:var(--white); color:var(--ink); padding:8px; }
+.knowledge-workspace textarea { min-height:96px; resize:vertical; }
+.knowledge-workspace .confirmation-proof div { align-items:start; }
+.knowledge-workspace .confirmation-proof dd { overflow-wrap:anywhere; text-align:left; }
+.knowledge-workspace .fit-pill { color:#735c25; background:#fff8df; border:1px solid #d9a441; }
+.knowledge-workspace .status-badge.proven { color:#2a725b; background:#e8f5ee; border-color:#cbe0d2; }
+.knowledge-workspace .saved { color:#2a725b; background:#e8f5ee; }
+.knowledge-workspace .error-state { display:grid; gap:8px; }
+.knowledge-workspace .error-state p { margin:0; }
+.knowledge-workspace :focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+
+@media (max-width:1050px) { .commercial-model-view { grid-template-columns:1fr; }.knowledge-workspace .knowledge-layout { grid-template-columns:1fr; } }
+@media (max-width:760px) { .knowledge-local-nav,.knowledge-scope { margin-inline:-16px; padding-inline:16px; }.knowledge-workspace .panel { padding:16px; }.commercial-model-view ul { padding-left:8px; }.commercial-model-view li>div { align-items:start; }.knowledge-workspace .confirmation-proof div { display:grid; grid-template-columns:1fr; gap:4px; } }
+@media (max-width:480px) { .knowledge-workspace .primary,.knowledge-workspace .outline,.knowledge-workspace form button,.knowledge-workspace fieldset button { width:100%; }.knowledge-local-nav button,.knowledge-scope button { padding-inline:12px; } }
