@@ -36,3 +36,23 @@ test("D-04 deterministic Mining qualification locks threshold, evidence gates, a
     assert.deepEqual(tied.map((value) => value.candidateId), ["candidate-a", "candidate-b"], "ties must use a stable recorded final key");
   } finally { await vite.close(); }
 });
+
+test("Mining evaluator is byte-stable across source order, duplicates, stale evidence, and runner claims", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const qualification = await evaluator(vite);
+    const tierTwo = [
+      { id: "source-b", tier: 2, independenceGroup: "b", retrievedAt: 1_780_000_000_000, material: true },
+      { id: "source-a", tier: 2, independenceGroup: "a", retrievedAt: 1_779_999_000_000, material: true },
+    ];
+    const first = qualification.evaluateMiningQualification({ ...base(), sources: tierTwo });
+    const replay = qualification.evaluateMiningQualification({ ...base(), sources: [...tierTwo].reverse().concat(tierTwo[0]), runnerScore: 10 });
+    assert.equal(JSON.stringify(first), JSON.stringify(replay));
+    assert.equal(first.outcome, "Passed");
+    const stale = qualification.evaluateMiningQualification({ ...base(), sources: [{ ...tierTwo[0], recency: "account_context_reconfirmation_required" }] });
+    assert.equal(stale.outcome, "InsufficientEvidence");
+    for (const hardGate of qualification.MINING_HARD_DISQUALIFIERS) {
+      assert.equal(qualification.evaluateMiningQualification({ ...base(), hardDisqualifiers: [hardGate] }).outcome, "Disqualified", hardGate);
+    }
+  } finally { await vite.close(); }
+});
