@@ -126,7 +126,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Private Pilot Boundary | 1/5 | In Progress | - |
+| 1. Private Pilot Boundary | 2/5 | In Progress | - |
 | 2. Consensus Knowledge and Commercial Model | 0/TBD | Not started | - |
 | 3. Product Readiness and Market Discovery | 0/TBD | Not started | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/TBD | Not started | - |
