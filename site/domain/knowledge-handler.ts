@@ -18,7 +18,7 @@ import {
   KnowledgeConflictError,
 } from "./knowledge";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
-import { createReplacementCandidate, activateReplacement, ReplacementConflictError } from "./replacement";
+import { createReplacementCandidate, activateReplacement, readEligibleReplacementCandidates, ReplacementConflictError } from "./replacement";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
 
 export const KNOWLEDGE_ACTIONS = [
@@ -100,7 +100,7 @@ async function dispatch(body: Record<string, unknown>, database: D1Database, pri
       proposalId: requiredString(body, "proposalId", 160), decision: enumValue(body, "decision", ["accept", "reject", "correct", "rescope"]), correction: optionalExcerpt(body, "correction").value, destination: optionalDestination(body).destination, predecessorVersionId: optionalStringValue(body, "predecessorVersionId", 160).predecessorVersionId, expectedRevision: requiredRevision(body, "expectedRevision"), idempotencyKey: key,
     });
     case "create_replacement_candidate": return createReplacementCandidate(database, principal, {
-      currentVersionId: requiredString(body, "currentVersionId", 160), proposedVersionId: requiredString(body, "proposedVersionId", 160), ownerType: enumValue(body, "ownerType", ["product", "profile"]), ownerId: requiredString(body, "ownerId", 160), kind: enumValue(body, "kind", ["product_discovery", "profile_effective"]), manifest: requiredRecord(body, "manifest"), riskKind: requiredString(body, "riskKind", 120), dependencyEdges: dependencyEdges(body), artifacts: artifacts(body), expectedOwnerRevision: requiredRevision(body, "expectedOwnerRevision"), idempotencyKey: key,
+      eligibleProjectionId: requiredString(body, "eligibleProjectionId", 600), eligibleProjectionDigest: requiredString(body, "eligibleProjectionDigest", 128), expectedOwnerRevision: requiredRevision(body, "expectedOwnerRevision"), idempotencyKey: key,
     });
     case "activate_replacement": return activateReplacement(database, principal, { candidateId: requiredString(body, "candidateId", 160), impactDigest: requiredString(body, "impactDigest", 128), expectedOwnerRevision: requiredRevision(body, "expectedOwnerRevision"), expectedCandidateRevision: requiredRevision(body, "expectedCandidateRevision"), idempotencyKey: key });
   }
@@ -125,7 +125,7 @@ function assertClosedCommand(body: Record<string, unknown>) {
     submit_interview_answer: [...common, "questionId", "expectedRevision", "answer", "value", "reason", "destination"],
     record_interview_decision: [...common, "answerId", "expectedSessionRevision", "expectedQuestionRevision", "decision", "value", "reason", "destination", "predecessorVersionId"],
     review_knowledge_proposal: [...common, "proposalId", "decision", "correction", "destination", "predecessorVersionId", "expectedRevision"],
-    create_replacement_candidate: [...common, "currentVersionId", "proposedVersionId", "ownerType", "ownerId", "kind", "manifest", "riskKind", "dependencyEdges", "artifacts", "expectedOwnerRevision"],
+    create_replacement_candidate: [...common, "eligibleProjectionId", "eligibleProjectionDigest", "expectedOwnerRevision"],
     activate_replacement: [...common, "candidateId", "impactDigest", "expectedOwnerRevision", "expectedCandidateRevision"],
   };
   const action = body.action as (typeof KNOWLEDGE_ACTIONS)[number];
@@ -245,6 +245,15 @@ export async function readReplacements(database: D1Database, principal: Intervie
   }));
 }
 async function readEligibleReplacementDrift(database: D1Database, principal: InterviewPrincipal) {
+  const serverEligible = await readEligibleReplacementCandidates(database, principal);
+  return serverEligible.map((item) => ({
+    id: item.id, riskKind: item.riskKind, status: "eligible", currentVersionId: item.current.id, proposedVersionId: item.proposed.id,
+    currentValue: excerptOrNull(objectJson(item.currentValueJson)), proposedValue: excerptOrNull(objectJson(item.proposedValueJson)),
+    provenance: objectJson(item.provenanceJson), destination: { scopeType: publicScopeToken(item.destinationScopeType), id: item.destinationScopeId },
+    review: null, paths: item.impact.reachedArtifacts.map((artifact) => artifact.path.join(" -> ")), artifacts: item.impact.reachedArtifacts,
+    counts: item.impact.counts, containment: item.impact.containment, impactDigest: item.impactDigest, replacementCandidateId: null,
+    candidate: item.candidate, dependencyKnowledgeVersionIds: item.dependencyKnowledgeVersionIds,
+  }));
   const eligible = await rowsForOwner(database, principal, `SELECT proposed.id AS proposedVersionId,
       proposed.value_json AS proposedValueJson, proposed.kind AS knowledgeKind,
       current.id AS currentVersionId, current.value_json AS currentValueJson, current.source_digest AS currentSourceDigest,
