@@ -3,7 +3,7 @@ phase: 1
 slug: private-pilot-boundary
 status: approved
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-07-29
 ---
 
@@ -38,13 +38,13 @@ created: 2026-07-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 01-W0-01 | 01 | 1 | REQ-company-workspace-isolation | T-01 spoofed/second principal | Non-owner receives neutral denial and cannot read or bootstrap | integration | `cd site && node --test tests/pilot-access.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-W0-02 | 01 | 1 | REQ-private-human-governed-gtm | T-02 forged proof state | Only evidence records produce `proven`; bindings alone remain `unproven` | unit | `cd site && node --test tests/capability-state.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-W0-03 | 01 | 1 | REQ-company-workspace-isolation | T-03 cross-prefix object access | R2 keys are server-derived and cross-workspace access is impossible | unit/integration | `cd site && node --test tests/object-storage.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-W0-04 | 01 | 1 | Both | T-04 capability leak | Capability route is no-store, owner-only, and exposes no email or workspace detail to denials | route | `cd site && node --test tests/capabilities-route.test.mjs` | ❌ W0 | ⬜ pending |
-| 01-REG-01 | 02 | 2 | REQ-private-human-governed-gtm | T-05 mutation bypass | Origin, Fetch Metadata, intent, CSRF, type, and body bounds fail closed | integration | `cd site && node --test tests/request-security.test.mjs tests/interview-handler.test.mjs` | ✅ | ⬜ pending |
-| 01-REG-02 | 02 | 2 | REQ-private-human-governed-gtm | T-06 adjacent-state authority | Answer remains separate from Confirmation and no later effect control is enabled | integration/render | `cd site && node --test tests/interview-repository.test.mjs tests/fixture-safety.test.mjs` | ✅ | ⬜ pending |
-| 01-REG-03 | 04 | 3 | Both | T-07 UI overclaims capability | Pilot Status renders Proven/Blocked/Unproven and disabled broader workflows | render | `cd site && node --test tests/rendered-html.test.mjs tests/fixture-safety.test.mjs` | ✅ extend | ⬜ pending |
+| 01-W0-01 | 01 | 1 | REQ-company-workspace-isolation | T-01 spoofed/second principal | Non-owner receives neutral denial and cannot read or bootstrap | integration | `cd site && node --test tests/pilot-access.test.mjs` | ✅ | ✅ green |
+| 01-W0-02 | 01 | 1 | REQ-private-human-governed-gtm | T-02 forged proof state | Only evidence records produce `proven`; bindings alone remain `unproven` | unit | `cd site && node --test tests/capability-state.test.mjs` | ✅ | ✅ green |
+| 01-W0-03 | 01 | 1 | REQ-company-workspace-isolation | T-03 cross-prefix object access | R2 keys are server-derived and cross-workspace access is impossible | unit/integration | `cd site && node --test tests/object-storage.test.mjs` | ✅ | ✅ green |
+| 01-W0-04 | 01 | 1 | Both | T-04 capability leak | Capability route is no-store, owner-only, and exposes no email or workspace detail to denials | route | `cd site && node --test tests/capabilities-route.test.mjs` | ✅ | ✅ green |
+| 01-REG-01 | 02 | 2 | REQ-private-human-governed-gtm | T-05 mutation bypass | Origin, Fetch Metadata, intent, CSRF, type, and body bounds fail closed | integration | `cd site && node --test tests/request-security.test.mjs tests/interview-handler.test.mjs` | ✅ | ✅ green |
+| 01-REG-02 | 02 | 2 | REQ-private-human-governed-gtm | T-06 adjacent-state authority | Answer remains separate from Confirmation and no later effect control is enabled | integration/render | `cd site && node --test tests/interview-repository.test.mjs tests/fixture-safety.test.mjs` | ✅ | ✅ green |
+| 01-REG-03 | 04 | 3 | Both | T-07 UI overclaims capability | Pilot Status renders Proven/Blocked/Unproven and disabled broader workflows | render | `cd site && node --test tests/rendered-html.test.mjs tests/fixture-safety.test.mjs` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -52,11 +52,11 @@ created: 2026-07-29
 
 ## Wave 0 Requirements
 
-- [ ] `site/tests/pilot-access.test.mjs` — single-owner admission, neutral denial, and no second workspace bootstrap.
-- [ ] `site/tests/capability-state.test.mjs` — evidence projection and binding-presence negative case.
-- [ ] `site/tests/object-storage.test.mjs` — provider-neutral port, workspace prefix, digest/delete/absence lifecycle.
-- [ ] `site/tests/capabilities-route.test.mjs` — authenticated/unauthorized route response and data minimization.
-- [ ] Update existing handler/repository tests that currently expect an outsider to bootstrap a second workspace.
+- [x] `site/tests/pilot-access.test.mjs` — single-owner admission, neutral denial, and no second workspace bootstrap.
+- [x] `site/tests/capability-state.test.mjs` — evidence projection and binding-presence negative case.
+- [x] `site/tests/object-storage.test.mjs` — provider-neutral port, workspace prefix, digest/delete/absence lifecycle.
+- [x] `site/tests/capabilities-route.test.mjs` — authenticated/unauthorized route response and data minimization.
+- [x] Update existing handler/repository tests that currently expect an outsider to bootstrap a second workspace.
 
 No new test framework or package is required.
 
@@ -81,4 +81,4 @@ No new test framework or package is required.
 - [x] Automated feedback target is under 30 seconds.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** approved 2026-07-29; `wave_0_complete` remains false until the missing tests are created and green.
+**Approval:** approved 2026-07-29; automated Wave 0 files are created and green. Hosted manual gates remain tracked separately above.

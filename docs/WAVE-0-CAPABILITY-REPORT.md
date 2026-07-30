@@ -14,6 +14,13 @@ The Git commit containing this report is the release-evidence commit; it is
 intentionally separate so the report can record the deployment that followed
 the application commit.
 
+Phase 1 release candidate `26f7331331f4de8b433ca48abe07e47174b36a51`
+is pushed, locally verified, and packaged, but is not deployed. The persisted
+Sites project remains live while the current control-plane session returns
+`project_not_found` for project reads, environment reads, and version saves.
+Version 8 remains the accepted hosted release until that access mismatch is
+resolved.
+
 ## Outcome
 
 Wave 0 is **blocked**, not failed. The private pilot can remain online with one
