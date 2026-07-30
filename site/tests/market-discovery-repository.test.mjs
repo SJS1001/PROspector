@@ -154,8 +154,8 @@ async function seedPrivateProofConfirmation(fixture, authority, expiresAt, overr
     idempotencyKey: key(701),
   });
   const workspace = await fixture.database
-    .prepare("SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1")
-    .bind(owner.subject)
+    .prepare("SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1")
+    .bind(owner.subject, owner.legacySubject, owner.subject)
     .first();
   const sessionId = "private-proof-session";
   const questionId = "private-proof-question";
@@ -745,6 +745,139 @@ test("D-09/D-11 stale decision races converge, cooldown repetition stays closed,
     assert.equal(reopened.proposals[0].reopenLineage.evidenceReference, material.evidence[0].reference);
     assert.equal(reopened.proposals[0].reopenLineage.immutable, true);
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("D-09 Explore loses cleanly to a concurrent Defer or Dismiss decision", async (t) => {
+  t.mock.method(Date, "now", () => FIXED_NOW);
+  const fixture = await createD1Fixture("market-discovery-explore-loser");
+  try {
+    const authority = await seedReadyProduct(fixture);
+    const run = await authority.discovery.startProductDiscoveryRun(fixture.database, owner, {
+      productId: authority.productId,
+      expectedProductRevision: authority.ready.product.revision,
+      triggerKind: "manual",
+      startedAt: FIXED_NOW,
+      idempotencyKey: key(620),
+    });
+    const submitted = await authority.discovery.submitDiscoveryFindings(
+      fixture.database,
+      owner,
+      submissionInput(run, [finding(20)], 621),
+    );
+    const proposal = submitted.proposals[0];
+    const descendants = await snapshotDescendantAuthority(fixture.database, authority.productId);
+    const race = await runRace([
+      () => authority.discovery.decideMarketPlayProposal(fixture.database, owner, {
+        proposalId: proposal.id,
+        expectedProposalRevision: proposal.revision,
+        expectedProposalDigest: proposal.digest,
+        decision: "explore",
+        reason: "Open a bounded Draft interview.",
+        idempotencyKey: key(622),
+      }),
+      () => authority.discovery.decideMarketPlayProposal(fixture.database, owner, {
+        proposalId: proposal.id,
+        expectedProposalRevision: proposal.revision,
+        expectedProposalDigest: proposal.digest,
+        decision: "defer",
+        reason: "Wait for the next planning cycle.",
+        reviewAt: FIXED_NOW + 90 * DAY,
+        idempotencyKey: key(623),
+      }),
+    ]);
+    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 1);
+    assert.equal(await countRows(fixture.database, "market_play_proposal_decisions", "proposal_id = ?", [proposal.id]), 1);
+    const winner = race.find((entry) => entry.status === "fulfilled").value;
+    const after = await snapshotDescendantAuthority(fixture.database, authority.productId);
+    if (winner.decision === "explore") {
+      assert.equal(await countRows(fixture.database, "interview_sessions", "scope_type = 'market_play' AND scope_id = ?", [winner.interview.marketPlayId]), 1);
+      assert.equal(after.filter((row) => row.kind === "market_play").length, descendants.filter((row) => row.kind === "market_play").length + 1);
+    } else {
+      assert.deepEqual(after, descendants, "a losing Explore must not leave a Draft Market Play or interview behind");
+      assert.equal(await countRows(fixture.database, "interview_sessions", "scope_type = 'market_play'"), 0);
+    }
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("D-05 only the winning complete submission advances the schedule watermark", async (t) => {
+  t.mock.method(Date, "now", () => FIXED_NOW);
+  const fixture = await createD1Fixture("market-discovery-watermark-race");
+  try {
+    const authority = await seedReadyProduct(fixture);
+    const previous = FIXED_NOW - 5 * DAY;
+    await fixture.database.prepare(
+      "UPDATE product_discovery_schedules SET last_successful_watermark = ? WHERE product_id = ? AND active = 1",
+    ).bind(previous, authority.productId).run();
+    const run = await authority.discovery.startProductDiscoveryRun(fixture.database, owner, {
+      productId: authority.productId,
+      expectedProductRevision: authority.ready.product.revision,
+      triggerKind: "manual",
+      startedAt: FIXED_NOW,
+      idempotencyKey: key(630),
+    });
+    const race = await runRace([
+      () => authority.discovery.submitDiscoveryFindings(fixture.database, owner, submissionInput(run, [finding(21)], 631, { status: "partial" })),
+      () => authority.discovery.submitDiscoveryFindings(fixture.database, owner, submissionInput(run, [finding(22)], 632)),
+    ]);
+    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 1);
+    const winner = race.find((entry) => entry.status === "fulfilled").value;
+    const schedule = await fixture.database.prepare(
+      "SELECT last_successful_watermark FROM product_discovery_schedules WHERE product_id = ? AND active = 1",
+    ).bind(authority.productId).first();
+    assert.equal(
+      Number(schedule.last_successful_watermark),
+      winner.status === "succeeded" ? run.startedAt : previous,
+      "a stale or losing complete submission must not advance the watermark",
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("D-05 legacy workspace subjects retain market reads while proof consumption stays principal-exact", async (t) => {
+  t.mock.method(Date, "now", () => FIXED_NOW);
+  const fixture = await createD1Fixture("market-discovery-legacy-workspace");
+  try {
+    const authority = await seedReadyProduct(fixture);
+    await fixture.database.prepare(
+      "UPDATE workspaces SET owner_subject = ? WHERE owner_subject = ?",
+    ).bind(owner.legacySubject, owner.subject).run();
+    const state = await authority.discovery.readMarketDiscoveryState(fixture.database, owner, authority.productId);
+    assert.equal(state.authority, "known");
+    const run = await authority.discovery.startProductDiscoveryRun(fixture.database, owner, {
+      productId: authority.productId,
+      expectedProductRevision: authority.ready.product.revision,
+      triggerKind: "manual",
+      startedAt: FIXED_NOW,
+      idempotencyKey: key(640),
+    });
+    assert.equal(run.productId, authority.productId);
+    await seedPrivateProofConfirmation(fixture, authority, FIXED_NOW + DAY);
+    await fixture.database.prepare(
+      "UPDATE workspaces SET owner_subject = ? WHERE owner_subject = ?",
+    ).bind(owner.subject, owner.legacySubject).run();
+    await authority.discovery.activatePrivateSyntheticProofAuthorization(fixture.database, owner, {
+      productId: authority.productId,
+      expectedProductRevision: authority.ready.product.revision,
+      idempotencyKey: key(641),
+    });
+    await fixture.database.prepare(
+      "UPDATE workspaces SET owner_subject = ? WHERE owner_subject = ?",
+    ).bind(owner.legacySubject, owner.subject).run();
+    await assert.rejects(
+      authority.discovery.submitPrivateSyntheticProof(fixture.database, { ...owner, subject: owner.legacySubject, legacySubject: "different-legacy-subject" }, {
+        productId: authority.productId,
+        expectedProductRevision: authority.ready.product.revision,
+        idempotencyKey: key(642),
+      }),
+      /authorization|authority|match/i,
+      "a legacy workspace lookup must not turn a proof authorization into a legacy-subject grant",
+    );
   } finally {
     await fixture.dispose();
   }

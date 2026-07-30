@@ -596,8 +596,24 @@ async function commitSuccessfulSubmission(
          WHERE EXISTS (SELECT 1 FROM product_discovery_runs WHERE id = ? AND workspace_id = ? AND revision = ?)`,
       ).bind(submissionId, workspace.id, run.product_id, run.id, run.configuration_id, provenanceJson, await sha256(provenanceJson), submissionJson, await sha256(submissionJson), resultJson, await sha256(resultJson), operationDigest, idempotencyKey, now, run.id, workspace.id, run.revision),
       ...mutations,
-      database.prepare("UPDATE product_discovery_runs SET execution_state = 'succeeded', successful_watermark = started_at, revision = revision + 1, updated_at = ?, completed_at = ? WHERE id = ? AND workspace_id = ? AND revision = ?").bind(now, now, run.id, workspace.id, run.revision),
-      database.prepare("UPDATE product_discovery_schedules SET last_successful_watermark = ?, revision = revision + 1, updated_at = ? WHERE workspace_id = ? AND product_id = ? AND active = 1").bind(run.started_at, now, workspace.id, run.product_id),
+      database.prepare(
+        `UPDATE product_discovery_runs
+         SET execution_state = 'succeeded', successful_watermark = started_at, revision = revision + 1, updated_at = ?, completed_at = ?
+         WHERE id = ? AND workspace_id = ? AND revision = ?
+           AND EXISTS (
+             SELECT 1 FROM product_discovery_submissions
+             WHERE id = ? AND workspace_id = ? AND run_id = ? AND status = 'succeeded' AND operation_digest = ?
+           )`,
+      ).bind(now, now, run.id, workspace.id, run.revision, submissionId, workspace.id, run.id, operationDigest),
+      database.prepare(
+        `UPDATE product_discovery_schedules
+         SET last_successful_watermark = ?, revision = revision + 1, updated_at = ?
+         WHERE workspace_id = ? AND product_id = ? AND active = 1
+           AND EXISTS (
+             SELECT 1 FROM product_discovery_submissions
+             WHERE id = ? AND workspace_id = ? AND run_id = ? AND status = 'succeeded' AND operation_digest = ?
+           )`,
+      ).bind(run.started_at, now, workspace.id, run.product_id, submissionId, workspace.id, run.id, operationDigest),
       database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) SELECT ?, ?, 'owner', ?, 'discovery.synthetic_submission_succeeded', 'product_discovery_run', ?, ?, ? WHERE EXISTS (SELECT 1 FROM product_discovery_submissions WHERE id = ?)").bind(v7(), workspace.id, principal.subject, run.id, canonicalJson({ submissionId, operationDigest, surfacedProposalCount: projections.length }), now, submissionId),
       ...(privateProofAuthorization && consumptionAuditId && consumptionId && consumptionAuditDetail
         ? [
@@ -856,8 +872,23 @@ export async function decideMarketPlayProposal(
       database.prepare(
         `INSERT INTO market_plays
          (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle)
-         VALUES (?, ?, ?, ?, 1, ?, ?, 'draft')`,
-      ).bind(draftMarketPlayId, workspace.id, now, now, proposal.product_id, proposalName(finding)),
+         SELECT ?, ?, ?, ?, 1, p.product_id, ?, 'draft'
+         FROM market_play_proposals p
+         JOIN market_play_proposal_versions v ON v.id = p.current_version_id
+         WHERE p.id = ? AND p.workspace_id = ? AND p.active = 1
+           AND p.revision = ? AND p.current_version_id = ? AND v.proposal_digest = ?`,
+      ).bind(
+        draftMarketPlayId,
+        workspace.id,
+        now,
+        now,
+        proposalName(finding),
+        proposal.id,
+        workspace.id,
+        input.expectedProposalRevision,
+        version.id,
+        input.expectedProposalDigest,
+      ),
       database.prepare(
         `INSERT INTO interview_sessions
          (id, workspace_id, created_at, updated_at, revision, company_id, scope_type, scope_id, state, active_question_id)
@@ -962,7 +993,9 @@ async function productAuthority(database: D1Database, principal: InterviewPrinci
 }
 
 async function ownedWorkspace(database: D1Database, principal: InterviewPrincipal): Promise<Workspace> {
-  const workspace = await database.prepare("SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1").bind(principal.subject).first<Workspace>();
+  const workspace = await database.prepare(
+    "SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1",
+  ).bind(principal.subject, principal.legacySubject, principal.subject).first<Workspace>();
   if (!workspace) throw conflict("Workspace authority is unavailable");
   return workspace;
 }
