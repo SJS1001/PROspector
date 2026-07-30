@@ -839,6 +839,41 @@ test("D-05 only the winning complete submission advances the schedule watermark"
   }
 });
 
+test("D-05 a losing successful submission cannot mutate proposal, version, evidence, or lineage authority", async (t) => {
+  t.mock.method(Date, "now", () => FIXED_NOW);
+  const fixture = await createD1Fixture("market-discovery-submission-proposal-race");
+  try {
+    const authority = await seedReadyProduct(fixture);
+    const run = await authority.discovery.startProductDiscoveryRun(fixture.database, owner, {
+      productId: authority.productId,
+      expectedProductRevision: authority.ready.product.revision,
+      triggerKind: "manual",
+      startedAt: FIXED_NOW,
+      idempotencyKey: key(650),
+    });
+    const left = finding(23);
+    const right = finding(24, { marketCategory: "Recovery planning", audience: "plant-reliability-leaders" });
+    const race = await runRace([
+      () => authority.discovery.submitDiscoveryFindings(fixture.database, owner, submissionInput(run, [left], 651)),
+      () => authority.discovery.submitDiscoveryFindings(fixture.database, owner, submissionInput(run, [right], 652)),
+    ]);
+    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 1);
+    assert.equal(race.filter((entry) => entry.status === "rejected").length, 1);
+    const winner = race.find((entry) => entry.status === "fulfilled").value;
+    const winnerProposal = winner.proposals[0];
+    assert.equal(await countRows(fixture.database, "market_play_proposals", "run_id = ?", [run.id]), 1);
+    assert.equal(await countRows(fixture.database, "market_play_proposal_versions", "run_id = ?", [run.id]), 1);
+    assert.equal(await countRows(fixture.database, "market_play_proposal_evidence", "proposal_id = ?", [winnerProposal.id]), winnerProposal.evidence.length);
+    assert.equal(await countRows(fixture.database, "market_play_proposal_lineage", "target_proposal_id = ?", [winnerProposal.id]), 0);
+    const stored = await fixture.database.prepare(
+      "SELECT proposal_json FROM market_play_proposal_versions WHERE proposal_id = ? LIMIT 1",
+    ).bind(winnerProposal.id).first();
+    assert.equal(JSON.parse(stored.proposal_json).marketCategory, winnerProposal.marketCategory);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("D-05 legacy workspace subjects retain market reads while proof consumption stays principal-exact", async (t) => {
   t.mock.method(Date, "now", () => FIXED_NOW);
   const fixture = await createD1Fixture("market-discovery-legacy-workspace");
@@ -977,6 +1012,52 @@ test("D-12 private synthetic proof requires exact confirmed authority, consumes 
       "authorization metadata must not persist the fixed fixture body",
     );
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("D-12 private synthetic proof consumption is bound to its authorized immutable run and configuration", async (t) => {
+  t.mock.method(Date, "now", () => FIXED_NOW);
+  const fixture = await createD1Fixture("market-discovery-private-proof-run-binding");
+  try {
+    const authority = await seedReadyProduct(fixture);
+    await seedPrivateProofConfirmation(fixture, authority, FIXED_NOW + DAY);
+    const authorization = await authority.discovery.activatePrivateSyntheticProofAuthorization(fixture.database, owner, {
+      productId: authority.productId,
+      expectedProductRevision: authority.ready.product.revision,
+      idempotencyKey: key(720),
+    });
+    assert.equal(authorization.runId, authority.ready.initialRun.id);
+    assert.equal(authorization.configuration.id, authority.ready.configuration.id);
+    const oldConfiguration = authority.ready.configuration;
+    const replacementConfigurationId = "replacement-private-proof-configuration";
+    await fixture.database.prepare(
+      `INSERT INTO typed_configurations
+       (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active)
+       SELECT ?, workspace_id, ?, ?, 1, company_id, owner_type, owner_id, kind, ?, manifest_json, 0
+       FROM typed_configurations WHERE id = ?`,
+    ).bind(replacementConfigurationId, FIXED_NOW, FIXED_NOW, "f".repeat(64), oldConfiguration.id).run();
+    await fixture.database.batch([
+      fixture.database.prepare("UPDATE typed_configurations SET active = 0 WHERE id = ?").bind(oldConfiguration.id),
+      fixture.database.prepare("UPDATE typed_configurations SET active = 1 WHERE id = ?").bind(replacementConfigurationId),
+    ]);
+    const stateAfterReplacement = await authority.discovery.readMarketDiscoveryState(
+      fixture.database,
+      owner,
+      authority.productId,
+    );
+    assert.equal(stateAfterReplacement.privateProof.authorizationId, null, "a replaced configuration invalidates its old private-proof authorization projection");
+    await assert.rejects(
+      authority.discovery.submitPrivateSyntheticProof(fixture.database, owner, {
+        productId: authority.productId,
+        expectedProductRevision: authority.ready.product.revision,
+        idempotencyKey: key(721),
+      }),
+      /authorization|pinned|unavailable/i,
+    );
+    assert.equal(await countRows(fixture.database, "private_synthetic_proof_consumptions"), 0);
+    assert.equal(await countRows(fixture.database, "product_discovery_submissions", "run_id = ?", [authorization.runId]), 0);
   } finally {
     await fixture.dispose();
   }

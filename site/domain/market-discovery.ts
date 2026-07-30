@@ -127,6 +127,9 @@ type PrivateProofAuthorizationRow = {
   expected_product_revision: number;
   interview_confirmation_id: string;
   confirmed_knowledge_version_id: string;
+  run_id: string;
+  configuration_id: string;
+  configuration_digest: string;
   reviewed_source_revision: string;
   migration_digest: string;
   fixture_digest: string;
@@ -276,7 +279,7 @@ export async function readMarketDiscoveryState(
       run: { id: proposal.run_id },
     };
   }));
-  const authorization = await latestPrivateProofAuthorization(database, workspace.id, productId);
+  const authorization = await privateProofAuthorizationForConsumption(database, workspace.id, productId);
   const consumption = authorization
     ? await database.prepare(
       "SELECT result_json, operation_digest, consumed_at FROM private_synthetic_proof_consumptions WHERE authorization_id = ? LIMIT 1",
@@ -312,6 +315,7 @@ export async function activatePrivateSyntheticProofAuthorization(
   ).bind(input.productId, workspace.id).first<Product>();
   if (!product || product.lifecycle !== "ready") throw conflict("Ready Product authority is required");
   if (Number(product.revision) !== Number(input.expectedProductRevision)) throw conflict("Stale Product revision");
+  const run = await privateProofRunForAuthorization(database, workspace.id, product);
   const confirmation = await database.prepare(
     `SELECT c.id AS confirmation_id, v.id AS version_id, v.value_json
      FROM interview_confirmations c
@@ -334,14 +338,19 @@ export async function activatePrivateSyntheticProofAuthorization(
     ownerSubjectId: principal.subject,
     productId: product.id,
     expectedProductRevision: input.expectedProductRevision,
+    runId: run.id,
+    configurationId: run.configuration_id,
+    configurationDigest: run.configuration_digest,
     interviewConfirmationId: confirmation.confirmation_id,
     confirmedKnowledgeVersionId: confirmation.version_id,
     ...confirmed,
     idempotencyKey: input.idempotencyKey,
   });
   const existing = await database.prepare(
-    "SELECT * FROM private_synthetic_proof_authorizations WHERE workspace_id = ? AND evidence_reference = ? LIMIT 1",
-  ).bind(workspace.id, confirmed.evidenceReference).first<PrivateProofAuthorizationRow>();
+    `SELECT * FROM private_synthetic_proof_authorizations
+     WHERE workspace_id = ? AND evidence_reference = ? AND run_id = ?
+       AND configuration_id = ? AND configuration_digest = ? LIMIT 1`,
+  ).bind(workspace.id, confirmed.evidenceReference, run.id, run.configuration_id, run.configuration_digest).first<PrivateProofAuthorizationRow>();
   if (existing) {
     if (existing.authorization_digest !== authorizationDigest) throw conflict("Private synthetic-proof authorization already exists for another operation");
     return privateProofAuthorizationProjection(existing);
@@ -362,9 +371,9 @@ export async function activatePrivateSyntheticProofAuthorization(
       database.prepare(
         `INSERT INTO private_synthetic_proof_authorizations
          (id, workspace_id, owner_subject_id, product_id, expected_product_revision, interview_confirmation_id,
-          confirmed_knowledge_version_id, reviewed_source_revision, migration_digest, fixture_digest,
+          confirmed_knowledge_version_id, run_id, configuration_id, configuration_digest, reviewed_source_revision, migration_digest, fixture_digest,
           fixture_provenance, evidence_reference, capability, authorization_digest, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         authorizationId,
         workspace.id,
@@ -373,6 +382,9 @@ export async function activatePrivateSyntheticProofAuthorization(
         input.expectedProductRevision,
         confirmation.confirmation_id,
         confirmation.version_id,
+        run.id,
+        run.configuration_id,
+        run.configuration_digest,
         PRIVATE_SYNTHETIC_PROOF_REVIEWED_SOURCE_REVISION,
         PRIVATE_SYNTHETIC_PROOF_MIGRATION_DIGEST,
         PRIVATE_SYNTHETIC_PROOF_FIXTURE_DIGEST,
@@ -394,8 +406,10 @@ export async function activatePrivateSyntheticProofAuthorization(
     if (!isConstraint(error)) throw error;
   }
   const winner = await database.prepare(
-    "SELECT * FROM private_synthetic_proof_authorizations WHERE workspace_id = ? AND evidence_reference = ? LIMIT 1",
-  ).bind(workspace.id, confirmed.evidenceReference).first<PrivateProofAuthorizationRow>();
+    `SELECT * FROM private_synthetic_proof_authorizations
+     WHERE workspace_id = ? AND evidence_reference = ? AND run_id = ?
+       AND configuration_id = ? AND configuration_digest = ? LIMIT 1`,
+  ).bind(workspace.id, confirmed.evidenceReference, run.id, run.configuration_id, run.configuration_digest).first<PrivateProofAuthorizationRow>();
   if (!winner || winner.authorization_digest !== authorizationDigest) throw conflict("Private synthetic-proof authorization conflicted");
   return privateProofAuthorizationProjection(winner);
 }
@@ -412,17 +426,25 @@ export async function submitPrivateSyntheticProof(
   ).bind(input.productId, workspace.id).first<Product>();
   if (!product || product.lifecycle !== "ready") throw conflict("Ready Product authority is required");
   if (Number(product.revision) !== Number(input.expectedProductRevision)) throw conflict("Stale Product revision");
-  const authorization = await latestPrivateProofAuthorization(database, workspace.id, product.id);
+  const authorization = await privateProofAuthorizationForConsumption(database, workspace.id, product.id);
   if (!authorization) throw conflict("Private synthetic-proof authorization is absent");
   validatePrivateProofAuthorization(authorization, principal, product, Date.now());
   const run = await database.prepare(
-    `SELECT * FROM product_discovery_runs
-     WHERE workspace_id = ? AND product_id = ? AND configuration_id IN (
-       SELECT id FROM typed_configurations
-       WHERE workspace_id = ? AND owner_type = 'product' AND owner_id = ? AND kind = 'product_discovery' AND active = 1
-     )
-     ORDER BY started_at DESC, id DESC LIMIT 1`,
-  ).bind(workspace.id, product.id, workspace.id, product.id).first<RunRow>();
+    `SELECT r.* FROM product_discovery_runs r
+     JOIN typed_configurations c ON c.id = r.configuration_id
+       AND c.workspace_id = r.workspace_id AND c.digest = r.configuration_digest
+       AND c.owner_type = 'product' AND c.owner_id = r.product_id
+       AND c.kind = 'product_discovery' AND c.active = 1
+     WHERE r.id = ? AND r.workspace_id = ? AND r.product_id = ?
+       AND r.configuration_id = ? AND r.configuration_digest = ?
+     LIMIT 1`,
+  ).bind(
+    authorization.run_id,
+    workspace.id,
+    product.id,
+    authorization.configuration_id,
+    authorization.configuration_digest,
+  ).first<RunRow>();
   if (!run) throw conflict("Pinned Product discovery run is unavailable");
   const normalized = normalizeDiscoverySubmission({
     productId: product.id,
@@ -688,8 +710,13 @@ async function prepareProposalMutation(
          (id, workspace_id, created_at, updated_at, revision, product_id, run_id, fingerprint, current_version_id,
           status, surfaced, rank, active, cooldown_until)
          SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, 'new', 1, ?, 1, NULL
-         WHERE EXISTS (SELECT 1 FROM product_discovery_submissions WHERE id = ? AND workspace_id = ?)`,
-      ).bind(proposalId, workspace.id, now, now, run.product_id, run.id, fingerprint, versionId, rank, submissionId, workspace.id),
+         WHERE EXISTS (
+           SELECT 1 FROM product_discovery_submissions s
+           JOIN product_discovery_runs r ON r.id = s.run_id AND r.workspace_id = s.workspace_id
+           WHERE s.id = ? AND s.workspace_id = ? AND s.run_id = ? AND s.status = 'succeeded'
+             AND s.operation_digest = ? AND r.revision = ?
+         )`,
+      ).bind(proposalId, workspace.id, now, now, run.product_id, run.id, fingerprint, versionId, rank, submissionId, workspace.id, run.id, parentOperationDigest, run.revision),
       database.prepare(
         `INSERT INTO market_play_proposal_versions
          (id, workspace_id, product_id, proposal_id, run_id, submission_id, version, proposal_json, proposal_digest,
@@ -697,7 +724,7 @@ async function prepareProposalMutation(
          SELECT ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, 'new', ?
          WHERE EXISTS (SELECT 1 FROM market_play_proposals WHERE id = ? AND workspace_id = ?)`,
       ).bind(versionId, workspace.id, run.product_id, proposalId, run.id, submissionId, proposalJson, proposalDigest, materialFingerprint, now, proposalId, workspace.id),
-      ...await evidenceStatements(database, workspace.id, proposalId, versionId, finding, now),
+      ...await evidenceStatements(database, workspace.id, proposalId, versionId, finding, now, submissionId, run, parentOperationDigest),
     ];
     return {
       statements,
@@ -763,8 +790,14 @@ async function prepareProposalMutation(
     database.prepare(
       `UPDATE market_play_proposals
        SET current_version_id = ?, revision = revision + 1, updated_at = ?, status = ?, cooldown_until = ?, surfaced = 1
-       WHERE id = ? AND workspace_id = ? AND revision = ? AND current_version_id = ?`,
-    ).bind(versionId, now, reopened ? "new" : existing.status, reopened ? null : existing.cooldown_until, existing.id, workspace.id, existing.revision, current.id),
+       WHERE id = ? AND workspace_id = ? AND revision = ? AND current_version_id = ?
+         AND EXISTS (
+           SELECT 1 FROM product_discovery_submissions s
+           JOIN product_discovery_runs r ON r.id = s.run_id AND r.workspace_id = s.workspace_id
+           WHERE s.id = ? AND s.workspace_id = ? AND s.run_id = ? AND s.status = 'succeeded'
+             AND s.operation_digest = ? AND r.revision = ?
+         )`,
+    ).bind(versionId, now, reopened ? "new" : existing.status, reopened ? null : existing.cooldown_until, existing.id, workspace.id, existing.revision, current.id, submissionId, workspace.id, run.id, parentOperationDigest, run.revision),
     database.prepare(
       `INSERT INTO market_play_proposal_versions
        (id, workspace_id, product_id, proposal_id, run_id, submission_id, version, proposal_json, proposal_digest,
@@ -772,14 +805,20 @@ async function prepareProposalMutation(
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE EXISTS (SELECT 1 FROM market_play_proposals WHERE id = ? AND workspace_id = ? AND current_version_id = ?)`,
     ).bind(versionId, workspace.id, run.product_id, existing.id, run.id, submissionId, version, proposalJson, proposalDigest, materialFingerprint, current.id, relationship, now, existing.id, workspace.id, versionId),
-    ...await evidenceStatements(database, workspace.id, existing.id, versionId, finding, now),
+      ...await evidenceStatements(database, workspace.id, existing.id, versionId, finding, now, submissionId, run, parentOperationDigest),
     database.prepare(
       `INSERT INTO market_play_proposal_lineage
        (id, workspace_id, product_id, relationship, source_proposal_id, source_version_id, target_proposal_id,
         target_version_id, changed_field, evidence_reference, lineage_json, lineage_digest, operation_digest, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-       WHERE EXISTS (SELECT 1 FROM market_play_proposal_versions WHERE id = ?)`,
-    ).bind(lineageId, workspace.id, run.product_id, relationship, existing.id, current.id, existing.id, versionId, changedField, finding.evidence[0].reference, lineageJson, lineageDigest, await digestFor({ parentOperationDigest, fingerprint, relationship }), now, versionId),
+       WHERE EXISTS (
+         SELECT 1 FROM market_play_proposal_versions v
+         JOIN product_discovery_submissions s ON s.id = v.submission_id AND s.workspace_id = v.workspace_id
+         JOIN product_discovery_runs r ON r.id = s.run_id AND r.workspace_id = s.workspace_id
+         WHERE v.id = ? AND s.id = ? AND s.run_id = ? AND s.status = 'succeeded'
+           AND s.operation_digest = ? AND r.revision = ?
+       )`,
+    ).bind(lineageId, workspace.id, run.product_id, relationship, existing.id, current.id, existing.id, versionId, changedField, finding.evidence[0].reference, lineageJson, lineageDigest, await digestFor({ parentOperationDigest, fingerprint, relationship }), now, versionId, submissionId, run.id, parentOperationDigest, run.revision),
   ];
   const previousEvidence = await evidenceForProposal(database, existing.id);
   return {
@@ -1037,11 +1076,32 @@ async function proposalDecisionHistory(database: D1Database, workspaceId: string
   return rows.results.map((row) => JSON.parse(row.decision_json));
 }
 
-async function latestPrivateProofAuthorization(database: D1Database, workspaceId: string, productId: string) {
+async function privateProofRunForAuthorization(database: D1Database, workspaceId: string, product: Product) {
+  const run = await database.prepare(
+    `SELECT r.* FROM product_discovery_runs r
+     JOIN typed_configurations c ON c.id = r.configuration_id
+       AND c.workspace_id = r.workspace_id AND c.digest = r.configuration_digest
+       AND c.owner_type = 'product' AND c.owner_id = r.product_id
+       AND c.kind = 'product_discovery' AND c.active = 1
+     WHERE r.workspace_id = ? AND r.product_id = ?
+       AND r.execution_state IN ('blocked_missing_capability', 'queued', 'running')
+     ORDER BY r.started_at DESC, r.id DESC LIMIT 1`,
+  ).bind(workspaceId, product.id).first<RunRow>();
+  if (!run) throw conflict("Pinned Product discovery run is unavailable for private synthetic-proof authorization");
+  return run;
+}
+
+async function privateProofAuthorizationForConsumption(database: D1Database, workspaceId: string, productId: string) {
   return database.prepare(
-    `SELECT * FROM private_synthetic_proof_authorizations
-     WHERE workspace_id = ? AND product_id = ? AND capability = ?
-     ORDER BY created_at DESC, id DESC LIMIT 1`,
+    `SELECT a.* FROM private_synthetic_proof_authorizations a
+     JOIN product_discovery_runs r ON r.id = a.run_id AND r.workspace_id = a.workspace_id
+       AND r.product_id = a.product_id AND r.configuration_id = a.configuration_id
+       AND r.configuration_digest = a.configuration_digest
+     JOIN typed_configurations c ON c.id = a.configuration_id AND c.workspace_id = a.workspace_id
+       AND c.digest = a.configuration_digest AND c.owner_type = 'product' AND c.owner_id = a.product_id
+       AND c.kind = 'product_discovery' AND c.active = 1
+     WHERE a.workspace_id = ? AND a.product_id = ? AND a.capability = ?
+     ORDER BY a.created_at DESC, a.id DESC LIMIT 1`,
   ).bind(workspaceId, productId, PRIVATE_SYNTHETIC_PROOF_CAPABILITY).first<PrivateProofAuthorizationRow>();
 }
 
@@ -1111,6 +1171,8 @@ function privateProofAuthorizationProjection(row: PrivateProofAuthorizationRow) 
     expectedProductRevision: Number(row.expected_product_revision),
     confirmationId: row.interview_confirmation_id,
     confirmedKnowledgeVersionId: row.confirmed_knowledge_version_id,
+    runId: row.run_id,
+    configuration: { id: row.configuration_id, digest: row.configuration_digest },
     reviewedSourceRevision: row.reviewed_source_revision,
     migrationDigest: row.migration_digest,
     fixtureDigest: row.fixture_digest,
@@ -1150,7 +1212,7 @@ function proposalProjection(input: { proposalId: string; versionId: string; vers
   };
 }
 
-async function evidenceStatements(database: D1Database, workspaceId: string, proposalId: string, versionId: string, finding: NormalizedDiscoveryFinding, now: number) {
+async function evidenceStatements(database: D1Database, workspaceId: string, proposalId: string, versionId: string, finding: NormalizedDiscoveryFinding, now: number, submissionId: string, run: RunRow, operationDigest: string) {
   return Promise.all(finding.evidence.map(async (evidence) => {
     const evidenceJson = canonicalJson(evidence);
     return database.prepare(
@@ -1158,8 +1220,14 @@ async function evidenceStatements(database: D1Database, workspaceId: string, pro
        (id, workspace_id, proposal_id, proposal_version_id, reference, evidence_json, evidence_digest,
         material_evidence_fingerprint, observed_at, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-       WHERE EXISTS (SELECT 1 FROM market_play_proposal_versions WHERE id = ?)`,
-    ).bind(v7(), workspaceId, proposalId, versionId, evidence.reference, evidenceJson, await sha256(evidenceJson), evidence.materialEvidenceFingerprint, evidence.observedAt, now, versionId);
+       WHERE EXISTS (
+         SELECT 1 FROM market_play_proposal_versions v
+         JOIN product_discovery_submissions s ON s.id = v.submission_id AND s.workspace_id = v.workspace_id
+         JOIN product_discovery_runs r ON r.id = s.run_id AND r.workspace_id = s.workspace_id
+         WHERE v.id = ? AND s.id = ? AND s.run_id = ? AND s.status = 'succeeded'
+           AND s.operation_digest = ? AND r.revision = ?
+       )`,
+    ).bind(v7(), workspaceId, proposalId, versionId, evidence.reference, evidenceJson, await sha256(evidenceJson), evidence.materialEvidenceFingerprint, evidence.observedAt, now, versionId, submissionId, run.id, operationDigest, run.revision);
   }));
 }
 

@@ -43,6 +43,13 @@
       "when": 1785441124276,
       "tag": "0005_even_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785444101801,
+      "tag": "0006_private-proof-run-binding",
+      "breakpoints": true
     }
   ]
 }

@@ -176,8 +176,8 @@ async function projectionResponse(
 
 async function ownedWorkspace(database: D1Database, principal: InterviewPrincipal) {
   const workspace = await database.prepare(
-    "SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1",
-  ).bind(principal.subject).first<{ id: string }>();
+    "SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1",
+  ).bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string }>();
   if (!workspace) throw new PilotAccessError();
   return workspace;
 }

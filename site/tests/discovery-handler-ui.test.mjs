@@ -76,6 +76,13 @@ test("D-12 discovery HTTP boundary admits the configured owner before parsing an
     assert.ok(Array.isArray(state.products));
     assert.equal(state.selectedProductId, null);
 
+    await fixture.database.prepare(
+      "UPDATE workspaces SET owner_subject = ? WHERE owner_subject = ?",
+    ).bind(owner.legacySubject, owner.subject).run();
+    const legacyGet = await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(ownerIdentity));
+    assert.equal(legacyGet.status, 200, "the current principal must retain its owner workspace through the legacy subject binding");
+    assert.ok(Array.isArray((await legacyGet.json()).products));
+
     assert.equal((await handler.handleDiscoveryPost(request({ action: "read_current_state" }, csrf, { origin: "https://attacker.example" }), dependencies(ownerIdentity))).status, 403);
     assert.equal((await handler.handleDiscoveryPost(request({ action: "unknown" }, csrf), dependencies(ownerIdentity))).status, 400);
     const replayToken = ((await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(ownerIdentity))).headers.get("set-cookie") ?? "").split(";", 1)[0];
