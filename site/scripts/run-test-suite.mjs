@@ -4,12 +4,12 @@ import { join } from "node:path";
 
 const testsDirectory = new URL("../tests/", import.meta.url);
 const requestedFiles = process.argv.slice(2);
-const testFiles = requestedFiles.length > 0
+const testFiles = (requestedFiles.length > 0
   ? requestedFiles
   : (await readdir(testsDirectory))
     .filter((name) => name.endsWith(".test.mjs"))
-    .sort()
-    .map((name) => join("tests", name));
+    .map((name) => join("tests", name)))
+  .sort((left, right) => testWeight(left) - testWeight(right) || left.localeCompare(right));
 
 if (testFiles.length === 0) throw new Error("No test files were found.");
 
@@ -38,4 +38,13 @@ function runTestFile(testFile) {
       resolve(code ?? 1);
     });
   });
+}
+
+function testWeight(testFile) {
+  // Miniflare leaves short-lived loopback sockets in TIME_WAIT on macOS.
+  // Run the fixture-heavy suites last so later lightweight suites never need
+  // to allocate ports after the system's ephemeral range has been exercised.
+  if (testFile.endsWith("market-discovery-repository.test.mjs")) return 2;
+  if (testFile.endsWith("product-readiness-repository.test.mjs")) return 1;
+  return 0;
 }
