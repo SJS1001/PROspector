@@ -53,7 +53,8 @@ export type InterviewEvidenceFinding = {
 };
 export type InterviewDestination = {
   scopeType: "company" | "product" | "market_play" | "customer_profile" | "offer";
-  locator: string;
+  id?: string;
+  locator?: string;
 };
 export type SubmitInterviewAnswerInput = {
   questionId: string;
@@ -1095,7 +1096,7 @@ async function parseGeneralizedSnapshot(raw: string, expectedDigest: string): Pr
     !Number.isInteger(snapshot.questionRevision) || !Number.isInteger(snapshot.sessionRevision) ||
     !Array.isArray(snapshot.evidenceFindings) || !snapshot.inference || typeof snapshot.inference.label !== "string" ||
     typeof snapshot.inference.value !== "string" || !snapshot.recommendation || typeof snapshot.recommendation.rationale !== "string" ||
-    !snapshot.destination || typeof snapshot.destination.scopeType !== "string" || typeof snapshot.destination.locator !== "string" ||
+    !snapshot.destination || typeof snapshot.destination.scopeType !== "string" || (typeof snapshot.destination.id !== "string" && typeof snapshot.destination.locator !== "string") ||
     !Array.isArray(snapshot.prerequisiteKnowledge) || typeof snapshot.knowledgeProposalId !== "string" ||
     typeof snapshot.knowledgeProposalDigest !== "string" || !snapshot.value || typeof snapshot.value.excerpt !== "string" ||
     typeof snapshot.kind !== "string") throw new InterviewConflictError("The submitted snapshot is incomplete");

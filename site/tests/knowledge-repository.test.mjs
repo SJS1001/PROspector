@@ -62,13 +62,41 @@ test("quarantined or unscanned upload proposals never become parseable, renderab
     const upload = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("quarantined_upload", "0198a4b0-0000-7000-8000-000000000220"));
     assert.equal(upload.quarantine.status, "unscanned");
     const raw = proposalInput("quarantined_upload", "ignored").value.excerpt;
-    const persisted = await fixture.database.prepare("SELECT kp.value_json, se.content, se.locator FROM knowledge_proposals kp JOIN source_excerpts se ON se.id = kp.excerpt_id WHERE kp.id = ?").bind(upload.id).first();
+    const persisted = await fixture.database.prepare("SELECT kp.value_json, se.content, se.locator, sc.object_digest FROM knowledge_proposals kp JOIN source_excerpts se ON se.id = kp.excerpt_id JOIN source_custody sc ON sc.source_id = kp.source_id WHERE kp.id = ?").bind(upload.id).first();
+    const expectedObjectDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw))), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    assert.equal(persisted.object_digest, expectedObjectDigest);
     assert.doesNotMatch(JSON.stringify(persisted), new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(JSON.stringify(await knowledge.readKnowledgeLibrary(fixture.database, principal)), new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     await assert.rejects(knowledge.readKnowledgeContent(fixture.database, principal, upload.id), /quarantine|scan/i);
     await assert.rejects(knowledge.renderKnowledgeContent(fixture.database, principal, upload.id), /quarantine|scan/i);
     await assert.rejects(knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: upload.id, decision: "accept", expectedRevision: upload.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000221" }), /quarantine|scan/i);
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
+  } finally { await fixture.dispose(); }
+});
+
+test("duplicate hierarchy names fail closed while exact projected destination IDs preserve ancestry", async () => {
+  const fixture = await createD1Fixture("knowledge-destination-identity");
+  try {
+    await applyMigrations(fixture.database);
+    const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const initialized = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000270"));
+    const workspace = await fixture.database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id WHERE w.owner_subject = ?").bind(principal.subject).first();
+    const originalProduct = await fixture.database.prepare("SELECT id FROM products WHERE workspace_id = ? AND name = 'ONE'").bind(workspace.id).first();
+    const originalPlay = await fixture.database.prepare("SELECT id FROM market_plays WHERE workspace_id = ? AND product_id = ? AND name = 'ONE for Mining'").bind(workspace.id, originalProduct.id).first();
+    const originalProfile = await fixture.database.prepare("SELECT id FROM customer_profiles WHERE workspace_id = ? AND play_id = ? AND name = 'Operating'").bind(workspace.id, originalPlay.id).first();
+    const now = Date.now();
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) VALUES ('product-duplicate', ?, ?, ?, 1, ?, 'Second Product', 'draft')").bind(workspace.id, now, now, workspace.company_id),
+      fixture.database.prepare("INSERT INTO market_plays (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle) VALUES ('play-duplicate', ?, ?, ?, 1, 'product-duplicate', 'ONE for Mining', 'draft')").bind(workspace.id, now, now),
+      fixture.database.prepare("INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) VALUES ('profile-duplicate', ?, ?, ?, 1, 'play-duplicate', 'Operating', 'draft', 'UTC', 0)").bind(workspace.id, now, now),
+    ]);
+    await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, principal, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000271"), destination: { scopeType: "market_play", locator: "ONE for Mining" } }), /ambiguous|exact projected id/i);
+    await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, principal, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000272"), destination: { scopeType: "customer_profile", locator: "Operating" } }), /ambiguous|exact projected id/i);
+    const exact = await knowledge.createKnowledgeProposal(fixture.database, principal, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000273"), destination: { scopeType: "customer_profile", id: originalProfile.id, locator: "Operating" } });
+    assert.equal(exact.destination.id, originalProfile.id);
+    await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, principal, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000274"), destination: { scopeType: "customer_profile", id: "profile-duplicate", locator: "Greenfield" } }), /outside|hierarchy/i);
+    await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, { subject: "foreign-owner", legacySubject: "foreign-legacy", displayName: "Foreign" }, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000275"), destination: { scopeType: "customer_profile", id: originalProfile.id } }), /outside|hierarchy/i);
+    assert.equal(initialized.destination.scopeType, "product");
   } finally { await fixture.dispose(); }
 });
 

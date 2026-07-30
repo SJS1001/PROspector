@@ -170,7 +170,7 @@ function assertClosedCommand(body: Record<string, unknown>, action: InterviewAct
     throw new InterviewConflictError("Invalid command");
   if (body.destination !== undefined) {
     const destination = requiredRecord(body, "destination");
-    if (Object.keys(destination).some((key) => key !== "scopeType" && key !== "locator"))
+    if (Object.keys(destination).some((key) => !["scopeType", "id", "locator"].includes(key)))
       throw new InterviewConflictError("Invalid command");
   }
   if (body.value !== undefined) {
@@ -229,10 +229,12 @@ function optionalString(body: Record<string, unknown>, key: string, max: number)
 function optionalDestination(body: Record<string, unknown>) {
   if (body.destination === undefined) return {};
   const destination = requiredRecord(body, "destination");
+  if (destination.id === undefined && destination.locator === undefined) throw new InterviewConflictError("Invalid command");
   return {
     destination: {
       scopeType: enumValue(destination, "scopeType", ["company", "product", "market_play", "customer_profile", "offer"]),
-      locator: requiredString(destination, "locator", 160),
+      ...(destination.id === undefined ? {} : { id: requiredString(destination, "id", 160) }),
+      ...(destination.locator === undefined ? {} : { locator: requiredString(destination, "locator", 160) }),
     },
   };
 }
