@@ -203,6 +203,31 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
   } finally { await fixture.dispose(); }
 });
 
+test("D-01 stale candidates cannot overwrite a replacement authority or mutate the replacement lineage", async () => {
+  const fixture = await createD1Fixture("phase4-replacement-candidate-race");
+  try {
+    await applyMigrations(fixture.database);
+    const profile = await loadProfileReadiness(fixture);
+    const seeded = await seedProfileAuthority(fixture);
+    const candidateA = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000111" });
+    const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first();
+    const productConfiguration = await fixture.database.prepare("SELECT owner_id FROM typed_configurations WHERE id='phase4-product-config' AND workspace_id=?").bind(workspace.id).first();
+    await fixture.database.batch([
+      fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id='phase4-product-config' AND workspace_id=?").bind(workspace.id),
+      fixture.database.prepare("INSERT INTO typed_configurations (id,workspace_id,created_at,updated_at,revision,company_id,owner_type,owner_id,kind,digest,manifest_json,active) VALUES ('phase4-product-config-replacement',?,?,?,1,NULL,'product',?,'product_discovery',?,?,1)").bind(workspace.id, NOW + 1, NOW + 1, productConfiguration.owner_id, "b".repeat(64), JSON.stringify({ policySnapshot: { sourcePolicy: { id: "phase4-source-policy-replacement", versionId: "phase4-version-3", digest: "b".repeat(64), value: { tier1Origins: ["example.invalid"], tier2Origins: [], materialSignalKinds: ["operating-signal"] } }, runnerPolicy: { id: "phase4-runner-policy", versionId: "phase4-version-3", digest: "a".repeat(64), value: { allowedTools: [] } } }, replacementDirectives: { id: "phase4-replacement-directives", digest: "a".repeat(64) } })),
+    ]);
+    const candidateB = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW + 2, idempotencyKey: "0198f400-0000-7000-8000-000000000112" });
+    const activatedB = await profile.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidateB.id, expectedRevision: candidateB.revision, expectedDigest: candidateB.digest, now: NOW + 3, idempotencyKey: "0198f400-0000-7000-8000-000000000113" });
+    const before = await fixture.database.prepare("SELECT a.candidate_id,a.configuration_id,a.previous_configuration_id,a.operation_digest,c.status,c.candidate_digest FROM profile_configuration_activations a JOIN profile_configuration_candidates c ON c.id=a.candidate_id WHERE a.profile_id=? ORDER BY a.created_at").bind(seeded.profileId).all();
+    const beforeMutations = await Promise.all(["typed_configurations", "profile_configuration_activations", "prospecting_schedules", "prospecting_runs", "audit_events"].map(async (table) => [table, await countRows(fixture.database, table)]));
+    await assert.rejects(() => profile.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidateA.id, expectedRevision: candidateA.revision, expectedDigest: candidateA.digest, now: NOW + 4, idempotencyKey: "0198f400-0000-7000-8000-000000000114" }), /replacement candidate required/i);
+    const after = await fixture.database.prepare("SELECT a.candidate_id,a.configuration_id,a.previous_configuration_id,a.operation_digest,c.status,c.candidate_digest FROM profile_configuration_activations a JOIN profile_configuration_candidates c ON c.id=a.candidate_id WHERE a.profile_id=? ORDER BY a.created_at").bind(seeded.profileId).all();
+    assert.deepEqual(await Promise.all(["typed_configurations", "profile_configuration_activations", "prospecting_schedules", "prospecting_runs", "audit_events"].map(async (table) => [table, await countRows(fixture.database, table)])), beforeMutations, "the stale activation must not mutate configuration, activation, schedule, run, or audit records");
+    assert.deepEqual(after.results, before.results, "the stale activation cannot alter the replacement activation lineage");
+    assert.equal(after.results.length, 1); assert.equal(after.results[0].candidate_id, candidateB.id); assert.equal(after.results[0].configuration_id, activatedB.configuration.id);
+  } finally { await fixture.dispose(); }
+});
+
 test("04-03 readiness classification is table-driven and never trusts a client authority shape", async () => {
   const fixture = await createD1Fixture("phase4-readiness-matrix");
   try {
