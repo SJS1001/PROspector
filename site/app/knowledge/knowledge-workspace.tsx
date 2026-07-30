@@ -5,7 +5,7 @@ import type { CommercialHierarchyNode, CommercialModelProjection } from "../../d
 import type { InterviewState } from "../../domain/interview";
 import { CommercialModelView, type CommercialCommand } from "./commercial-model";
 import { ConsensusInterviewView, type InterviewAnswerCommand, type InterviewDecisionCommand } from "./consensus-interview";
-import { DriftReplacementsView, type DriftProjection, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
+import { DriftReplacementsView, type DriftProjection, type DriftReviewCommand, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
 import { KnowledgeLibraryView, type KnowledgeIntakeCommand, type KnowledgeItemProjection, type KnowledgeReviewCommand } from "./knowledge-library";
 
 export const KNOWLEDGE_LOCAL_VIEWS = ["Commercial Model", "Interview", "Knowledge Library", "Drift & Replacements"] as const;
@@ -105,7 +105,7 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
       {view === "Commercial Model" && <CommercialModelView projection={commercial} knowledgeCounts={knowledgeCounts} selectedId={selectedScope?.id ?? ""} onSelect={setSelectedScopeId} operationKey="commercial" onCreateDraft={(command) => void dispatch("create_hierarchy_draft", `draft:${command.type}:${command.parentId}:${command.name}`, draftPayload(command))} onProposeChange={(node) => void dispatch("propose_owner_edit", `owner-edit:${node.id}`, proposalPayload(node, commercial))} />}
       {view === "Interview" && <InterviewPane state={interview} commercial={commercial} destinations={nodes} selectedPath={selectedPath} pendingAction={pending} dispatch={dispatch} />}
       {view === "Knowledge Library" && <KnowledgeLibraryView items={locatedLibrary} destinations={nodes} operationKey="library" pendingAction={pending} onIntake={(command) => void dispatch(command.action, `${command.action}:${command.source.reference}:${command.text}`, intakePayload(command))} onReviewProposal={(command) => void dispatch("review_knowledge_proposal", `review:${command.proposalId}:${command.decision}`, reviewPayload(command))} onProposeChange={(item) => void dispatch("propose_owner_edit", `owner-edit:${item.id}`, proposalPayload(item))} />}
-      {view === "Drift & Replacements" && <DriftReplacementsView drift={drift} candidates={replacements} operationKey="replacement" pendingAction={pending} onCreateCandidate={(command) => void dispatch("create_replacement_candidate", `candidate:${command.proposedVersionId}`, candidatePayload(command))} onActivateReplacement={(command) => void dispatch("activate_replacement", `activate:${command.candidateId}`, activationPayload(command))} />}
+      {view === "Drift & Replacements" && <DriftReplacementsView drift={drift} candidates={replacements} destinations={nodes} operationKey="replacement" pendingAction={pending} onCreateCandidate={(command) => void dispatch("create_replacement_candidate", `candidate:${command.proposedVersionId}`, candidatePayload(command))} onReviewDrift={(command) => void dispatch("review_knowledge_proposal", `drift-review:${command.proposalId}:${command.decision}`, driftReviewPayload(command))} onActivateReplacement={(command) => void dispatch("activate_replacement", `activate:${command.candidateId}`, activationPayload(command))} />}
     </fieldset>
   </section>;
 }
@@ -119,10 +119,11 @@ function InterviewPane({ state, commercial, destinations, selectedPath, pendingA
 function draftPayload(command: CommercialCommand) { return { type: command.type, parentId: command.parentId, name: command.name, expectedRevision: command.expectedRevision }; }
 function proposalPayload(source: CommercialHierarchyNode | KnowledgeItemProjection, commercial?: CommercialModelProjection) { const hierarchyNode = "parentId" in source; const locator = hierarchyNode ? source.name : source.destination.locator ?? (commercial ? commercialLocator(commercial, source.destination.id) : undefined); if (!locator) throw new Error("destination_locator_unavailable"); const destination = { scopeType: hierarchyNode ? source.type : source.destination.scopeType, id: hierarchyNode ? source.id : source.destination.id, locator }; return { destination, kind: "owner_edit", text: "Owner requested a proposed change from the displayed authoritative scope.", source: { reference: `owner-ui:${source.id}`, custody: "owner-entered workspace change", retrievedAt: Date.now() }, privacy: "private", license: { use: "owner review" }, reuseEligibility: "owner_edit" }; }
 function intakePayload(command: KnowledgeIntakeCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
-function reviewPayload(command: KnowledgeReviewCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
+function reviewPayload(command: KnowledgeReviewCommand) { const { operationKey, correction, ...payload } = command; void operationKey; return { ...payload, ...(correction ? { correction: { excerpt: correction } } : {}) }; }
+function driftReviewPayload(command: DriftReviewCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function answerPayload(command: InterviewAnswerCommand) { const { operationKey, value, ...payload } = command; void operationKey; return { ...payload, ...(value ? { value: { excerpt: value } } : {}) }; }
 function decisionPayload(command: InterviewDecisionCommand) { const { operationKey, value, ...payload } = command; void operationKey; return { ...payload, ...(value ? { value: { excerpt: value } } : {}) }; }
-function candidatePayload(command: ReplacementCandidateCommand) { return { currentVersionId: command.currentVersionId, proposedVersionId: command.proposedVersionId, ownerType: command.ownerType, ownerId: command.ownerId, kind: command.kind, expectedOwnerRevision: command.expectedOwnerRevision, manifest: {}, riskKind: "capability", dependencyEdges: [], artifacts: [] }; }
+function candidatePayload(command: ReplacementCandidateCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function activationPayload(command: ReplacementActivationCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function commercialNodes(commercial: CommercialModelProjection) { const nodes = new Map<string, CommercialHierarchyNode>(); for (const node of [...commercial.path, ...commercial.products, ...commercial.plays, ...commercial.profiles, ...commercial.offers]) nodes.set(node.id, node); return [...nodes.values()]; }
 function scopePathFor(selected: CommercialHierarchyNode, nodes: readonly CommercialHierarchyNode[]) { const byId = new Map(nodes.map((node) => [node.id, node])); const path: CommercialHierarchyNode[] = []; let current: CommercialHierarchyNode | undefined = selected; while (current) { path.unshift(current); current = current.parentId ? byId.get(current.parentId) : undefined; } return path; }
@@ -143,8 +144,28 @@ function normalizeProjection(value: unknown): Projection {
     seen.set(node.id, node);
   }
   const interview = value.interview as InterviewState;
-  if (typeof interview.status !== "string") throw new Error("malformed_interview_projection");
+  if (!validInterviewProjection(interview)) throw new Error("malformed_interview_projection");
+  if (!value.drift.every(validDriftProjection) || !value.replacements.every(validReplacementProjection)) throw new Error("malformed_drift_projection");
   return { commercial, interview, library: value.library as KnowledgeItemProjection[], drift: value.drift as DriftProjection[], replacements: value.replacements as ReplacementProjection[] };
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function validNode(value: unknown): value is CommercialHierarchyNode { return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && ["company", "product", "market_play", "customer_profile", "offer"].includes(String(value.type)) && (value.parentId === null || typeof value.parentId === "string") && typeof value.revision === "number"; }
+function validInterviewProjection(value: unknown): value is InterviewState {
+  if (!isRecord(value) || typeof value.status !== "string") return false;
+  if (!["active", "awaiting_confirmation"].includes(value.status)) return ["uninitialized", "review_required", "confirmed"].includes(value.status);
+  if (!isRecord(value.question) || !Number.isInteger(value.question.ordinal) || !Number.isInteger(value.question.revision)) return false;
+  if (!Array.isArray(value.question.evidenceFindings) || !value.question.evidenceFindings.every((finding) => isRecord(finding) && typeof finding.excerpt === "string")) return false;
+  if (!Array.isArray(value.question.prerequisiteKnowledge) || !value.question.prerequisiteKnowledge.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.digest === "string")) return false;
+  if (value.question.inferenceDetail !== null && (!isRecord(value.question.inferenceDetail) || typeof value.question.inferenceDetail.label !== "string" || typeof value.question.inferenceDetail.value !== "string")) return false;
+  if (value.question.recommendationDetail !== null && (!isRecord(value.question.recommendationDetail) || typeof value.question.recommendationDetail.rationale !== "string")) return false;
+  return value.question.destination === null || (isRecord(value.question.destination) && typeof value.question.destination.scopeType === "string" && typeof value.question.destination.id === "string");
+}
+function validDriftProjection(value: unknown): value is DriftProjection {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.status !== "string" || typeof value.riskKind !== "string") return false;
+  if (value.paths !== undefined && (!Array.isArray(value.paths) || !value.paths.every((path) => typeof path === "string"))) return false;
+  if (value.artifacts !== undefined && !Array.isArray(value.artifacts)) return false;
+  if (value.destination !== undefined && (!isRecord(value.destination) || typeof value.destination.id !== "string" || typeof value.destination.scopeType !== "string")) return false;
+  if (value.review !== undefined && value.review !== null && !isRecord(value.review)) return false;
+  return value.candidate === undefined || value.candidate === null || (isRecord(value.candidate) && isRecord(value.candidate.manifest) && Array.isArray(value.candidate.dependencyEdges) && Array.isArray(value.candidate.artifacts));
+}
+function validReplacementProjection(value: unknown): value is ReplacementProjection { return isRecord(value) && typeof value.id === "string" && typeof value.status === "string" && Number.isInteger(value.revision); }

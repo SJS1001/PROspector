@@ -71,15 +71,191 @@ test("correction and rescope decisions use native required form submission", asy
   assert.match(workspace, /state\.kind === "unknown" \? "Reload this view" : "Retry knowledge load"/);
 });
 
-test("unsafe drift and activation commands stay unavailable without exact server authority", async () => {
-  const drift = await readFile(new URL("../app/knowledge/drift-replacements.tsx", import.meta.url), "utf8");
-  assert.match(drift, /proposal ID, proposal revision, exact destination/);
-  assert.match(drift, /const activationReady = !active && Boolean/);
-  assert.match(drift, /disabled=\{!activationReady\}/);
-  assert.doesNotMatch(drift, /expectedOwnerRevision: 1/);
-  assert.match(drift, /Activation preserves the current snapshot as history/);
-  assert.match(drift, /if \(active\) activeHeading\.current\?\.focus\(\)/);
-  assert.match(drift, /\{active \? "Replacement active" : "Replacement candidate"\}/);
+test("drift candidate, four-way review, and activation render only from exact server bindings", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const { DriftReplacementsView } = await vite.ssrLoadModule(new URL("../app/knowledge/drift-replacements.tsx", import.meta.url).pathname);
+    const destinations = [
+      { id: "company-1", type: "company", parentId: null, name: "Example", lifecycle: "active", revision: 1 },
+      { id: "product-1", type: "product", parentId: "company-1", name: "ONE", lifecycle: "active", revision: 3 },
+      { id: "play-1", type: "market_play", parentId: "product-1", name: "Mining", lifecycle: "draft", revision: 2 },
+      { id: "profile-1", type: "customer_profile", parentId: "play-1", name: "Operating", lifecycle: "draft", revision: 4 },
+    ];
+    const candidateBinding = {
+      currentVersionId: "version-current",
+      proposedVersionId: "version-proposed",
+      ownerType: "product",
+      ownerId: "product-1",
+      kind: "product_discovery",
+      manifest: { model: "server-projected" },
+      riskKind: "capability",
+      dependencyEdges: [{ fromType: "version", fromId: "version-current", toType: "configuration", toId: "configuration-current" }],
+      artifacts: [{ artifactId: "approval-1", artifactType: "approval", status: "invalidated" }],
+      expectedOwnerRevision: 5,
+    };
+    const drift = [
+      {
+        id: "eligible:version-current:version-proposed:configuration-current",
+        riskKind: "capability",
+        status: "eligible",
+        currentVersionId: "version-current",
+        proposedVersionId: "version-proposed",
+        currentValue: "Old capability",
+        proposedValue: "New capability",
+        provenance: { reference: "source-1" },
+        destination: { scopeType: "product", id: "product-1" },
+        review: null,
+        paths: ["version-current -> configuration-current"],
+        artifacts: [],
+        impactDigest: "impact-eligible",
+        candidate: candidateBinding,
+      },
+      {
+        id: "drift-open",
+        riskKind: "standard",
+        status: "open",
+        currentVersionId: "version-profile-current",
+        proposedVersionId: "version-profile-proposed",
+        currentValue: "Old profile",
+        proposedValue: "New profile",
+        provenance: { reference: "source-2" },
+        destination: { scopeType: "customer_profile", id: "profile-1" },
+        review: {
+          action: "review_knowledge_proposal",
+          proposalId: "proposal-drift",
+          expectedRevision: 2,
+          predecessorVersionId: "version-profile-current",
+          destination: { scopeType: "customer_profile", id: "profile-1" },
+          decisions: ["accept", "reject", "correct", "rescope"],
+        },
+        paths: ["version-profile-current -> configuration-profile"],
+        artifacts: [],
+        impactDigest: "impact-open",
+        candidate: null,
+      },
+    ];
+    const candidates = [{
+      id: "candidate-1",
+      revision: 2,
+      status: "proposed",
+      currentConfigurationId: "configuration-current",
+      candidateConfigurationId: "configuration-next",
+      impactDigest: "impact-open",
+      proposedVersionId: "version-profile-approved",
+      expectedOwnerRevision: 5,
+      driftDecision: "accept",
+      previousSnapshot: { id: "configuration-current", digest: "previous-digest", manifest: {} },
+      candidateSnapshot: { id: "configuration-next", digest: "next-digest", manifest: {} },
+      activation: null,
+    }];
+    const html = renderToStaticMarkup(React.createElement(DriftReplacementsView, {
+      drift,
+      candidates,
+      destinations,
+      operationKey: "operation-key",
+      onCreateCandidate() { throw new Error("SSR must not create a candidate"); },
+      onReviewDrift() { throw new Error("SSR must not review drift"); },
+      onActivateReplacement() { throw new Error("SSR must not activate a replacement"); },
+    }));
+    assert.match(html, /Eligible replacement/);
+    assert.match(html, /<button class="primary" type="button">Create replacement candidate<\/button>/);
+    for (const decision of ["Accept", "Reject", "Correct", "Rescope"]) assert.match(html, new RegExp(`>${decision}</label>`));
+    assert.match(html, /Review this exact Drift proposal/);
+    assert.match(html, /<button class="primary" type="button">Activate replacement<\/button>/);
+    assert.match(html, /configuration-current/);
+    assert.match(html, /configuration-next/);
+
+    const invalidHtml = renderToStaticMarkup(React.createElement(DriftReplacementsView, {
+      drift: [{ ...drift[0], candidate: { ...candidateBinding, currentVersionId: "attacker-version" } }],
+      candidates: [{ ...candidates[0], candidateSnapshot: { ...candidates[0].candidateSnapshot, id: "attacker-configuration" } }],
+      destinations,
+      operationKey: "operation-key",
+      onCreateCandidate() { throw new Error("SSR must not create a candidate"); },
+      onReviewDrift() { throw new Error("SSR must not review drift"); },
+      onActivateReplacement() { throw new Error("SSR must not activate a replacement"); },
+    }));
+    assert.match(invalidHtml, /<button class="primary" type="button" disabled="">Create replacement candidate<\/button>/);
+    assert.match(invalidHtml, /<button class="primary" type="button" disabled="">Activate replacement<\/button>/);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("Interview renders exact lower-level authority metadata in active and confirmation states", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const { ConsensusInterviewView } = await vite.ssrLoadModule(new URL("../app/knowledge/consensus-interview.tsx", import.meta.url).pathname);
+    const destinations = [
+      { id: "company-1", type: "company", parentId: null, name: "Example", lifecycle: "active", revision: 1 },
+      { id: "product-1", type: "product", parentId: "company-1", name: "ONE", lifecycle: "active", revision: 1 },
+      { id: "play-1", type: "market_play", parentId: "product-1", name: "Mining", lifecycle: "draft", revision: 1 },
+      { id: "profile-1", type: "customer_profile", parentId: "play-1", name: "Operating", lifecycle: "draft", revision: 1 },
+    ];
+    const question = {
+      id: "question-profile",
+      revision: 3,
+      ordinal: 7,
+      prompt: "Which profile is authoritative?",
+      premise: "Legacy fallback must not be rendered.",
+      inference: "Legacy inference must not be rendered.",
+      provenance: "Legacy provenance must not be rendered.",
+      recommendation: "Legacy recommendation must not be rendered.",
+      evidenceFindings: [{
+        sourceTitle: "Authoritative research",
+        sourceRef: "source-ref-1",
+        sourceType: "primary",
+        publishedAt: 1_700_000_000_000,
+        retrievedAt: 1_700_000_100_000,
+        excerpt: "Structured evidence excerpt",
+      }],
+      inferenceDetail: { label: "Inference — owner review required", value: "Structured inference" },
+      recommendationDetail: { rationale: "Structured rationale", value: { excerpt: "Structured recommended value" } },
+      destination: { scopeType: "customer_profile", id: "profile-1" },
+      prerequisiteKnowledge: [{ id: "knowledge-version-1", digest: "digest-1" }],
+    };
+    const common = {
+      destinations,
+      answerOperationKey: "answer-operation",
+      decisionOperationKey: "decision-operation",
+      onSubmitAnswer() { throw new Error("SSR must not submit an answer"); },
+      onRecordDecision() { throw new Error("SSR must not record a decision"); },
+    };
+    const activeHtml = renderToStaticMarkup(React.createElement(ConsensusInterviewView, {
+      ...common,
+      state: { status: "active", displayName: "Owner", workspace: { id: "workspace-1", companyName: "Example" }, session: { id: "session-1", revision: 4 }, question },
+    }));
+    assert.match(activeHtml, /QUESTION 7 · CUSTOMER PROFILE · REVISION 3/);
+    assert.match(activeHtml, /Customer Profile \/ Operating · <code>profile-1<\/code>/);
+    for (const value of ["Authoritative research", "source-ref-1", "Structured evidence excerpt", "Inference — owner review required", "Structured inference", "Structured rationale", "Structured recommended value", "knowledge-version-1", "digest-1"]) {
+      assert.match(activeHtml, new RegExp(value));
+    }
+    assert.doesNotMatch(activeHtml, /QUESTION 7 · COMPANY/);
+    assert.doesNotMatch(activeHtml, /Legacy fallback must not be rendered/);
+
+    const confirmationHtml = renderToStaticMarkup(React.createElement(ConsensusInterviewView, {
+      ...common,
+      state: {
+        status: "awaiting_confirmation",
+        displayName: "Owner",
+        workspace: { id: "workspace-1", companyName: "Example" },
+        session: { id: "session-1", revision: 5 },
+        question,
+        answer: { id: "answer-1", operationDigest: "answer-digest", submittedAt: 1_700_000_200_000 },
+      },
+    }));
+    assert.match(confirmationHtml, /Confirm submitted answer/);
+    assert.match(confirmationHtml, /QUESTION 7 · CUSTOMER PROFILE · REVISION 3/);
+    assert.match(confirmationHtml, /knowledge-version-1/);
+
+    const mismatchedHtml = renderToStaticMarkup(React.createElement(ConsensusInterviewView, {
+      ...common,
+      state: { status: "active", displayName: "Owner", workspace: { id: "workspace-1", companyName: "Example" }, session: { id: "session-1", revision: 4 }, question: { ...question, destination: { scopeType: "company", id: "profile-1" } } },
+    }));
+    assert.match(mismatchedHtml, /Question authority could not be verified/);
+    assert.doesNotMatch(mismatchedHtml, /<form/);
+  } finally {
+    await vite.close();
+  }
 });
 
 test("commercial destination selector disambiguates duplicate names and returns only projected authority", async () => {

@@ -46,6 +46,17 @@ export function selectedCommercialDestination(
   };
 }
 
+export function resolveProjectedCommercialDestination(
+  destinations: readonly CommercialHierarchyNode[],
+  projected: InterviewDestination | null | undefined,
+): ExactCommercialDestination | null {
+  if (!projected?.id) return null;
+  const destination = selectedCommercialDestination(destinations, projected.id);
+  if (!destination || destination.scopeType !== projected.scopeType) return null;
+  if (projected.locator && destination.locator !== projected.locator) return null;
+  return destination;
+}
+
 export function destinationLabel(
   destination: CommercialHierarchyNode,
   destinations: readonly CommercialHierarchyNode[],
