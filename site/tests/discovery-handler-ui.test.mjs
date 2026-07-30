@@ -276,4 +276,23 @@ test("D-07/D-13 authority-unknown UI exposes refresh only and no future-phase au
   assert.match(source, /authorityUnknown|authority_unknown/);
   assert.match(source, /Reload this view/);
   assert.match(`${source}\n${readiness}\n${proposals}`, /Available after a Customer Profile is Ready in a later governed phase/);
+
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const proposalModule = await vite.ssrLoadModule(
+      new URL("../app/discovery/proposal-cards.tsx", import.meta.url).pathname,
+    );
+    const html = renderToStaticMarkup(React.createElement(proposalModule.ProposalCards, {
+      authority: "unknown",
+      proposals: [{ id: "untrusted-proposal", status: "new", marketCategory: "Untrusted market" }],
+      triggerLabel: "manual",
+      pendingProposalId: null,
+      onDecision() { assert.fail("authority-unknown SSR must not expose a decision callback"); },
+    }));
+    assert.match(html, /could not be verified/i);
+    assert.doesNotMatch(html, /<button\b/i, "authority-unknown proposal data must not expose decision controls");
+    assert.doesNotMatch(html, /Untrusted market/);
+  } finally {
+    await vite.close();
+  }
 });

@@ -754,35 +754,24 @@ test("D-04 confirmed Product replacement activation creates one immutable materi
         idempotencyKey: key(453),
       },
     );
+    const eligible = (
+      await authority.replacement.readEligibleReplacementCandidates(
+        fixture.database,
+        owner,
+      )
+    ).find(
+      (item) =>
+        item.currentVersionId === current.id &&
+        item.proposedVersionId === changed.version.id,
+    );
+    assert.ok(
+      eligible?.candidate,
+      "the replacement candidate must be created from the exact server projection",
+    );
     const candidate = await authority.replacement.createReplacementCandidate(
       fixture.database,
       owner,
-      {
-        currentVersionId: current.id,
-        proposedVersionId: changed.version.id,
-        ownerType: "product",
-        ownerId: authority.product.id,
-        kind: "product_discovery",
-        manifest: {
-          ...ready.configuration.manifest,
-          confirmedVersions: exactVersions([
-            ...authority.confirmed.filter((version) => version.id !== current.id),
-            changed.version,
-          ]),
-        },
-        riskKind: "capability",
-        dependencyEdges: [
-          {
-            fromType: "version",
-            fromId: current.id,
-            toType: "configuration",
-            toId: ready.configuration.id,
-          },
-        ],
-        artifacts: [],
-        expectedOwnerRevision: ready.configuration.revision,
-        idempotencyKey: key(454),
-      },
+      { ...eligible.candidate, idempotencyKey: key(454) },
     );
     const drift = await fixture.database
       .prepare(

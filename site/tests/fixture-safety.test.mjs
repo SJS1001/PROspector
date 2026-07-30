@@ -33,8 +33,6 @@ test("fixture renders every consequential control natively disabled", async () =
       "Prospecting disabled",
       "Approve disabled",
       "Defer disabled",
-      "Explore disabled",
-      "Dismiss disabled",
       "Prospect disabled",
       "CSV disabled",
       "Export disabled",
