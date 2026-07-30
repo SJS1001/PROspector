@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 stopped_at: Session resumed, proceeding to 01-05 hosted deployment and proof
-last_updated: "2026-07-30T17:34:28.444Z"
+last_updated: "2026-07-30T17:48:37.006Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 25
-  completed_plans: 7
+  completed_plans: 9
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ Plan: 5 of 5
 Status: Phase complete — ready for verification
 Last activity: 2026-07-30
 
-Progress: [███░░░░░░░] 28%
+Progress: [████░░░░░░] 36%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [███░░░░░░░] 28%
 | Phase 1 P04 | 25 min | 2 tasks | 10 files |
 | Phase 02 P01 | 25min | 3 tasks | 4 files |
 | Phase 02 P03 | 4min | 1 tasks | 1 files |
+| Phase 02 P04 | 31min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Wave 0 requires the exact 0000-0004 D1 chain and explicit forbidden-table zero-effect snapshots.
 - [Phase 02]: Owner explicitly approved uuid@14.0.1; Plan 04 may install only that exact package.
 - [Phase 02]: Use uuid.v7() only for new opaque entity IDs; never substitute a package or hand-roll UUIDv7.
+- [Phase 02]: Plan 04 pins uuid@14.0.1 and keeps consensus_knowledge activation absent behind an immutable complete tuple. — Additive migration preserves valid historian authority and explicitly quarantines legacy-unbound records.
 
 ### Pending Todos
 
@@ -95,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T17:34:10.652Z
+Last session: 2026-07-30T17:48:05.663Z
 Stopped at: Session resumed, proceeding to 01-05 hosted deployment and proof
 Resume file: None
