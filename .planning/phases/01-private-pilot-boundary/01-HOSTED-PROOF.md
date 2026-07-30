@@ -7,7 +7,8 @@ Date: 2026-07-29
 | Field | Value |
 |---|---|
 | Sites project | `appgprj_6a6a2e5c533081919e9c47dd6dd6ceba` |
-| Source commit | `26f7331331f4de8b433ca48abe07e47174b36a51` |
+| Application code commit | `26f7331331f4de8b433ca48abe07e47174b36a51` |
+| Sites source commit | Blocked — source repository credential is unavailable while the project returns `project_not_found` |
 | Saved version | Blocked — existing project returns `project_not_found` to this Sites control-plane session |
 | Deployment | Blocked — no duplicate project or open-world deployment created |
 | Production URL | `https://prospector-steven-pilot.djstif.chatgpt.site/` |
@@ -43,7 +44,7 @@ may exercise the same checks without extracting browser session material.
 
 | Check | Outcome | Evidence |
 |---|---|---|
-| Exact tested source deployed | Blocked | Pushed source `26f7331…`; archive SHA-256 begins `65e64349`; Sites project read and version save both return `project_not_found` |
+| Exact tested source deployed | Blocked | GitHub app source `26f7331…` and archive SHA-256 `65e64349…` are verified; Sites project read, source credential, and version save all return `project_not_found` |
 | Unauthenticated capability denial | Pass | HTTP 401 at the private Sites gate; no private metadata observed |
 | Owner capability read | Pending | Status distribution pending |
 | Foreign-origin mutation denial | Pending | Redacted HTTP status pending |
@@ -61,7 +62,7 @@ may exercise the same checks without extracting browser session material.
 - `npm run lint`: pass.
 - `npm test`: pass; production build plus 15/15 tests.
 - `node scripts/hosted-boundary-proof.mjs --help`: pass.
-- Exact branch head on GitHub: `26f7331331f4de8b433ca48abe07e47174b36a51`.
+- Exact application commit on GitHub: `26f7331331f4de8b433ca48abe07e47174b36a51`.
 - Deployable archive: `/private/tmp/prospector-26f7331.tar.gz`; SHA-256
   begins `65e64349`; required Sites metadata and server entrypoint are present.
 
