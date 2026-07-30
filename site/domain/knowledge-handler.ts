@@ -5,6 +5,7 @@ import {
   CommercialModelConflictError,
 } from "./commercial-model";
 import { consumeCsrfToken, csrfTokenFromRequest, CsrfTokenError, issueCsrfToken, withCsrfCookie } from "./csrf";
+import { buildDriftImpact, type DependencyEdge } from "./drift";
 import { readInterviewState, recordInterviewDecision, submitInterviewAnswer, InterviewConflictError, type InterviewPrincipal } from "./interview";
 import {
   importPlainText,
@@ -159,7 +160,7 @@ async function writesActivated(database: D1Database, principal: InterviewPrincip
   const expected = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   return row.tuple_digest === expected;
 }
-async function readDrift(database: D1Database, principal: InterviewPrincipal) {
+export async function readDrift(database: D1Database, principal: InterviewPrincipal) {
   const rows = await rowsForOwner(database, principal, `SELECT kd.id, kd.risk_kind AS riskKind, kd.status,
       kd.current_version_id AS currentVersionId, kd.proposed_version_id AS proposedVersionId,
       kp.id AS proposalId, kp.revision AS proposalRevision, kp.destination_scope_type AS destinationScopeType,
@@ -173,7 +174,7 @@ async function readDrift(database: D1Database, principal: InterviewPrincipal) {
     LEFT JOIN drift_impact_snapshots ds ON ds.drift_id = kd.id AND ds.workspace_id = kd.workspace_id
     LEFT JOIN replacement_candidates rc ON rc.impact_snapshot_id = ds.id AND rc.workspace_id = kd.workspace_id
     WHERE kd.workspace_id = ? ORDER BY CASE kd.status WHEN 'open' THEN 0 ELSE 1 END, kd.created_at, kd.id`);
-  return rows.map((row) => {
+  const persisted = rows.map((row) => {
     const impact = objectJson(row.impactJson);
     const currentValue = objectJson(row.currentValueJson);
     const proposedValue = objectJson(row.proposedValueJson);
@@ -190,7 +191,7 @@ async function readDrift(database: D1Database, principal: InterviewPrincipal) {
         destination: { scopeType: destinationScopeType, id: row.destinationScopeId },
         decisions: ["accept", "reject", "correct", "rescope"],
       } : null,
-      paths: impact ? reachedArtifacts(impact).map((artifact) => artifact.path).filter(Array.isArray) : [],
+      paths: impact ? reachedArtifacts(impact).map((artifact) => Array.isArray(artifact.path) ? artifact.path.join(" -> ") : null).filter((path): path is string => Boolean(path)) : [],
       artifacts: impact ? reachedArtifacts(impact) : [],
       counts: impact && isRecord(impact.counts) ? impact.counts : {},
       containment: impact && typeof impact.containment === "string" ? impact.containment : null,
@@ -199,8 +200,9 @@ async function readDrift(database: D1Database, principal: InterviewPrincipal) {
       candidate: null,
     };
   });
+  return [...persisted, ...await readEligibleReplacementDrift(database, principal)];
 }
-async function readReplacements(database: D1Database, principal: InterviewPrincipal) {
+export async function readReplacements(database: D1Database, principal: InterviewPrincipal) {
   const rows = await rowsForOwner(database, principal, `SELECT rc.id, rc.status, rc.candidate_digest AS digest, rc.revision,
       rc.current_configuration_id AS currentConfigurationId, rc.candidate_configuration_id AS candidateConfigurationId,
       rc.proposed_version_id AS storedProposedVersionId, rc.expected_owner_revision AS expectedOwnerRevision,
@@ -242,7 +244,55 @@ async function readReplacements(database: D1Database, principal: InterviewPrinci
     auditEventId: row.activationId ? row.auditEventId ?? null : null,
   }));
 }
+async function readEligibleReplacementDrift(database: D1Database, principal: InterviewPrincipal) {
+  const eligible = await rowsForOwner(database, principal, `SELECT proposed.id AS proposedVersionId,
+      proposed.value_json AS proposedValueJson, proposed.kind AS knowledgeKind,
+      current.id AS currentVersionId, current.value_json AS currentValueJson, current.source_digest AS currentSourceDigest,
+      kp.destination_scope_type AS destinationScopeType, kp.destination_scope_id AS destinationScopeId, kp.provenance_json AS provenanceJson,
+      config.id AS configurationId, config.owner_type AS ownerType, config.owner_id AS ownerId, config.kind AS configurationKind,
+      config.revision AS expectedOwnerRevision, config.manifest_json AS manifestJson
+    FROM knowledge_versions proposed
+    JOIN knowledge_versions current ON current.workspace_id = proposed.workspace_id AND current.id != proposed.id
+      AND current.scope_type = proposed.scope_type AND current.scope_id = proposed.scope_id AND current.kind = proposed.kind
+    JOIN knowledge_proposals kp ON kp.id = proposed.proposal_id AND kp.workspace_id = proposed.workspace_id
+    JOIN configuration_knowledge_dependencies dep ON dep.knowledge_version_id = current.id
+    JOIN typed_configurations config ON config.id = dep.configuration_id AND config.workspace_id = proposed.workspace_id AND config.active = 1
+    WHERE proposed.workspace_id = ? AND proposed.status = 'confirmed' AND current.status = 'confirmed'
+      AND proposed.created_at >= current.created_at
+      AND NOT EXISTS (SELECT 1 FROM knowledge_drifts kd WHERE kd.workspace_id = proposed.workspace_id
+        AND kd.current_version_id = current.id AND kd.proposed_version_id = proposed.id)
+    ORDER BY proposed.created_at, proposed.id, config.id`);
+  return Promise.all(eligible.map(async (row) => {
+    const dependencyRows = await database.prepare("SELECT knowledge_version_id FROM configuration_knowledge_dependencies WHERE configuration_id = ? ORDER BY knowledge_version_id").bind(row.configurationId).all<{ knowledge_version_id: string }>();
+    const artifactRows = await database.prepare("SELECT artifact_type, artifact_id FROM artifact_configuration_dependencies WHERE workspace_id = ? AND configuration_id = ? ORDER BY artifact_type, artifact_id").bind(await workspaceIdFor(database, principal), row.configurationId).all<{ artifact_type: string; artifact_id: string }>();
+    const dependencyEdges: DependencyEdge[] = [
+      { fromType: "version", fromId: String(row.currentVersionId), toType: "configuration", toId: String(row.configurationId) },
+      ...artifactRows.results.map((artifact) => ({ fromType: "configuration", fromId: String(row.configurationId), toType: "artifact", toId: artifact.artifact_id })),
+    ];
+    const artifacts = artifactRows.results.map((artifact) => ({ artifactId: artifact.artifact_id, artifactType: artifact.artifact_type, status: "dependent" }));
+    const riskKind = replacementRiskKind(String(row.knowledgeKind));
+    const impact = buildDriftImpact({ sourceId: typeof row.currentSourceDigest === "string" ? row.currentSourceDigest : String(row.currentVersionId), currentVersionId: String(row.currentVersionId), proposedVersionId: String(row.proposedVersionId), riskKind, edges: dependencyEdges, artifacts });
+    const impactDigest = await sha256Text(impact.canonicalJson);
+    const manifest = objectJson(row.manifestJson);
+    const destinationScopeType = publicScopeToken(String(row.destinationScopeType));
+    const candidate = manifest && (row.ownerType === "product" || row.ownerType === "profile") && (row.configurationKind === "product_discovery" || row.configurationKind === "profile_effective") ? {
+      currentVersionId: row.currentVersionId, proposedVersionId: row.proposedVersionId,
+      ownerType: row.ownerType, ownerId: row.ownerId, kind: row.configurationKind,
+      expectedOwnerRevision: Number(row.expectedOwnerRevision), manifest, riskKind, dependencyEdges, artifacts,
+    } : null;
+    return {
+      id: `eligible:${row.currentVersionId}:${row.proposedVersionId}:${row.configurationId}`,
+      riskKind, status: "eligible", currentVersionId: row.currentVersionId, proposedVersionId: row.proposedVersionId,
+      currentValue: excerptOrNull(objectJson(row.currentValueJson)), proposedValue: excerptOrNull(objectJson(row.proposedValueJson)),
+      provenance: objectJson(row.provenanceJson), destination: { scopeType: destinationScopeType, id: row.destinationScopeId },
+      review: null, paths: impact.reachedArtifacts.map((artifact) => artifact.path.join(" -> ")), artifacts: impact.reachedArtifacts,
+      counts: impact.counts, containment: impact.containment, impactDigest, replacementCandidateId: null, candidate,
+      dependencyKnowledgeVersionIds: dependencyRows.results.map((dependency) => dependency.knowledge_version_id),
+    };
+  }));
+}
 async function rowsForOwner(database: D1Database, principal: InterviewPrincipal, statement: string) { const workspace = await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string }>(); return workspace ? (await database.prepare(statement).bind(workspace.id).all()).results : []; }
+async function workspaceIdFor(database: D1Database, principal: InterviewPrincipal) { const row = await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string }>(); if (!row) throw new KnowledgeConflictError("Commercial workspace is unavailable"); return row.id; }
 function commercialWithDriftTruth<T extends { path: Array<Record<string, unknown>>; products: Array<Record<string, unknown>>; plays: Array<Record<string, unknown>>; profiles: Array<Record<string, unknown>>; offers: Array<Record<string, unknown>> }>(commercial: T, drift: Array<Record<string, unknown>>) {
   const unresolved = new Map<string, number>();
   for (const item of drift) if (item.status !== "resolved" && isRecord(item.destination) && typeof item.destination.id === "string") unresolved.set(item.destination.id, (unresolved.get(item.destination.id) ?? 0) + 1);
@@ -258,6 +308,8 @@ function objectJson(value: unknown): Record<string, unknown> | null { if (typeof
 function excerptOrNull(value: Record<string, unknown> | null) { return value && typeof value.excerpt === "string" ? value.excerpt : null; }
 function reachedArtifacts(impact: Record<string, unknown>) { return Array.isArray(impact.reachedArtifacts) ? impact.reachedArtifacts.filter(isRecord) : []; }
 function publicScopeToken(value: string) { return value === "play" ? "market_play" : value === "profile" ? "customer_profile" : value; }
+function replacementRiskKind(value: string) { return ["capability", "proof_point", "claim_guardrail", "offer", "suppression", "standard"].includes(value) ? value : "standard"; }
+async function sha256Text(value: string) { const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""); }
 async function authenticatedPrincipal(dependencies: KnowledgeHandlerDependencies) { return admitPilotOwner(await dependencies.getIdentity(), dependencies.pilotOwnerEmail, dependencies.subjectPepper); }
 function json(value: unknown, status = 200) { return Response.json(value, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } }); }
 function privateWorkspaceUnavailable() { return json({ error: "private_workspace_unavailable" }, 404); }

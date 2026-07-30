@@ -116,6 +116,7 @@ test("replacement activation requires an accepted proposal-backed open Drift rev
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
     const replacement = await fixture.vite.ssrLoadModule(new URL("../domain/replacement.ts", import.meta.url).pathname);
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge-handler.ts", import.meta.url).pathname);
     const principal = { subject: "drift-review-owner", legacySubject: "drift-review-legacy", displayName: "Owner" };
     const proposal = async (suffix, excerpt) => {
       const proposed = await knowledge.createKnowledgeProposal(fixture.database, principal, {
@@ -130,11 +131,13 @@ test("replacement activation requires an accepted proposal-backed open Drift rev
     const owner = await fixture.database.prepare("SELECT w.id AS workspace_id, c.id AS company_id, p.id AS product_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id JOIN products p ON p.company_id = c.id AND p.workspace_id = w.id WHERE w.owner_subject = ? AND p.name = 'ONE'").bind(principal.subject).first();
     const now = Date.now();
     await fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('active-config-review', ?, ?, ?, 1, ?, 'product', ?, 'product_discovery', 'active-digest-review', '{}', 1)").bind(owner.workspace_id, now, now, owner.company_id, owner.product_id).run();
-    const candidate = await replacement.createReplacementCandidate(fixture.database, principal, {
-      currentVersionId: current.id, proposedVersionId: proposed.id, ownerType: "product", ownerId: owner.product_id,
-      kind: "product_discovery", manifest: { version: 2 }, riskKind: "capability", dependencyEdges: [], expectedOwnerRevision: 1,
-      idempotencyKey: "0198a4b0-0000-7000-8000-000000000412",
-    });
+    await fixture.database.prepare("INSERT INTO configuration_knowledge_dependencies (configuration_id, knowledge_version_id, created_at) VALUES ('active-config-review', ?, ?)").bind(current.id, now).run();
+    const projected = await handler.readDrift(fixture.database, principal);
+    const eligible = projected.find((item) => item.status === "eligible" && item.currentVersionId === current.id && item.proposedVersionId === proposed.id);
+    assert.ok(eligible?.candidate, "the owner-scoped projection exposes the first exact candidate mutation");
+    const candidateInput = { ...eligible.candidate, idempotencyKey: "0198a4b0-0000-7000-8000-000000000412" };
+    const candidate = await replacement.createReplacementCandidate(fixture.database, principal, candidateInput);
+    assert.deepEqual(await replacement.createReplacementCandidate(fixture.database, principal, candidateInput), candidate, "same-key candidate retry resolves the original candidate, not the active configuration");
     const drift = await fixture.database.prepare("SELECT id, proposal_id, status, current_version_id, proposed_version_id FROM knowledge_drifts WHERE workspace_id = ?").bind(owner.workspace_id).first();
     const driftProposal = await fixture.database.prepare("SELECT revision, status FROM knowledge_proposals WHERE id = ?").bind(drift.proposal_id).first();
     assert.equal(drift.status, "open");
@@ -142,8 +145,12 @@ test("replacement activation requires an accepted proposal-backed open Drift rev
     assert.equal(drift.current_version_id, current.id);
     assert.equal(drift.proposed_version_id, proposed.id);
     await assert.rejects(replacement.activateReplacement(fixture.database, principal, { candidateId: candidate.id, impactDigest: candidate.impactDigest, expectedOwnerRevision: 1, expectedCandidateRevision: candidate.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000413" }), /accept.*Drift review/i);
-    await knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: drift.proposal_id, decision: "accept", predecessorVersionId: current.id, expectedRevision: driftProposal.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000414" });
+    await assert.rejects(knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: drift.proposal_id, decision: "accept", predecessorVersionId: proposed.id, expectedRevision: driftProposal.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000416" }), /predecessor.*match/i);
+    const accepted = await knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: drift.proposal_id, decision: "accept", expectedRevision: driftProposal.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000414" });
     assert.equal((await fixture.database.prepare("SELECT status FROM knowledge_drifts WHERE id = ?").bind(drift.id).first()).status, "resolved");
+    assert.equal(accepted.version.predecessorId, current.id, "generic proposal review derives the exact Drift predecessor");
+    assert.equal(accepted.version.knowledgeItemId, current.knowledgeItemId, "Drift acceptance advances the stable Knowledge item");
+    assert.equal((await fixture.database.prepare("SELECT status FROM knowledge_versions WHERE id = ?").bind(current.id).first()).status, "superseded");
     const refreshed = await replacement.readReplacementState(fixture.database, principal, candidate.id);
     const activated = await replacement.activateReplacement(fixture.database, principal, { candidateId: candidate.id, impactDigest: candidate.impactDigest, expectedOwnerRevision: 1, expectedCandidateRevision: refreshed.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000415" });
     assert.equal(activated.status, "activated");

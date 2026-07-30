@@ -69,22 +69,27 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
   const workspace = await workspaceForKnowledge(database, principal);
   const proposal = await proposalRow(database, workspace.id, input.proposalId);
   if (proposal.origin === "quarantined_upload") throw new KnowledgeConflictError("Quarantined upload is not reviewable until scanning exists");
+  const driftBindings = await database.prepare("SELECT current_version_id FROM knowledge_drifts WHERE proposal_id = ? AND workspace_id = ? LIMIT 2").bind(proposal.id, workspace.id).all<{ current_version_id: string }>();
+  if (driftBindings.results.length > 1) throw new KnowledgeConflictError("Drift proposal has ambiguous predecessor authority");
+  const driftPredecessorId = driftBindings.results[0]?.current_version_id;
+  if (driftPredecessorId && input.predecessorVersionId && input.predecessorVersionId !== driftPredecessorId) throw new KnowledgeConflictError("Drift review predecessor does not match the exact current version");
+  const predecessorVersionId = driftPredecessorId ?? input.predecessorVersionId;
   const target = input.decision === "rescope" ? await resolveDestination(database, workspace.id, required(input.destination, "Rescope destination")) : { id: proposal.destination_scope_id, scopeType: proposal.destination_scope_type };
   const value = input.decision === "correct" ? validateValue(required(input.correction, "Corrected value")) : JSON.parse(proposal.value_json);
-  const operationDigest = await sha256(orderedSnapshot({ proposalDigest: proposal.proposal_digest, decision: input.decision, target, value, predecessorVersionId: input.predecessorVersionId ?? null, expectedRevision: input.expectedRevision }));
+  const operationDigest = await sha256(orderedSnapshot({ proposalDigest: proposal.proposal_digest, decision: input.decision, target, value, predecessorVersionId: predecessorVersionId ?? null, expectedRevision: input.expectedRevision }));
   const prior = await database.prepare("SELECT id, operation_digest FROM proposal_decisions WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ id: string; operation_digest: string }>();
   if (prior) {
     if (prior.operation_digest !== operationDigest) throw new KnowledgeConflictError("Idempotency key was reused for another review");
     return { existingDecisionId: prior.id, workspace, operationDigest, statements: [] as D1PreparedStatement[] };
   }
   if (proposal.revision !== input.expectedRevision) throw new KnowledgeConflictError("Stale proposal revision");
-  const predecessor = input.predecessorVersionId && input.decision !== "reject"
+  const predecessor = predecessorVersionId
     ? await database.prepare(`SELECT kv.id, kv.knowledge_item_id, kv.scope_type, kv.scope_id, kv.kind, kv.status,
           ki.current_version_id, ki.revision AS item_revision
         FROM knowledge_versions kv JOIN knowledge_items ki ON ki.id = kv.knowledge_item_id AND ki.workspace_id = kv.workspace_id
-        WHERE kv.id = ? AND kv.workspace_id = ? LIMIT 1`).bind(input.predecessorVersionId, workspace.id).first<{ id: string; knowledge_item_id: string; scope_type: string; scope_id: string; kind: string; status: string; current_version_id: string | null; item_revision: number }>()
+        WHERE kv.id = ? AND kv.workspace_id = ? LIMIT 1`).bind(predecessorVersionId, workspace.id).first<{ id: string; knowledge_item_id: string; scope_type: string; scope_id: string; kind: string; status: string; current_version_id: string | null; item_revision: number }>()
     : null;
-  if (input.predecessorVersionId && input.decision !== "reject" && (!predecessor || predecessor.status !== "confirmed" || predecessor.current_version_id !== predecessor.id)) throw new KnowledgeConflictError("Predecessor must be the current confirmed Knowledge version");
+  if (predecessorVersionId && (!predecessor || predecessor.status !== "confirmed" || predecessor.current_version_id !== predecessor.id)) throw new KnowledgeConflictError("Predecessor must be the current confirmed Knowledge version");
   const reuseItem = Boolean(predecessor && predecessor.scope_type === target.scopeType && predecessor.scope_id === target.id && predecessor.kind === proposal.kind);
   const now = Date.now(); const commandId = v7(); const decisionId = v7(); const auditId = v7(); const versionId = input.decision === "reject" ? null : v7(); const itemId = input.decision === "reject" ? null : reuseItem ? predecessor!.knowledge_item_id : v7();
   const commandSql = `INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status)
@@ -122,7 +127,7 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
     database.prepare("UPDATE knowledge_proposals SET status = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND revision = ?").bind(input.decision === "reject" ? "rejected" : "reviewed", now, proposal.id, workspace.id, input.expectedRevision),
     database.prepare("UPDATE knowledge_drifts SET status = 'resolved', updated_at = ?, revision = revision + 1 WHERE proposal_id = ? AND workspace_id = ? AND status = 'open'").bind(now, proposal.id, workspace.id),
     ...(input.decision === "accept" ? [] : [database.prepare("UPDATE replacement_candidates SET status = 'cancelled', updated_at = ?, revision = revision + 1 WHERE workspace_id = ? AND status = 'proposed' AND impact_snapshot_id IN (SELECT ds.id FROM drift_impact_snapshots ds JOIN knowledge_drifts kd ON kd.id = ds.drift_id WHERE kd.proposal_id = ? AND kd.workspace_id = ?)").bind(now, workspace.id, proposal.id, workspace.id)]),
-    database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, ?, 'knowledge_proposal', ?, ?, ?)").bind(auditId, workspace.id, principal.subject, `knowledge.${input.decision}`, proposal.id, JSON.stringify({ decisionId, versionId, predecessorVersionId: input.predecessorVersionId ?? null }), now),
+    database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, ?, 'knowledge_proposal', ?, ?, ?)").bind(auditId, workspace.id, principal.subject, `knowledge.${input.decision}`, proposal.id, JSON.stringify({ decisionId, versionId, predecessorVersionId: predecessorVersionId ?? null }), now),
   );
   return { workspace, proposal, target, value, operationDigest, commandId, decisionId, auditId, versionId, itemId, now, statements };
 }
