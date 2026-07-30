@@ -57,4 +57,19 @@ test("runner submission is bounded append-only observation data and rejects auth
   } finally { await seed.fixture.dispose(); }
 });
 
+test("source policy assigns trusted tiers, independence, recency, and leaves retrieval disabled", async () => {
+  const fixture = await createD1Fixture("source-policy");
+  try {
+    const policy = await fixture.vite.ssrLoadModule(new URL("../domain/source-policy.ts", import.meta.url).pathname);
+    const retrieval = await fixture.vite.ssrLoadModule(new URL("../domain/ports/retrieval.ts", import.meta.url).pathname);
+    const trusted = { tier1Origins: ["example.com"], tier2Origins: ["trusted.invalid"], materialSignalKinds: ["operating-signal"] };
+    const current = await policy.validateSourceObservation(trusted, { url: "https://news.example.com/path#fragment", retrievedAt: NOW, observedAt: NOW, excerpt: "<b>untrusted</b>", kind: "operating-signal" }, NOW);
+    assert.equal(current.tier, 1); assert.equal(current.independenceGroup, "origin:example.com"); assert.match(current.excerpt, /&lt;b&gt;/);
+    const stale = await policy.validateSourceObservation(trusted, { url: "https://repost.example.com/again", retrievedAt: NOW, observedAt: NOW - 31 * 24 * 60 * 60 * 1_000, excerpt: "stale", kind: "operating-signal" }, NOW);
+    assert.equal(stale.independenceGroup, current.independenceGroup); assert.equal(stale.recency, "account_context_reconfirmation_required");
+    assert.deepEqual(policy.sourceWindow(NOW, NOW + 1), { lowerExclusive: NOW - 24 * 60 * 60 * 1_000, upperInclusive: NOW + 1 });
+    await assert.rejects(() => retrieval.createRejectOnlyRetrievalPort().retrieve({ url: "https://example.invalid", expectedMimeTypes: ["text/plain"], maximumBytes: 1, maximumRedirects: 0, timeoutMs: 1 }), /unavailable/i);
+  } finally { await fixture.dispose(); }
+});
+
 function validPayload() { return { status: "complete", findings: [{ kind: "operating-signal", sourceUrl: "https://example.invalid/source", observedAt: NOW, excerpt: "Bounded synthetic observation" }], sources: [{ url: "https://example.invalid/source", retrievedAt: NOW, excerpt: "Bounded source excerpt", publisher: "Synthetic publisher" }], provenance: { provider: "synthetic-runner", model: "synthetic-model", instructionVersion: "runner-instructions/v1", toolConfigurationDigest: "e".repeat(64) } }; }
