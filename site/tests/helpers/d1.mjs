@@ -9,26 +9,40 @@ export const MIGRATION_FILENAMES = [
   "0002_eager_supreme_intelligence.sql",
   "0003_acoustic_magik.sql",
   "0004_consensus_knowledge.sql",
+  "0005_even_mastermind.sql",
 ];
 
-const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, -1);
+const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, 4);
 const appliedMigrations = new WeakMap();
 
 export const FORBIDDEN_OPERATIONAL_TABLES = [
+  "profile_readiness_activations",
+  "prospecting_schedules",
+  "prospecting_runs",
+  "runner_assignments",
+  "runner_connections",
   "runs",
   "accounts",
+  "targets",
   "signals",
-  "contacts",
   "candidates",
   "prospects",
+  "contacts",
   "schedules",
   "approval_grants",
+  "provider_grants",
+  "provider_calls",
   "outreach_packages",
+  "outreach_package_approvals",
   "message_versions",
+  "message_approvals",
+  "message_dispatches",
+  "manual_calls",
   "export_jobs",
+  "external_effects",
 ];
 
-export async function createD1Fixture(name = "prospector-phase-2-test") {
+export async function createD1Fixture(name = "prospector-authority-test") {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   const miniflare = new Miniflare({
     modules: true,
@@ -47,7 +61,7 @@ export async function createD1Fixture(name = "prospector-phase-2-test") {
 }
 
 export async function applyMigrations(database, filenames = MIGRATION_FILENAMES) {
-  assert.deepEqual(filenames, MIGRATION_FILENAMES, "Phase 2 fixtures require the exact 0000-0004 migration chain");
+  assert.deepEqual(filenames, MIGRATION_FILENAMES, "Authority fixtures require the exact 0000-0005 migration chain");
   await applyMigrationFiles(database, filenames);
 }
 
@@ -121,11 +135,11 @@ export async function snapshotForbiddenOperationalRows(database) {
 }
 
 export async function assertForbiddenOperationalRowsUnchanged(database, before) {
-  assert.deepEqual(await snapshotForbiddenOperationalRows(database), before, "Phase 2 authority commands must not create operational effects");
+  assert.deepEqual(await snapshotForbiddenOperationalRows(database), before, "Phase 3 authority commands must not create downstream operational effects");
 }
 
-export async function countRows(database, table) {
-  const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
+export async function countRows(database, table, where = "1 = 1", bindings = []) {
+  const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where}`).bind(...bindings).first();
   return Number(row.count);
 }
 

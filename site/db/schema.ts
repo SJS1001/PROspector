@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const auditColumns = {
   workspaceId: text("workspace_id").notNull(),
@@ -50,6 +50,359 @@ export const driftImpactSnapshots = sqliteTable("drift_impact_snapshots", { id: 
 export const replacementCandidates = sqliteTable("replacement_candidates", { id: text("id").primaryKey(), ...auditColumns, ownerType: text("owner_type").notNull(), ownerId: text("owner_id").notNull(), currentConfigurationId: text("current_configuration_id").references(() => configurations.id), candidateConfigurationId: text("candidate_configuration_id").notNull().references(() => configurations.id), impactSnapshotId: text("impact_snapshot_id").notNull().references(() => driftImpactSnapshots.id), proposedVersionId: text("proposed_version_id").notNull().references(() => knowledgeVersions.id), expectedOwnerRevision: integer("expected_owner_revision").notNull(), candidateDigest: text("candidate_digest").notNull(), status: text("status", { enum: ["proposed", "activated", "superseded", "cancelled"] }).notNull().default("proposed") }, (t) => [uniqueIndex("replacement_candidate_digest_unique").on(t.workspaceId, t.candidateDigest)]);
 export const configurationActivations = sqliteTable("configuration_activations", { id: text("id").primaryKey(), ...auditColumns, replacementCandidateId: text("replacement_candidate_id").notNull().references(() => replacementCandidates.id), authorityCommandId: text("authority_command_id").notNull().references(() => authorityCommands.id), previousConfigurationId: text("previous_configuration_id").references(() => configurations.id), nextConfigurationId: text("next_configuration_id").notNull().references(() => configurations.id), expectedOwnerRevision: integer("expected_owner_revision").notNull(), operationDigest: text("operation_digest").notNull() }, (t) => [uniqueIndex("configuration_activation_candidate_unique").on(t.replacementCandidateId), uniqueIndex("configuration_activation_command_unique").on(t.authorityCommandId)]);
 export const phaseActivationGates = sqliteTable("phase_activation_gates", { id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id), capability: text("capability", { enum: ["consensus_knowledge"] }).notNull(), authorizationReference: text("authorization_reference").notNull(), targetProjectDeployment: text("target_project_deployment").notNull(), reviewedSourceDigest: text("reviewed_source_digest").notNull(), migrationIdentityStatus: text("migration_identity_status").notNull(), postMigrationEvidenceReference: text("post_migration_evidence_reference").notNull(), independentReviewReference: text("independent_review_reference").notNull(), deployedBoundaryProofReference: text("deployed_boundary_proof_reference").notNull(), tupleDigest: text("tuple_digest").notNull(), acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }).notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull() }, (t) => [uniqueIndex("phase_gate_capability_unique").on(t.workspaceId, t.capability), uniqueIndex("phase_gate_tuple_unique").on(t.workspaceId, t.capability, t.tupleDigest)]);
+
+export const productDiscoveryConfigurationPrerequisites = sqliteTable(
+  "product_discovery_configuration_prerequisites",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    configurationId: text("configuration_id").notNull().references(() => configurations.id),
+    knowledgeVersionId: text("knowledge_version_id").notNull().references(() => knowledgeVersions.id),
+    knowledgeVersionDigest: text("knowledge_version_digest").notNull(),
+    category: text("category", { enum: ["capability", "limitation", "delivery", "proof", "ownership", "claim_guardrail", "source_policy", "discovery_policy", "default_runner_policy"] }).notNull(),
+    ordinal: integer("ordinal").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("product_discovery_prerequisite_version_unique").on(t.configurationId, t.knowledgeVersionId),
+    uniqueIndex("product_discovery_prerequisite_category_unique").on(t.configurationId, t.category),
+    uniqueIndex("product_discovery_prerequisite_ordinal_unique").on(t.configurationId, t.ordinal),
+    index("product_discovery_prerequisite_product_idx").on(t.workspaceId, t.productId),
+    check("product_discovery_prerequisite_digest_check", sql`length(${t.knowledgeVersionDigest}) = 64 and ${t.knowledgeVersionDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_prerequisite_ordinal_check", sql`${t.ordinal} >= 0 and ${t.ordinal} < 9`),
+  ],
+);
+
+export const productDiscoverySchedules = sqliteTable(
+  "product_discovery_schedules",
+  {
+    id: text("id").primaryKey(),
+    ...auditColumns,
+    productId: text("product_id").notNull().references(() => products.id),
+    configurationId: text("configuration_id").notNull().references(() => configurations.id),
+    configurationDigest: text("configuration_digest").notNull(),
+    cadence: text("cadence", { enum: ["monthly"] }).notNull(),
+    scheduleKey: text("schedule_key").notNull(),
+    timezone: text("timezone").notNull(),
+    nextRunAt: integer("next_run_at", { mode: "timestamp_ms" }).notNull(),
+    lastSuccessfulWatermark: integer("last_successful_watermark", { mode: "timestamp_ms" }),
+    executionState: text("execution_state", { enum: ["blocked_missing_capability", "active", "paused", "needs_attention", "archived"] }).notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    operationDigest: text("operation_digest").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+  },
+  (t) => [
+    uniqueIndex("product_discovery_schedule_key_unique").on(t.workspaceId, t.scheduleKey),
+    uniqueIndex("product_discovery_schedule_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+    uniqueIndex("product_discovery_active_schedule_unique").on(t.workspaceId, t.productId, t.cadence).where(sql`${t.active} = 1`),
+    index("product_discovery_schedule_due_idx").on(t.workspaceId, t.executionState, t.nextRunAt),
+    check("product_discovery_schedule_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_schedule_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const productDiscoveryRuns = sqliteTable(
+  "product_discovery_runs",
+  {
+    id: text("id").primaryKey(),
+    ...auditColumns,
+    productId: text("product_id").notNull().references(() => products.id),
+    configurationId: text("configuration_id").notNull().references(() => configurations.id),
+    configurationDigest: text("configuration_digest").notNull(),
+    triggerKind: text("trigger_kind", { enum: ["initial", "monthly", "manual", "material_change"] }).notNull(),
+    triggerKey: text("trigger_key").notNull(),
+    sourceEventId: text("source_event_id"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    windowLowerExclusive: integer("window_lower_exclusive", { mode: "timestamp_ms" }),
+    windowUpperInclusive: integer("window_upper_inclusive", { mode: "timestamp_ms" }).notNull(),
+    lastSuccessfulWatermark: integer("last_successful_watermark", { mode: "timestamp_ms" }),
+    successfulWatermark: integer("successful_watermark", { mode: "timestamp_ms" }),
+    manifestJson: text("manifest_json").notNull(),
+    manifestDigest: text("manifest_digest").notNull(),
+    policySnapshotJson: text("policy_snapshot_json").notNull(),
+    policySnapshotDigest: text("policy_snapshot_digest").notNull(),
+    executionState: text("execution_state", { enum: ["blocked_missing_capability", "queued", "running", "authority_unknown", "succeeded", "needs_attention", "failed"] }).notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("product_discovery_run_trigger_unique").on(t.workspaceId, t.productId, t.triggerKey),
+    uniqueIndex("product_discovery_run_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+    uniqueIndex("product_discovery_run_operation_unique").on(t.workspaceId, t.operationDigest),
+    index("product_discovery_run_product_idx").on(t.workspaceId, t.productId, t.startedAt),
+    check("product_discovery_run_configuration_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_run_manifest_digest_check", sql`length(${t.manifestDigest}) = 64 and ${t.manifestDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_run_policy_digest_check", sql`length(${t.policySnapshotDigest}) = 64 and ${t.policySnapshotDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_run_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_run_window_check", sql`${t.windowLowerExclusive} is null or ${t.windowLowerExclusive} < ${t.windowUpperInclusive}`),
+  ],
+);
+
+export const productDiscoveryRunEvents = sqliteTable(
+  "product_discovery_run_events",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    runId: text("run_id").notNull().references(() => productDiscoveryRuns.id),
+    eventType: text("event_type", { enum: ["created", "blocked", "started", "submission_received", "authority_unknown", "succeeded", "needs_attention", "failed", "watermark_advanced"] }).notNull(),
+    eventJson: text("event_json").notNull(),
+    eventDigest: text("event_digest").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("product_discovery_run_event_operation_unique").on(t.workspaceId, t.operationDigest),
+    uniqueIndex("product_discovery_run_event_digest_unique").on(t.runId, t.eventDigest),
+    index("product_discovery_run_event_order_idx").on(t.runId, t.createdAt),
+    check("product_discovery_run_event_digest_check", sql`length(${t.eventDigest}) = 64 and ${t.eventDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_run_event_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const productDiscoverySubmissions = sqliteTable(
+  "product_discovery_submissions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    runId: text("run_id").notNull().references(() => productDiscoveryRuns.id),
+    configurationId: text("configuration_id").notNull().references(() => configurations.id),
+    provenanceJson: text("provenance_json").notNull(),
+    provenanceDigest: text("provenance_digest").notNull(),
+    submissionJson: text("submission_json").notNull(),
+    submissionDigest: text("submission_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    resultDigest: text("result_digest").notNull(),
+    status: text("status", { enum: ["partial", "authority_unknown", "succeeded", "rejected"] }).notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("product_discovery_submission_key_unique").on(t.workspaceId, t.idempotencyKey),
+    uniqueIndex("product_discovery_submission_operation_unique").on(t.workspaceId, t.operationDigest),
+    uniqueIndex("product_discovery_submission_digest_unique").on(t.runId, t.submissionDigest),
+    index("product_discovery_submission_run_idx").on(t.runId, t.createdAt),
+    check("product_discovery_submission_digest_check", sql`length(${t.submissionDigest}) = 64 and ${t.submissionDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_submission_result_digest_check", sql`length(${t.resultDigest}) = 64 and ${t.resultDigest} not glob '*[^0-9a-f]*'`),
+    check("product_discovery_submission_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const marketPlayProposals = sqliteTable(
+  "market_play_proposals",
+  {
+    id: text("id").primaryKey(),
+    ...auditColumns,
+    productId: text("product_id").notNull().references(() => products.id),
+    runId: text("run_id").notNull().references(() => productDiscoveryRuns.id),
+    fingerprint: text("fingerprint").notNull(),
+    currentVersionId: text("current_version_id"),
+    status: text("status", { enum: ["new", "explored", "deferred", "dismissed", "merged", "split", "superseded"] }).notNull().default("new"),
+    surfaced: integer("surfaced", { mode: "boolean" }).notNull().default(false),
+    rank: integer("rank"),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    cooldownUntil: integer("cooldown_until", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("market_play_proposal_active_fingerprint_unique").on(t.workspaceId, t.productId, t.fingerprint).where(sql`${t.active} = 1`),
+    uniqueIndex("market_play_proposal_run_rank_unique").on(t.runId, t.rank).where(sql`${t.surfaced} = 1`),
+    index("market_play_proposal_product_status_idx").on(t.workspaceId, t.productId, t.status),
+    check("market_play_proposal_fingerprint_check", sql`length(${t.fingerprint}) = 64 and ${t.fingerprint} not glob '*[^0-9a-f]*'`),
+    check("market_play_proposal_rank_check", sql`${t.rank} is null or (${t.rank} >= 1 and ${t.rank} <= 3)`),
+  ],
+);
+
+export const marketPlayProposalVersions = sqliteTable(
+  "market_play_proposal_versions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    proposalId: text("proposal_id").notNull().references(() => marketPlayProposals.id),
+    runId: text("run_id").notNull().references(() => productDiscoveryRuns.id),
+    submissionId: text("submission_id").notNull().references(() => productDiscoverySubmissions.id),
+    version: integer("version").notNull(),
+    proposalJson: text("proposal_json").notNull(),
+    proposalDigest: text("proposal_digest").notNull(),
+    materialEvidenceFingerprint: text("material_evidence_fingerprint").notNull(),
+    predecessorVersionId: text("predecessor_version_id"),
+    relationship: text("relationship", { enum: ["new", "evidence_attached", "split", "merge", "reopen"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("market_play_proposal_version_unique").on(t.proposalId, t.version),
+    uniqueIndex("market_play_proposal_version_digest_unique").on(t.proposalId, t.proposalDigest),
+    uniqueIndex("market_play_proposal_version_submission_unique").on(t.submissionId, t.proposalId),
+    index("market_play_proposal_version_run_idx").on(t.runId, t.createdAt),
+    check("market_play_proposal_version_number_check", sql`${t.version} > 0`),
+    check("market_play_proposal_version_digest_check", sql`length(${t.proposalDigest}) = 64 and ${t.proposalDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const marketPlayProposalEvidence = sqliteTable(
+  "market_play_proposal_evidence",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    proposalId: text("proposal_id").notNull().references(() => marketPlayProposals.id),
+    proposalVersionId: text("proposal_version_id").notNull().references(() => marketPlayProposalVersions.id),
+    reference: text("reference").notNull(),
+    evidenceJson: text("evidence_json").notNull(),
+    evidenceDigest: text("evidence_digest").notNull(),
+    materialEvidenceFingerprint: text("material_evidence_fingerprint").notNull(),
+    observedAt: integer("observed_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("market_play_proposal_evidence_digest_unique").on(t.proposalVersionId, t.evidenceDigest),
+    uniqueIndex("market_play_proposal_evidence_reference_unique").on(t.proposalVersionId, t.reference),
+    index("market_play_proposal_evidence_proposal_idx").on(t.proposalId, t.createdAt),
+    check("market_play_proposal_evidence_digest_check", sql`length(${t.evidenceDigest}) = 64 and ${t.evidenceDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const marketPlayProposalDecisions = sqliteTable(
+  "market_play_proposal_decisions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    proposalId: text("proposal_id").notNull().references(() => marketPlayProposals.id),
+    proposalVersionId: text("proposal_version_id").notNull().references(() => marketPlayProposalVersions.id),
+    expectedProposalRevision: integer("expected_proposal_revision").notNull(),
+    expectedProposalDigest: text("expected_proposal_digest").notNull(),
+    decision: text("decision", { enum: ["explore", "defer", "dismiss"] }).notNull(),
+    reason: text("reason"),
+    reviewAt: integer("review_at", { mode: "timestamp_ms" }),
+    cooldownUntil: integer("cooldown_until", { mode: "timestamp_ms" }),
+    confirmed: integer("confirmed", { mode: "boolean" }).notNull().default(false),
+    draftMarketPlayId: text("draft_market_play_id").references(() => marketPlays.id),
+    interviewSessionId: text("interview_session_id").references(() => interviewSessions.id),
+    decisionJson: text("decision_json").notNull(),
+    decisionDigest: text("decision_digest").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("market_play_proposal_decision_version_unique").on(t.proposalVersionId),
+    uniqueIndex("market_play_proposal_decision_key_unique").on(t.workspaceId, t.idempotencyKey),
+    uniqueIndex("market_play_proposal_decision_operation_unique").on(t.workspaceId, t.operationDigest),
+    index("market_play_proposal_decision_proposal_idx").on(t.proposalId, t.createdAt),
+    check("market_play_proposal_decision_digest_check", sql`length(${t.decisionDigest}) = 64 and ${t.decisionDigest} not glob '*[^0-9a-f]*'`),
+    check("market_play_proposal_decision_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const marketPlayProposalLineage = sqliteTable(
+  "market_play_proposal_lineage",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    relationship: text("relationship", { enum: ["collision", "evidence_attached", "split", "merge", "reopen"] }).notNull(),
+    sourceProposalId: text("source_proposal_id").notNull().references(() => marketPlayProposals.id),
+    sourceVersionId: text("source_version_id").references(() => marketPlayProposalVersions.id),
+    targetProposalId: text("target_proposal_id").notNull().references(() => marketPlayProposals.id),
+    targetVersionId: text("target_version_id").references(() => marketPlayProposalVersions.id),
+    changedField: text("changed_field"),
+    evidenceReference: text("evidence_reference"),
+    lineageJson: text("lineage_json").notNull(),
+    lineageDigest: text("lineage_digest").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("market_play_proposal_lineage_operation_unique").on(t.workspaceId, t.operationDigest),
+    uniqueIndex("market_play_proposal_lineage_digest_unique").on(t.workspaceId, t.lineageDigest),
+    index("market_play_proposal_lineage_source_idx").on(t.sourceProposalId, t.createdAt),
+    index("market_play_proposal_lineage_target_idx").on(t.targetProposalId, t.createdAt),
+    check("market_play_proposal_lineage_digest_check", sql`length(${t.lineageDigest}) = 64 and ${t.lineageDigest} not glob '*[^0-9a-f]*'`),
+    check("market_play_proposal_lineage_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const productConfigurationLineage = sqliteTable(
+  "product_configuration_lineage",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    replacementActivationId: text("replacement_activation_id").notNull().references(() => configurationActivations.id),
+    predecessorConfigurationId: text("predecessor_configuration_id").notNull().references(() => configurations.id),
+    successorConfigurationId: text("successor_configuration_id").notNull().references(() => configurations.id),
+    materialChangeRunId: text("material_change_run_id").notNull().references(() => productDiscoveryRuns.id),
+    lineageJson: text("lineage_json").notNull(),
+    lineageDigest: text("lineage_digest").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("product_configuration_lineage_activation_unique").on(t.replacementActivationId),
+    uniqueIndex("product_configuration_lineage_successor_unique").on(t.workspaceId, t.productId, t.successorConfigurationId),
+    uniqueIndex("product_configuration_lineage_operation_unique").on(t.workspaceId, t.operationDigest),
+    check("product_configuration_lineage_digest_check", sql`length(${t.lineageDigest}) = 64 and ${t.lineageDigest} not glob '*[^0-9a-f]*'`),
+    check("product_configuration_lineage_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
+
+export const privateSyntheticProofAuthorizations = sqliteTable(
+  "private_synthetic_proof_authorizations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    ownerSubjectId: text("owner_subject_id").notNull(),
+    productId: text("product_id").notNull().references(() => products.id),
+    expectedProductRevision: integer("expected_product_revision").notNull(),
+    interviewConfirmationId: text("interview_confirmation_id").notNull().references(() => interviewConfirmations.id),
+    confirmedKnowledgeVersionId: text("confirmed_knowledge_version_id").notNull().references(() => knowledgeVersions.id),
+    reviewedSourceRevision: text("reviewed_source_revision").notNull(),
+    migrationDigest: text("migration_digest").notNull(),
+    fixtureDigest: text("fixture_digest").notNull(),
+    fixtureProvenance: text("fixture_provenance").notNull(),
+    evidenceReference: text("evidence_reference").notNull(),
+    capability: text("capability", { enum: ["private-hosted-synthetic-proposal-proof"] }).notNull(),
+    authorizationDigest: text("authorization_digest").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("private_synthetic_proof_authorization_digest_unique").on(t.workspaceId, t.authorizationDigest),
+    uniqueIndex("private_synthetic_proof_authorization_evidence_unique").on(t.workspaceId, t.evidenceReference),
+    index("private_synthetic_proof_authorization_lookup_idx").on(t.workspaceId, t.productId, t.capability, t.expiresAt),
+    check("private_synthetic_proof_migration_digest_check", sql`length(${t.migrationDigest}) = 64 and ${t.migrationDigest} not glob '*[^0-9a-f]*'`),
+    check("private_synthetic_proof_fixture_digest_check", sql`length(${t.fixtureDigest}) = 64 and ${t.fixtureDigest} not glob '*[^0-9a-f]*'`),
+    check("private_synthetic_proof_authorization_digest_check", sql`length(${t.authorizationDigest}) = 64 and ${t.authorizationDigest} not glob '*[^0-9a-f]*'`),
+    check("private_synthetic_proof_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+  ],
+);
+
+export const privateSyntheticProofConsumptions = sqliteTable(
+  "private_synthetic_proof_consumptions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    productId: text("product_id").notNull().references(() => products.id),
+    authorizationId: text("authorization_id").notNull().references(() => privateSyntheticProofAuthorizations.id),
+    operationDigest: text("operation_digest").notNull(),
+    winnerRunId: text("winner_run_id").notNull().references(() => productDiscoveryRuns.id),
+    winnerSubmissionId: text("winner_submission_id").notNull().references(() => productDiscoverySubmissions.id),
+    resultJson: text("result_json").notNull(),
+    resultDigest: text("result_digest").notNull(),
+    auditEventId: text("audit_event_id").notNull().references(() => auditEvents.id),
+    consumedAt: integer("consumed_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("private_synthetic_proof_consumption_authorization_unique").on(t.authorizationId),
+    uniqueIndex("private_synthetic_proof_consumption_operation_unique").on(t.workspaceId, t.operationDigest),
+    uniqueIndex("private_synthetic_proof_consumption_result_unique").on(t.authorizationId, t.resultDigest),
+    check("private_synthetic_proof_consumption_operation_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+    check("private_synthetic_proof_consumption_result_digest_check", sql`length(${t.resultDigest}) = 64 and ${t.resultDigest} not glob '*[^0-9a-f]*'`),
+  ],
+);
 
 export const csrfTokens = sqliteTable("csrf_tokens", { id: text("id").primaryKey(), principalSubject: text("principal_subject").notNull(), tokenDigest: text("token_digest").notNull().unique(), expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(), usedAt: integer("used_at", { mode: "timestamp_ms" }), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull() }, (t) => [index("csrf_principal_expiry_idx").on(t.principalSubject, t.expiresAt, t.usedAt)]);
 export const importBatches = sqliteTable("import_batches", { id: text("id").primaryKey(), ...auditColumns, format: text("format").notNull(), formatVersion: text("format_version").notNull(), artifactDigestsJson: text("artifact_digests_json").notNull(), status: text("status", { enum: ["staged", "reviewing", "completed", "rejected"] }).notNull(), countsJson: text("counts_json").notNull() }, (t) => [uniqueIndex("import_identity_unique").on(t.workspaceId, t.format, t.formatVersion, t.artifactDigestsJson)]);

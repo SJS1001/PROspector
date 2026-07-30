@@ -6,6 +6,8 @@ import {
   assertForbiddenOperationalRowsUnchanged,
   countRows,
   createD1Fixture,
+  FORBIDDEN_OPERATIONAL_TABLES,
+  MIGRATION_FILENAMES,
   runRace,
   snapshotForbiddenOperationalRows,
 } from "./helpers/d1.mjs";
@@ -150,6 +152,94 @@ async function countWhere(database, table, where = "1 = 1", bindings = []) {
     .first();
   return Number(row.count);
 }
+
+test("migration/schema/forbidden Phase 3 authority is additive, constrained, and downstream-empty", async () => {
+  const fixture = await createD1Fixture("product-discovery-schema");
+  try {
+    await applyMigrations(fixture.database);
+    assert.match(MIGRATION_FILENAMES.at(-1), /^0005_[a-z0-9_]+\.sql$/);
+
+    const requiredTables = [
+      "product_discovery_configuration_prerequisites",
+      "product_discovery_schedules",
+      "product_discovery_runs",
+      "product_discovery_run_events",
+      "product_discovery_submissions",
+      "market_play_proposals",
+      "market_play_proposal_versions",
+      "market_play_proposal_evidence",
+      "market_play_proposal_decisions",
+      "market_play_proposal_lineage",
+      "product_configuration_lineage",
+      "private_synthetic_proof_authorizations",
+      "private_synthetic_proof_consumptions",
+    ];
+    const schemaRows = await fixture.database
+      .prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'index', 'trigger')")
+      .all();
+    const schemaNames = new Set(schemaRows.results.map((row) => row.name));
+    assert.deepEqual(requiredTables.filter((name) => !schemaNames.has(name)), []);
+
+    for (const guard of [
+      "product_discovery_active_schedule_unique",
+      "product_discovery_run_trigger_unique",
+      "market_play_proposal_active_fingerprint_unique",
+      "market_play_proposal_decision_version_unique",
+      "private_synthetic_proof_consumption_authorization_unique",
+      "product_discovery_prerequisite_immutable_update",
+      "product_discovery_submission_immutable_update",
+      "market_play_proposal_version_immutable_update",
+      "market_play_proposal_decision_immutable_update",
+      "private_synthetic_proof_authorization_scope_insert",
+      "private_synthetic_proof_authorization_immutable_update",
+      "private_synthetic_proof_consumption_scope_insert",
+      "private_synthetic_proof_consumption_immutable_update",
+    ]) assert.equal(schemaNames.has(guard), true, `missing database guard ${guard}`);
+
+    const now = FIXED_NOW;
+    const digestA = "a".repeat(64);
+    const digestB = "b".repeat(64);
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO workspaces (id, company_name, owner_subject, created_at, updated_at, revision) VALUES ('schema-workspace-a', 'A', 'schema-owner-a', ?, ?, 1)").bind(now, now),
+      fixture.database.prepare("INSERT INTO workspaces (id, company_name, owner_subject, created_at, updated_at, revision) VALUES ('schema-workspace-b', 'B', 'schema-owner-b', ?, ?, 1)").bind(now, now),
+      fixture.database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) VALUES ('schema-product-a', 'schema-workspace-a', ?, ?, 1, NULL, 'A Product', 'draft')").bind(now, now),
+      fixture.database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) VALUES ('schema-product-b', 'schema-workspace-b', ?, ?, 1, NULL, 'B Product', 'draft')").bind(now, now),
+      fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('schema-config-a', 'schema-workspace-a', ?, ?, 1, NULL, 'product', 'schema-product-a', 'product_discovery', ?, '{}', 1)").bind(now, now, digestA),
+      fixture.database.prepare("INSERT INTO knowledge_versions (id, workspace_id, created_at, updated_at, revision, knowledge_item_id, proposal_id, decision_id, authority_command_id, predecessor_version_id, scope_type, scope_id, kind, value_json, value_digest, status, source_digest) VALUES ('schema-version-a', 'schema-workspace-a', ?, ?, 1, NULL, NULL, NULL, NULL, NULL, 'product', 'schema-product-a', 'capability', '{}', ?, 'confirmed', ?)").bind(now, now, digestA, digestA),
+      fixture.database.prepare("INSERT INTO knowledge_versions (id, workspace_id, created_at, updated_at, revision, knowledge_item_id, proposal_id, decision_id, authority_command_id, predecessor_version_id, scope_type, scope_id, kind, value_json, value_digest, status, source_digest) VALUES ('schema-version-b', 'schema-workspace-b', ?, ?, 1, NULL, NULL, NULL, NULL, NULL, 'product', 'schema-product-b', 'capability', '{}', ?, 'confirmed', ?)").bind(now, now, digestB, digestB),
+    ]);
+    await assert.rejects(
+      fixture.database.prepare("INSERT INTO product_discovery_configuration_prerequisites (id, workspace_id, product_id, configuration_id, knowledge_version_id, knowledge_version_digest, category, ordinal, created_at) VALUES ('cross-scope', 'schema-workspace-a', 'schema-product-a', 'schema-config-a', 'schema-version-b', ?, 'capability', 0, ?)").bind(digestB, now).run(),
+      /invalid product discovery prerequisite authority/i,
+    );
+    await fixture.database.prepare("INSERT INTO product_discovery_configuration_prerequisites (id, workspace_id, product_id, configuration_id, knowledge_version_id, knowledge_version_digest, category, ordinal, created_at) VALUES ('valid-prerequisite', 'schema-workspace-a', 'schema-product-a', 'schema-config-a', 'schema-version-a', ?, 'capability', 0, ?)").bind(digestA, now).run();
+    await assert.rejects(
+      fixture.database.prepare("UPDATE product_discovery_configuration_prerequisites SET ordinal = 1 WHERE id = 'valid-prerequisite'").run(),
+      /immutable/i,
+    );
+    await assert.rejects(
+      fixture.database.prepare("UPDATE products SET lifecycle = 'ready', revision = revision + 1 WHERE id = 'schema-product-a'").run(),
+      /complete confirmed product discovery configuration required/i,
+    );
+    await fixture.database.prepare("INSERT INTO product_discovery_schedules (id, workspace_id, created_at, updated_at, revision, product_id, configuration_id, configuration_digest, cadence, schedule_key, timezone, next_run_at, last_successful_watermark, execution_state, active, operation_digest, idempotency_key) VALUES ('schema-schedule-a', 'schema-workspace-a', ?, ?, 1, 'schema-product-a', 'schema-config-a', ?, 'monthly', 'monthly:product:schema-product-a', 'America/Toronto', ?, NULL, 'blocked_missing_capability', 1, ?, 'schema-schedule-key-a')").bind(now, now, digestA, now, "c".repeat(64)).run();
+    await assert.rejects(
+      fixture.database.prepare("INSERT INTO product_discovery_schedules (id, workspace_id, created_at, updated_at, revision, product_id, configuration_id, configuration_digest, cadence, schedule_key, timezone, next_run_at, last_successful_watermark, execution_state, active, operation_digest, idempotency_key) VALUES ('schema-schedule-b', 'schema-workspace-a', ?, ?, 1, 'schema-product-a', 'schema-config-a', ?, 'monthly', 'monthly:product:schema-product-a:duplicate', 'America/Toronto', ?, NULL, 'blocked_missing_capability', 1, ?, 'schema-schedule-key-b')").bind(now, now, digestA, now, "d".repeat(64)).run(),
+      /unique/i,
+    );
+
+    const foreignKeyViolations = await fixture.database.prepare("PRAGMA foreign_key_check").all();
+    assert.deepEqual(foreignKeyViolations.results, []);
+    assert.equal(
+      requiredTables.some((table) => FORBIDDEN_OPERATIONAL_TABLES.includes(table)),
+      false,
+      "Phase 3 proposal authority must remain distinct from Phase 4-7 operational tables",
+    );
+    const before = await snapshotForbiddenOperationalRows(fixture.database);
+    await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
+  } finally {
+    await fixture.dispose();
+  }
+});
 
 test("D-01 Product readiness is a pure exhaustive nine-category confirmed-authority checklist", async (t) => {
   t.mock.method(Date, "now", () => FIXED_NOW);
