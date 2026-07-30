@@ -82,15 +82,8 @@ test("drift candidate, four-way review, and activation render only from exact se
       { id: "profile-1", type: "customer_profile", parentId: "play-1", name: "Operating", lifecycle: "draft", revision: 4 },
     ];
     const candidateBinding = {
-      currentVersionId: "version-current",
-      proposedVersionId: "version-proposed",
-      ownerType: "product",
-      ownerId: "product-1",
-      kind: "product_discovery",
-      manifest: { model: "server-projected" },
-      riskKind: "capability",
-      dependencyEdges: [{ fromType: "version", fromId: "version-current", toType: "configuration", toId: "configuration-current" }],
-      artifacts: [{ artifactId: "approval-1", artifactType: "approval", status: "invalidated" }],
+      eligibleProjectionId: "eligible:version-current:version-proposed:configuration-current",
+      eligibleProjectionDigest: "a".repeat(64),
       expectedOwnerRevision: 5,
     };
     const drift = [
@@ -166,7 +159,7 @@ test("drift candidate, four-way review, and activation render only from exact se
     assert.match(html, /configuration-next/);
 
     const invalidHtml = renderToStaticMarkup(React.createElement(DriftReplacementsView, {
-      drift: [{ ...drift[0], candidate: { ...candidateBinding, currentVersionId: "attacker-version" } }],
+      drift: [{ ...drift[0], candidate: { ...candidateBinding, eligibleProjectionDigest: "attacker-digest" } }],
       candidates: [{ ...candidates[0], candidateSnapshot: { ...candidates[0].candidateSnapshot, id: "attacker-configuration" } }],
       destinations,
       operationKey: "operation-key",

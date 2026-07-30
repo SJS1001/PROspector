@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CommercialHierarchyNode } from "../../domain/commercial-model";
-import type { DependencyEdge, ReachedArtifact } from "../../domain/drift";
+import type { ReachedArtifact } from "../../domain/drift";
 import { CommercialDestinationSelect, resolveProjectedCommercialDestination, selectedCommercialDestination } from "./commercial-destination-select";
 
 type PublicScopeType = "company" | "product" | "market_play" | "customer_profile" | "offer";
 type ProjectedDestination = { scopeType: PublicScopeType; id: string; locator?: string };
 type DriftReviewBinding = { action: "review_knowledge_proposal"; proposalId: string; expectedRevision: number; predecessorVersionId: string; destination: ProjectedDestination; decisions: readonly DriftDecision[] };
 type DriftDecision = "accept" | "reject" | "correct" | "rescope";
-type CandidateArtifact = { artifactId: string; artifactType?: string; status?: string };
 export type DriftProjection = {
   id: string;
   riskKind: string;
@@ -49,7 +48,7 @@ export type ReplacementProjection = {
   auditEventId?: string | null;
   immutable?: true;
 };
-export type ReplacementCandidateCommand = { currentVersionId: string; proposedVersionId: string; ownerType: "product" | "profile"; ownerId: string; kind: "product_discovery" | "profile_effective"; manifest: Record<string, unknown>; riskKind: string; dependencyEdges: readonly DependencyEdge[]; artifacts: readonly CandidateArtifact[]; expectedOwnerRevision: number; operationKey: string };
+export type ReplacementCandidateCommand = { eligibleProjectionId: string; eligibleProjectionDigest: string; expectedOwnerRevision: number; operationKey: string };
 export type DriftReviewCommand = { proposalId: string; expectedRevision: number; predecessorVersionId: string; decision: DriftDecision; correction?: { excerpt: string }; destination?: { scopeType: PublicScopeType; id: string; locator: string }; operationKey: string };
 export type ReplacementActivationCommand = { candidateId: string; impactDigest: string; expectedOwnerRevision: number; expectedCandidateRevision: number; operationKey: string };
 const NO_DESTINATIONS: readonly CommercialHierarchyNode[] = [];
@@ -103,7 +102,7 @@ function DriftCard({ item, destinations, operationKey, onCreateCandidate, onRevi
   const review = validReviewBinding(item.review, item, projectedDestination);
   const selectedDestination = selectedCommercialDestination(destinations, destinationId);
   const rescopeUnavailable = decision === "rescope" && !selectedDestination;
-  const candidate = validCandidateBinding(item.candidate, item, destinations, projectedDestination);
+  const candidate = validCandidateBinding(item.candidate, item, projectedDestination);
   const highRisk = ["capability", "proof_point", "claim_guardrail", "offer", "suppression"].includes(item.riskKind);
   return <article className="panel">
     <span className={highRisk ? "drift-risk drift-risk--high" : "drift-risk"}>{highRisk ? "High-risk drift" : "Standard drift"} · {item.riskKind}</span>
@@ -122,7 +121,7 @@ function DriftCard({ item, destinations, operationKey, onCreateCandidate, onRevi
 
     {item.status === "eligible" && <>
       <button className="primary" type="button" disabled={!candidate} onClick={() => candidate && onCreateCandidate({ ...candidate, operationKey })}>{pendingAction?.startsWith("candidate:") ? "Creating replacement candidate…" : "Create replacement candidate"}</button>
-      {!candidate && <p className="contract-gap" role="note">Candidate creation is unavailable until the server returns a matching exact current/proposed version pair, configuration owner and kind, manifest, dependency graph, artifacts, risk kind, and owner revision for authorized commercial nodes.</p>}
+      {!candidate && <p className="contract-gap" role="note">Candidate creation is unavailable until the server returns an exact eligible projection binding and current owner revision. The browser never supplies replacement authority fields.</p>}
     </>}
 
     {item.status === "open" && (review ? <form onSubmit={(event) => {
@@ -182,18 +181,12 @@ function validReviewBinding(review: DriftReviewBinding | null | undefined, item:
 function validCandidateBinding(
   candidate: Omit<ReplacementCandidateCommand, "operationKey"> | null | undefined,
   item: DriftProjection,
-  destinations: readonly CommercialHierarchyNode[],
   destination: ReturnType<typeof resolveProjectedCommercialDestination>,
 ) {
   if (item.status !== "eligible" || !candidate || !destination) return null;
-  if (candidate.currentVersionId !== item.currentVersionId || candidate.proposedVersionId !== item.proposedVersionId || candidate.riskKind !== item.riskKind) return null;
+  if (!/^eligible:[^:]+:[^:]+:[^:]+$/.test(candidate.eligibleProjectionId)) return null;
+  if (!/^[a-f0-9]{64}$/i.test(candidate.eligibleProjectionDigest)) return null;
   if (!Number.isInteger(candidate.expectedOwnerRevision) || candidate.expectedOwnerRevision < 1) return null;
-  if (!candidate.manifest || typeof candidate.manifest !== "object" || Array.isArray(candidate.manifest)) return null;
-  if (!Array.isArray(candidate.dependencyEdges) || !Array.isArray(candidate.artifacts)) return null;
-  const owner = destinations.find((node) => node.id === candidate.ownerId);
-  const ownerScope = candidate.ownerType === "product" ? "product" : "customer_profile";
-  if (!owner || owner.type !== ownerScope) return null;
-  if (!["product_discovery", "profile_effective"].includes(candidate.kind)) return null;
   return candidate;
 }
 

@@ -153,14 +153,6 @@ async function ownedWorkspace(database: D1Database, principal: InterviewPrincipa
   if (!row) throw new ReplacementConflictError("Commercial workspace is unavailable");
   return { id: row.id, companyId: row.company_id };
 }
-async function version(database: D1Database, workspaceId: string, id: string, allowSuperseded: boolean) {
-  const row = await database.prepare(`SELECT kv.id, kv.knowledge_item_id, kv.proposal_id, kv.source_digest, kv.value_digest,
-      kp.source_id, kp.excerpt_id, kp.destination_scope_type, kp.destination_scope_id, kp.kind, kp.value_json, kp.provenance_json, kp.origin
-    FROM knowledge_versions kv JOIN knowledge_proposals kp ON kp.id = kv.proposal_id AND kp.workspace_id = kv.workspace_id
-    WHERE kv.id = ? AND kv.workspace_id = ? AND kv.status IN ('confirmed'${allowSuperseded ? ",'superseded'" : ""}) LIMIT 1`).bind(id, workspaceId).first<{ id: string; knowledge_item_id: string; proposal_id: string; source_digest: string | null; value_digest: string; source_id: string | null; excerpt_id: string | null; destination_scope_type: string; destination_scope_id: string; kind: string; value_json: string; provenance_json: string; origin: string }>();
-  if (!row?.knowledge_item_id || !row.proposal_id || !row.value_digest) throw new ReplacementConflictError("Confirmed knowledge version with immutable lineage is required");
-  return row;
-}
 async function candidateRow(database: D1Database, workspaceId: string, id: string) {
   const row = await database.prepare(`SELECT rc.id, rc.revision, rc.status, rc.owner_type, rc.owner_id,
       rc.current_configuration_id, rc.candidate_configuration_id, rc.proposed_version_id, rc.expected_owner_revision,
