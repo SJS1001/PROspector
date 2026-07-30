@@ -78,19 +78,6 @@ async function seedProductAuthority(
   const product = model.products.find((node) => node.name === "ONE");
   assert.ok(product, "the Phase 2 commercial aggregate must expose ONE");
 
-  if (removeDescendants) {
-    await fixture.database
-      .prepare(
-        "DELETE FROM customer_profiles WHERE play_id IN (SELECT id FROM market_plays WHERE product_id = ?)",
-      )
-      .bind(product.id)
-      .run();
-    await fixture.database
-      .prepare("DELETE FROM market_plays WHERE product_id = ?")
-      .bind(product.id)
-      .run();
-  }
-
   const confirmed = [];
   const proposed = [];
   for (const [index, category] of REQUIRED_CATEGORIES.entries()) {
@@ -127,6 +114,22 @@ async function seedProductAuthority(
       );
       confirmed.push({ ...decision.version, category });
     }
+  }
+
+  // Knowledge commands intentionally ensure the Phase 2 commercial seed exists.
+  // Remove descendants after those commands so this fixture proves Product
+  // readiness is independent of Market Play and Profile existence.
+  if (removeDescendants) {
+    await fixture.database
+      .prepare(
+        "DELETE FROM customer_profiles WHERE play_id IN (SELECT id FROM market_plays WHERE product_id = ?)",
+      )
+      .bind(product.id)
+      .run();
+    await fixture.database
+      .prepare("DELETE FROM market_plays WHERE product_id = ?")
+      .bind(product.id)
+      .run();
   }
 
   const row = await fixture.database
@@ -746,9 +749,7 @@ test("D-04 confirmed Product replacement activation creates one immutable materi
       owner,
       {
         proposalId: proposed.id,
-        decision: "correct",
-        correction: { excerpt: "Materially changed confirmed capability policy." },
-        predecessorVersionId: current.id,
+        decision: "accept",
         expectedRevision: proposed.revision,
         idempotencyKey: key(453),
       },
@@ -783,6 +784,27 @@ test("D-04 confirmed Product replacement activation creates one immutable materi
         idempotencyKey: key(454),
       },
     );
+    const drift = await fixture.database
+      .prepare(
+        "SELECT kd.proposal_id, kp.revision FROM knowledge_drifts kd JOIN knowledge_proposals kp ON kp.id = kd.proposal_id AND kp.workspace_id = kd.workspace_id WHERE kd.proposed_version_id = ? AND kd.workspace_id = (SELECT workspace_id FROM products WHERE id = ?) LIMIT 1",
+      )
+      .bind(changed.version.id, authority.product.id)
+      .first();
+    await authority.knowledge.reviewKnowledgeProposal(
+      fixture.database,
+      owner,
+      {
+        proposalId: drift.proposal_id,
+        decision: "accept",
+        expectedRevision: drift.revision,
+        idempotencyKey: key(458),
+      },
+    );
+    const reviewedCandidate = await authority.replacement.readReplacementState(
+      fixture.database,
+      owner,
+      candidate.id,
+    );
     const activated = await authority.replacement.activateReplacement(
       fixture.database,
       owner,
@@ -790,7 +812,7 @@ test("D-04 confirmed Product replacement activation creates one immutable materi
         candidateId: candidate.id,
         impactDigest: candidate.impactDigest,
         expectedOwnerRevision: ready.configuration.revision,
-        expectedCandidateRevision: candidate.revision,
+        expectedCandidateRevision: reviewedCandidate.revision,
         idempotencyKey: key(455),
       },
     );
