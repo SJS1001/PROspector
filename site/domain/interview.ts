@@ -191,7 +191,8 @@ export async function readInterviewState(
     };
   }
 
-  const generalizedDecision = await database.prepare(
+  const generalizedSchema = await database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'proposal_decisions' LIMIT 1").first<{ name: string }>();
+  const generalizedDecision = generalizedSchema ? await database.prepare(
     `SELECT c.id, c.decision, c.knowledge_version_id, c.created_at, k.value_json, a.id AS audit_id
      FROM interview_confirmations c
      JOIN proposal_decisions d ON d.answer_id = c.answer_id AND d.workspace_id = c.workspace_id
@@ -200,7 +201,7 @@ export async function readInterviewState(
        AND a.action = 'interview.' || c.decision
      WHERE c.workspace_id = ? AND c.operation_digest <> 'legacy-unbound'
      ORDER BY c.created_at DESC LIMIT 1`,
-  ).bind(workspace.id).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>();
+  ).bind(workspace.id).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>() : null;
   if (generalizedDecision) return {
     status: "confirmed",
     displayName: principal.displayName,
