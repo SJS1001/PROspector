@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { createServer } from "vite";
 
@@ -37,4 +37,41 @@ test("Knowledge UI contract keeps authority distinct from operational effects", 
     assert.ok(forbidden.length > 0);
   }
   assert.deepEqual([1050, 760, 480], [1050, 760, 480]);
+});
+
+test("correction and rescope decisions use native required form submission", async () => {
+  const [interview, library] = await Promise.all([
+    readFile(new URL("../app/knowledge/consensus-interview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/knowledge/knowledge-library.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(interview, /<form onSubmit=/);
+  assert.match(interview, /<button className="primary" type="submit"/);
+  assert.match(interview, /<input required value=\{value\}/);
+  assert.match(interview, /<textarea required value=\{reason\}/);
+  assert.doesNotMatch(interview, /QUESTION 1 \/ 1/);
+  assert.match(library, /<form onSubmit=/);
+  assert.match(library, /<button className="primary" type="submit">\{reviewLabel\}/);
+  assert.match(library, /correction: correction\.trim\(\)/);
+});
+
+test("unsafe drift and activation commands stay unavailable without exact server authority", async () => {
+  const drift = await readFile(new URL("../app/knowledge/drift-replacements.tsx", import.meta.url), "utf8");
+  assert.match(drift, /proposal ID, proposal revision, exact destination/);
+  assert.match(drift, /const activationReady = !active && Boolean/);
+  assert.match(drift, /disabled=\{!activationReady\}/);
+  assert.doesNotMatch(drift, /expectedOwnerRevision: 1/);
+  assert.match(drift, /Activation preserves the current snapshot as history/);
+});
+
+test("commercial hierarchy, counts, locators, and pending copy use projected data", async () => {
+  const [commercial, workspace] = await Promise.all([
+    readFile(new URL("../app/knowledge/commercial-model.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/knowledge/knowledge-workspace.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(commercial, /projection\.products, \.\.\.projection\.plays, \.\.\.projection\.profiles/);
+  assert.doesNotMatch(commercial, /Server projection required/);
+  assert.match(workspace, /item\.destination\.locator \?\? commercialLocator/);
+  assert.match(workspace, /if \(!locator\) throw new Error\("destination_locator_unavailable"\)/);
+  assert.match(workspace, /function countsByDestination/);
+  for (const pending of ["Submitting answer…", "Recording owner decision…", "Creating replacement candidate…", "Activating replacement…"]) assert.match(workspace, new RegExp(pending));
 });

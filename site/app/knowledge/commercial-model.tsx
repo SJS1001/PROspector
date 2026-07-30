@@ -6,17 +6,20 @@ import type { CommercialHierarchyNode, CommercialModelProjection } from "../../d
 type DraftType = "product" | "market_play" | "customer_profile";
 export type CommercialCommand = { type: DraftType; parentId: string; name: string; expectedRevision: number; operationKey: string };
 
-export function CommercialModelView({ projection, operationKey, onCreateDraft, onProposeChange }: {
+export function CommercialModelView({ projection, operationKey, knowledgeCounts = new Map(), onCreateDraft, onProposeChange }: {
   projection: CommercialModelProjection;
   operationKey: string;
+  knowledgeCounts?: ReadonlyMap<string, { confirmed: number; proposed: number }>;
   onCreateDraft(command: CommercialCommand): void;
   onProposeChange(node: CommercialHierarchyNode): void;
 }) {
+  const nodes = allNodes(projection);
   const [selectedId, setSelectedId] = useState(projection.path[0]?.id ?? "");
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(projection.path.map((node) => node.id)));
-  const selected = [...projection.path, ...projection.offers].find((node) => node.id === selectedId) ?? projection.path[0];
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(nodes.map((node) => node.id)));
+  const selected = nodes.find((node) => node.id === selectedId) ?? projection.path[0];
   if (!selected) return <section className="panel" role="alert">Commercial hierarchy is unavailable. Mutation controls are hidden until the current version can be checked.</section>;
-  const descendantsFor = (parentId: string) => [...projection.path, ...projection.offers].filter((node) => node.parentId === parentId);
+  const descendantsFor = (parentId: string) => nodes.filter((node) => node.parentId === parentId);
+  const counts = knowledgeCounts.get(selected.id) ?? { confirmed: 0, proposed: 0 };
   const toggle = (id: string) => setExpanded((prior) => { const next = new Set(prior); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
   return <div className="knowledge-layout commercial-model-view">
@@ -31,8 +34,8 @@ export function CommercialModelView({ projection, operationKey, onCreateDraft, o
       <dl className="confirmation-proof">
         <div><dt>Parent path</dt><dd>{pathFor(selected, projection)}</dd></div>
         <div><dt>Lifecycle</dt><dd>{selected.lifecycle}{selected.nurtureState ? " / nurture" : ""}</dd></div>
-        <div><dt>Confirmed knowledge</dt><dd>Server projection required</dd></div>
-        <div><dt>Proposed / unresolved drift</dt><dd>Server projection required</dd></div>
+        <div><dt>Confirmed Knowledge</dt><dd>{counts.confirmed}</dd></div>
+        <div><dt>Proposed Knowledge</dt><dd>{counts.proposed}</dd></div>
       </dl>
       <h3>Owned knowledge</h3>
       <p>{categoriesFor(selected.type, projection).join(", ") || "Offer context is created only through confirmed hierarchy-interview lineage."}</p>
@@ -64,5 +67,6 @@ function DraftForm({ node, operationKey, onCreateDraft }: { node: CommercialHier
   </form>;
 }
 function categoriesFor(type: CommercialHierarchyNode["type"], projection: CommercialModelProjection) { return type === "product" ? projection.knowledgeCategories.product : type === "market_play" ? projection.knowledgeCategories.marketPlay : type === "customer_profile" ? projection.knowledgeCategories.customerProfile : []; }
-function pathFor(node: CommercialHierarchyNode, projection: CommercialModelProjection) { const all = [...projection.path, ...projection.offers]; const byId = new Map(all.map((item) => [item.id, item])); const path: string[] = []; let current: CommercialHierarchyNode | undefined = node; while (current) { path.unshift(current.name); current = current.parentId ? byId.get(current.parentId) : undefined; } return path.join(" / "); }
+function allNodes(projection: CommercialModelProjection) { const byId = new Map<string, CommercialHierarchyNode>(); for (const node of [...projection.path, ...projection.products, ...projection.plays, ...projection.profiles, ...projection.offers]) byId.set(node.id, node); return [...byId.values()]; }
+function pathFor(node: CommercialHierarchyNode, projection: CommercialModelProjection) { const all = allNodes(projection); const byId = new Map(all.map((item) => [item.id, item])); const path: string[] = []; let current: CommercialHierarchyNode | undefined = node; while (current) { path.unshift(current.name); current = current.parentId ? byId.get(current.parentId) : undefined; } return path.join(" / "); }
 function ScopeLegend() { return <section><h3>Scope legend</h3><ul><li>Organization and Contact identity: Company-wide.</li><li>Account, Target, relevance, evidence, qualification, and outreach: Market Play/Profile scoped.</li></ul></section>; }
