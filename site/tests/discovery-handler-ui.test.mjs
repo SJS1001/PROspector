@@ -4,6 +4,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
+import { applyMigrations, createD1Fixture } from "./helpers/d1.mjs";
 
 const CATEGORIES = [
   "Capabilities",
@@ -27,6 +28,62 @@ async function productionSource(relative, behavior) {
     assert.fail(`missing production behavior: ${behavior}`);
   }
 }
+
+test("D-12 discovery HTTP boundary admits the configured owner before parsing and keeps denials neutral", async () => {
+  const fixture = await createD1Fixture("discovery-handler-owner-boundary");
+  try {
+    await applyMigrations(fixture.database);
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/discovery-handler.ts", import.meta.url).pathname);
+    const pilot = await fixture.vite.ssrLoadModule(new URL("../domain/pilot-access.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    const ownerIdentity = { email: "owner@example.com", displayName: "Owner" };
+    const dependencies = (identity) => ({
+      database: fixture.database,
+      subjectPepper: "test-only-discovery-handler-pepper-at-least-32-bytes",
+      pilotOwnerEmail: "owner@example.com",
+      getIdentity: async () => identity,
+    });
+    const request = (body, csrf = "", headers = {}) => new Request("https://prospector.example/api/discovery", {
+      method: "POST",
+      headers: {
+        origin: "https://prospector.example",
+        "sec-fetch-site": "same-origin",
+        "x-prospector-intent": "discovery-mutation",
+        "content-type": "application/json",
+        ...(csrf ? { cookie: csrf } : {}),
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+
+    for (const response of [
+      await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(null)),
+      await handler.handleDiscoveryPost(request({ action: "read_current_state" }), dependencies({ email: "outsider@example.com", displayName: "Outsider" })),
+    ]) {
+      assert.equal(response.status, 404);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await response.json(), { error: "private_workspace_unavailable" });
+    }
+
+    const owner = await pilot.admitPilotOwner(ownerIdentity, "owner@example.com", "test-only-discovery-handler-pepper-at-least-32-bytes");
+    await commercial.initializeCommercialModel(fixture.database, owner, { idempotencyKey: "0198b5c0-0000-7000-8000-000000009001" });
+    const get = await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(ownerIdentity));
+    assert.equal(get.status, 200);
+    assert.equal(get.headers.get("cache-control"), "no-store");
+    assert.equal(get.headers.get("x-content-type-options"), "nosniff");
+    const csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const state = await get.json();
+    assert.ok(Array.isArray(state.products));
+    assert.equal(state.selectedProductId, null);
+
+    assert.equal((await handler.handleDiscoveryPost(request({ action: "read_current_state" }, csrf, { origin: "https://attacker.example" }), dependencies(ownerIdentity))).status, 403);
+    assert.equal((await handler.handleDiscoveryPost(request({ action: "unknown" }, csrf), dependencies(ownerIdentity))).status, 400);
+    const replayToken = ((await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(ownerIdentity))).headers.get("set-cookie") ?? "").split(";", 1)[0];
+    assert.equal((await handler.handleDiscoveryPost(request({ action: "submit_private_synthetic_proof", productId: "anything", idempotencyKey: "0198b5c0-0000-7000-8000-000000009002" }, replayToken), dependencies(ownerIdentity))).status, 409);
+  } finally {
+    await fixture.dispose();
+  }
+});
 
 test("D-12 discovery handler is owner-first, closed, bounded, and replay-safe", async () => {
   const source = await productionSource(
