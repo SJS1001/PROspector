@@ -135,16 +135,17 @@ export async function createHierarchyDraft(
   }
   const id = v7(); const commandId = v7(); const auditId = v7(); const now = Date.now();
   const insert = input.type === "product"
-    ? database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) VALUES (?, ?, ?, ?, 1, ?, ?, 'draft')").bind(id, workspace.id, now, now, parent.id, name)
+    ? database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)").bind(id, workspace.id, now, now, parent.id, name, commandId, workspace.id)
     : input.type === "market_play"
-      ? database.prepare("INSERT INTO market_plays (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle) VALUES (?, ?, ?, ?, 1, ?, ?, 'draft')").bind(id, workspace.id, now, now, parent.id, name)
-      : database.prepare("INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) VALUES (?, ?, ?, ?, 1, ?, ?, 'draft', 'UTC', 0)").bind(id, workspace.id, now, now, parent.id, name);
+      ? database.prepare("INSERT INTO market_plays (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)").bind(id, workspace.id, now, now, parent.id, name, commandId, workspace.id)
+      : database.prepare("INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft', 'UTC', 0 WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)").bind(id, workspace.id, now, now, parent.id, name, commandId, workspace.id);
   try {
     await database.batch([
       database.prepare(`INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'accepted' WHERE EXISTS (SELECT 1 FROM ${parent.table} WHERE id = ? AND workspace_id = ? AND revision = ?)`)
         .bind(commandId, workspace.id, now, now, `commercial.create_${input.type}`, input.idempotencyKey, digest, input.expectedRevision, parent.type, parent.id, parent.id, workspace.id, input.expectedRevision),
       insert,
-      database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, ?, ?, ?, ?, ?)").bind(auditId, workspace.id, principal.subject, "commercial.draft_created", input.type, id, JSON.stringify({ commandId, digest }), now),
+      database.prepare(`INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) SELECT ?, ?, 'owner', ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ${input.type === "product" ? "products" : input.type === "market_play" ? "market_plays" : "customer_profiles"} WHERE id = ? AND workspace_id = ?)`)
+        .bind(auditId, workspace.id, principal.subject, "commercial.draft_created", input.type, id, JSON.stringify({ commandId, digest }), now, id, workspace.id),
     ]);
   } catch (error) {
     if (isConstraint(error)) {
@@ -155,7 +156,9 @@ export async function createHierarchyDraft(
     }
     throw error;
   }
-  return { id, type: input.type, parentId: parent.id, name, lifecycle: "draft", revision: 1, ...(input.type === "customer_profile" ? { nurtureState: "nurture" as const } : {}) };
+  const created = await entityForCommand(database, workspace.id, commandId, input.type);
+  if (!created) throw new CommercialModelConflictError("Parent changed before draft creation");
+  return created;
 }
 
 /** Transaction-only helper for recordInterviewDecision. It accepts only stored lineage IDs. */
@@ -165,7 +168,7 @@ export async function materializeOfferFromConfirmedHierarchyDecision(database: D
     `SELECT p.id FROM customer_profiles p JOIN interview_questions q ON q.id = ? AND q.workspace_id = p.workspace_id
      JOIN interview_answers a ON a.id = ? AND a.question_id = q.id AND a.workspace_id = p.workspace_id
      JOIN proposal_decisions d ON d.id = ? AND d.proposal_id = ? AND d.authority_command_id = ? AND d.workspace_id = p.workspace_id AND d.decision IN ('accept','correct','rescope')
-     JOIN knowledge_versions k ON k.id = ? AND k.decision_id = d.id AND k.workspace_id = p.workspace_id
+     JOIN knowledge_versions k ON k.id = ? AND k.decision_id = d.id AND k.workspace_id = p.workspace_id AND k.scope_type IN ('profile','customer_profile') AND k.scope_id = p.id
      JOIN audit_events e ON e.id = ? AND e.workspace_id = p.workspace_id
      WHERE p.id = ? AND p.workspace_id = ? LIMIT 1`,
   ).bind(input.questionId, input.answerId, input.decisionId, input.proposalId, input.authorityCommandId, input.knowledgeVersionId, input.auditEventId, input.profileId, workspace.id).first<{ id: string }>();

@@ -149,7 +149,15 @@ async function phase2SchemaAvailable(database: D1Database) {
 async function writesActivated(database: D1Database, principal: InterviewPrincipal) {
   const workspace = await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string }>();
   if (!workspace) return false;
-  return Boolean(await database.prepare("SELECT id FROM phase_activation_gates WHERE workspace_id = ? AND capability = 'consensus_knowledge' AND authorization_reference <> '' AND target_project_deployment <> '' AND reviewed_source_digest <> '' AND migration_identity_status <> '' AND post_migration_evidence_reference <> '' AND independent_review_reference <> '' AND deployed_boundary_proof_reference <> '' AND length(tuple_digest) = 64 LIMIT 1").bind(workspace.id).first());
+  const gate = await database.prepare("SELECT capability, authorization_reference, target_project_deployment, reviewed_source_digest, migration_identity_status, post_migration_evidence_reference, independent_review_reference, deployed_boundary_proof_reference, tuple_digest FROM phase_activation_gates WHERE workspace_id = ? AND capability = 'consensus_knowledge' LIMIT 2").bind(workspace.id).all<Record<string, string>>();
+  if (gate.results.length !== 1) return false;
+  const row = gate.results[0];
+  const fields = ["capability", "authorization_reference", "target_project_deployment", "reviewed_source_digest", "migration_identity_status", "post_migration_evidence_reference", "independent_review_reference", "deployed_boundary_proof_reference"] as const;
+  if (fields.some((field) => typeof row[field] !== "string" || !row[field].trim())) return false;
+  const canonical = fields.map((field) => `${field}=${row[field]}`).join("\n");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  const expected = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return row.tuple_digest === expected;
 }
 async function readDrift(database: D1Database, principal: InterviewPrincipal) { return rowsForOwner(database, principal, "SELECT kd.id, kd.risk_kind AS riskKind, kd.status, ds.impact_digest AS impactDigest FROM knowledge_drifts kd LEFT JOIN drift_impact_snapshots ds ON ds.drift_id = kd.id WHERE kd.workspace_id = ? ORDER BY kd.created_at, kd.id"); }
 async function readReplacements(database: D1Database, principal: InterviewPrincipal) { return rowsForOwner(database, principal, "SELECT id, status, candidate_digest AS digest, revision FROM replacement_candidates WHERE workspace_id = ? ORDER BY created_at, id"); }

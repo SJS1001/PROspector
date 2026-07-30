@@ -47,8 +47,11 @@ export async function createReplacementCandidate(database: D1Database, principal
   const manifestJson = stable(input.manifest);
   const candidateDigest = await sha256(stable({ currentConfigurationDigest: active.digest, proposedVersionDigest: proposed.value_digest, impactDigest, manifestJson, ownerType: input.ownerType, ownerId: input.ownerId, kind: input.kind }));
   const operationDigest = await sha256(stable({ action: "create_replacement_candidate", candidateDigest, expectedOwnerRevision: input.expectedOwnerRevision }));
-  const prior = await database.prepare("SELECT id FROM authority_commands WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ id: string }>();
-  if (prior) return readCandidate(database, workspace.id, prior.id);
+  const prior = await database.prepare("SELECT id, operation_digest FROM authority_commands WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ id: string; operation_digest: string }>();
+  if (prior) {
+    if (prior.operation_digest !== operationDigest) throw new ReplacementConflictError("Idempotency key was used for another candidate");
+    return readCandidate(database, workspace.id, prior.id);
+  }
   const existing = await database.prepare("SELECT id FROM replacement_candidates WHERE workspace_id = ? AND candidate_digest = ? LIMIT 1").bind(workspace.id, candidateDigest).first<{ id: string }>();
   if (existing) return readCandidateById(database, workspace.id, existing.id);
   const now = Date.now();

@@ -416,19 +416,16 @@ CREATE TRIGGER `offer_lineage_insert` BEFORE INSERT ON `offers`
 WHEN NOT EXISTS (SELECT 1 FROM interview_questions q WHERE q.id = NEW.question_id AND q.workspace_id = NEW.workspace_id)
   OR NOT EXISTS (SELECT 1 FROM interview_answers a WHERE a.id = NEW.answer_id AND a.question_id = NEW.question_id AND a.workspace_id = NEW.workspace_id)
   OR NOT EXISTS (SELECT 1 FROM proposal_decisions d WHERE d.id = NEW.decision_id AND d.proposal_id = NEW.proposal_id AND d.authority_command_id = NEW.authority_command_id AND d.workspace_id = NEW.workspace_id)
-  OR NOT EXISTS (SELECT 1 FROM knowledge_versions k WHERE k.id = NEW.knowledge_version_id AND k.decision_id = NEW.decision_id AND k.workspace_id = NEW.workspace_id)
+  OR NOT EXISTS (SELECT 1 FROM knowledge_versions k WHERE k.id = NEW.knowledge_version_id AND k.decision_id = NEW.decision_id AND k.workspace_id = NEW.workspace_id AND k.scope_type IN ('profile', 'customer_profile') AND k.scope_id = NEW.profile_id)
   OR NOT EXISTS (SELECT 1 FROM audit_events e WHERE e.id = NEW.audit_event_id AND e.workspace_id = NEW.workspace_id)
 BEGIN SELECT RAISE(ABORT, 'offer authority lineage mismatch'); END;--> statement-breakpoint
-CREATE TRIGGER `phase_gate_complete_tuple_insert` BEFORE INSERT ON `phase_activation_gates`
-WHEN NEW.capability != 'consensus_knowledge' OR length(trim(NEW.authorization_reference)) = 0 OR length(trim(NEW.target_project_deployment)) = 0 OR length(trim(NEW.reviewed_source_digest)) = 0 OR length(trim(NEW.migration_identity_status)) = 0 OR length(trim(NEW.post_migration_evidence_reference)) = 0 OR length(trim(NEW.independent_review_reference)) = 0 OR length(trim(NEW.deployed_boundary_proof_reference)) = 0 OR length(NEW.tuple_digest) != 64
-BEGIN SELECT RAISE(ABORT, 'incomplete consensus_knowledge gate tuple'); END;--> statement-breakpoint
+CREATE TRIGGER `phase_gate_activation_disabled_insert` BEFORE INSERT ON `phase_activation_gates`
+BEGIN SELECT RAISE(ABORT, 'consensus_knowledge activation requires a future trusted server authorization anchor'); END;--> statement-breakpoint
 CREATE TRIGGER `phase_gate_immutable_update` BEFORE UPDATE ON `phase_activation_gates`
 BEGIN SELECT RAISE(ABORT, 'activation gates are immutable'); END;--> statement-breakpoint
 CREATE TRIGGER `source_custody_quarantine_only` BEFORE INSERT ON `source_custody`
 WHEN NEW.quarantine_status NOT IN ('quarantined', 'scan_pending', 'scan_failed') OR NEW.scan_status NOT IN ('not_scanned', 'pending', 'failed')
 BEGIN SELECT RAISE(ABORT, 'uploads remain quarantined'); END;--> statement-breakpoint
-CREATE TRIGGER `knowledge_version_immutable_update` BEFORE UPDATE OF value_json, source_digest, proposal_id, decision_id, authority_command_id ON `knowledge_versions`
-BEGIN SELECT RAISE(ABORT, 'knowledge versions are immutable'); END;--> statement-breakpoint
 CREATE TRIGGER `authority_command_expected_revision` BEFORE INSERT ON `authority_commands`
 WHEN NEW.expected_revision < 1 OR length(trim(NEW.operation_digest)) = 0
 BEGIN SELECT RAISE(ABORT, 'invalid authority command guard'); END;--> statement-breakpoint
@@ -445,6 +442,8 @@ SELECT 'knowledge-item-' || k.id, k.workspace_id, k.created_at, k.updated_at, 1,
 WHERE k.source_digest IS NOT NULL AND k.source_digest != 'legacy-unbound' AND NOT EXISTS (SELECT 1 FROM `knowledge_items` ki WHERE ki.current_version_id = k.id);--> statement-breakpoint
 UPDATE `knowledge_versions` SET `knowledge_item_id` = (SELECT ki.id FROM `knowledge_items` ki WHERE ki.current_version_id = `knowledge_versions`.`id`), `value_digest` = `source_digest`
 WHERE `source_digest` IS NOT NULL AND `source_digest` != 'legacy-unbound';--> statement-breakpoint
+CREATE TRIGGER `knowledge_version_immutable_update` BEFORE UPDATE OF knowledge_item_id, proposal_id, decision_id, authority_command_id, scope_type, scope_id, kind, value_json, value_digest, source_digest ON `knowledge_versions`
+BEGIN SELECT RAISE(ABORT, 'knowledge versions are immutable'); END;--> statement-breakpoint
 INSERT INTO `interview_authority_bindings` (`answer_id`, `confirmation_id`, `knowledge_version_id`, `knowledge_item_id`, `proposal_id`, `created_at`)
 SELECT a.id, c.id, k.id, ki.id, NULL, c.created_at FROM `interview_answers` a JOIN `interview_confirmations` c ON c.answer_id = a.id JOIN `knowledge_versions` k ON k.id = c.knowledge_version_id JOIN `knowledge_items` ki ON ki.current_version_id = k.id
 WHERE a.proposal_digest != 'legacy-unbound' AND c.operation_digest != 'legacy-unbound' AND NOT EXISTS (SELECT 1 FROM `interview_authority_bindings` b WHERE b.answer_id = a.id);--> statement-breakpoint
