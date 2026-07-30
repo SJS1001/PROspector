@@ -14,9 +14,9 @@ Requirements for the initial private operating pilot. Each requirement maps to e
 
 ### Commercial Knowledge
 
-- [ ] **REQ-commercial-hierarchy**: The operator can represent `Company -> Product -> Market Play -> Customer Profile -> Offer`, with Company-wide Organization/Contact identity and Market Play-specific Account, Target, relevance, evidence, qualification, and outreach state.
+- [x] **REQ-commercial-hierarchy**: The operator can represent `Company -> Product -> Market Play -> Customer Profile -> Offer`, with Company-wide Organization/Contact identity and Market Play-specific Account, Target, relevance, evidence, qualification, and outreach state.
 - [ ] **REQ-consensus-interview**: The operator can complete a research-first, one-question-at-a-time Consensus Interview that visibly separates evidence, inference, recommendation, and confirmed knowledge and records explicit confirmation, correction, rejection, or rescoping.
-- [ ] **REQ-versioned-knowledge-and-drift**: The operator can review Proposed Knowledge and drift without mutating Confirmed Knowledge or active typed configurations in place; replacement activation preserves snapshots, invalidates affected approvals, and pauses only dependency-reached high-risk outbound.
+- [x] **REQ-versioned-knowledge-and-drift**: The operator can review Proposed Knowledge and drift without mutating Confirmed Knowledge or active typed configurations in place; replacement activation preserves snapshots, invalidates affected approvals, and pauses only dependency-reached high-risk outbound.
 
 ### Product Discovery
 
@@ -73,9 +73,9 @@ These items are acknowledged directions, not committed v1 scope. Promotion to v1
 |-------------|-------|--------|
 | REQ-private-human-governed-gtm | Phase 1 | Complete |
 | REQ-company-workspace-isolation | Phase 1 | Complete |
-| REQ-commercial-hierarchy | Phase 2 | Pending |
+| REQ-commercial-hierarchy | Phase 2 | Complete |
 | REQ-consensus-interview | Phase 2 | Pending |
-| REQ-versioned-knowledge-and-drift | Phase 2 | Pending |
+| REQ-versioned-knowledge-and-drift | Phase 2 | Complete |
 | REQ-product-readiness | Phase 3 | Pending |
 | REQ-market-discovery | Phase 3 | Pending |
 | REQ-profile-readiness | Phase 4 | Pending |

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: "01-05 automated hosted proof complete; real second-principal checkpoint required"
-last_updated: "2026-07-30T15:55:00Z"
+status: verifying
+stopped_at: Session resumed, proceeding to 01-05 hosted deployment and proof
+last_updated: "2026-07-30T17:30:02.594Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 7
-  completed_phases: 0
-  total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_phases: 1
+  total_plans: 25
+  completed_plans: 6
+  percent: 14
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 
 Phase: 1 (Private Pilot Boundary) — EXECUTING
 Plan: 5 of 5
-Status: Blocking human verification — second hosted principal
+Status: Phase complete — ready for verification
 Last activity: 2026-07-30
 
-Progress: [████████░░] 80%
+Progress: [██░░░░░░░░] 24%
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [████████░░] 80%
 | Phase 1 P02 | 11 min | 2 tasks | 6 files |
 | Phase 1 P03 | 10 min | 2 tasks | 4 files |
 | Phase 1 P04 | 25 min | 2 tasks | 10 files |
+| Phase 02 P01 | 25min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,7 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - The current live exception is limited to the low-sensitivity historian-readiness Answer-to-Confirmation lifecycle.
 - Real leads, contacts, imports, schedules, exports, provider credentials, and outbound effects remain disabled until applicable gates pass.
 - Seven vertical phases own all 17 v1 requirements exactly once.
+- [Phase 02]: Wave 0 requires the exact 0000-0004 D1 chain and explicit forbidden-table zero-effect snapshots.
 
 ### Pending Todos
 
@@ -90,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T00:19:36.850Z
+Last session: 2026-07-30T17:29:26.696Z
 Stopped at: Session resumed, proceeding to 01-05 hosted deployment and proof
 Resume file: None
