@@ -17,6 +17,9 @@ const CATEGORIES = [
   "Market-discovery policy",
   "Default runner policy",
 ];
+const CATEGORY_KEYS = [
+  "capability", "limitation", "delivery", "proof", "ownership", "claim_guardrail", "source_policy", "discovery_policy", "default_runner_policy",
+];
 const BOUNDARY = "This is a Product-level market suggestion, not an accepted Customer Profile. Explore opens a Draft Market Play interview; it does not make a Profile Ready or start prospecting.";
 const UNKNOWN = "Authoritative discovery results could not be verified. Reload this view.";
 const READ_ERROR = "Authoritative Product discovery could not be loaded. No readiness, run, or proposal authority has changed. Reload this view.";
@@ -182,7 +185,7 @@ test("D-01 rendered readiness shows all nine server-derived states and immutable
       assert.fail("missing production behavior: the ProductReadinessView component does not exist");
     }
     const checklist = CATEGORIES.map((label, index) => ({
-      category: label,
+      category: CATEGORY_KEYS[index],
       status: index === 0 ? "confirmed" : "missing",
       condition: `${label} policy`,
       versions: index === 0 ? [{ id: "version-capability", digest: "a".repeat(64) }] : [],
@@ -223,11 +226,14 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
       assert.fail("missing production behavior: the ProposalCards component does not exist");
     }
     const proposals = Array.from({ length: 4 }, (_, index) => ({
-      id: `proposal-${index + 1}`,
+      id: `0198b5c0-0000-7000-8000-00000000${String(index + 1).padStart(4, "0")}`,
+      versionId: `0198b5c0-0000-7000-8000-00000000${String(index + 101).padStart(4, "0")}`,
       version: 1,
+      revision: 1,
       digest: `${index + 1}`.repeat(64),
       fingerprint: `${index + 5}`.repeat(64),
       status: "new",
+      rank: null,
       marketCategory: `Market ${index + 1}`,
       problemFamily: "Operating variability",
       problemMatch: "Bounded problem match",
@@ -236,13 +242,16 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
       examples: ["Evidence example"],
       productFit: "Product fit rationale",
       risks: ["Proof remains synthetic"],
-      evidence: [{ reference: "opaque:source", title: "Source", domain: "fixture.invalid", excerpt: "<img src=x onerror=alert(1)>", retrievedAt: 1_780_000_000_000 }],
+      evidence: [{ reference: "opaque:source", publisher: "Fixture source", title: "Source", domain: "fixture.invalid", excerpt: "<img src=x onerror=alert(1)>", observedAt: 1_780_000_000_000, materialEvidenceFingerprint: "c".repeat(64) }],
       inference: "Labelled inference",
       collision: { status: "none" },
       cooldown: null,
-      run: { id: "run-one", trigger: "manual" },
-      configuration: { id: "configuration-one", digest: "f".repeat(64) },
-      product: { id: "product-one", name: "ONE" },
+      decisions: [],
+      evidenceLineage: [],
+      reopened: false,
+      run: { id: "0198b5c0-0000-7000-8000-000000001001", trigger: "manual" },
+      configuration: { id: "0198b5c0-0000-7000-8000-000000001002", digest: "f".repeat(64) },
+      product: { id: "0198b5c0-0000-7000-8000-000000001003", name: "ONE" },
       auditReference: "opaque:audit",
     }));
     const html = renderToStaticMarkup(React.createElement(proposalModule.ProposalCards, {
@@ -299,6 +308,54 @@ test("D-07/D-13 authority-unknown UI exposes refresh only and no future-phase au
     assert.match(html, /could not be verified/i);
     assert.doesNotMatch(html, /<button\b/i, "authority-unknown proposal data must not expose decision controls");
     assert.doesNotMatch(html, /Untrusted market/);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("D-07 known-authority SSR rejects partial proposal metadata before it can expose data or decisions", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const proposalModule = await vite.ssrLoadModule(
+      new URL("../app/discovery/proposal-cards.tsx", import.meta.url).pathname,
+    );
+    const malformed = {
+      id: "0198b5c0-0000-7000-8000-000000001111",
+      revision: 1,
+      digest: "a".repeat(64),
+      fingerprint: "b".repeat(64),
+      status: "new",
+      marketCategory: "Must not render",
+      problemFamily: "Must not render",
+      problemMatch: "Must not render",
+      audience: "Must not render",
+      likelyBuyer: "Must not render",
+      examples: ["Must not render"],
+      productFit: "Must not render",
+      risks: ["Must not render"],
+      evidence: [{ reference: "opaque:source", publisher: "Fixture", excerpt: "Must not render", observedAt: 1 }],
+      versionId: "0198b5c0-0000-7000-8000-000000001112",
+      rank: null,
+      collision: { relationship: "new" },
+      cooldown: null,
+      decisions: [],
+      evidenceLineage: [],
+      reopened: false,
+      run: { id: "0198b5c0-0000-7000-8000-000000001113" },
+      configuration: { id: "0198b5c0-0000-7000-8000-000000001114", digest: "c".repeat(64) },
+      // A known-authority proposal must carry the exact evidence fingerprint too.
+    };
+    const html = renderToStaticMarkup(React.createElement(proposalModule.ProposalCards, {
+      authority: "known",
+      proposals: [malformed],
+      triggerLabel: "manual",
+      pendingProposalId: null,
+      onDecision() { assert.fail("malformed authority must not expose a decision callback"); },
+    }));
+    assert.match(html, /could not be verified/i);
+    assert.doesNotMatch(html, /Must not render/);
+    assert.doesNotMatch(html, /<button\b/i);
+    assert.doesNotMatch(html, /<input\b/i);
   } finally {
     await vite.close();
   }

@@ -6,9 +6,22 @@ const boundary = "This is a Product-level market suggestion, not an accepted Cus
 export type Proposal = Record<string, unknown>;
 
 export function ProposalCards({ authority, proposals, triggerLabel, pendingProposalId, onDecision }: { authority: string; proposals: readonly Proposal[]; triggerLabel: string; pendingProposalId: string | null; onDecision: (proposal: Proposal, decision: "explore" | "defer" | "dismiss", fields?: { reason?: string; reviewAt?: number; confirmed?: boolean }) => void }) {
-  if (authority !== "known") return <section className="panel discovery-unknown" role="alert"><h2>Authoritative discovery results could not be verified. Reload this view.</h2></section>;
+  if (authority !== "known" || !proposals.every(isAuthoritativeProposal)) return <section className="panel discovery-unknown" role="alert"><h2>Authoritative discovery results could not be verified. Reload this view.</h2></section>;
   const surfaced = proposals.slice(0, 3);
   return <section className="proposal-cards" aria-label="Market Play proposals"><p className="proposal-count">{surfaced.length} of 3 proposals surfaced for this {triggerLabel} run</p>{surfaced.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} pending={pendingProposalId === proposal.id} onDecision={onDecision} />)}</section>;
+}
+
+export function isAuthoritativeProposal(value: unknown): value is Proposal {
+  const proposal = objectValue(value);
+  if (!proposal || !opaqueId(proposal.id) || !opaqueId(proposal.versionId) || !positiveRevision(proposal.version) || !positiveRevision(proposal.revision) || !digest(proposal.digest) || !digest(proposal.fingerprint) || !["new", "deferred", "dismissed", "explored"].includes(stringValue(proposal.status, ""))) return false;
+  if (!["marketCategory", "audience", "problemFamily", "problemMatch", "likelyBuyer", "inference", "productFit"].every((field) => text(proposal[field]))) return false;
+  if (!stringList(proposal.examples) || !stringList(proposal.risks) || !evidenceList(proposal.evidence)) return false;
+  const run = objectValue(proposal.run); const configuration = objectValue(proposal.configuration);
+  if (!run || !opaqueId(run.id) || !configuration || !opaqueId(configuration.id) || !digest(configuration.digest)) return false;
+  if (proposal.rank !== null && (!Number.isSafeInteger(proposal.rank) || Number(proposal.rank) < 1 || Number(proposal.rank) > 3)) return false;
+  if (!objectValue(proposal.collision) || !Array.isArray(proposal.evidenceLineage) || !Array.isArray(proposal.decisions) || typeof proposal.reopened !== "boolean") return false;
+  if (proposal.cooldown !== null && (!objectValue(proposal.cooldown) || !positiveTimestamp(objectValue(proposal.cooldown)?.until))) return false;
+  return proposal.decisions.every(validDecision);
 }
 
 function ProposalCard({ proposal, pending, onDecision }: { proposal: Proposal; pending: boolean; onDecision: (proposal: Proposal, decision: "explore" | "defer" | "dismiss", fields?: { reason?: string; reviewAt?: number; confirmed?: boolean }) => void }) {
@@ -26,3 +39,11 @@ function defaultReviewDate() { const date = new Date(); date.setDate(date.getDat
 function title(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function stringValue(value: unknown, fallback = "Not included in projection") { return typeof value === "string" ? value : fallback; }
 function objectValue(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
+function opaqueId(value: unknown) { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
+function digest(value: unknown) { return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value); }
+function positiveRevision(value: unknown) { return Number.isSafeInteger(value) && Number(value) > 0; }
+function positiveTimestamp(value: unknown) { return Number.isSafeInteger(value) && Number(value) > 0; }
+function text(value: unknown) { return typeof value === "string" && value.trim().length > 0; }
+function stringList(value: unknown) { return Array.isArray(value) && value.every(text); }
+function evidenceList(value: unknown) { return Array.isArray(value) && value.length > 0 && value.every((entry) => { const evidence = objectValue(entry); return Boolean(evidence && text(evidence.reference) && text(evidence.publisher) && text(evidence.excerpt) && positiveTimestamp(evidence.observedAt) && digest(evidence.materialEvidenceFingerprint)); }); }
+function validDecision(value: unknown) { const decision = objectValue(value); return Boolean(decision && opaqueId(decision.id) && ["explore", "defer", "dismiss"].includes(stringValue(decision.decision, "")) && ["explored", "deferred", "dismissed"].includes(stringValue(decision.status, "")) && digest(decision.digest) && opaqueId(decision.proposalId) && opaqueId(decision.proposalVersionId) && typeof decision.immutable === "boolean"); }
