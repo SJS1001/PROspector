@@ -111,9 +111,9 @@ test("D-07/D-13 discovery workspace source preserves Product scope and fails clo
 test("D-01 rendered readiness shows all nine server-derived states and immutable references", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    let module;
+    let readinessModule;
     try {
-      module = await vite.ssrLoadModule(new URL("../app/discovery/product-readiness.tsx", import.meta.url).pathname);
+      readinessModule = await vite.ssrLoadModule(new URL("../app/discovery/product-readiness.tsx", import.meta.url).pathname);
     } catch {
       assert.fail("missing production behavior: the ProductReadinessView component does not exist");
     }
@@ -123,7 +123,7 @@ test("D-01 rendered readiness shows all nine server-derived states and immutable
       condition: `${label} policy`,
       versions: index === 0 ? [{ id: "version-capability", digest: "a".repeat(64) }] : [],
     }));
-    const html = renderToStaticMarkup(React.createElement(module.ProductReadinessView, {
+    const html = renderToStaticMarkup(React.createElement(readinessModule.ProductReadinessView, {
       projection: {
         authority: "known",
         product: { id: "product-one", name: "ONE", revision: 7, lifecycle: "draft" },
@@ -152,9 +152,9 @@ test("D-01 rendered readiness shows all nine server-derived states and immutable
 test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    let module;
+    let proposalModule;
     try {
-      module = await vite.ssrLoadModule(new URL("../app/discovery/proposal-cards.tsx", import.meta.url).pathname);
+      proposalModule = await vite.ssrLoadModule(new URL("../app/discovery/proposal-cards.tsx", import.meta.url).pathname);
     } catch {
       assert.fail("missing production behavior: the ProposalCards component does not exist");
     }
@@ -181,7 +181,7 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
       product: { id: "product-one", name: "ONE" },
       auditReference: "opaque:audit",
     }));
-    const html = renderToStaticMarkup(React.createElement(module.ProposalCards, {
+    const html = renderToStaticMarkup(React.createElement(proposalModule.ProposalCards, {
       authority: "known",
       proposals,
       triggerLabel: "manual",
