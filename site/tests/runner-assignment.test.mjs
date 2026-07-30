@@ -132,6 +132,42 @@ test("lower timestamp winning first keeps one exact canonical chain across retry
   } finally { await seed.fixture.dispose(); }
 });
 
+test("canonical material reader ignores forged snapshots and fails closed when the current facts have no exact snapshot", async () => {
+  const seed = await setup();
+  try {
+    const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const policy = await seed.fixture.vite.ssrLoadModule(new URL("../domain/source-policy.ts", import.meta.url).pathname);
+    const first = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "reader-first-assignment" }));
+    const firstSubmission = await runner.submitRunnerObservations(seed.fixture.database, { capability: first.capability, idempotencyKey: "reader-first-submission", now: NOW + 1, capabilitySecret: secret, payload: validPayload() });
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: firstSubmission.submissionId, now: NOW + 2 });
+    await insertSecondRun(seed, "runner-run-2", "reader-second-run");
+    const second = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { runId: "runner-run-2", idempotencyKey: "reader-second-assignment" }));
+    const secondSubmission = await runner.submitRunnerObservations(seed.fixture.database, { capability: second.capability, idempotencyKey: "reader-second-submission", now: NOW + 3, capabilitySecret: secret, payload: payloadAtTime(NOW + 10) });
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: secondSubmission.submissionId, now: NOW + 4 });
+    const input = { workspaceId: seed.workspaceId, profileId: seed.profileId, kind: "operating-signal", underlyingOriginIdentity: "example.invalid" };
+    const chain = await policy.readCanonicalMaterialLineage(seed.fixture.database, input);
+    const base = await canonicalRelationRow(seed, chain);
+    const relation = JSON.parse(base.lineage_json);
+    const forged = [
+      ["cross-scope", { ...relation, profileId: "forged-profile" }],
+      ["members", { ...relation, chain: relation.chain.slice(1) }],
+      ["duplicate-member", { ...relation, chain: [...relation.chain, relation.chain[0]] }],
+      ["adjacency", { ...relation, immediateSuccessors: [] }],
+      ["digest", { ...relation, chainDigest: "0".repeat(64) }],
+      ["malformed", "{"],
+    ];
+    for (const [label, snapshot] of forged) await insertForgedSnapshot(seed, base, String(label), snapshot, NOW + 20);
+    assert.deepEqual((await policy.readCanonicalMaterialLineage(seed.fixture.database, input)).map((member) => member.id), chain.map((member) => member.id), "forged duplicate snapshots cannot replace an exact canonical snapshot");
+    const rawLineageJson = canonicalTest({ schema: "prospecting-source-lineage/v3", observationFingerprint: "9".repeat(64) });
+    const rawLineageDigest = await digestTest(rawLineageJson), rawSignalJson = canonicalTest({ schema: "prospecting-signal/v3", material: true }), rawSignalDigest = await digestTest(rawSignalJson);
+    await seed.fixture.database.batch([
+      seed.fixture.database.prepare("INSERT INTO prospecting_source_lineage (id,workspace_id,run_id,submission_id,source_id,source_url,publisher_identity,underlying_origin_identity,independence_group,source_tier,published_at,occurred_at,retrieved_at,excerpt,lineage_json,lineage_digest,created_at) VALUES ('reader-stale-lineage',?,?,?,NULL,'https://example.invalid/stale','example.invalid','example.invalid','origin:example.invalid',1,NULL,?,?, 'stale',?,?,?)").bind(seed.workspaceId, "runner-run-2", secondSubmission.submissionId, NOW + 20, NOW + 20, rawLineageJson, rawLineageDigest, NOW + 21),
+      seed.fixture.database.prepare("INSERT INTO prospecting_signals (id,workspace_id,run_id,submission_id,source_lineage_id,profile_id,signal_kind,signal_json,signal_digest,material,created_at) VALUES ('reader-stale-signal',?,?,?,'reader-stale-lineage',?,'operating-signal',?,?,1,?)").bind(seed.workspaceId, "runner-run-2", secondSubmission.submissionId, seed.profileId, rawSignalJson, rawSignalDigest, NOW + 21),
+    ]);
+    await assert.rejects(() => policy.readCanonicalMaterialLineage(seed.fixture.database, input), /source_policy_rejected/i, "a stale snapshot cannot authorize changed material facts");
+  } finally { await seed.fixture.dispose(); }
+});
+
 test("trusted signal projection loads pinned policy and preserves append-only lineage", async () => {
   const seed = await setup();
   try {
@@ -170,5 +206,9 @@ function validPayload() { return { status: "complete", findings: [{ kind: "opera
 function payloadAt(index) { const payload = validPayload(); payload.findings[0].sourceUrl = `https://example.invalid/source-${index}`; payload.findings[0].observedAt += index; payload.sources[0].url = payload.findings[0].sourceUrl; return payload; }
 function payloadAtTime(observedAt) { const payload = validPayload(); payload.findings[0].observedAt = observedAt; payload.sources[0].retrievedAt = observedAt; return payload; }
 async function canonicalRelation(seed, chain) { const rows = await seed.fixture.database.prepare("SELECT lineage_json FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1'").bind(seed.workspaceId).all(); const expected = chain.map((member) => member.id); const relation = rows.results.map((row) => JSON.parse(row.lineage_json)).find((candidate) => candidate.chain.map((member) => member.signalId).join(",") === expected.join(",")); assert.ok(relation, "an exact canonical relation must cover every material fact"); return relation; }
+async function canonicalRelationRow(seed, chain) { const rows = await seed.fixture.database.prepare("SELECT * FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1'").bind(seed.workspaceId).all(); const expected = chain.map((member) => member.id).join(","); const row = rows.results.find((candidate) => JSON.parse(candidate.lineage_json).chain.map((member) => member.signalId).join(",") === expected); assert.ok(row, "an exact canonical relation row must exist"); return row; }
+async function insertForgedSnapshot(seed, base, label, snapshot, createdAt) { const lineageJson = typeof snapshot === "string" ? snapshot : canonicalTest(snapshot); const lineageDigest = typeof snapshot === "string" ? "b".repeat(64) : await digestTest(lineageJson); await seed.fixture.database.prepare("INSERT INTO prospecting_source_lineage (id,workspace_id,run_id,submission_id,source_id,source_url,publisher_identity,underlying_origin_identity,independence_group,source_tier,published_at,occurred_at,retrieved_at,excerpt,lineage_json,lineage_digest,created_at) VALUES (?,?,?,?,NULL,?,?,?,?,?,NULL,?,?,?,?,?,?)").bind(`forged-${label}`, seed.workspaceId, base.run_id, base.submission_id, base.source_url, base.publisher_identity, base.underlying_origin_identity, base.independence_group, base.source_tier, base.occurred_at, base.retrieved_at, base.excerpt, lineageJson, lineageDigest, createdAt).run(); }
+function canonicalTest(value) { if (Array.isArray(value)) return `[${value.map(canonicalTest).join(",")}]`; if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalTest(value[key])}`).join(",")}}`; return JSON.stringify(value); }
+async function digestTest(value) { const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join(""); }
 async function lineageCounts(seed) { return (await seed.fixture.database.prepare("SELECT (SELECT COUNT(*) FROM prospecting_signals WHERE profile_id=?) signals,(SELECT COUNT(*) FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1') relations").bind(seed.profileId, seed.workspaceId).first()); }
 async function insertSecondRun(seed, id, triggerKey) { const operationDigest = id.endsWith("2") ? "e".repeat(64) : "f".repeat(64); await seed.fixture.database.prepare("INSERT INTO prospecting_runs (id,workspace_id,created_at,updated_at,revision,profile_id,configuration_id,schedule_id,configuration_digest,trigger_kind,trigger_key,window_lower_exclusive,window_upper_inclusive,last_successful_watermark,successful_watermark,manifest_json,manifest_digest,execution_state,authority_command_id,operation_digest,idempotency_key,started_at,completed_at) VALUES (?,?,?, ?,1,?,'runner-config','runner-schedule',?,'manual',?,NULL,?,NULL,NULL,'{}',?,'queued','runner-seed-command',?,?,?,NULL)").bind(id,seed.workspaceId,NOW,NOW,seed.profileId,DIGEST,triggerKey,NOW,"c".repeat(64),operationDigest,triggerKey,NOW).run(); }
