@@ -57,7 +57,7 @@ test("runner submission is bounded append-only observation data and rejects auth
   } finally { await seed.fixture.dispose(); }
 });
 
-test("capabilities fail neutrally on tamper, expiry, audience, exact provenance, and aggregate quotas", async () => {
+test("capabilities fail neutrally on tamper, expiry, audience, exact provenance, and one-shot nonce races", async () => {
   const seed = await setup();
   try {
     const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
@@ -66,10 +66,13 @@ test("capabilities fail neutrally on tamper, expiry, audience, exact provenance,
       await assert.rejects(() => runner.submitRunnerObservations(seed.fixture.database, { capability, idempotencyKey: `negative-${now}-${typeof payload === "object" ? JSON.stringify(payload).length : 0}`, now, capabilitySecret: secret, audience: "wrong-audience", payload }), /runner_assignment_rejected/i);
     }
     const live = await runner.issueRunnerAssignment(seed.fixture.database, { ...issueInput(seed), idempotencyKey: "0198f400-0000-7000-8000-000000000007", quotas: { maxBytes: 20_000, maxFindings: 2, maxSources: 2 } });
-    await runner.submitRunnerObservations(seed.fixture.database, { capability: live.capability, idempotencyKey: "quota-1", now: NOW + 1, capabilitySecret: secret, payload: payloadAt(1) });
-    const race = await Promise.allSettled([2, 3].map((index) => runner.submitRunnerObservations(seed.fixture.database, { capability: live.capability, idempotencyKey: `quota-${index}`, now: NOW + index, capabilitySecret: secret, payload: payloadAt(index) })));
-    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 1, "only one concurrent request can consume the final finding/source quota");
-    assert.equal(await seed.fixture.database.prepare("SELECT COUNT(*) AS count FROM runner_submissions WHERE assignment_id = ?").bind(live.assignmentId).first().then((row) => Number(row.count)), 2);
+    const race = await Promise.allSettled([2, 3].map((index) => runner.submitRunnerObservations(seed.fixture.database, { capability: live.capability, idempotencyKey: `nonce-${index}`, now: NOW + index, capabilitySecret: secret, payload: payloadAt(index) })));
+    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 1, "one distinct operation atomically consumes the nonce");
+    const winnerIndex = race.findIndex((entry) => entry.status === "fulfilled");
+    const winnerNumber = winnerIndex === 0 ? 2 : 3;
+    assert.equal((await runner.submitRunnerObservations(seed.fixture.database, { capability: live.capability, idempotencyKey: `nonce-${winnerNumber}`, now: NOW + 4, capabilitySecret: secret, payload: payloadAt(winnerNumber) })).replayed, true, "same-key same-digest retry returns the original");
+    assert.equal(await seed.fixture.database.prepare("SELECT COUNT(*) AS count FROM runner_submissions WHERE assignment_id = ?").bind(live.assignmentId).first().then((row) => Number(row.count)), 1);
+    assert.equal((await seed.fixture.database.prepare("SELECT status FROM runner_assignments WHERE id=?").bind(live.assignmentId).first()).status, "consumed");
   } finally { await seed.fixture.dispose(); }
 });
 
@@ -83,7 +86,7 @@ test("trusted signal projection loads pinned policy and preserves append-only li
     const signals = await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: submission.submissionId, now: NOW + 2, policy: { tier1Origins: [], tier2Origins: [], materialSignalKinds: [] } });
     assert.equal(signals[0].tier, 1, "caller supplied policy is ignored");
     const saved = await seed.fixture.database.prepare("SELECT ps.signal_json, pl.lineage_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id = ps.source_lineage_id WHERE ps.submission_id = ?").bind(submission.submissionId).first();
-    assert.match(saved.signal_json, /reconfirmationOfSignalId/); assert.match(saved.lineage_json, /assignmentId/);
+    assert.match(saved.signal_json, /reconfirmation/); assert.match(saved.lineage_json, /assignmentId/);
     await assert.rejects(() => policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: submission.submissionId, now: NOW + 3 }), /source_policy_rejected/i);
   } finally { await seed.fixture.dispose(); }
 });
@@ -98,6 +101,10 @@ test("source policy assigns trusted tiers, independence, recency, and leaves ret
     assert.equal(current.tier, 1); assert.equal(current.independenceGroup, "origin:example.com"); assert.match(current.excerpt, /&lt;b&gt;/);
     const stale = await policy.validateSourceObservation(trusted, { url: "https://repost.example.com/again", retrievedAt: NOW, observedAt: NOW - 31 * 24 * 60 * 60 * 1_000, excerpt: "stale", kind: "operating-signal" }, NOW);
     assert.equal(stale.independenceGroup, current.independenceGroup); assert.equal(stale.recency, "account_context_reconfirmation_required");
+    const uk = await policy.validateSourceObservation({ tier1Origins: ["bbc.co.uk"], tier2Origins: [], materialSignalKinds: [] }, { url: "https://news.bbc.co.uk/a", retrievedAt: NOW, observedAt: NOW, excerpt: "uk", kind: "signal" }, NOW);
+    const evil = await policy.validateSourceObservation({ tier1Origins: ["bbc.co.uk"], tier2Origins: [], materialSignalKinds: [] }, { url: "https://evil.co.uk/a", retrievedAt: NOW, observedAt: NOW, excerpt: "evil", kind: "signal" }, NOW);
+    assert.equal(uk.tier, 1); assert.equal(evil.tier, 3, "unrelated co.uk origins cannot borrow an allowlist tier");
+    await assert.rejects(() => policy.validateSourceObservation({ tier1Origins: ["example.za"], tier2Origins: [], materialSignalKinds: [] }, { url: "https://evil.example.za/a", retrievedAt: NOW, observedAt: NOW, excerpt: "ambiguous", kind: "signal" }, NOW), /source_policy_rejected/i);
     assert.deepEqual(policy.sourceWindow(NOW, NOW + 1), { lowerExclusive: NOW - 24 * 60 * 60 * 1_000, upperInclusive: NOW + 1 });
     await assert.rejects(() => retrieval.createRejectOnlyRetrievalPort().retrieve({ url: "https://example.invalid", expectedMimeTypes: ["text/plain"], maximumBytes: 1, maximumRedirects: 0, timeoutMs: 1 }), /unavailable/i);
   } finally { await fixture.dispose(); }

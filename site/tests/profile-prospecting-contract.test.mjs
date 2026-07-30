@@ -22,7 +22,7 @@ async function seedProfileAuthority(fixture) {
   const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1").bind(OWNER.subject).first();
   const now = NOW;
   await fixture.database.batch([
-    fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('phase4-product-config', ?, ?, ?, 1, NULL, 'product', ?, 'product_discovery', ?, '{}', 1)").bind(workspace.id, now, now, product.id, "a".repeat(64)),
+    fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('phase4-product-config', ?, ?, ?, 1, NULL, 'product', ?, 'product_discovery', ?, ?, 1)").bind(workspace.id, now, now, product.id, "a".repeat(64), JSON.stringify({ policySnapshot: { sourcePolicy: { id: "phase4-source-policy", versionId: "phase4-version-3", digest: "a".repeat(64), value: { tier1Origins: ["example.invalid"], tier2Origins: [], materialSignalKinds: ["operating-signal"] } }, runnerPolicy: { id: "phase4-runner-policy", versionId: "phase4-version-3", digest: "a".repeat(64), value: { allowedTools: [] } } }, replacementDirectives: { id: "phase4-replacement-directives", digest: "a".repeat(64) } })),
     fixture.database.prepare("UPDATE customer_profiles SET timezone = 'America/Toronto', weekly_target = 1 WHERE id = ?").bind(profile.id),
   ]);
   const row = await fixture.database.prepare("SELECT revision FROM customer_profiles WHERE id = ?").bind(profile.id).first();
@@ -192,6 +192,11 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
     assert.equal(active.initialRun.trigger, "initial");
     assert.equal(active.schedule.timezone, "America/Toronto");
     assert.equal(active.initialRun.executionState, "blocked_missing_capability");
+    const persisted = await fixture.database.prepare("SELECT manifest_json FROM typed_configurations WHERE id = ?").bind(active.configuration.id).first();
+    const manifest = JSON.parse(persisted.manifest_json);
+    assert.equal(manifest.authority.sourcePolicy.id, "phase4-source-policy");
+    assert.equal(manifest.authority.runnerPolicy.id, "phase4-runner-policy");
+    assert.equal(Object.keys(manifest.confirmedCategoryInputs).length, 12, "all readiness categories persist canonical inputs");
     for (const table of ["runner_assignments", "accounts", "contacts", "prospects"]) {
       assert.equal(await countRows(fixture.database, table), before[table]?.count ?? 0, `${table} must remain unaffected`);
     }
