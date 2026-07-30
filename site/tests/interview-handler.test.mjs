@@ -194,3 +194,19 @@ async function applyMigrations(database) {
     }
   }
 }
+
+test("interview handler retains owner-first neutral denials while exposing the generalized actions", async () => {
+  const source = await readFile(
+    new URL("../domain/interview-handler.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /authenticatedPrincipal\(dependencies\)[\s\S]{0,400}validateSameOriginMutation/);
+  assert.match(source, /submit_interview_answer/,
+    "missing production behavior: the handler must admit the generalized Stage 1 command");
+  assert.match(source, /record_interview_decision/,
+    "missing production behavior: the handler must admit the generalized Stage 2 command");
+  for (const decision of ["accept", "reject", "correct", "rescope"]) {
+    assert.match(source, new RegExp(`\\b${decision}\\b`),
+      `missing production behavior: exact ${decision} decision validation`);
+  }
+});

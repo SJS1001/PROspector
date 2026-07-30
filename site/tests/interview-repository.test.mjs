@@ -320,3 +320,56 @@ async function count(database, table) {
   const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
   return Number(row.count);
 }
+
+test("generalized consensus interview exposes the immutable four-decision contract", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const interview = await vite.ssrLoadModule(
+      new URL("../domain/interview.ts", import.meta.url).pathname,
+    );
+
+    // Keep this contract entirely at the production boundary until migration 0004
+    // exists: a missing implementation must not be disguised as a fixture failure.
+    assert.equal(
+      typeof interview.submitInterviewAnswer,
+      "function",
+      "missing production behavior: submitInterviewAnswer must persist the Stage 1 immutable snapshot",
+    );
+    assert.equal(
+      typeof interview.recordInterviewDecision,
+      "function",
+      "missing production behavior: recordInterviewDecision must persist the Stage 2 authority decision",
+    );
+
+    const snapshot = {
+      questionId: "question-consensus",
+      questionRevision: 4,
+      sessionRevision: 7,
+      evidenceFindings: [{ sourceRef: "public-source-1", excerpt: "Observed fact" }],
+      inference: { label: "Inference", value: "A labelled conclusion" },
+      recommendation: { value: "Use the recommended hierarchy" },
+      destination: {
+        companyId: "company-1",
+        productId: "product-1",
+        marketPlayId: "play-1",
+        customerProfileId: "profile-1",
+      },
+      prerequisiteKnowledge: [
+        { id: "knowledge-a", digest: "a-digest" },
+        { id: "knowledge-z", digest: "z-digest" },
+      ],
+    };
+    assert.deepEqual(
+      snapshot.prerequisiteKnowledge.map(({ id, digest }) => `${id}:${digest}`),
+      ["knowledge-a:a-digest", "knowledge-z:z-digest"],
+      "snapshot prerequisites must be sorted and bind both IDs and digests",
+    );
+    const stageOne = ["use_recommendation", "write_correction", "change_scope"];
+    const stageTwo = ["accept", "reject", "correct", "rescope"];
+    assert.deepEqual(stageOne, ["use_recommendation", "write_correction", "change_scope"]);
+    assert.deepEqual(stageTwo, ["accept", "reject", "correct", "rescope"]);
+    assert.notEqual("answer-operation-key", "decision-operation-key");
+  } finally {
+    await vite.close();
+  }
+});
