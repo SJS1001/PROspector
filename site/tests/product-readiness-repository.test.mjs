@@ -160,7 +160,8 @@ test("migration/schema/forbidden Phase 3 authority is additive, constrained, and
   const fixture = await createD1Fixture("product-discovery-schema");
   try {
     await applyMigrations(fixture.database);
-    assert.match(MIGRATION_FILENAMES.at(-1), /^0005_[a-z0-9_]+\.sql$/);
+    assert.ok(MIGRATION_FILENAMES.some((name) => /^0005_[a-z0-9_]+\.sql$/.test(name)));
+    assert.match(MIGRATION_FILENAMES.at(-1), /^0006_[a-z0-9_-]+\.sql$/);
 
     const requiredTables = [
       "product_discovery_configuration_prerequisites",
