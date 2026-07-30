@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 const SAFE_STATUS_VALUES = new Set(["proven", "blocked", "unproven"]);
-const DENIAL_MARKERS = [
-  "companyName",
-  "workspaceId",
-  "auditId",
-  "csrfToken",
+const DENIAL_MARKERS = new Set([
+  "companyname",
+  "workspaceid",
+  "auditid",
+  "csrftoken",
   "capabilities",
   "owner",
   "email",
-];
+]);
 const PROOF_STEPS = ["put", "read", "digest", "delete", "absence"];
+const OBJECT_STORAGE_CAPABILITY_ID = "r2_object_lifecycle";
+const PRODUCTION_HOST = "prospector-steven-pilot.djstif.chatgpt.site";
+const MAXIMUM_SESSION_TRANSPORT_BYTES = 32 * 1024;
 
 const HELP = `PROspector hosted boundary proof
 
@@ -28,8 +32,9 @@ Modes:
 
 Authenticated transport:
   --session-headers-file points to a local JSON object containing the authenticated
-  request headers supplied by the operator. The file is read at runtime only. Its
-  path, names, and values are never printed or written by this harness.
+  session transport supplied by the operator. Only the session transport header is
+  accepted. The file is read at runtime only; its path and value are never printed
+  or written by this harness.
 
 Safe output:
   Emits HTTP outcomes, allowed capability statuses, proof step booleans, timestamps,
@@ -37,12 +42,17 @@ Safe output:
   object key, object payload, subject pepper, provider key, lead/contact data, or export.
 `;
 
-main().catch((error) => {
-  process.stderr.write(
-    `${JSON.stringify({ ok: false, check: "harness", outcome: safeError(error) })}\n`,
-  );
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error) => {
+    process.stderr.write(
+      `${JSON.stringify({ ok: false, check: "harness", outcome: safeError(error) })}\n`,
+    );
+    process.exitCode = 1;
+  });
+}
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -128,6 +138,9 @@ function normalizedBaseUrl(raw) {
   if (url.protocol !== "https:" && !isLocalhost(url.hostname)) {
     throw new Error("https_base_url_required");
   }
+  if (url.hostname !== PRODUCTION_HOST && !isLocalhost(url.hostname)) {
+    throw new Error("untrusted_base_url");
+  }
   url.pathname = "/";
   url.search = "";
   url.hash = "";
@@ -139,13 +152,26 @@ function isLocalhost(hostname) {
 }
 
 async function loadSessionHeaders(path) {
-  const value = JSON.parse(await readFile(path, "utf8"));
+  const file = await open(path, "r");
+  let raw;
+  try {
+    const stats = await file.stat();
+    if (stats.size > MAXIMUM_SESSION_TRANSPORT_BYTES) {
+      throw new Error("authenticated_session_transport_too_large");
+    }
+    raw = await file.readFile("utf8");
+  } finally {
+    await file.close();
+  }
+  const value = JSON.parse(raw);
   if (!value || Array.isArray(value) || typeof value !== "object") {
     throw new Error("invalid_authenticated_session_transport");
   }
   const headers = {};
   for (const [name, headerValue] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
     if (
+      normalizedName !== "cookie" ||
       typeof headerValue !== "string" ||
       !name ||
       /[\r\n]/u.test(name) ||
@@ -153,7 +179,10 @@ async function loadSessionHeaders(path) {
     ) {
       throw new Error("invalid_authenticated_session_transport");
     }
-    headers[name] = headerValue;
+    headers[normalizedName] = headerValue;
+  }
+  if (Object.keys(headers).length !== 1) {
+    throw new Error("invalid_authenticated_session_transport");
   }
   return headers;
 }
@@ -165,6 +194,7 @@ async function verifyDeniedRead(baseUrl) {
   const text = await response.text();
   const body = safeJson(text);
   assert(response.status === 401 || response.status === 404, "denial_expected");
+  assertNoStore(response);
   assertNoPrivateMetadata(text, body);
   emit({
     ok: true,
@@ -241,19 +271,23 @@ async function runOwnerProof(baseUrl, headers, initialCsrfToken) {
 
   const durable = await readOwnerState(baseUrl, headers);
   const objectStorage = durable.body.capabilities.find(
-    (item) => item.id === "object-storage",
+    (item) => item.id === OBJECT_STORAGE_CAPABILITY_ID,
   );
   assert(objectStorage?.status === "proven", "durable_proof_not_projected");
   assert(
-    objectStorage.evidence?.reference === proof.evidenceReference,
+    objectStorage.evidenceReference === proof.evidenceReference,
     "durable_evidence_reference_mismatch",
+  );
+  assert(
+    objectStorage.checkedAt === proof.checkedAt,
+    "durable_evidence_timestamp_mismatch",
   );
   emit({
     ok: true,
     check: "durable_evidence_after_reload",
     status: objectStorage.status,
-    checkedAt: objectStorage.evidence.checkedAt,
-    evidenceReference: objectStorage.evidence.reference,
+    checkedAt: objectStorage.checkedAt,
+    evidenceReference: objectStorage.evidenceReference,
   });
 }
 
@@ -301,21 +335,40 @@ function assertCapabilityState(body) {
     "invalid_capability_status",
   );
   assert(
-    !("email" in body) &&
-      !("workspaceId" in body) &&
-      !JSON.stringify(body.owner).includes("@"),
+    body.owner?.admitted === true &&
+      !containsIdentityMetadata(body),
     "private_identity_leak",
   );
 }
 
 function assertProofShape(body) {
   const proof = body?.proof;
+  const bodyKeys = sortedKeys(body);
+  const proofKeys = sortedKeys(proof);
   assert(
     body?.ok === true &&
+      JSON.stringify(bodyKeys) ===
+        JSON.stringify(["csrfToken", "ok", "proof"]) &&
+      JSON.stringify(proofKeys) ===
+        JSON.stringify([
+          "checkedAt",
+          "digest",
+          "evidenceReference",
+          "probeId",
+          "reason",
+          "status",
+          "steps",
+        ]) &&
       proof?.status === "proven" &&
-      typeof proof.checkedAt === "number" &&
+      Number.isFinite(proof.checkedAt) &&
+      proof.checkedAt > 0 &&
+      /^[a-f0-9]{32}$/u.test(proof.probeId) &&
+      /^[a-f0-9]{64}$/u.test(proof.digest) &&
       typeof proof.evidenceReference === "string" &&
-      proof.evidenceReference.length > 0 &&
+      proof.evidenceReference === `r2-proof-${proof.probeId}` &&
+      typeof proof.reason === "string" &&
+      typeof body.csrfToken === "string" &&
+      body.csrfToken.length > 0 &&
       PROOF_STEPS.every((step) => proof.steps?.[step] === true),
     "invalid_fixed_probe_response",
   );
@@ -336,12 +389,39 @@ function assertNoStore(response) {
 function assertNoPrivateMetadata(text, body) {
   const lowered = text.toLowerCase();
   assert(!lowered.includes("digitalrain"), "private_company_leak");
-  for (const marker of DENIAL_MARKERS) {
-    assert(
-      !Object.prototype.hasOwnProperty.call(body, marker),
-      "private_metadata_leak",
-    );
+  assert(!containsPrivateMetadata(body), "private_metadata_leak");
+}
+
+function containsPrivateMetadata(value) {
+  if (typeof value === "string") {
+    return /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/iu.test(value);
   }
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) => {
+    const normalizedKey = key.replaceAll(/[^a-z0-9]/giu, "").toLowerCase();
+    return DENIAL_MARKERS.has(normalizedKey) || containsPrivateMetadata(child);
+  });
+}
+
+function containsIdentityMetadata(value) {
+  if (typeof value === "string") {
+    return /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/iu.test(value);
+  }
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) => {
+    const normalizedKey = key.replaceAll(/[^a-z0-9]/giu, "").toLowerCase();
+    return (
+      normalizedKey.includes("email") ||
+      normalizedKey === "owneremail" ||
+      containsIdentityMetadata(child)
+    );
+  });
+}
+
+function sortedKeys(value) {
+  return value && typeof value === "object"
+    ? Object.keys(value).sort()
+    : [];
 }
 
 function statusCounts(capabilities) {
@@ -376,3 +456,12 @@ function safeError(error) {
     ? error.message
     : "unexpected_failure";
 }
+
+export {
+  assertProofShape,
+  loadSessionHeaders,
+  normalizedBaseUrl,
+  readOwnerState,
+  runOwnerProof,
+  verifyDeniedRead,
+};
