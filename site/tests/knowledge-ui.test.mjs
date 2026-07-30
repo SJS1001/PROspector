@@ -73,6 +73,7 @@ test("commercial hierarchy, counts, locators, and pending copy use projected dat
   assert.match(commercial, /projection\.products, \.\.\.projection\.plays, \.\.\.projection\.profiles/);
   assert.doesNotMatch(commercial, /Server projection required/);
   assert.match(workspace, /item\.destination\.locator \?\? commercialLocator/);
+  assert.match(workspace, /id: hierarchyNode \? source\.id : source\.destination\.id, locator/);
   assert.match(workspace, /if \(!locator\) throw new Error\("destination_locator_unavailable"\)/);
   assert.match(workspace, /function countsByDestination/);
   assert.match(workspace, /function scopePathFor/);
