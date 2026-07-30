@@ -16,7 +16,7 @@ email, call external research services, or treat fixture leads as live data.
 Requires Node.js 22.13 or newer.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 

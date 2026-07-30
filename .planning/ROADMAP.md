@@ -37,11 +37,11 @@ PROspector moves from its narrow hosted interview proof to a safe private operat
 **UI hint**: yes
 
 Plans:
-- [ ] `01-01-PLAN.md` — Create the failing single-owner, evidence-state, storage, and route contracts.
-- [ ] `01-02-PLAN.md` — Enforce server-only single-owner admission before every interview operation.
-- [ ] `01-03-PLAN.md` — Build the provider-neutral capability and object-storage proof core.
-- [ ] `01-04-PLAN.md` — Wire secure capability APIs and the verified Pilot Status UI.
-- [ ] `01-05-PLAN.md` — Deploy exact source and complete controlled hosted boundary proof.
+- [x] `01-01-PLAN.md` — Create the failing single-owner, evidence-state, storage, and route contracts.
+- [x] `01-02-PLAN.md` — Enforce server-only single-owner admission before every interview operation.
+- [x] `01-03-PLAN.md` — Build the provider-neutral capability and object-storage proof core.
+- [x] `01-04-PLAN.md` — Wire secure capability APIs and the verified Pilot Status UI.
+- [x] `01-05-PLAN.md` — Deploy exact source and complete controlled hosted boundary proof. The second-real-principal checkpoint remains visibly deferred and grants no later authority.
 
 ### Phase 2: Consensus Knowledge and Commercial Model
 **Goal**: The owner can establish authoritative commercial knowledge and scope it correctly through a research-first, versioned, auditable decision workflow.  
@@ -57,17 +57,17 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] `02-01-PLAN.md` — Create full-chain D1, commercial-model, and immutable-knowledge Wave 0 contracts.
-- [ ] `02-02-PLAN.md` — Create interview concurrency, secure handler, drift/replacement, and Knowledge UI Wave 0 contracts.
-- [ ] `02-03-PLAN.md` — Complete the blocking `uuid@14.0.1` package-legitimacy checkpoint.
-- [ ] `02-04-PLAN.md` — Add the audited UUIDv7 dependency and additive authority schema/backfill.
-- [ ] `02-05-PLAN.md` — Implement the owner-scoped commercial aggregate and Proposed/Confirmed Knowledge authority.
-- [ ] `02-06-PLAN.md` — Generalize the research-first, two-stage, concurrency-safe Consensus Interview.
-- [ ] `02-07-PLAN.md` — Implement dependency-reached drift and separate immutable replacement activation.
-- [ ] `02-08-PLAN.md` — Expose owner-only, CSRF-protected, activation-gated Knowledge APIs.
-- [ ] `02-09-PLAN.md` — Build Commercial Model, Interview, Knowledge Library, and Drift leaf views.
-- [ ] `02-10-PLAN.md` — Compose and style the authoritative Knowledge workspace while preserving disabled effects.
-- [ ] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
+- [x] `02-01-PLAN.md` — Create full-chain D1, commercial-model, and immutable-knowledge Wave 0 contracts.
+- [x] `02-02-PLAN.md` — Create interview concurrency, secure handler, drift/replacement, and Knowledge UI Wave 0 contracts.
+- [x] `02-03-PLAN.md` — Complete the blocking `uuid@14.0.1` package-legitimacy checkpoint.
+- [x] `02-04-PLAN.md` — Add the audited UUIDv7 dependency and additive authority schema/backfill.
+- [x] `02-05-PLAN.md` — Implement the owner-scoped commercial aggregate and Proposed/Confirmed Knowledge authority.
+- [x] `02-06-PLAN.md` — Generalize the research-first, two-stage, concurrency-safe Consensus Interview.
+- [x] `02-07-PLAN.md` — Implement dependency-reached drift and separate immutable replacement activation.
+- [x] `02-08-PLAN.md` — Expose owner-only, CSRF-protected, activation-gated Knowledge APIs.
+- [x] `02-09-PLAN.md` — Build Commercial Model, Interview, Knowledge Library, and Drift leaf views.
+- [x] `02-10-PLAN.md` — Compose and style the authoritative Knowledge workspace while preserving disabled effects.
+- [x] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
 - [ ] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
 - [ ] `02-13-PLAN.md` — Deploy backward-compatible code to the existing private project behind an absent gate.
 - [ ] `02-14-PLAN.md` — Apply additive migration 0004 and prove post-migration invariants.
@@ -87,8 +87,11 @@ Plans:
   2. Product readiness atomically creates an immutable Product Discovery Configuration, queues exactly one initial discovery run, reveals manual discovery, and schedules monthly discovery even when no Play, Profile, or Offer exists.
   3. Monthly, manual, and material-change discovery each surface no more than three evidence-backed proposals that show the problem match, audience, likely buyer, examples, risks, and Product fit.
   4. The owner can Explore, Defer, or Dismiss a proposal with durable history and cooldown behavior; Explore opens a Draft Market Play interview and never makes a Profile Ready or starts prospecting.
-**Plans**: TBD  
+**Plans**: 11 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `03-01-PLAN.md` through `03-11-PLAN.md` — Independently checked implementation sequence; execution remains dependency-gated on Phase 2 acceptance.
 
 ### Phase 4: Profile Readiness and Evidence-Based Prospecting
 **Goal**: The owner can activate a complete Customer Profile and receive explainable, deterministically qualified prospects from scoped, untrusted runner contributions.  
@@ -149,8 +152,8 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
-| 2. Consensus Knowledge and Commercial Model | 5/20 | In Progress|  |
-| 3. Product Readiness and Market Discovery | 0/TBD | Not started | - |
+| 2. Consensus Knowledge and Commercial Model | 11/20 | Blocked at hosted evidence | - |
+| 3. Product Readiness and Market Discovery | 0/11 | Planned; dependency-blocked | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/TBD | Not started | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/TBD | Not started | - |
 | 6. Governed Outreach and Suppression | 0/TBD | Not started | - |

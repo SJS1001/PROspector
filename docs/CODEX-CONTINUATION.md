@@ -21,10 +21,16 @@
    If the branch already exists locally, use `git switch codex/generic-prospector-pilot` followed by `git pull --ff-only`.
 3. Read this file, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the current phase's `*-PLAN.md`/`*-SUMMARY.md` files.
 4. Install and verify the application from `site/` with Node.js 22.13 or newer: `npm ci`, `npm test`, and `npm run lint`.
-5. Resume Phase 2 from Plan 02-12 only after reading `02-ACTIVATION.md`, `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. Plan 02-12 is a real hosted-evidence checkpoint, not an implementation task that can be marked complete locally.
+5. First remediate and independently re-review the open local findings in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. Then resume Phase 2 from Plan 02-12 after reading `02-ACTIVATION.md`. Plan 02-12 is a real hosted-evidence checkpoint, not an implementation task that can be marked complete locally.
 6. Use `gpt-5.6-terra` medium for implementation/planning, Terra low for routine checks, and Sol medium only for final security/red-team or a demonstrated hard blocker.
 
 Do not rely on a Codex conversation, local task IDs, or uncommitted work as authority. Git commits and repository artifacts are the portable source of truth.
+
+GSD skills and `gsd-sdk` are account-level tools, not repository dependencies. If they are unavailable in the new account, follow the checked `*-PLAN.md` files directly, preserve their dependency order and human checkpoints, write the matching `*-SUMMARY.md` only when a plan is genuinely complete, and run the repository verification commands.
+
+## Paste-ready prompt for another Codex account
+
+> Continue the PROspector project from `https://github.com/SJS1001/PROspector.git` on branch `codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the Phase 2 activation/audit files before changing anything. Treat Git and committed repository artifacts as the source of truth, preserve all human/hosted evidence gates, keep the existing Sites project private, never create a replacement Sites project, and never reveal or alter secrets. Install with `cd site && npm ci`, run the tests and lint, remediate and re-review open local Phase 2 findings, then stop at Plan 02-12 unless the named real-principal and hosted D1 prerequisites are genuinely available. Continue later plans only in dependency order and never fabricate completion evidence.
 
 ## Current state
 
@@ -55,6 +61,7 @@ Use these existing artifacts rather than restating product decisions:
 - Production URL: `https://prospector-steven-pilot.djstif.chatgpt.site/`.
 - Keep the site private. Never clone, replace, delete, rename, or make it public as a workaround.
 - Never display, copy, rotate, or remove secret values.
+- Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
 - Sites deployment administration is not made portable by GitHub. The existing Sites project is owner/workspace scoped; an account that cannot resolve the project must use the platform's supported same-workspace collaboration or ownership procedure. Absence of cross-account Sites sharing does not authorize a second project.
 - Hosted Phase 2 writes remain fail-closed until the ordered preflight, compatible deploy, additive migration, exact-source review/deploy, real-principal boundary proof, explicit eight-field authorization tuple, narrow `consensus_knowledge` activation, and owner lifecycle proof all pass.

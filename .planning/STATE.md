@@ -36,7 +36,7 @@ Progress: [████░░░░░░] 44% of currently planned plans
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 16
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -44,7 +44,8 @@ Progress: [████░░░░░░] 44% of currently planned plans
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| Phase 1 | 5 | recorded in plan summaries | - |
+| Phase 2 | 11 | recorded in plan summaries | - |
 
 **Recent Trend:**
 
