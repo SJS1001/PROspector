@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { KnowledgeWorkspace } from "./knowledge/knowledge-workspace";
+import { DiscoveryWorkspace } from "./discovery/discovery-workspace";
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
 type CapabilityItem = {
@@ -37,11 +38,6 @@ const signals = [
   { company: "Boliden", target: "Odda expansion", signal: "Commissioning activity and production ramp underway", score: 8, tier: "T1", age: "4h", status: "Review" },
   { company: "Alamos Gold", target: "Island Gold Phase 3+", signal: "Shaft expansion enters operational transition", score: 8, tier: "T2", age: "6h", status: "Review" },
   { company: "Covalent Lithium", target: "Mt Holland", signal: "Concentrator optimization remains a stated priority", score: 7, tier: "T2", age: "9h", status: "Needs evidence" },
-];
-
-const discovery = [
-  { market: "Bulk materials terminals", fit: "High", reason: "Shared uptime and fragmented equipment-data problem", buyer: "Terminal operations director" },
-  { market: "Marine port operations", fit: "Medium", reason: "ONE capabilities transfer; proof and buyer language differ", buyer: "Port operations VP" },
 ];
 
 // Kept as a stable source-level copy contract while the rendered controls live in KnowledgeWorkspace.
@@ -115,7 +111,7 @@ export function ProspectorApp({
           {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={() => setAccess("unauthorized")} />}
           {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={setView} />}
           {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={() => setAccess("unauthorized")} />}
-          {view === "Market Discovery" && <MarketDiscovery />}
+          {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={() => setAccess("unauthorized")} />}
           {view === "Review Queue" && <ReviewQueue items={filteredSignals} />}
           {view === "Prospects" && <Prospects items={filteredSignals} />}
           {view === "Exports & History" && <Exports />}
@@ -462,10 +458,6 @@ function SignalRow({ item }: { item: (typeof signals)[number] }) {
     <div className="signal-copy"><div><strong>{item.company}</strong><span>· {item.target}</span></div><p>{item.signal}</p><small><b>{item.tier}</b> Synthetic source tier · {item.age} sample age · {item.status}</small></div>
     <div className="row-actions"><button type="button" disabled title="Requires a persisted, audited decision workflow">Approve disabled</button><button type="button" disabled title="Requires a persisted, audited decision workflow">Defer disabled</button></div>
   </article>;
-}
-
-function MarketDiscovery() {
-  return <><PageHeading eyebrow="PRODUCT · ONE · SYNTHETIC FIXTURE" title="Market Discovery" copy="An interaction example only. No proposal is persisted or activated." action={<button className="primary" type="button" disabled title="Available after Wave 0">Discovery disabled</button>} /><div className="proposal-grid">{discovery.map((item) => <article className="panel proposal" key={item.market}><span className="fit-pill">Synthetic · {item.fit} fit</span><h2>{item.market}</h2><p>{item.reason}</p><dl><div><dt>Likely buyer</dt><dd>{item.buyer}</dd></div><div><dt>Risk</dt><dd>Proof and language need market validation</dd></div></dl><div className="proposal-actions"><button type="button" disabled>Explore disabled</button><button type="button" disabled>Defer disabled</button><button type="button" disabled>Dismiss disabled</button></div></article>)}</div></>;
 }
 
 function ReviewQueue({ items }: { items: typeof signals }) {
