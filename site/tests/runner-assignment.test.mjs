@@ -81,7 +81,7 @@ test("capabilities fail neutrally on tamper, expiry, audience, exact provenance,
   } finally { await seed.fixture.dispose(); }
 });
 
-test("material successors bind immutable first-signal lineage and reject nonchronological evidence", async () => {
+test("an earlier material arrival reconciles an immutable canonical successor chain", async () => {
   const seed = await setup();
   try {
     const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
@@ -93,18 +93,19 @@ test("material successors bind immutable first-signal lineage and reject nonchro
     const second = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { runId: "runner-run-2", idempotencyKey: "material-second" }));
     const secondSubmission = await runner.submitRunnerObservations(seed.fixture.database, { capability: second.capability, idempotencyKey: "material-submit-second", now: NOW + 11, capabilitySecret: secret, payload: payloadAtTime(NOW + 10) });
     await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: secondSubmission.submissionId, now: NOW + 12 });
-    const rows = await seed.fixture.database.prepare("SELECT ps.id,ps.signal_digest,ps.signal_json,pl.id lineage_id,pl.lineage_digest,pl.lineage_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.profile_id=? ORDER BY pl.occurred_at,ps.id").bind(seed.profileId).all();
-    assert.equal(rows.results.length, 2); const [firstSignal, secondSignal] = rows.results; const reconfirmation = JSON.parse(secondSignal.signal_json).reconfirmation; const successor = JSON.parse(secondSignal.lineage_json).successorOf;
-    for (const relation of [reconfirmation, successor]) { assert.equal(relation.predecessorSignalId, firstSignal.id); assert.equal(relation.predecessorSignalDigest, firstSignal.signal_digest); assert.equal(relation.predecessorLineageId, firstSignal.lineage_id); assert.equal(relation.predecessorLineageDigest, firstSignal.lineage_digest); }
     await insertSecondRun(seed, "runner-run-3", "runner-run-key-3");
     const nonchronological = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { runId: "runner-run-3", idempotencyKey: "material-third" }));
     const rejected = await runner.submitRunnerObservations(seed.fixture.database, { capability: nonchronological.capability, idempotencyKey: "material-submit-third", now: NOW + 13, capabilitySecret: secret, payload: payloadAtTime(NOW + 5) });
-    await assert.rejects(() => policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: rejected.submissionId, now: NOW + 14 }), /source_policy_rejected/i);
-    assert.equal((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospecting_signals WHERE profile_id=?").bind(seed.profileId).first()).count, 2, "nonchronological material evidence must not create a new lineage root");
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: rejected.submissionId, now: NOW + 14 });
+    const chain = await policy.readCanonicalMaterialLineage(seed.fixture.database, { workspaceId: seed.workspaceId, profileId: seed.profileId, kind: "operating-signal", underlyingOriginIdentity: "example.invalid" });
+    assert.deepEqual(chain.map((member) => member.occurred_at), [NOW, NOW + 5, NOW + 10]);
+    const rows = await seed.fixture.database.prepare("SELECT ps.id,ps.signal_digest,ps.signal_json,pl.id lineage_id,pl.lineage_digest FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.profile_id=? ORDER BY pl.occurred_at,ps.id").bind(seed.profileId).all();
+    assert.equal(rows.results.length, 3); assert.ok(rows.results.every((row) => !JSON.parse(row.signal_json).successorOf), "signal facts remain immutable and relation-free");
+    const relation = await canonicalRelation(seed, chain); assert.equal(relation.chain.length, 3); assert.deepEqual(relation.chain.map((member) => member.signalId), chain.map((member) => member.id));
   } finally { await seed.fixture.dispose(); }
 });
 
-test("simultaneous material assignments serialize into one chronological successor chain", async () => {
+test("lower timestamp winning first keeps one exact canonical chain across retry", async () => {
   const seed = await setup();
   try {
     const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
@@ -121,20 +122,13 @@ test("simultaneous material assignments serialize into one chronological success
       runner.submitRunnerObservations(seed.fixture.database, { capability: lower.capability, idempotencyKey: "chain-lower-submission", now: NOW + 3, capabilitySecret: secret, payload: payloadAtTime(NOW + 10) }),
       runner.submitRunnerObservations(seed.fixture.database, { capability: higher.capability, idempotencyKey: "chain-higher-submission", now: NOW + 3, capabilitySecret: secret, payload: payloadAtTime(NOW + 20) }),
     ]);
-    const race = await Promise.allSettled([
-      policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: lowerSubmission.submissionId, now: NOW + 30 }),
-      policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: higherSubmission.submissionId, now: NOW + 30 }),
-    ]);
-    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 2, "the newer observation reloads and appends after its raced predecessor");
-    const rows = await seed.fixture.database.prepare("SELECT ps.id,ps.signal_digest,pl.id lineage_id,pl.lineage_digest,pl.lineage_json,pl.occurred_at FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.profile_id=? AND ps.material=1 ORDER BY pl.occurred_at,ps.id").bind(seed.profileId).all();
-    assert.equal(rows.results.length, 3);
-    for (let index = 1; index < rows.results.length; index += 1) {
-      const previous = rows.results[index - 1], current = rows.results[index]; const predecessor = JSON.parse(current.lineage_json).successorOf;
-      assert.equal(predecessor.predecessorSignalId, previous.id); assert.equal(predecessor.predecessorSignalDigest, previous.signal_digest);
-      assert.equal(predecessor.predecessorLineageId, previous.lineage_id); assert.equal(predecessor.predecessorLineageDigest, previous.lineage_digest);
-    }
-    const predecessorIds = rows.results.slice(1).map((row) => JSON.parse(row.lineage_json).successorOf.predecessorSignalId);
-    assert.equal(new Set(predecessorIds).size, predecessorIds.length, "no predecessor may have two material successors");
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: lowerSubmission.submissionId, now: NOW + 30 });
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: higherSubmission.submissionId, now: NOW + 30 });
+    const chain = await policy.readCanonicalMaterialLineage(seed.fixture.database, { workspaceId: seed.workspaceId, profileId: seed.profileId, kind: "operating-signal", underlyingOriginIdentity: "example.invalid" });
+    const before = await canonicalRelation(seed, chain); const counts = await lineageCounts(seed);
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: lowerSubmission.submissionId, now: NOW + 31 });
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: higherSubmission.submissionId, now: NOW + 31 });
+    assert.deepEqual(await lineageCounts(seed), counts); assert.equal((await canonicalRelation(seed, await policy.readCanonicalMaterialLineage(seed.fixture.database, { workspaceId: seed.workspaceId, profileId: seed.profileId, kind: "operating-signal", underlyingOriginIdentity: "example.invalid" }))).chainDigest, before.chainDigest);
   } finally { await seed.fixture.dispose(); }
 });
 
@@ -148,8 +142,8 @@ test("trusted signal projection loads pinned policy and preserves append-only li
     const signals = await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: submission.submissionId, now: NOW + 2, policy: { tier1Origins: [], tier2Origins: [], materialSignalKinds: [] } });
     assert.equal(signals[0].tier, 1, "caller supplied policy is ignored");
     const saved = await seed.fixture.database.prepare("SELECT ps.signal_json, pl.lineage_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id = ps.source_lineage_id WHERE ps.submission_id = ?").bind(submission.submissionId).first();
-    assert.match(saved.signal_json, /reconfirmation/); assert.match(saved.lineage_json, /assignmentId/);
-    await assert.rejects(() => policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: submission.submissionId, now: NOW + 3 }), /source_policy_rejected/i);
+    assert.match(saved.signal_json, /canonical_append_only_relation/); assert.match(saved.lineage_json, /assignmentId/);
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: submission.submissionId, now: NOW + 3 });
   } finally { await seed.fixture.dispose(); }
 });
 
@@ -175,4 +169,6 @@ test("source policy assigns trusted tiers, independence, recency, and leaves ret
 function validPayload() { return { status: "complete", findings: [{ kind: "operating-signal", sourceUrl: "https://example.invalid/source", observedAt: NOW, excerpt: "Bounded synthetic observation" }], sources: [{ url: "https://example.invalid/source", retrievedAt: NOW, excerpt: "Bounded source excerpt", publisher: "Synthetic publisher" }], provenance: { provider: "runner-provider", model: "runner-model", instructionVersion: "runner-instructions/v1", toolConfigurationDigest: "e".repeat(64), tools: [], transformations: [] } }; }
 function payloadAt(index) { const payload = validPayload(); payload.findings[0].sourceUrl = `https://example.invalid/source-${index}`; payload.findings[0].observedAt += index; payload.sources[0].url = payload.findings[0].sourceUrl; return payload; }
 function payloadAtTime(observedAt) { const payload = validPayload(); payload.findings[0].observedAt = observedAt; payload.sources[0].retrievedAt = observedAt; return payload; }
+async function canonicalRelation(seed, chain) { const rows = await seed.fixture.database.prepare("SELECT lineage_json FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1'").bind(seed.workspaceId).all(); const expected = chain.map((member) => member.id); const relation = rows.results.map((row) => JSON.parse(row.lineage_json)).find((candidate) => candidate.chain.map((member) => member.signalId).join(",") === expected.join(",")); assert.ok(relation, "an exact canonical relation must cover every material fact"); return relation; }
+async function lineageCounts(seed) { return (await seed.fixture.database.prepare("SELECT (SELECT COUNT(*) FROM prospecting_signals WHERE profile_id=?) signals,(SELECT COUNT(*) FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1') relations").bind(seed.profileId, seed.workspaceId).first()); }
 async function insertSecondRun(seed, id, triggerKey) { const operationDigest = id.endsWith("2") ? "e".repeat(64) : "f".repeat(64); await seed.fixture.database.prepare("INSERT INTO prospecting_runs (id,workspace_id,created_at,updated_at,revision,profile_id,configuration_id,schedule_id,configuration_digest,trigger_kind,trigger_key,window_lower_exclusive,window_upper_inclusive,last_successful_watermark,successful_watermark,manifest_json,manifest_digest,execution_state,authority_command_id,operation_digest,idempotency_key,started_at,completed_at) VALUES (?,?,?, ?,1,?,'runner-config','runner-schedule',?,'manual',?,NULL,?,NULL,NULL,'{}',?,'queued','runner-seed-command',?,?,?,NULL)").bind(id,seed.workspaceId,NOW,NOW,seed.profileId,DIGEST,triggerKey,NOW,"c".repeat(64),operationDigest,triggerKey,NOW).run(); }
