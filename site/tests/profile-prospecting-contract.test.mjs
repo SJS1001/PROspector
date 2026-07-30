@@ -203,6 +203,25 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
   } finally { await fixture.dispose(); }
 });
 
+test("distinct concurrent activation keys return only the persisted winner", async () => {
+  const fixture = await createD1Fixture("phase4-distinct-activation-race");
+  try {
+    await applyMigrations(fixture.database);
+    const profile = await loadProfileReadiness(fixture);
+    const seeded = await seedProfileAuthority(fixture);
+    const candidate = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000151" });
+    const before = await Promise.all(["authority_commands", "audit_events", "profile_configuration_activations", "prospecting_runs", "prospecting_schedules"].map(async (table) => [table, await countRows(fixture.database, table)]));
+    const attempts = await Promise.allSettled(["152", "153"].map((suffix) => profile.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW + 1, idempotencyKey: `0198f400-0000-7000-8000-000000000${suffix}` })));
+    const activation = await fixture.database.prepare("SELECT a.configuration_id,r.id run_id,s.id schedule_id FROM profile_configuration_activations a JOIN prospecting_runs r ON r.configuration_id=a.configuration_id AND r.trigger_kind='initial' JOIN prospecting_schedules s ON s.configuration_id=a.configuration_id AND s.active=1 WHERE a.candidate_id=?").bind(candidate.id).first();
+    assert.ok(activation, "one durable activation is the only possible winner");
+    for (const attempt of attempts) {
+      if (attempt.status === "fulfilled") assert.deepEqual([attempt.value.configuration.id, attempt.value.initialRun.id, attempt.value.schedule.id], [activation.configuration_id, activation.run_id, activation.schedule_id], "a concurrent caller must return persisted IDs, never generated IDs");
+      else assert.match(attempt.reason.message, /replacement|required|activation/i);
+    }
+    for (const [table, count] of before) assert.equal(await countRows(fixture.database, table), count + 1, `${table} has exactly the winner's single authority write`);
+  } finally { await fixture.dispose(); }
+});
+
 test("D-01 stale candidates cannot overwrite a replacement authority or mutate the replacement lineage", async () => {
   const fixture = await createD1Fixture("phase4-replacement-candidate-race");
   try {

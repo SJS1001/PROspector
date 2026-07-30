@@ -104,6 +104,40 @@ test("material successors bind immutable first-signal lineage and reject nonchro
   } finally { await seed.fixture.dispose(); }
 });
 
+test("simultaneous material assignments serialize into one chronological successor chain", async () => {
+  const seed = await setup();
+  try {
+    const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const policy = await seed.fixture.vite.ssrLoadModule(new URL("../domain/source-policy.ts", import.meta.url).pathname);
+    const first = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "chain-root-assignment" }));
+    const firstSubmission = await runner.submitRunnerObservations(seed.fixture.database, { capability: first.capability, idempotencyKey: "chain-root-submission", now: NOW + 1, capabilitySecret: secret, payload: validPayload() });
+    await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: firstSubmission.submissionId, now: NOW + 2 });
+    await insertSecondRun(seed, "runner-run-2", "chain-run-2"); await insertSecondRun(seed, "runner-run-3", "chain-run-3");
+    const [lower, higher] = await Promise.all([
+      runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { runId: "runner-run-2", idempotencyKey: "chain-lower-assignment" })),
+      runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { runId: "runner-run-3", idempotencyKey: "chain-higher-assignment" })),
+    ]);
+    const [lowerSubmission, higherSubmission] = await Promise.all([
+      runner.submitRunnerObservations(seed.fixture.database, { capability: lower.capability, idempotencyKey: "chain-lower-submission", now: NOW + 3, capabilitySecret: secret, payload: payloadAtTime(NOW + 10) }),
+      runner.submitRunnerObservations(seed.fixture.database, { capability: higher.capability, idempotencyKey: "chain-higher-submission", now: NOW + 3, capabilitySecret: secret, payload: payloadAtTime(NOW + 20) }),
+    ]);
+    const race = await Promise.allSettled([
+      policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: lowerSubmission.submissionId, now: NOW + 30 }),
+      policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: higherSubmission.submissionId, now: NOW + 30 }),
+    ]);
+    assert.equal(race.filter((entry) => entry.status === "fulfilled").length, 2, "the newer observation reloads and appends after its raced predecessor");
+    const rows = await seed.fixture.database.prepare("SELECT ps.id,ps.signal_digest,pl.id lineage_id,pl.lineage_digest,pl.lineage_json,pl.occurred_at FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.profile_id=? AND ps.material=1 ORDER BY pl.occurred_at,ps.id").bind(seed.profileId).all();
+    assert.equal(rows.results.length, 3);
+    for (let index = 1; index < rows.results.length; index += 1) {
+      const previous = rows.results[index - 1], current = rows.results[index]; const predecessor = JSON.parse(current.lineage_json).successorOf;
+      assert.equal(predecessor.predecessorSignalId, previous.id); assert.equal(predecessor.predecessorSignalDigest, previous.signal_digest);
+      assert.equal(predecessor.predecessorLineageId, previous.lineage_id); assert.equal(predecessor.predecessorLineageDigest, previous.lineage_digest);
+    }
+    const predecessorIds = rows.results.slice(1).map((row) => JSON.parse(row.lineage_json).successorOf.predecessorSignalId);
+    assert.equal(new Set(predecessorIds).size, predecessorIds.length, "no predecessor may have two material successors");
+  } finally { await seed.fixture.dispose(); }
+});
+
 test("trusted signal projection loads pinned policy and preserves append-only lineage", async () => {
   const seed = await setup();
   try {
