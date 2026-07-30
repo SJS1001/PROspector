@@ -14,7 +14,7 @@ PROspector moves from its narrow hosted interview proof to a safe private operat
 - Integer phases (1, 2, 3): planned milestone work.
 - Decimal phases (2.1, 2.2): urgent insertions added after planning.
 
-- [ ] **Phase 1: Private Pilot Boundary** - The owner can access one isolated, auditable workspace while sensitive data and external effects remain fail-closed behind proven capability gates.
+- [x] **Phase 1: Private Pilot Boundary** - The owner can access one isolated, auditable workspace while sensitive data and external effects remain fail-closed behind proven capability gates. (completed 2026-07-30)
 - [ ] **Phase 2: Consensus Knowledge and Commercial Model** - The owner can establish the commercial hierarchy and govern confirmed knowledge through a versioned Consensus Interview and drift workflow.
 - [ ] **Phase 3: Product Readiness and Market Discovery** - A Ready Product can run replayable discovery and present bounded Market Play proposals for operator decisions.
 - [ ] **Phase 4: Profile Readiness and Evidence-Based Prospecting** - A Ready Profile can schedule scoped runners, preserve evidence, qualify deterministically, and present prospects for review.
@@ -126,7 +126,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Private Pilot Boundary | 4/5 | In Progress | - |
+| 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
 | 2. Consensus Knowledge and Commercial Model | 0/TBD | Not started | - |
 | 3. Product Readiness and Market Discovery | 0/TBD | Not started | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/TBD | Not started | - |
