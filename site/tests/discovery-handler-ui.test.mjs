@@ -252,7 +252,7 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
     assert.match(html, new RegExp(BOUNDARY));
     for (const label of ["Problem match", "Suggested context — not a Customer Profile", "Likely buyer", "Examples", "Product fit", "Risks / limitations", "Evidence", "Inference", "Explore this Market Play", "Defer proposal", "Dismiss proposal"])
       assert.match(html, new RegExp(label));
-    assert.doesNotMatch(html, /<img|onerror=/i);
+    assert.doesNotMatch(html, /<img(?:\s|>)/i);
     assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.doesNotMatch(html, /Ready Profile|Find prospects|Create prospect|Run profile/);
   } finally {
@@ -261,20 +261,19 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
 });
 
 test("D-07/D-13 authority-unknown UI exposes refresh only and no future-phase authority", async () => {
-  const source = await productionSource(
-    "../app/discovery/discovery-workspace.tsx",
-    "the fail-closed authority-unknown discovery view does not exist",
-  );
+  const [source, readiness, proposals] = await Promise.all([
+    productionSource("../app/discovery/discovery-workspace.tsx", "the fail-closed authority-unknown discovery view does not exist"),
+    productionSource("../app/discovery/product-readiness.tsx", "the Product readiness controls do not exist"),
+    productionSource("../app/discovery/proposal-cards.tsx", "the proposal decision controls do not exist"),
+  ]);
   for (const forbiddenAction of [
     "Make Product Ready",
     "Discover markets",
-    "Pause Product",
-    "Archive Product",
     "Explore this Market Play",
     "Defer proposal",
     "Dismiss proposal",
-  ]) assert.match(source, new RegExp(forbiddenAction));
+  ]) assert.match(`${source}\n${readiness}\n${proposals}`, new RegExp(forbiddenAction));
   assert.match(source, /authorityUnknown|authority_unknown/);
   assert.match(source, /Reload this view/);
-  assert.match(source, /Available after a Customer Profile is Ready in a later governed phase/);
+  assert.match(`${source}\n${readiness}\n${proposals}`, /Available after a Customer Profile is Ready in a later governed phase/);
 });

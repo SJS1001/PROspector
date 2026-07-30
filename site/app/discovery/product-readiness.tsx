@@ -32,7 +32,7 @@ export function ProductReadinessView({ projection, pending, onMakeReady, onDisco
   return <section className="discovery-readiness" aria-label="Product readiness">
     <article className="panel readiness-summary">
       <div><span className={`readiness-badge readiness-${projection.product.lifecycle}`}>{label(projection.product.lifecycle)}</span><h2 tabIndex={-1} ref={result}>{isReady ? "Product Ready" : "Product readiness"}</h2></div>
-      <p>Product: <b>{projection.product.name}</b> · revision <code>{projection.product.revision}</code></p>
+      <p>Product: {projection.product.name} · revision <code>{projection.product.revision}</code></p>
       <p><b>{complete} of 9 confirmed</b>. {isReady ? "Discovery remains Product-scoped and immutable." : "Review every Product policy requirement before activation."}</p>
     </article>
     <section className="panel readiness-checklist"><h2>Confirmed Product policy</h2><ol>{checklist.map((item) => <li key={item.category} className={item.status === "confirmed" ? "confirmed" : "attention"}><div><b>{item.category}</b><span>{label(item.status)}</span></div><p>{item.condition ?? (item.status === "confirmed" ? "Current confirmed Product knowledge is present." : "A current confirmed Product knowledge version is required.")}</p>{item.versions?.length ? <ul>{item.versions.map((version) => <li key={version.id}><code>{version.id}</code><code>{version.digest}</code></li>)}</ul> : <p className="control-reason">No confirmed immutable version is projected.</p>}<a href="#knowledge">Review in Knowledge</a></li>)}</ol></section>
