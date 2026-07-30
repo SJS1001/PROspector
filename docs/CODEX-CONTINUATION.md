@@ -24,7 +24,7 @@ Do not rely on a Codex conversation, local task IDs, or uncommitted work as auth
 - Phase 2 next: execute 02-06 generalized interview and 02-07 drift/replacement in parallel; then continue 02-08 onward in dependency order.
 - Phase 4 preparation was integrated at `91d59cc`.
 - Phase 5 preparation was integrated at `9eb7e7f`.
-- A separate Phase 3 planning worktree task is still active at handoff creation. Its Codex task ID is `019fb415-d463-7be3-9812-895b26341532`; integrate only its final committed Phase 3 directory after independent verification and without overwriting newer main-branch work.
+- Phase 3 context, research, validation, patterns, approved UI contract, and 11 independently checked plans were integrated at `dfa51f2`. Execution remains gated on Phase 2 completion and the explicit capability evidence named in those plans.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -65,4 +65,3 @@ Use these existing artifacts rather than restating product decisions:
 - `gsd-execute-phase` for current Phase 2 plans.
 - `gsd-code-review`, `gsd-secure-phase`, `gsd-ui-review`, and `red-team` at their defined gates.
 - `sites:sites-building` followed by `sites:sites-hosting` only for reviewed, authorized deployment work.
-
