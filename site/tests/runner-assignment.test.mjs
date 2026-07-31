@@ -48,6 +48,17 @@ test("runner submission is bounded append-only observation data and rejects auth
   try {
     const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
     const issued = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed));
+    await assert.rejects(
+      () => runner.submitRunnerObservations(seed.fixture.database, {
+        capability: issued.capability,
+        idempotencyKey: "invalid-terminal-claim",
+        now: NOW + 1,
+        capabilitySecret: secret,
+        payload: { ...validPayload(), status: "succeeded" },
+      }),
+      /runner_assignment_rejected/i,
+    );
+    assert.equal(await seed.fixture.database.prepare("SELECT COUNT(*) AS count FROM runner_submissions").first().then((row) => Number(row.count)), 0);
     const result = await runner.submitRunnerObservations(seed.fixture.database, { capability: issued.capability, idempotencyKey: "0198f400-0000-7000-8000-000000000005", now: NOW + 1, capabilitySecret: secret, payload: validPayload() });
     assert.ok(result.submissionId);
     const row = await seed.fixture.database.prepare("SELECT status, submission_json FROM runner_submissions WHERE id = ?").bind(result.submissionId).first();
