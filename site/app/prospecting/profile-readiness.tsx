@@ -2,7 +2,7 @@ import React from "react";
 
 type Reference = { id?: string; digest?: string; versionId?: string };
 type PathPart = { id: string; name: string };
-type ProfilePath = {
+export type ProfilePath = {
   company: PathPart;
   product: PathPart;
   marketPlay: PathPart;
@@ -152,6 +152,11 @@ export function ProfileReadiness({
             )}
           </p>
           <p>Audit {active.auditEventId}</p>
+          <FrozenAuthority
+            manifest={active.configuration.frozenAuthority}
+            path={active.profilePath ?? profile?.path}
+            title="Frozen active authority review"
+          />
         </section>
       ) : candidateIsCurrent && candidate && authorityIsCurrent ? (
         <section className="authority-card candidate-review">
@@ -164,9 +169,10 @@ export function ProfileReadiness({
             Candidate {candidate.id} · revision {candidate.revision} · digest{" "}
             {candidate.digest}
           </code>
-          <FrozenCandidate
+          <FrozenAuthority
             manifest={candidate.frozenAuthority}
             path={profile?.path}
+            title="Frozen candidate authority review"
           />
           <p>
             Activation preserves history, queues one initial prospecting run,
@@ -233,12 +239,14 @@ export function ProfileReadiness({
   );
 }
 
-function FrozenCandidate({
+export function FrozenAuthority({
   manifest,
   path,
+  title,
 }: {
   manifest?: Record<string, unknown>;
   path?: ProfilePath;
+  title: string;
 }) {
   const authority = record(manifest?.authority);
   const policy = record(manifest?.policy);
@@ -253,8 +261,8 @@ function FrozenCandidate({
     ? (categories?.output_policy as Reference[])
     : [];
   return (
-    <div className="frozen-authority" aria-label="Frozen candidate authority">
-      <h4>Frozen candidate authority review</h4>
+    <div className="frozen-authority" aria-label={title}>
+      <h4>{title}</h4>
       {path && <ScopePath path={path} offerId={text(offer?.id)} />}
       <dl>
         <AuthorityRow

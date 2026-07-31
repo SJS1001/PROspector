@@ -115,6 +115,123 @@ test("persisted candidate projection renders the complete frozen decision author
   }
 });
 
+test("persisted active configuration renders the same frozen decision authority as its candidate", async () => {
+  const fixture = await createD1Fixture("phase4-ui-active-authority");
+  try {
+    await applyMigrations(fixture.database);
+    const readiness = await fixture.vite.ssrLoadModule(
+      new URL("../domain/profile-readiness.ts", import.meta.url).pathname,
+    );
+    const view = await fixture.vite.ssrLoadModule(
+      new URL("../app/prospecting/profile-readiness.tsx", import.meta.url)
+        .pathname,
+    );
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const candidate = await readiness.createProfileConfigurationCandidate(
+      fixture.database,
+      OWNER,
+      {
+        profileId: seeded.profileId,
+        expectedProfileRevision: seeded.revision,
+        idempotencyKey: "0198f400-0000-7000-8000-000000002011",
+        now: NOW,
+      },
+    );
+    await readiness.activateProfileConfiguration(fixture.database, OWNER, {
+      candidateId: candidate.id,
+      expectedRevision: candidate.revision,
+      expectedDigest: candidate.digest,
+      idempotencyKey: "0198f400-0000-7000-8000-000000002012",
+      now: NOW + 1,
+    });
+    const projection = await readiness.readProfileReadiness(
+      fixture.database,
+      OWNER,
+      seeded.profileId,
+    );
+    const html = renderToStaticMarkup(
+      React.createElement(view.ProfileReadiness, {
+        readiness: projection,
+        busy: false,
+        onCommand() {
+          throw new Error("SSR must not mutate");
+        },
+        onReload() {
+          throw new Error("SSR must not reload");
+        },
+      }),
+    );
+    for (const expected of [
+      "Active Profile Effective Configuration",
+      "Frozen active authority review",
+      "Product configuration",
+      "Market Play",
+      "Offer",
+      "Source policy",
+      "Runner policy",
+      "Rubric versions",
+      "Output policy versions",
+      "weekdays at 06:00",
+      "reject_only · no silent failover",
+    ]) {
+      assert.match(html, new RegExp(escape(expected)));
+    }
+    assert.equal(
+      projection.activation.configuration.frozenAuthority.authority.offer.id,
+      "phase4-offer",
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Profile selector renders server-projected lifecycle and encodes exact GET transport", async () => {
+  await withView("prospecting-transport.ts", async (transport) => {
+    assert.equal(
+      transport.prospectingUrl("profile/operating?scope=mine"),
+      "/api/prospecting?profileId=profile%2Foperating%3Fscope%3Dmine",
+    );
+  });
+  await withView("prospecting-workspace.tsx", async (view) => {
+    const html = renderToStaticMarkup(
+      React.createElement(view.ProspectingWorkspace, {
+        projection: {
+          authority: "owner",
+          profiles: [
+            { id: "profile-operating", name: "Operating sites", lifecycle: "ready" },
+            { id: "profile-greenfield", name: "Greenfield", lifecycle: "draft" },
+          ],
+          readiness: {
+            profile: {
+              id: "profile-operating",
+              revision: 4,
+              lifecycle: "ready",
+              path: {
+                company: { id: "company-1", name: "Digitalrain" },
+                product: { id: "product-1", name: "ONE" },
+                marketPlay: { id: "play-1", name: "ONE for Mining" },
+                profile: { id: "profile-operating", name: "Operating sites" },
+              },
+            },
+            complete: false,
+            items: [],
+          },
+          runs: [],
+          evidence: [],
+          assessments: [],
+          queue: [],
+        },
+      }),
+    );
+    assert.match(html, /aria-label="Customer Profile"/);
+    assert.match(html, /value="profile-operating" selected=""/);
+    assert.match(html, /Operating sites · ready/);
+    assert.match(html, /Greenfield · draft/);
+    assert.match(html, /Selected Profile <code>profile-operating/);
+    assert.match(html, /Digitalrain[\s\S]*ONE[\s\S]*ONE for Mining/);
+  });
+});
+
 test("Prospect Workspace keeps evidence ahead of score, exposes the complete ledger, and escapes hostile excerpts", async () => {
   await withView("prospect-workspace.tsx", async (view) => {
     const hostile = '<img src=x onerror="steal()"> & hostile';

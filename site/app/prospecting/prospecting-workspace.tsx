@@ -7,15 +7,23 @@ import {
 } from "./profile-readiness";
 import { ProspectWorkspace } from "./prospect-workspace";
 import { ReviewQueue } from "./review-queue";
+import { prospectingUrl } from "./prospecting-transport";
 
 export type ProspectingProjection = {
   authority?: "owner" | "blocked" | "malformed";
+  profiles?: {
+    id: string;
+    name: string;
+    lifecycle: string;
+    revision?: number;
+  }[];
   readiness?: ProfileReadinessProjection | null;
   runs?: Record<string, unknown>[];
   evidence?: Record<string, unknown>[];
   assessments?: Record<string, unknown>[];
   queue?: Record<string, unknown>[];
 };
+export type ProspectingMode = "prospects" | "review";
 type Notice = "stale" | "unknown" | "loaded" | "load_failed" | "";
 const PROSPECTING_NOTICES = Object.freeze({
   stale:
@@ -29,18 +37,22 @@ const PROSPECTING_NOTICES = Object.freeze({
 
 export function ProspectingWorkspace({
   projection: initial,
+  mode = "prospects",
   initialNotice = "",
   onUnauthorized,
 }: {
   projection: ProspectingProjection;
+  mode?: ProspectingMode;
   initialNotice?: Notice;
   onUnauthorized?: () => void;
 }) {
   const [projection, setProjection] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(initialNotice);
-  const reload = useCallback(async () => {
-    const response = await fetch("/api/prospecting", {
+  const selectedProfileId = projection.readiness?.profile?.id ?? "";
+  const initialProfileId = initial.readiness?.profile?.id;
+  const reload = useCallback(async (profileId?: string) => {
+    const response = await fetch(prospectingUrl(profileId), {
       cache: "no-store",
       credentials: "same-origin",
     });
@@ -52,23 +64,40 @@ export function ProspectingWorkspace({
       throw Error("Unable to reconcile the authoritative workspace.");
     setProjection(await response.json());
   }, [onUnauthorized]);
+  const selectProfile = useCallback(
+    async (profileId: string) => {
+      setBusy(true);
+      setNotice("");
+      try {
+        await reload(profileId);
+        setNotice("loaded");
+      } catch {
+        setNotice("load_failed");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [reload],
+  );
   const recover = useCallback(async () => {
     setBusy(true);
     try {
-      await reload();
+      await reload(selectedProfileId || undefined);
       setNotice("loaded");
     } catch {
       setNotice("load_failed");
     } finally {
       setBusy(false);
     }
-  }, [reload]);
+  }, [reload, selectedProfileId]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void reload().catch(() => setNotice("load_failed"));
+      void reload(initialProfileId).catch(() =>
+        setNotice("load_failed"),
+      );
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [reload]);
+  }, [initialProfileId, reload]);
   const command = useCallback(
     async (body: Record<string, unknown>) => {
       setBusy(true);
@@ -127,7 +156,11 @@ export function ProspectingWorkspace({
   return (
     <section className="prospecting">
       <style>{CSS}</style>
-      <h1>Profile Readiness and Prospect Workspace</h1>
+      <h1>
+        {mode === "review"
+          ? "Qualified Prospect Review Queue"
+          : "Profile Readiness and Prospect Workspace"}
+      </h1>
       {notice && (
         <section
           className="workspace-notice"
@@ -155,38 +188,75 @@ export function ProspectingWorkspace({
           )}
         </section>
       )}
-      <ProfileReadiness
-        readiness={readiness}
-        onCommand={command}
-        onReload={() => void recover()}
+      <ProfileSelector
+        profiles={projection.profiles ?? []}
+        selectedProfileId={profileId ?? ""}
         busy={busy}
+        onSelect={(selected) => void selectProfile(selected)}
       />
-      <ProspectWorkspace
-        profileId={profileId}
-        activation={activation}
-        runs={
-          (projection.runs ??
-            []) as Parameters<typeof ProspectWorkspace>[0]["runs"]
-        }
-        evidence={
-          (projection.evidence ??
-            []) as Parameters<typeof ProspectWorkspace>[0]["evidence"]
-        }
-        assessments={
-          (projection.assessments ??
-            []) as Parameters<typeof ProspectWorkspace>[0]["assessments"]
-        }
-        onCommand={command}
-        busy={busy}
-      />
-      <ReviewQueue
-        queue={
-          (projection.queue ??
-            []) as Parameters<typeof ReviewQueue>[0]["queue"]
-        }
-        onCommand={command}
-        busy={busy}
-      />
+      {mode === "review" ? (
+        <>
+          <ReviewQueue
+            queue={
+              (projection.queue ??
+                []) as Parameters<typeof ReviewQueue>[0]["queue"]
+            }
+            onCommand={command}
+            busy={busy}
+          />
+          <ProspectWorkspace
+            profileId={profileId}
+            activation={activation}
+            runs={
+              (projection.runs ??
+                []) as Parameters<typeof ProspectWorkspace>[0]["runs"]
+            }
+            evidence={
+              (projection.evidence ??
+                []) as Parameters<typeof ProspectWorkspace>[0]["evidence"]
+            }
+            assessments={
+              (projection.assessments ??
+                []) as Parameters<typeof ProspectWorkspace>[0]["assessments"]
+            }
+            onCommand={command}
+            busy={busy}
+          />
+          <ProfileReadiness
+            readiness={readiness}
+            onCommand={command}
+            onReload={() => void recover()}
+            busy={busy}
+          />
+        </>
+      ) : (
+        <>
+          <ProfileReadiness
+            readiness={readiness}
+            onCommand={command}
+            onReload={() => void recover()}
+            busy={busy}
+          />
+          <ProspectWorkspace
+            profileId={profileId}
+            activation={activation}
+            runs={
+              (projection.runs ??
+                []) as Parameters<typeof ProspectWorkspace>[0]["runs"]
+            }
+            evidence={
+              (projection.evidence ??
+                []) as Parameters<typeof ProspectWorkspace>[0]["evidence"]
+            }
+            assessments={
+              (projection.assessments ??
+                []) as Parameters<typeof ProspectWorkspace>[0]["assessments"]
+            }
+            onCommand={command}
+            busy={busy}
+          />
+        </>
+      )}
       <section className="prospecting-panel unavailable-controls">
         <h2>Later-phase controls</h2>
         <p>
@@ -210,11 +280,56 @@ export function ProspectingWorkspace({
   );
 }
 
+function ProfileSelector({
+  profiles,
+  selectedProfileId,
+  busy,
+  onSelect,
+}: {
+  profiles: NonNullable<ProspectingProjection["profiles"]>;
+  selectedProfileId: string;
+  busy: boolean;
+  onSelect: (profileId: string) => void;
+}) {
+  return (
+    <section className="prospecting-panel profile-selector">
+      <label htmlFor="prospecting-profile">
+        <strong>Customer Profile</strong>
+        <span>
+          Select an owner-authorized Profile. The server reloads its exact
+          authority and scope path.
+        </span>
+      </label>
+      <select
+        id="prospecting-profile"
+        aria-label="Customer Profile"
+        value={selectedProfileId}
+        disabled={busy || profiles.length === 0}
+        onChange={(event) => onSelect(event.target.value)}
+      >
+        {!selectedProfileId && <option value="">Select a Profile</option>}
+        {profiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.name} · {profile.lifecycle}
+          </option>
+        ))}
+      </select>
+      {selectedProfileId ? (
+        <p>
+          Selected Profile <code>{selectedProfileId}</code>
+        </p>
+      ) : (
+        <p role="status">No Profile is selected.</p>
+      )}
+    </section>
+  );
+}
+
 const CSS = `
 .prospecting{display:grid;gap:16px;font-size:12px;line-height:1.55}
 .prospecting-panel,.workspace-notice{display:grid;gap:12px;padding:24px;border:1px solid var(--line);border-radius:9px;background:var(--white)}
-.prospecting button,.prospecting a,.prospecting summary,.prospecting input{min-height:44px}
-.prospecting button,.prospecting input{font:inherit}
+.prospecting button,.prospecting a,.prospecting summary,.prospecting input,.prospecting select{min-height:44px}
+.prospecting button,.prospecting input,.prospecting select{font:inherit}
 .prospecting :focus-visible{outline:2px solid var(--lime);outline-offset:2px}
 .prospecting h2,.prospecting h3,.prospecting h4,.prospecting p,.prospecting blockquote,.prospecting dl,.prospecting dd{margin:0}
 .scope-path{overflow-wrap:anywhere}
@@ -231,6 +346,8 @@ const CSS = `
 .manual-run-confirmation label{grid-template-columns:auto 1fr;align-items:center}
 .manual-run-confirmation input[type=checkbox]{min-width:44px}
 .review-queue input{width:100%;padding:8px;border:1px solid var(--line);border-radius:5px}
+.profile-selector label{display:grid;gap:4px}
+.profile-selector select{width:100%;padding:8px;border:1px solid var(--line);border-radius:5px;background:var(--white)}
 .decision-actions,.rejection-confirmation,.unavailable-controls{display:flex;flex-wrap:wrap;gap:8px}
 .review-queue{display:grid;grid-template-columns:1fr}
 .review-queue>h2,.review-queue>p,.review-queue>section,.review-queue>a{grid-column:1/-1}

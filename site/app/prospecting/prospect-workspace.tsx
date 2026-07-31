@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from "react";
-import type { ProfileReadinessProjection } from "./profile-readiness";
+import {
+  FrozenAuthority,
+  type ProfileReadinessProjection,
+} from "./profile-readiness";
 
 type Evidence = {
   id: string;
@@ -318,6 +321,11 @@ function ActiveAuthority({
             activation.initialRun.successfulWatermark,
         )}
       </p>
+      <FrozenAuthority
+        manifest={activation.configuration.frozenAuthority}
+        path={path}
+        title="Frozen active authority review"
+      />
     </section>
   );
 }

@@ -124,6 +124,7 @@ export function ProspectorApp({
           {(view === "Review Queue" || view === "Prospects") && (
             <ProspectingWorkspace
               projection={initialProspectingProjection}
+              mode={view === "Review Queue" ? "review" : "prospects"}
               onUnauthorized={handleUnauthorized}
             />
           )}

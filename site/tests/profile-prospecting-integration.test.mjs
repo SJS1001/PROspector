@@ -114,6 +114,26 @@ test("owner handler consumes and rotates its HttpOnly CSRF cookie across exact p
     });
     const profile = model.profiles.find((entry) => entry.name === "Operating");
     assert.ok(profile);
+    const otherIdentity = {
+      email: "other-phase4-owner@example.com",
+      displayName: "Other Phase 4 owner",
+    };
+    const otherPrincipal = await access.admitPilotOwner(
+      otherIdentity,
+      otherIdentity.email,
+      subjectPepper,
+    );
+    const otherModel = await commercial.initializeCommercialModel(
+      fixture.database,
+      otherPrincipal,
+      {
+        idempotencyKey: "0198f400-0000-7000-8000-000000000302",
+      },
+    );
+    const otherProfile = otherModel.profiles.find(
+      (entry) => entry.name === "Operating",
+    );
+    assert.ok(otherProfile);
     const dependencies = {
       database: fixture.database,
       subjectPepper,
@@ -121,8 +141,54 @@ test("owner handler consumes and rotates its HttpOnly CSRF cookie across exact p
       async getIdentity() { return identity; },
     };
     const baseUrl = `https://prospector.test/api/prospecting?profileId=${encodeURIComponent(profile.id)}`;
+    const unselected = await handler.handleProspectingGet(
+      new Request("https://prospector.test/api/prospecting"),
+      dependencies,
+    );
+    assert.equal(unselected.status, 200);
+    const unselectedProjection = await unselected.json();
+    assert.ok(unselectedProjection.profiles.length > 0);
+    assert.equal(unselectedProjection.readiness, null);
+    for (const collection of [
+      "runs",
+      "evidence",
+      "assessments",
+      "queue",
+      "decisions",
+    ]) {
+      assert.deepEqual(
+        unselectedProjection[collection],
+        [],
+        `unselected GET must not silently compose ${collection}`,
+      );
+    }
     const initial = await handler.handleProspectingGet(new Request(baseUrl), dependencies);
     assert.equal(initial.status, 200);
+    const initialProjection = await initial.clone().json();
+    assert.ok(
+      initialProjection.profiles.some(
+        (entry) =>
+          entry.id === profile.id &&
+          entry.name === "Operating" &&
+          typeof entry.lifecycle === "string",
+      ),
+    );
+    assert.equal(initialProjection.readiness.profile.id, profile.id);
+    for (const forbiddenProfileId of [
+      "unknown-profile",
+      otherProfile.id,
+    ]) {
+      const denied = await handler.handleProspectingGet(
+        new Request(
+          `https://prospector.test/api/prospecting?profileId=${encodeURIComponent(forbiddenProfileId)}`,
+        ),
+        dependencies,
+      );
+      assert.equal(denied.status, 404);
+      assert.deepEqual(await denied.json(), {
+        error: "private_workspace_unavailable",
+      });
+    }
     const firstCookie = csrfCookie(initial);
 
     const post = (cookie) => handler.handleProspectingPost(new Request(baseUrl, {

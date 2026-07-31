@@ -32,7 +32,7 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
-test("Prospects and Review Queue navigation compose the real owner-scoped workspace", async () => {
+test("Prospects and Review Queue compose distinct owner-scoped workflows", async () => {
   const server = await createServer({
     configFile: false,
     logLevel: "silent",
@@ -45,7 +45,28 @@ test("Prospects and Review Queue navigation compose the real owner-scoped worksp
     );
     const projection = {
       authority: "owner",
-      readiness: null,
+      profiles: [
+        {
+          id: "profile-shell",
+          name: "Operating sites",
+          lifecycle: "ready",
+        },
+      ],
+      readiness: {
+        profile: {
+          id: "profile-shell",
+          revision: 1,
+          lifecycle: "ready",
+          path: {
+            company: { id: "company-shell", name: "Digitalrain" },
+            product: { id: "product-shell", name: "ONE" },
+            marketPlay: { id: "play-shell", name: "ONE for Mining" },
+            profile: { id: "profile-shell", name: "Operating sites" },
+          },
+        },
+        complete: false,
+        items: [],
+      },
       runs: [],
       evidence: [
         {
@@ -82,23 +103,46 @@ test("Prospects and Review Queue navigation compose the real owner-scoped worksp
         },
       ],
     };
-    for (const initialView of ["Prospects", "Review Queue"]) {
-      const html = renderToStaticMarkup(
-        createElement(ProspectorApp, {
-          initialView,
-          initialProspectingProjection: projection,
-        }),
-      );
-      assert.match(html, /Profile Readiness and Prospect Workspace/);
+    const prospects = renderToStaticMarkup(
+      createElement(ProspectorApp, {
+        initialView: "Prospects",
+        initialProspectingProjection: projection,
+      }),
+    );
+    const review = renderToStaticMarkup(
+      createElement(ProspectorApp, {
+        initialView: "Review Queue",
+        initialProspectingProjection: projection,
+      }),
+    );
+    assert.match(prospects, /Profile Readiness and Prospect Workspace/);
+    assert.match(review, /Qualified Prospect Review Queue/);
+    for (const html of [prospects, review]) {
+      assert.match(html, /Customer Profile/);
+      assert.match(html, /Operating sites · ready/);
+      assert.match(html, /Selected Profile <code>profile-shell/);
       assert.match(html, /Persisted bounded publisher/);
       assert.match(html, /https:\/\/bounded\.example\/evidence\/shell/);
-      assert.match(html, /Persisted Account/);
-      assert.match(html, /Persisted Target/);
       assert.doesNotMatch(
         html,
         /Fixture candidate · not operationally qualified|A layout preview/,
       );
     }
+    assert.doesNotMatch(
+      prospects,
+      /Persisted Account|Persisted Target|Decision pending/,
+      "Prospects keeps the readiness/evidence workspace and does not duplicate the queue",
+    );
+    assert.match(review, /Persisted Account/);
+    assert.match(review, /Persisted Target/);
+    assert.ok(
+      review.indexOf("Review Queue") < review.indexOf("Validated evidence"),
+      "the review workflow must be primary in Review Queue mode",
+    );
+    assert.ok(
+      review.indexOf("Validated evidence") < review.indexOf("Profile Readiness"),
+      "supporting evidence and authority follow the review workflow",
+    );
   } finally {
     await server.close();
   }
