@@ -137,7 +137,7 @@ export async function reserveRunnerSpend(
     return { kind: "blocked", reason: "runner_budget_exceeded" };
   }
   const attemptDigest = await digest(stable(authority.attempt));
-  const record: RunnerSpendReservation = {
+  const record = freezeRunnerReservation({
     id: `rr_${await digest(lengthPrefixed(authority.grant.id, input.operationKey, String(authority.attempt.attemptNumber)))}`,
     grantId: authority.grant.id,
     operationKey: input.operationKey,
@@ -152,14 +152,21 @@ export async function reserveRunnerSpend(
     maxRetries: authority.grant.maxRetries,
     attemptDigest,
     status: "reserved",
-  };
+  });
   const accounts = Object.freeze([
     freezePerRunAccount(authority.perRun),
     freezeMonthlyAccount(authority.monthly),
   ]) as readonly [RunnerPerRunBudgetAccount, RunnerMonthlyBudgetAccount];
-  const committed = await repository.commitRunnerReservation(record, accounts, freezeAttempt(authority.attempt));
-  if (committed.kind === "blocked") return { kind: "blocked", reason: "runner_budget_exceeded" };
-  return { kind: "reserved", reservation: committed.record, replayed: committed.kind === "existing" };
+  const committedResult = await repository.commitRunnerReservation({ ...record }, accounts, freezeAttempt(authority.attempt));
+  const blockedEnvelope = exactDataRecord(committedResult, ["kind"]);
+  if (blockedEnvelope?.kind === "blocked") return { kind: "blocked", reason: "runner_budget_exceeded" };
+  const committed = exactDataRecord(committedResult, ["kind", "record"]);
+  if (
+    !committed
+    || (committed.kind !== "created" && committed.kind !== "existing")
+    || !exactPlainData(committed.record, record)
+  ) return { kind: "blocked", reason: "runner_grant_unavailable" };
+  return { kind: "reserved", reservation: record, replayed: committed.kind === "existing" };
 }
 
 /** Binds the only reservable operation to the admitted owner and immutable runner grant facts. */
@@ -411,4 +418,79 @@ function freezePerRunAccount(account: RunnerPerRunBudgetAccount): RunnerPerRunBu
 
 function freezeMonthlyAccount(account: RunnerMonthlyBudgetAccount): RunnerMonthlyBudgetAccount {
   return Object.freeze({ ...account });
+}
+
+function freezeRunnerReservation(record: RunnerSpendReservation): RunnerSpendReservation {
+  return Object.freeze({
+    id: record.id,
+    grantId: record.grantId,
+    operationKey: record.operationKey,
+    providerId: record.providerId,
+    model: record.model,
+    catalogRef: record.catalogRef,
+    scopeId: record.scopeId,
+    runType: record.runType,
+    currency: record.currency,
+    reservedCostMinor: record.reservedCostMinor,
+    attemptNumber: record.attemptNumber,
+    maxRetries: record.maxRetries,
+    attemptDigest: record.attemptDigest,
+    status: record.status,
+  });
+}
+
+function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return null;
+    const result: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function exactPlainData(candidate: unknown, expected: unknown): boolean {
+  try {
+    if (candidate === null || expected === null || typeof candidate !== "object" || typeof expected !== "object") {
+      return Object.is(candidate, expected);
+    }
+    if (Array.isArray(expected)) {
+      if (!Array.isArray(candidate) || Object.getPrototypeOf(candidate) !== Array.prototype || candidate.length !== expected.length) return false;
+      const descriptors = Object.getOwnPropertyDescriptors(candidate);
+      const ownKeys = Reflect.ownKeys(descriptors);
+      if (ownKeys.some((key) => typeof key !== "string") || ownKeys.length !== expected.length + 1 || !("length" in descriptors)) return false;
+      return expected.every((value, index) => {
+        const descriptor = descriptors[String(index)];
+        return Boolean(descriptor && "value" in descriptor && descriptor.enumerable && exactPlainData(descriptor.value, value));
+      });
+    }
+    if (Array.isArray(candidate) || Object.getPrototypeOf(candidate) !== Object.prototype) return false;
+    const expectedKeys = Object.keys(expected as object);
+    const descriptors = Object.getOwnPropertyDescriptors(candidate);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== expectedKeys.length
+      || expectedKeys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return false;
+    return expectedKeys.every((key) => {
+      const descriptor = descriptors[key];
+      return Boolean(descriptor && "value" in descriptor && descriptor.enumerable
+        && exactPlainData(descriptor.value, (expected as Record<string, unknown>)[key]));
+    });
+  } catch {
+    return false;
+  }
 }

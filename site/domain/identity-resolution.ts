@@ -70,9 +70,13 @@ export type AppliedIdentityDecision = MergeDecision | Readonly<SplitDecision & {
 export type AppliedResolution = Readonly<{
   id: string;
   workspaceId: string;
+  ownerSubject: string;
+  suggestionId: string;
+  suggestionDigest: string;
   idempotencyKey: string;
   decision: AppliedIdentityDecision;
   operationDigest: string;
+  resultDigest: string;
   retainedSourceLineageIds: readonly string[];
   retainedIdentityLineageIds: readonly string[];
   retainedAliases: readonly string[];
@@ -178,12 +182,22 @@ export async function applyIdentityResolution(
   validateDecision(suggestion, input.decision);
   const authoritativeDecision = canonicalDecision(suggestion, input.decision);
   const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: authoritativeDecision, actor: principal.subject });
-  return repository.transaction(input.workspaceId, async (transaction) => {
-    const existing = await transaction.findByIdempotencyKey(input.idempotencyKey);
-    if (existing) {
-      if (existing.operationDigest !== operationDigest) throw rejected();
+  const context: AppliedResolutionContext = {
+    workspaceId: input.workspaceId,
+    ownerSubject: principal.subject,
+    idempotencyKey: input.idempotencyKey,
+    suggestion,
+    decision: authoritativeDecision,
+    operationDigest,
+  };
+  const result = await repository.transaction(input.workspaceId, async (transaction) => {
+    const existingResult = await transaction.findByIdempotencyKey(input.idempotencyKey);
+    if (existingResult) {
+      const existing = await validateAppliedResolution(existingResult, context);
+      if (!existing) throw rejected();
       return existing;
     }
+    if (existingResult !== null) throw rejected();
     if (authoritativeDecision.kind === "split") {
       const destination = await transaction.readIdentitySnapshots([authoritativeDecision.newIdentityId]);
       if (!Array.isArray(destination) || destination.length !== 0) throw rejected();
@@ -197,9 +211,12 @@ export async function applyIdentityResolution(
     const retainedAliases = unique(current.flatMap((identity) => identity.aliases)).sort();
     const retainedSuppressionSubjectRefs = unique(current.flatMap((identity) => identity.suppressionSubjectRefs)).sort();
     const moved = associationsForDecision(current, input.decision);
-    const applied: AppliedResolution = Object.freeze({
-      id: await hash({ operationDigest, idempotencyKey: input.idempotencyKey }),
+    const rePointedAssociationIds = moved.map((association) => association.id).sort();
+    const appliedMaterial = {
       workspaceId: input.workspaceId,
+      ownerSubject: principal.subject,
+      suggestionId: suggestion.id,
+      suggestionDigest: suggestion.digest,
       idempotencyKey: input.idempotencyKey,
       decision: freezeDecision(authoritativeDecision),
       operationDigest,
@@ -207,14 +224,26 @@ export async function applyIdentityResolution(
       retainedIdentityLineageIds: Object.freeze(retainedIdentityLineageIds),
       retainedAliases: Object.freeze(retainedAliases),
       retainedSuppressionSubjectRefs: Object.freeze(retainedSuppressionSubjectRefs),
-      rePointedAssociationIds: Object.freeze(moved.map((association) => association.id).sort()),
-      invalidations: Object.freeze(moved.map((association) => Object.freeze({
-        associationId: association.id,
+      rePointedAssociationIds: Object.freeze(rePointedAssociationIds),
+      invalidations: Object.freeze(rePointedAssociationIds.map((associationId) => Object.freeze({
+        associationId,
         projection: input.decision.kind === "merge" ? "NeedsReview" as const : "NonContactable" as const,
       }))),
+    };
+    const resultDigest = await hash({ schema: "identity-resolution-result/v1", ...appliedMaterial });
+    const applied: AppliedResolution = Object.freeze({
+      id: await hash({ operationDigest, idempotencyKey: input.idempotencyKey, resultDigest }),
+      ...appliedMaterial,
+      resultDigest,
     });
-    return transaction.applyResolution(applied);
+    const committed = await transaction.applyResolution(applied);
+    const validated = await validateAppliedResolution(committed, { ...context, exactRecord: applied });
+    if (!validated) throw rejected();
+    return validated;
   });
+  const validated = await validateAppliedResolution(result, context);
+  if (!validated) throw rejected();
+  return validated;
 }
 
 /** A production composition must explicitly replace this reject-only port. */
@@ -313,6 +342,113 @@ async function assertSuggestionIntegrity(suggestion: IdentitySuggestion) {
   if (digest !== suggestion.digest || id !== suggestion.id) throw rejected();
 }
 
+type AppliedResolutionContext = Readonly<{
+  workspaceId: string;
+  ownerSubject: string;
+  idempotencyKey: string;
+  suggestion: IdentitySuggestion;
+  decision: AppliedIdentityDecision;
+  operationDigest: string;
+  exactRecord?: AppliedResolution;
+}>;
+
+async function validateAppliedResolution(candidate: unknown, context: AppliedResolutionContext): Promise<AppliedResolution | null> {
+  try {
+    const record = exactDataRecord(candidate, [
+      "id", "workspaceId", "ownerSubject", "suggestionId", "suggestionDigest", "idempotencyKey",
+      "decision", "operationDigest", "resultDigest", "retainedSourceLineageIds", "retainedIdentityLineageIds",
+      "retainedAliases", "retainedSuppressionSubjectRefs", "rePointedAssociationIds", "invalidations",
+    ]);
+    if (!record || !exactPlainData(record.decision, context.decision)) return null;
+    const retainedSourceLineageIds = validSortedIdDataArray(record.retainedSourceLineageIds, 1, 2_048);
+    const retainedIdentityLineageIds = validSortedIdDataArray(record.retainedIdentityLineageIds, 1, 2_048);
+    const retainedAliases = validSortedIdDataArray(record.retainedAliases, 0, 2_048);
+    const retainedSuppressionSubjectRefs = validSortedIdDataArray(record.retainedSuppressionSubjectRefs, 0, 2_048);
+    const rePointedAssociationIds = validSortedIdDataArray(record.rePointedAssociationIds, 1, 2_048);
+    const invalidationRows = exactDataArray(record.invalidations, 1, 2_048);
+    if (
+      !retainedSourceLineageIds
+      || !retainedIdentityLineageIds
+      || !retainedAliases
+      || !retainedSuppressionSubjectRefs
+      || !rePointedAssociationIds
+      || !invalidationRows
+    ) return null;
+    const invalidations: Array<{ associationId: string; projection: InvalidatedProjection }> = [];
+    for (const row of invalidationRows) {
+      const invalidation = exactDataRecord(row, ["associationId", "projection"]);
+      if (
+        !invalidation
+        || !validId(invalidation.associationId)
+        || (invalidation.projection !== "NeedsReview" && invalidation.projection !== "NonContactable")
+      ) return null;
+      invalidations.push({
+        associationId: invalidation.associationId,
+        projection: invalidation.projection,
+      });
+    }
+    const expectedAssociationIds = context.suggestion.associationImpact.map((item) => item.id).sort();
+    const expectedProjection: InvalidatedProjection = context.decision.kind === "merge" ? "NeedsReview" : "NonContactable";
+    const parsedMaterial = {
+      workspaceId: record.workspaceId as string,
+      ownerSubject: record.ownerSubject as string,
+      suggestionId: record.suggestionId as string,
+      suggestionDigest: record.suggestionDigest as string,
+      idempotencyKey: record.idempotencyKey as string,
+      decision: context.decision,
+      operationDigest: record.operationDigest as string,
+      retainedSourceLineageIds,
+      retainedIdentityLineageIds,
+      retainedAliases,
+      retainedSuppressionSubjectRefs,
+      rePointedAssociationIds,
+      invalidations,
+    };
+    if (
+      record.workspaceId !== context.workspaceId
+      || record.ownerSubject !== context.ownerSubject
+      || record.suggestionId !== context.suggestion.id
+      || record.suggestionDigest !== context.suggestion.digest
+      || record.idempotencyKey !== context.idempotencyKey
+      || record.operationDigest !== context.operationDigest
+      || !validDigest(record.operationDigest)
+      || !validDigest(record.resultDigest)
+      || record.resultDigest !== await hash({ schema: "identity-resolution-result/v1", ...parsedMaterial })
+      || record.id !== await hash({
+        operationDigest: context.operationDigest,
+        idempotencyKey: context.idempotencyKey,
+        resultDigest: record.resultDigest,
+      })
+      || stable(retainedSourceLineageIds) !== stable(context.suggestion.sourceLineageIds)
+      || context.suggestion.candidateIds.some((id) => !retainedIdentityLineageIds.includes(id))
+      || stable(rePointedAssociationIds) !== stable(expectedAssociationIds)
+      || invalidations.length !== rePointedAssociationIds.length
+      || invalidations.some((item, index) => item.associationId !== rePointedAssociationIds[index] || item.projection !== expectedProjection)
+    ) return null;
+    const parsed = freezeAppliedResolution({
+      id: record.id as string,
+      workspaceId: record.workspaceId as string,
+      ownerSubject: record.ownerSubject as string,
+      suggestionId: record.suggestionId as string,
+      suggestionDigest: record.suggestionDigest as string,
+      idempotencyKey: record.idempotencyKey as string,
+      decision: context.decision,
+      operationDigest: record.operationDigest as string,
+      resultDigest: record.resultDigest as string,
+      retainedSourceLineageIds,
+      retainedIdentityLineageIds,
+      retainedAliases,
+      retainedSuppressionSubjectRefs,
+      rePointedAssociationIds,
+      invalidations,
+    });
+    if (context.exactRecord && !exactPlainData(parsed, context.exactRecord)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function suggestionEvidence(suggestion: IdentitySuggestion) {
   return {
     workspaceId: suggestion.workspaceId,
@@ -374,6 +510,29 @@ function freezeDecision(decision: AppliedIdentityDecision): AppliedIdentityDecis
     : Object.freeze({ ...decision, moveAssociationIds: Object.freeze([...decision.moveAssociationIds]) });
 }
 
+function freezeAppliedResolution(record: AppliedResolution): AppliedResolution {
+  return Object.freeze({
+    id: record.id,
+    workspaceId: record.workspaceId,
+    ownerSubject: record.ownerSubject,
+    suggestionId: record.suggestionId,
+    suggestionDigest: record.suggestionDigest,
+    idempotencyKey: record.idempotencyKey,
+    decision: freezeDecision(record.decision),
+    operationDigest: record.operationDigest,
+    resultDigest: record.resultDigest,
+    retainedSourceLineageIds: Object.freeze([...record.retainedSourceLineageIds]),
+    retainedIdentityLineageIds: Object.freeze([...record.retainedIdentityLineageIds]),
+    retainedAliases: Object.freeze([...record.retainedAliases]),
+    retainedSuppressionSubjectRefs: Object.freeze([...record.retainedSuppressionSubjectRefs]),
+    rePointedAssociationIds: Object.freeze([...record.rePointedAssociationIds]),
+    invalidations: Object.freeze(record.invalidations.map((item) => Object.freeze({
+      associationId: item.associationId,
+      projection: item.projection,
+    }))),
+  });
+}
+
 function freezePartition(partition: { sourceId: string; newIdentityId: string; moveAssociationIds: readonly string[] }) {
   return Object.freeze({ ...partition, moveAssociationIds: Object.freeze([...partition.moveAssociationIds].sort()) });
 }
@@ -385,6 +544,83 @@ function uniqueIds(values: readonly string[], min: number, max: number) {
 
 function assertIdArray(values: unknown, min: number, max: number): asserts values is readonly string[] {
   if (!Array.isArray(values) || values.length < min || values.length > max || values.some((value) => !validId(value)) || new Set(values).size !== values.length) throw rejected();
+}
+function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return null;
+    const result: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+function exactDataArray(value: unknown, min: number, max: number): unknown[] | null {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length < min || value.length > max) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string") || ownKeys.length !== value.length + 1 || !("length" in descriptors)) return null;
+    const result: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result.push(descriptor.value);
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+function validSortedIdDataArray(value: unknown, min: number, max: number): string[] | null {
+  const values = exactDataArray(value, min, max);
+  if (!values || values.some((item) => !validId(item))) return null;
+  const ids = values as string[];
+  return new Set(ids).size === ids.length && stable([...ids].sort()) === stable(ids) ? ids : null;
+}
+function exactPlainData(candidate: unknown, expected: unknown): boolean {
+  try {
+    if (candidate === null || expected === null || typeof candidate !== "object" || typeof expected !== "object") {
+      return Object.is(candidate, expected);
+    }
+    if (Array.isArray(expected)) {
+      if (!Array.isArray(candidate) || Object.getPrototypeOf(candidate) !== Array.prototype || candidate.length !== expected.length) return false;
+      const descriptors = Object.getOwnPropertyDescriptors(candidate);
+      const ownKeys = Reflect.ownKeys(descriptors);
+      if (ownKeys.some((key) => typeof key !== "string") || ownKeys.length !== expected.length + 1 || !("length" in descriptors)) return false;
+      return expected.every((item, index) => {
+        const descriptor = descriptors[String(index)];
+        return Boolean(descriptor && "value" in descriptor && descriptor.enumerable && exactPlainData(descriptor.value, item));
+      });
+    }
+    if (Array.isArray(candidate) || Object.getPrototypeOf(candidate) !== Object.prototype) return false;
+    const expectedKeys = Object.keys(expected as object);
+    const descriptors = Object.getOwnPropertyDescriptors(candidate);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== expectedKeys.length
+      || expectedKeys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return false;
+    return expectedKeys.every((key) => {
+      const descriptor = descriptors[key];
+      return Boolean(descriptor && "value" in descriptor && descriptor.enumerable
+        && exactPlainData(descriptor.value, (expected as Record<string, unknown>)[key]));
+    });
+  } catch {
+    return false;
+  }
 }
 function unique(values: readonly string[]) { return [...new Set(values)]; }
 function hasOwn(value: object, property: string): boolean { return Object.prototype.hasOwnProperty.call(value, property); }

@@ -77,10 +77,24 @@ export async function reserveEnrichmentOperation(repository: EnrichmentAuthority
   const checked = await validateEnrichmentAuthority(authority, input);
   if (checked.kind === "blocked") return checked;
   const grant = authority!.grant;
-  const record: EnrichmentReservation = { id: checked.assignment.reservationId, grantId: grant.id, workspaceId: grant.workspaceId, operationKey: checked.assignment.operationKey, status: "reserved", assignment: checked.assignment };
-  const committed = await repository.commitReservation(record, checked.accounts);
-  if (committed.kind === "blocked") return { kind: "blocked", reason: "budget_exceeded" };
-  return { kind: "reserved", reservation: committed.record, replayed: committed.kind === "existing" };
+  const record = freezeReservation({
+    id: checked.assignment.reservationId,
+    grantId: grant.id,
+    workspaceId: grant.workspaceId,
+    operationKey: checked.assignment.operationKey,
+    status: "reserved",
+    assignment: checked.assignment,
+  });
+  const committedResult = await repository.commitReservation(copyReservation(record), checked.accounts);
+  const blockedEnvelope = exactDataRecord(committedResult, ["kind"]);
+  if (blockedEnvelope?.kind === "blocked") return { kind: "blocked", reason: "budget_exceeded" };
+  const committed = exactDataRecord(committedResult, ["kind", "record"]);
+  if (
+    !committed
+    || (committed.kind !== "created" && committed.kind !== "existing")
+    || !exactPlainData(committed.record, record)
+  ) return { kind: "blocked", reason: "grant_unavailable" };
+  return { kind: "reserved", reservation: record, replayed: committed.kind === "existing" };
 }
 
 function sameQuote(quote: ProviderQuote, grant: EnrichmentGrant): boolean { const tuple = grant.tuple; return quote.providerId === tuple.providerId && quote.providerVersion === tuple.providerVersion && quote.catalogRef === tuple.catalogRef && quote.revision === tuple.quoteRevision && quote.unitCostMinor === tuple.quoteUnitCostMinor && quote.expiresAt === tuple.quoteExpiresAt && quote.currency === tuple.currency; }
@@ -155,3 +169,135 @@ function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[
   );
 }
 function bounded(value: unknown, max: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
+
+function freezeReservation(record: EnrichmentReservation): EnrichmentReservation {
+  const evidenceAssignments = Object.freeze(record.assignment.evidenceAssignments.map((item) => Object.freeze({
+    assignmentId: item.assignmentId,
+    prospectId: item.prospectId,
+    role: item.role,
+    workspaceId: item.workspaceId,
+    contactId: item.contactId,
+    profileConfigurationId: item.profileConfigurationId,
+    profileConfigurationDigest: item.profileConfigurationDigest,
+  })));
+  const assignment = Object.freeze({
+    reservationId: record.assignment.reservationId,
+    workspaceId: record.assignment.workspaceId,
+    configurationId: record.assignment.configurationId,
+    configurationDigest: record.assignment.configurationDigest,
+    operationKey: record.assignment.operationKey,
+    providerId: record.assignment.providerId,
+    providerVersion: record.assignment.providerVersion,
+    catalogRef: record.assignment.catalogRef,
+    quoteRevision: record.assignment.quoteRevision,
+    quoteUnitCostMinor: record.assignment.quoteUnitCostMinor,
+    prospectIds: Object.freeze([...record.assignment.prospectIds]),
+    evidenceAssignments,
+    operation: record.assignment.operation,
+    maxUnits: record.assignment.maxUnits,
+    maxCostMinor: record.assignment.maxCostMinor,
+    currency: record.assignment.currency,
+    expiresAt: record.assignment.expiresAt,
+  });
+  return Object.freeze({
+    id: record.id,
+    grantId: record.grantId,
+    workspaceId: record.workspaceId,
+    operationKey: record.operationKey,
+    status: record.status,
+    assignment,
+  });
+}
+
+function copyReservation(record: EnrichmentReservation): EnrichmentReservation {
+  return {
+    id: record.id,
+    grantId: record.grantId,
+    workspaceId: record.workspaceId,
+    operationKey: record.operationKey,
+    status: record.status,
+    assignment: {
+      reservationId: record.assignment.reservationId,
+      workspaceId: record.assignment.workspaceId,
+      configurationId: record.assignment.configurationId,
+      configurationDigest: record.assignment.configurationDigest,
+      operationKey: record.assignment.operationKey,
+      providerId: record.assignment.providerId,
+      providerVersion: record.assignment.providerVersion,
+      catalogRef: record.assignment.catalogRef,
+      quoteRevision: record.assignment.quoteRevision,
+      quoteUnitCostMinor: record.assignment.quoteUnitCostMinor,
+      prospectIds: [...record.assignment.prospectIds],
+      evidenceAssignments: record.assignment.evidenceAssignments.map((item) => ({
+        assignmentId: item.assignmentId,
+        prospectId: item.prospectId,
+        role: item.role,
+        workspaceId: item.workspaceId,
+        contactId: item.contactId,
+        profileConfigurationId: item.profileConfigurationId,
+        profileConfigurationDigest: item.profileConfigurationDigest,
+      })),
+      operation: record.assignment.operation,
+      maxUnits: record.assignment.maxUnits,
+      maxCostMinor: record.assignment.maxCostMinor,
+      currency: record.assignment.currency,
+      expiresAt: record.assignment.expiresAt,
+    },
+  };
+}
+
+function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return null;
+    const result: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function exactPlainData(candidate: unknown, expected: unknown): boolean {
+  try {
+    if (candidate === null || expected === null || typeof candidate !== "object" || typeof expected !== "object") {
+      return Object.is(candidate, expected);
+    }
+    if (Array.isArray(expected)) {
+      if (!Array.isArray(candidate) || Object.getPrototypeOf(candidate) !== Array.prototype || candidate.length !== expected.length) return false;
+      const descriptors = Object.getOwnPropertyDescriptors(candidate);
+      const ownKeys = Reflect.ownKeys(descriptors);
+      if (ownKeys.some((key) => typeof key !== "string") || ownKeys.length !== expected.length + 1 || !("length" in descriptors)) return false;
+      return expected.every((value, index) => {
+        const descriptor = descriptors[String(index)];
+        return Boolean(descriptor && "value" in descriptor && descriptor.enumerable && exactPlainData(descriptor.value, value));
+      });
+    }
+    if (Array.isArray(candidate) || Object.getPrototypeOf(candidate) !== Object.prototype) return false;
+    const expectedKeys = Object.keys(expected as object);
+    const descriptors = Object.getOwnPropertyDescriptors(candidate);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== expectedKeys.length
+      || expectedKeys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return false;
+    return expectedKeys.every((key) => {
+      const descriptor = descriptors[key];
+      return Boolean(descriptor && "value" in descriptor && descriptor.enumerable
+        && exactPlainData(descriptor.value, (expected as Record<string, unknown>)[key]));
+    });
+  } catch {
+    return false;
+  }
+}

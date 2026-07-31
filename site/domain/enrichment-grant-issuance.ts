@@ -43,7 +43,8 @@ export type IssueEnrichmentGrantResult =
   | { kind: "conflict"; reason: "idempotency_conflict" };
 export type EnrichmentBlockedReason =
   | "owner_not_admitted" | "invalid_request" | "stale_revision" | "prospect_not_approved"
-  | "configuration_not_current" | "quote_unavailable" | "quote_expired" | "currency_mismatch" | "cost_unbounded";
+  | "configuration_not_current" | "quote_unavailable" | "quote_expired" | "currency_mismatch" | "cost_unbounded"
+  | "repository_result_invalid";
 
 export async function issueEnrichmentGrant(repository: IssuanceRepository, input: IssueEnrichmentGrantInput): Promise<IssueEnrichmentGrantResult> {
   const prospectIds = normalizeIds(input.prospectIds);
@@ -55,10 +56,20 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
   const operationKey = await deriveOperationKey({ snapshot: current, input, prospectIds });
   const requestMaterial = tupleMaterial(current, input, prospectIds, operationKey);
   const requestDigest = await canonicalDigest(requestMaterial);
-  const existing = await repository.findGrantByIdempotency(current.workspaceId, input.idempotencyKey);
-  if (existing) return existing.requestDigest === requestDigest
-    ? issued(freezeGrant(existing), true)
-    : { kind: "conflict", reason: "idempotency_conflict" };
+  const existingResult = await repository.findGrantByIdempotency(current.workspaceId, input.idempotencyKey);
+  if (existingResult) {
+    const existing = await validateRepositoryGrant(existingResult, {
+      workspaceId: current.workspaceId,
+      idempotencyKey: input.idempotencyKey,
+      requestDigest,
+      requestMaterial,
+    });
+    if (!existing) return { kind: "blocked", reason: "repository_result_invalid" };
+    return existing.requestMatches
+      ? issued(existing.grant, true)
+      : { kind: "conflict", reason: "idempotency_conflict" };
+  }
+  if (existingResult !== null) return { kind: "blocked", reason: "repository_result_invalid" };
   const nonce = serverNonce(repository);
   const unsigned = { ...requestMaterial, nonce };
   const tuple: EnrichmentGrantTuple = { ...unsigned, digest: await canonicalDigest(unsigned) };
@@ -66,11 +77,21 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
     id: `eg_${tuple.digest.slice(0, 24)}`, workspaceId: current.workspaceId, idempotencyKey: input.idempotencyKey,
     requestDigest, tuple, status: "issued",
   });
-  const committed = await repository.commitGrant(grant);
-  if (committed.kind === "existing") return committed.record.requestDigest === requestDigest
-    ? issued(freezeGrant(committed.record), true)
-    : { kind: "conflict", reason: "idempotency_conflict" };
-  return issued(freezeGrant(committed.record), false);
+  const committedResult = await repository.commitGrant(grant);
+  const committedEnvelope = exactDataRecord(committedResult, ["kind", "record"]);
+  if (!committedEnvelope || (committedEnvelope.kind !== "created" && committedEnvelope.kind !== "existing")) {
+    return { kind: "blocked", reason: "repository_result_invalid" };
+  }
+  const committed = await validateRepositoryGrant(committedEnvelope.record, {
+    workspaceId: current.workspaceId,
+    idempotencyKey: input.idempotencyKey,
+    requestDigest,
+    requestMaterial,
+    exactGrant: committedEnvelope.kind === "created" ? grant : undefined,
+  });
+  if (!committed) return { kind: "blocked", reason: "repository_result_invalid" };
+  if (!committed.requestMatches) return { kind: "conflict", reason: "idempotency_conflict" };
+  return issued(committed.grant, committedEnvelope.kind === "existing");
 }
 
 export async function deriveOperationKey(value: { snapshot: IssuanceSnapshot; input: Pick<IssueEnrichmentGrantInput, "operation" | "maxUnits" | "maxCostMinor" | "currency" | "expiresAt">; prospectIds: readonly string[] }): Promise<string> {
@@ -142,4 +163,183 @@ function freezeGrant(grant: EnrichmentGrant): EnrichmentGrant {
   const prospectRevisions = Object.freeze(grant.tuple.prospectRevisions.map((item) => Object.freeze({ id: item.id, revision: item.revision })));
   const tuple = Object.freeze({ ...grant.tuple, prospectIds: Object.freeze([...grant.tuple.prospectIds]), prospectRevisions });
   return Object.freeze({ ...grant, tuple });
+}
+
+type ExpectedRepositoryGrant = Readonly<{
+  workspaceId: string;
+  idempotencyKey: string;
+  requestDigest: string;
+  requestMaterial: ReturnType<typeof tupleMaterial>;
+  exactGrant?: EnrichmentGrant;
+}>;
+
+async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRepositoryGrant): Promise<{ grant: EnrichmentGrant; requestMatches: boolean } | null> {
+  try {
+    const grant = exactDataRecord(candidate, ["id", "workspaceId", "idempotencyKey", "requestDigest", "tuple", "status"]);
+    const tuple = grant && exactDataRecord(grant.tuple, [
+      "workspaceId", "providerId", "providerVersion", "catalogRef", "quoteRevision", "quoteUnitCostMinor",
+      "quoteExpiresAt", "prospectIds", "operation", "operationKey", "maxUnits", "maxCostMinor", "currency",
+      "expiresAt", "ownerSubject", "nonce", "configurationId", "configurationDigest",
+      "configurationRevision", "sourceRevision", "prospectRevisions", "digest",
+    ]);
+    if (!grant || !tuple) return null;
+    const prospectIds = exactDataArray(tuple.prospectIds, 1, 100);
+    const revisionRows = exactDataArray(tuple.prospectRevisions, 1, 100);
+    if (!prospectIds || !revisionRows) return null;
+    const prospectRevisions: Array<{ id: string; revision: number }> = [];
+    for (const row of revisionRows) {
+      const revision = exactDataRecord(row, ["id", "revision"]);
+      if (!revision || !bounded(revision.id, 256) || !positive(revision.revision)) return null;
+      prospectRevisions.push({ id: revision.id, revision: revision.revision });
+    }
+    const normalizedIds = normalizeIds(prospectIds);
+    if (
+      !normalizedIds
+      || canonical(normalizedIds) !== canonical(prospectIds)
+      || prospectRevisions.length !== prospectIds.length
+      || new Set(prospectRevisions.map((item) => item.id)).size !== prospectRevisions.length
+      || prospectRevisions.some((item, index) => item.id !== prospectIds[index])
+    ) return null;
+    const parsedTuple: EnrichmentGrantTuple = {
+      workspaceId: tuple.workspaceId as string,
+      providerId: tuple.providerId as string,
+      providerVersion: tuple.providerVersion as string,
+      catalogRef: tuple.catalogRef as string,
+      quoteRevision: tuple.quoteRevision as number,
+      quoteUnitCostMinor: tuple.quoteUnitCostMinor as number,
+      quoteExpiresAt: tuple.quoteExpiresAt as number,
+      prospectIds,
+      operation: tuple.operation as EnrichmentOperation,
+      operationKey: tuple.operationKey as string,
+      maxUnits: tuple.maxUnits as number,
+      maxCostMinor: tuple.maxCostMinor as number,
+      currency: tuple.currency as string,
+      expiresAt: tuple.expiresAt as number,
+      ownerSubject: tuple.ownerSubject as string,
+      nonce: tuple.nonce as string,
+      configurationId: tuple.configurationId as string,
+      configurationDigest: tuple.configurationDigest as string,
+      configurationRevision: tuple.configurationRevision as number,
+      sourceRevision: tuple.sourceRevision as number,
+      prospectRevisions,
+      digest: tuple.digest as string,
+    };
+    if (
+      !bounded(grant.id, 256)
+      || grant.workspaceId !== expected.workspaceId
+      || grant.idempotencyKey !== expected.idempotencyKey
+      || grant.status !== "issued"
+      || !digestLike(grant.requestDigest)
+      || !bounded(parsedTuple.workspaceId, 256)
+      || !bounded(parsedTuple.providerId, 128)
+      || !bounded(parsedTuple.providerVersion, 128)
+      || !bounded(parsedTuple.catalogRef, 256)
+      || !positive(parsedTuple.quoteRevision)
+      || !nonNegativeInteger(parsedTuple.quoteUnitCostMinor)
+      || !positive(parsedTuple.quoteExpiresAt)
+      || parsedTuple.operation !== "business_contact_lookup/v1"
+      || !/^op_[a-f0-9]{64}$/.test(parsedTuple.operationKey)
+      || !positive(parsedTuple.maxUnits)
+      || !nonNegativeInteger(parsedTuple.maxCostMinor)
+      || !canonicalCurrency(parsedTuple.currency)
+      || !positive(parsedTuple.expiresAt)
+      || !bounded(parsedTuple.ownerSubject, 256)
+      || !bounded(parsedTuple.nonce, 256)
+      || !bounded(parsedTuple.configurationId, 256)
+      || !digestLike(parsedTuple.configurationDigest)
+      || !positive(parsedTuple.configurationRevision)
+      || !positive(parsedTuple.sourceRevision)
+      || !digestLike(parsedTuple.digest)
+    ) return null;
+    const actualRequestMaterial = {
+      workspaceId: parsedTuple.workspaceId,
+      providerId: parsedTuple.providerId,
+      providerVersion: parsedTuple.providerVersion,
+      catalogRef: parsedTuple.catalogRef,
+      quoteRevision: parsedTuple.quoteRevision,
+      quoteUnitCostMinor: parsedTuple.quoteUnitCostMinor,
+      quoteExpiresAt: parsedTuple.quoteExpiresAt,
+      prospectIds: [...parsedTuple.prospectIds],
+      operation: parsedTuple.operation,
+      operationKey: parsedTuple.operationKey,
+      maxUnits: parsedTuple.maxUnits,
+      maxCostMinor: parsedTuple.maxCostMinor,
+      currency: parsedTuple.currency,
+      expiresAt: parsedTuple.expiresAt,
+      ownerSubject: parsedTuple.ownerSubject,
+      configurationId: parsedTuple.configurationId,
+      configurationDigest: parsedTuple.configurationDigest,
+      configurationRevision: parsedTuple.configurationRevision,
+      sourceRevision: parsedTuple.sourceRevision,
+      prospectRevisions: parsedTuple.prospectRevisions.map((item) => ({ id: item.id, revision: item.revision })),
+    };
+    if (
+      await canonicalDigest(actualRequestMaterial) !== grant.requestDigest
+    ) return null;
+    const unsignedTuple = { ...actualRequestMaterial, nonce: parsedTuple.nonce };
+    if (
+      await canonicalDigest(unsignedTuple) !== parsedTuple.digest
+      || grant.id !== `eg_${parsedTuple.digest.slice(0, 24)}`
+    ) return null;
+    const parsedGrant = freezeGrant({
+      id: grant.id,
+      workspaceId: grant.workspaceId,
+      idempotencyKey: grant.idempotencyKey,
+      requestDigest: grant.requestDigest,
+      tuple: parsedTuple,
+      status: "issued",
+    });
+    if (expected.exactGrant && canonical(parsedGrant) !== canonical(expected.exactGrant)) return null;
+    return {
+      grant: parsedGrant,
+      requestMatches: grant.requestDigest === expected.requestDigest
+        && canonical(actualRequestMaterial) === canonical(expected.requestMaterial),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || [...keys].some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return null;
+    const result: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function exactDataArray(value: unknown, min: number, max: number): unknown[] | null {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length < min || value.length > max) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.some((key) => typeof key !== "string") || keys.length !== value.length + 1 || !("length" in descriptors)) return null;
+    const result: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result.push(descriptor.value);
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return integer(value) && value >= 0;
 }
