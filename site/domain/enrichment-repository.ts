@@ -726,6 +726,10 @@ async function settleCommittedReservation(
   if (!reservation || settlement.documentedUnits > Number(reservation.reserved_units) || settlement.documentedCostMinor > Number(reservation.reserved_cost_minor)) {
     throw new Error("enrichment_settlement_unavailable");
   }
+  const committedReservation = await readReservation(database, workspaceId, reservationId);
+  if (!committedReservation || committedReservation.grantId !== reservation.grant_id) {
+    throw new Error("enrichment_settlement_unavailable");
+  }
   const latest = await latestReservationEvent(database, workspaceId, reservationId);
   if (!latest) throw new Error("enrichment_settlement_unavailable");
   if (latest.state === "settled" || latest.state === "released") {
@@ -747,11 +751,40 @@ async function settleCommittedReservation(
   const observationStatements: D1PreparedStatement[] = [];
   for (const observation of settlement.observations) {
     if (!isDefensivelyValidContactObservation(observation) || observation.workspaceId !== workspaceId) throw new Error("invalid_enrichment_observation");
+    const assignmentContext = observation.assignmentContext;
+    const committedAssignment = assignmentContext
+      ? committedReservation.assignment.evidenceAssignments.find((item) =>
+          item.assignmentId === assignmentContext.assignmentId
+          && item.prospectId === assignmentContext.prospectId
+          && item.role === assignmentContext.role
+          && item.contactId === observation.contactId
+        )
+      : null;
+    if (
+      !assignmentContext
+      || !committedAssignment
+      || assignmentContext.quoteRevision !== committedReservation.assignment.quoteRevision
+      || observation.profileConfigurationId !== committedReservation.assignment.configurationId
+      || observation.profileConfigurationDigest !== committedReservation.assignment.configurationDigest
+      || (observation.verificationAuthority !== null && (
+        observation.verificationAuthority.assignmentId !== assignmentContext.assignmentId
+        || observation.verificationAuthority.prospectId !== assignmentContext.prospectId
+        || observation.verificationAuthority.role !== assignmentContext.role
+        || observation.verificationAuthority.quoteRevision !== assignmentContext.quoteRevision
+      ))
+    ) throw new Error("enrichment_observation_assignment_unavailable");
     const assignment = await database.prepare(
       `SELECT a.id FROM contact_evidence_assignments a
-       WHERE a.workspace_id = ? AND a.grant_id = ? AND a.contact_id = ?
-         AND a.configuration_id = ? AND a.configuration_digest = ? LIMIT 1`,
-    ).bind(workspaceId, reservation.grant_id, observation.contactId, observation.profileConfigurationId, observation.profileConfigurationDigest)
+       WHERE a.id = ? AND a.workspace_id = ? AND a.grant_id = ? AND a.prospect_id = ?
+         AND a.contact_id = ? AND a.role = ? AND a.configuration_id = ? AND a.configuration_digest = ?
+         AND a.provider_id = ? AND a.provider_version = ? AND a.catalog_ref = ? AND a.quote_revision = ? LIMIT 1`,
+    ).bind(
+      assignmentContext.assignmentId, workspaceId, reservation.grant_id, assignmentContext.prospectId,
+      observation.contactId, assignmentContext.role, observation.profileConfigurationId,
+      observation.profileConfigurationDigest, committedReservation.assignment.providerId,
+      committedReservation.assignment.providerVersion, committedReservation.assignment.catalogRef,
+      assignmentContext.quoteRevision,
+    )
       .first<{ id: string }>();
     if (!assignment) throw new Error("enrichment_observation_assignment_unavailable");
     const observationDigest = await digest({ schema: "contact-observation/v1", observation });

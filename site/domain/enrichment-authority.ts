@@ -71,8 +71,9 @@ export type AdmittedInvocationClaim =
 
 type CommittedAdmission = Readonly<{
   receipt: object;
-  assignmentReference: AuthorizedEnrichmentAssignment;
+  assignmentIdentity: Readonly<AuthorizedEnrichmentAssignment>;
   assignmentSnapshot: Readonly<AuthorizedEnrichmentAssignment>;
+  allowEquivalentClaim: boolean;
 }>;
 const committedAdmissions = new WeakMap<EnrichmentAuthorityRepository, Map<string, CommittedAdmission>>();
 const committedAdmissionReceipts = new WeakSet<object>();
@@ -124,16 +125,20 @@ export async function reserveEnrichmentOperation(repository: EnrichmentAuthority
     status: "reserved",
     assignment: checked.assignment,
   });
-  const committedResult = await repository.commitReservation(copyReservation(record), checked.accounts);
-  const blockedEnvelope = exactDataRecord(committedResult, ["kind"]);
+  const commitRecord = copyReservation(record);
+  const committedResult = await repository.commitReservation(commitRecord, checked.accounts);
+  const rawCommitted = exactDataRecord(committedResult, ["kind", "record"]);
+  const acknowledgedInputIdentity = rawCommitted?.record === commitRecord;
+  const committedSnapshot = snapshotRepositoryValue(committedResult);
+  const blockedEnvelope = exactDataRecord(committedSnapshot, ["kind"]);
   if (blockedEnvelope?.kind === "blocked") return { kind: "blocked", reason: "budget_exceeded" };
-  const committed = exactDataRecord(committedResult, ["kind", "record"]);
+  const committed = exactDataRecord(committedSnapshot, ["kind", "record"]);
   if (
     !committed
     || (committed.kind !== "created" && committed.kind !== "existing")
     || !exactPlainData(committed.record, record)
   ) return { kind: "blocked", reason: "grant_unavailable" };
-  admitCommittedReservation(repository, committed.record as EnrichmentReservation);
+  admitCommittedReservation(repository, commitRecord, !acknowledgedInputIdentity);
   return { kind: "reserved", reservation: record, replayed: committed.kind === "existing" };
 }
 
@@ -161,17 +166,20 @@ export async function claimAdmittedCommittedInvocation(
   } catch {
     return Object.freeze({ kind: "invalid" });
   }
-  const blocked = exactDataRecord(rawClaim, ["kind", "reason"]);
+  const rawClaimEnvelope = exactDataRecord(rawClaim, ["kind", "assignment", "claimedAt"]);
+  const claimedInputIdentity = rawClaimEnvelope?.assignment === admission.assignmentIdentity;
+  const claimSnapshot = snapshotRepositoryValue(rawClaim);
+  const blocked = exactDataRecord(claimSnapshot, ["kind", "reason"]);
   if (
     blocked?.kind === "blocked"
     && (blocked.reason === "unavailable" || blocked.reason === "expired")
   ) {
     return Object.freeze({ kind: "blocked", reason: blocked.reason });
   }
-  const claimed = exactDataRecord(rawClaim, ["kind", "assignment", "claimedAt"]);
+  const claimed = exactDataRecord(claimSnapshot, ["kind", "assignment", "claimedAt"]);
   if (
     claimed?.kind !== "claimed"
-    || claimed.assignment !== admission.assignmentReference
+    || (!admission.allowEquivalentClaim && !claimedInputIdentity)
     || !exactPlainData(claimed.assignment, admission.assignmentSnapshot)
     || !positiveSafeInteger(claimed.claimedAt)
     || claimed.claimedAt > now
@@ -187,7 +195,11 @@ export async function claimAdmittedCommittedInvocation(
   });
 }
 
-function admitCommittedReservation(repository: EnrichmentAuthorityRepository, record: EnrichmentReservation): void {
+function admitCommittedReservation(
+  repository: EnrichmentAuthorityRepository,
+  record: EnrichmentReservation,
+  allowEquivalentClaim: boolean,
+): void {
   const receipt = Object.freeze({});
   committedAdmissionReceipts.add(receipt);
   let admissions = committedAdmissions.get(repository);
@@ -198,8 +210,9 @@ function admitCommittedReservation(repository: EnrichmentAuthorityRepository, re
   const snapshot = freezeReservation(copyReservation(record)).assignment;
   admissions.set(record.id, Object.freeze({
     receipt,
-    assignmentReference: record.assignment,
+    assignmentIdentity: record.assignment,
     assignmentSnapshot: snapshot,
+    allowEquivalentClaim,
   }));
 }
 

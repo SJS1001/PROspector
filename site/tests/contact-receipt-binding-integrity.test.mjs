@@ -56,6 +56,10 @@ function request(raw) {
 
 function assignment(patch = {}) {
   return {
+    assignmentId: "assignment-binding",
+    prospectId: "prospect-binding",
+    role: "economic_buyer",
+    quoteRevision: 3,
     workspaceId: "workspace-binding",
     contactId: "contact-binding",
     profileConfigurationId: "config-binding",

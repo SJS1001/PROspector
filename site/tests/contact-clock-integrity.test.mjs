@@ -21,6 +21,10 @@ async function loadModules(vite) {
 
 async function admittedObservation(evidence) {
   const assignment = {
+    assignmentId: "assignment-synthetic",
+    prospectId: "prospect-synthetic",
+    role: "champion",
+    quoteRevision: 1,
     workspaceId: "workspace-synthetic",
     contactId: "contact-synthetic",
     profileConfigurationId: "config-synthetic",

@@ -1,6 +1,7 @@
 import {
   executeContactVerification,
   ingestContactEvidence,
+  preflightContactEvidenceEnvelope,
   type ContactEvidenceVerifier,
   type ContactObservation,
 } from "./contact-evidence";
@@ -418,41 +419,44 @@ async function ingestEvidence(
   documentedUnits: number,
   verifier: ContactEvidenceVerifier | unknown,
 ): Promise<readonly ContactObservation[] | null> {
-  if (envelopes.length !== documentedUnits) return null;
-  const observations: ContactObservation[] = [];
-  const consumedAssignments = new Set<string>();
-  const consumedContacts = new Set<string>();
-  for (const envelope of envelopes) {
-    if (!plain(envelope) || !bounded(envelope.assignmentId, 256) || !bounded(envelope.prospectId, 256)) return null;
-    const binding = assignment.evidenceAssignments.find((item) => item.assignmentId === envelope.assignmentId && item.prospectId === envelope.prospectId && item.workspaceId === envelope.workspaceId && item.contactId === envelope.contactId && item.profileConfigurationId === envelope.profileConfigurationId && item.profileConfigurationDigest === envelope.profileConfigurationDigest);
-    if (!binding || consumedAssignments.has(binding.assignmentId) || consumedContacts.has(binding.contactId)) return null;
-    consumedAssignments.add(binding.assignmentId);
-    consumedContacts.add(binding.contactId);
-    let trustedVerification: unknown = undefined;
-    if (verifier !== undefined) {
+  const preflighted = preflightEvidenceSet(assignment, envelopes, documentedUnits);
+  if (!preflighted) return null;
+  const verifications: unknown[] = [];
+  if (verifier !== undefined) {
+    for (const item of preflighted) {
+      let trustedVerification: unknown;
       try {
         trustedVerification = await executeContactVerification(verifier, Object.freeze({
-          assignmentId: binding.assignmentId,
-          prospectId: binding.prospectId,
-          role: binding.role,
+          assignmentId: item.binding.assignmentId,
+          prospectId: item.binding.prospectId,
+          role: item.binding.role,
           assignment: Object.freeze({
-            workspaceId: binding.workspaceId,
-            contactId: binding.contactId,
-            profileConfigurationId: binding.profileConfigurationId,
-            profileConfigurationDigest: binding.profileConfigurationDigest,
+            workspaceId: item.binding.workspaceId,
+            contactId: item.binding.contactId,
+            profileConfigurationId: item.binding.profileConfigurationId,
+            profileConfigurationDigest: item.binding.profileConfigurationDigest,
             providerId: assignment.providerId,
             providerVersion: assignment.providerVersion,
             catalogRef: assignment.catalogRef,
             quoteRevision: assignment.quoteRevision,
           }),
-          envelope,
+          envelope: item.envelope,
         }));
       } catch {
         return null;
       }
       if (trustedVerification === null) return null;
+      verifications.push(trustedVerification);
     }
+  }
+  const observations: ContactObservation[] = [];
+  for (let index = 0; index < preflighted.length; index += 1) {
+    const { binding, envelope } = preflighted[index];
     const result = ingestContactEvidence({
+      assignmentId: binding.assignmentId,
+      prospectId: binding.prospectId,
+      role: binding.role,
+      quoteRevision: assignment.quoteRevision,
       workspaceId: binding.workspaceId,
       contactId: binding.contactId,
       profileConfigurationId: binding.profileConfigurationId,
@@ -462,13 +466,95 @@ async function ingestEvidence(
         providerVersion: assignment.providerVersion,
         catalogRef: assignment.catalogRef,
       },
-    }, envelope, trustedVerification);
+    }, envelope, verifier === undefined ? undefined : verifications[index]);
     if (!result.accepted || observations.some((item) => item.id === result.observation.id)) return null;
     observations.push(result.observation);
   }
   return observations.length === documentedUnits
-    && consumedAssignments.size === documentedUnits
-    && consumedContacts.size === documentedUnits
     ? Object.freeze(observations)
     : null;
+}
+
+type PreflightedEvidence = Readonly<{
+  binding: AssignedContactEvidence;
+  envelope: Readonly<Record<string, unknown>>;
+}>;
+
+function preflightEvidenceSet(
+  assignment: AuthorizedEnrichmentAssignment,
+  envelopes: readonly unknown[],
+  documentedUnits: number,
+): readonly PreflightedEvidence[] | null {
+  if (
+    !exactDenseArray(envelopes, documentedUnits, 100)
+    || documentedUnits < 1
+    || documentedUnits > assignment.maxUnits
+  ) return null;
+  const bindings = new Map(assignment.evidenceAssignments.map((item) => [item.assignmentId, item]));
+  const consumedAssignments = new Set<string>();
+  const consumedContacts = new Set<string>();
+  const consumedObservations = new Set<string>();
+  const preflighted: PreflightedEvidence[] = [];
+  for (const value of envelopes) {
+    if (!plain(value) || !bounded(value.assignmentId, 256)) return null;
+    const binding = bindings.get(value.assignmentId);
+    if (!binding) return null;
+    const envelope = preflightContactEvidenceEnvelope({
+      assignmentId: binding.assignmentId,
+      prospectId: binding.prospectId,
+      role: binding.role,
+      quoteRevision: assignment.quoteRevision,
+      workspaceId: binding.workspaceId,
+      contactId: binding.contactId,
+      profileConfigurationId: binding.profileConfigurationId,
+      profileConfigurationDigest: binding.profileConfigurationDigest,
+      providerAuthority: {
+        providerId: assignment.providerId,
+        providerVersion: assignment.providerVersion,
+        catalogRef: assignment.catalogRef,
+      },
+    }, value);
+    if (!envelope) return null;
+    if (
+      envelope.prospectId !== binding.prospectId
+      || envelope.workspaceId !== binding.workspaceId
+      || envelope.contactId !== binding.contactId
+      || envelope.profileConfigurationId !== binding.profileConfigurationId
+      || envelope.profileConfigurationDigest !== binding.profileConfigurationDigest
+      || !assignment.prospectIds.includes(binding.prospectId)
+      || consumedAssignments.has(binding.assignmentId)
+      || consumedContacts.has(binding.contactId)
+      || consumedObservations.has(envelope.id as string)
+    ) return null;
+    consumedAssignments.add(binding.assignmentId);
+    consumedContacts.add(binding.contactId);
+    consumedObservations.add(envelope.id as string);
+    preflighted.push(Object.freeze({ binding, envelope }));
+  }
+  return preflighted.length === documentedUnits ? Object.freeze(preflighted) : null;
+}
+
+function exactDenseArray(value: unknown, expectedLength: number, maximum: number): value is readonly unknown[] {
+  try {
+    if (
+      !Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Array.prototype
+      || value.length !== expectedLength
+      || value.length > maximum
+    ) return false;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.some((key) => typeof key !== "string")
+      || keys.length !== value.length + 1
+      || !Object.hasOwn(descriptors, "length")
+    ) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

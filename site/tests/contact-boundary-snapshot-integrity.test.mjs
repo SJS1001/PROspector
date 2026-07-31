@@ -84,6 +84,10 @@ function verdict(raw = envelope()) {
 
 function assignment() {
   return {
+    assignmentId: "assignment-boundary",
+    prospectId: "prospect-boundary",
+    role: "champion",
+    quoteRevision: 1,
     workspaceId: "workspace-boundary",
     contactId: "contact-boundary",
     profileConfigurationId: "config-boundary",

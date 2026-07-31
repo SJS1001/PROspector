@@ -5,6 +5,10 @@ import { createServer } from "vite";
 const NOW = 1_800_000_000_000;
 const DIGEST = "a".repeat(64);
 const assignment = Object.freeze({
+  assignmentId: "assignment-synthetic",
+  prospectId: "prospect-synthetic",
+  role: "champion",
+  quoteRevision: 1,
   workspaceId: "workspace-synthetic",
   contactId: "contact-synthetic",
   profileConfigurationId: "config-synthetic",

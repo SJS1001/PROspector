@@ -35,6 +35,13 @@ export type ContactEvidenceAssignment = Readonly<{
   }> | null;
 }>;
 
+export type CommittedContactEvidenceAssignment = Readonly<ContactEvidenceAssignment & {
+  assignmentId: string;
+  prospectId: string;
+  role: "champion" | "economic_buyer" | "general";
+  quoteRevision: number;
+}>;
+
 export type ContactVerifierDescriptor = Readonly<{
   verifierId: string;
   verifierVersion: string;
@@ -128,7 +135,17 @@ export type ContactObservation = Readonly<{
   providerId: string | null;
   providerVersion: string | null;
   catalogRef: string | null;
+  assignmentContext: Readonly<{
+    assignmentId: string;
+    prospectId: string;
+    role: "champion" | "economic_buyer" | "general";
+    quoteRevision: number;
+  }> | null;
   verificationAuthority: Readonly<{
+    assignmentId: string;
+    prospectId: string;
+    role: "champion" | "economic_buyer" | "general";
+    quoteRevision: number;
     verifierId: string;
     verifierVersion: string;
     verdictReference: string;
@@ -229,18 +246,50 @@ export function isBoundContactEvidenceVerifier(value: unknown): value is Contact
 }
 
 /**
+ * Purely validates and snapshots one provider envelope against its complete
+ * committed assignment. It issues no verifier receipt and admits no observation,
+ * so callers can preflight an entire outcome before starting trusted work.
+ */
+export function preflightContactEvidenceEnvelope(
+  assignmentValue: CommittedContactEvidenceAssignment | unknown,
+  envelopeValue: unknown,
+): Readonly<Record<string, unknown>> | null {
+  const assignment = committedAssignmentRecord(snapshotCloneableBoundedData(assignmentValue));
+  const envelopeSnapshot = snapshotCloneableBoundedData(envelopeValue);
+  if (!assignment || !envelopeSnapshot) return null;
+  const envelope = normalizeVerificationEnvelope(
+    envelopeSnapshot,
+    assignment.assignmentId,
+    assignment.prospectId,
+  );
+  if (
+    !envelope
+    || !Object.hasOwn(envelope, "assignmentId")
+    || !Object.hasOwn(envelope, "prospectId")
+    || envelope.assignmentId !== assignment.assignmentId
+    || envelope.prospectId !== assignment.prospectId
+    || envelope.workspaceId !== assignment.workspaceId
+    || envelope.contactId !== assignment.contactId
+    || envelope.profileConfigurationId !== assignment.profileConfigurationId
+    || envelope.profileConfigurationDigest !== assignment.profileConfigurationDigest
+  ) return null;
+  return envelope;
+}
+
+/**
  * Defensively accepts only a bounded, assignment-bound immutable observation.
  * It intentionally returns a value rather than writing it: preparation code must
  * not become a runtime ingestion path before the Phase 5 authority gate exists.
  */
 export function ingestContactEvidence(
-  assignmentValue: ContactEvidenceAssignment | unknown,
+  assignmentValue: ContactEvidenceAssignment | CommittedContactEvidenceAssignment | unknown,
   envelopeValue: unknown,
   trustedVerificationValue?: TrustedContactVerification | unknown,
 ): ContactEvidenceResult {
   const assignmentSnapshot = snapshotCloneableBoundedData(assignmentValue);
   const envelopeSnapshot = snapshotCloneableBoundedData(envelopeValue);
-  const assignment = assignmentRecord(assignmentSnapshot);
+  const committedAssignment = committedAssignmentRecord(assignmentSnapshot);
+  const assignment = committedAssignment ?? assignmentRecord(assignmentSnapshot);
   const envelope = record(envelopeSnapshot);
   if (!assignment || !envelope) return blocked("malformed_evidence_envelope");
 
@@ -273,9 +322,11 @@ export function ingestContactEvidence(
   }
   const trusted = trustedVerificationValue === undefined
     ? null
-    : normalizeTrustedVerification(trustedVerificationValue, assignment, {
+    : committedAssignment
+      ? normalizeTrustedVerification(trustedVerificationValue, committedAssignment, {
         id, kind, normalizedValue, contentHash: provenance.contentHash,
-      }, envelope);
+      }, envelope)
+      : null;
   if (trustedVerificationValue !== undefined && !trusted) return blocked("invalid_verification_authority");
 
   const verificationClass = trusted?.verificationClass ?? "suggested";
@@ -304,7 +355,17 @@ export function ingestContactEvidence(
     providerId: trusted?.providerId ?? null,
     providerVersion: trusted?.providerVersion ?? null,
     catalogRef: trusted?.catalogRef ?? null,
+    assignmentContext: committedAssignment ? {
+      assignmentId: committedAssignment.assignmentId,
+      prospectId: committedAssignment.prospectId,
+      role: committedAssignment.role,
+      quoteRevision: committedAssignment.quoteRevision,
+    } : null,
     verificationAuthority: trusted ? {
+      assignmentId: committedAssignment!.assignmentId,
+      prospectId: committedAssignment!.prospectId,
+      role: committedAssignment!.role,
+      quoteRevision: committedAssignment!.quoteRevision,
       verifierId: trusted.verifierId,
       verifierVersion: trusted.verifierVersion,
       verdictReference: trusted.verdictReference,
@@ -370,6 +431,9 @@ export function isDefensivelyValidContactObservation(value: unknown): value is C
   const verificationAuthority = observation.verificationAuthority === null
     ? null
     : normalizeStoredVerificationAuthority(observation.verificationAuthority);
+  const assignmentContext = observation.assignmentContext === null
+    ? null
+    : normalizeStoredAssignmentContext(observation.assignmentContext);
   const lineage = record(observation.lineage);
   const parentObservationId = lineage && Object.hasOwn(lineage, "parentObservationId")
     ? lineage.parentObservationId === null ? null : opaque(lineage.parentObservationId, 160) : undefined;
@@ -383,7 +447,9 @@ export function isDefensivelyValidContactObservation(value: unknown): value is C
     normalizedValue === observation.normalizedValue && provenance && chronologyValid &&
     (observation.verifiedAt === null || verifiedAt !== null) && verifiedTimeValid &&
     providerTupleValid &&
+    (observation.assignmentContext === null || assignmentContext !== null) &&
     (observation.verificationAuthority === null || verificationAuthority !== null) &&
+    (!(verificationClass === "mailbox_verified" || verificationClass === "source_verified") || assignmentContext !== null) &&
     (!(verificationClass === "mailbox_verified" || verificationClass === "source_verified") || verificationAuthority !== null) &&
     lineage && parentObservationId !== undefined,
   );
@@ -391,7 +457,7 @@ export function isDefensivelyValidContactObservation(value: unknown): value is C
 
 function normalizeTrustedVerification(
   value: unknown,
-  assignment: ContactEvidenceAssignment,
+  assignment: CommittedContactEvidenceAssignment,
   evidence: Readonly<{ id: string; kind: ContactPointKind; normalizedValue: string; contentHash: string }>,
   envelope: Record<string, unknown>,
 ): TrustedContactVerification | null {
@@ -406,11 +472,32 @@ function normalizeTrustedVerification(
   const boundAssignment = binding.request.assignment;
   const exactEnvelope = normalizeVerificationEnvelope(
     envelope,
-    binding.request.assignmentId,
-    binding.request.prospectId,
+    assignment.assignmentId,
+    assignment.prospectId,
   );
+  const currentRequest = exactEnvelope && assignment.providerAuthority ? Object.freeze({
+    assignmentId: assignment.assignmentId,
+    prospectId: assignment.prospectId,
+    role: assignment.role,
+    assignment: Object.freeze({
+      workspaceId: assignment.workspaceId,
+      contactId: assignment.contactId,
+      profileConfigurationId: assignment.profileConfigurationId,
+      profileConfigurationDigest: assignment.profileConfigurationDigest,
+      providerId: assignment.providerAuthority.providerId,
+      providerVersion: assignment.providerAuthority.providerVersion,
+      catalogRef: assignment.providerAuthority.catalogRef,
+      quoteRevision: assignment.quoteRevision,
+    }),
+    envelope: exactEnvelope,
+  }) : null;
   if (
     !exactEnvelope
+    || !currentRequest
+    || assignment.assignmentId !== binding.request.assignmentId
+    || assignment.prospectId !== binding.request.prospectId
+    || assignment.role !== binding.request.role
+    || assignment.quoteRevision !== boundAssignment.quoteRevision
     || assignment.workspaceId !== boundAssignment.workspaceId
     || assignment.contactId !== boundAssignment.contactId
     || assignment.profileConfigurationId !== boundAssignment.profileConfigurationId
@@ -419,10 +506,7 @@ function normalizeTrustedVerification(
     || assignment.providerAuthority.providerId !== boundAssignment.providerId
     || assignment.providerAuthority.providerVersion !== boundAssignment.providerVersion
     || assignment.providerAuthority.catalogRef !== boundAssignment.catalogRef
-    || canonicalVerificationBinding(
-      Object.freeze({ ...binding.request, envelope: exactEnvelope }),
-      binding.verifier,
-    ) !== binding.canonicalRequest
+    || canonicalVerificationBinding(currentRequest, binding.verifier) !== binding.canonicalRequest
   ) return null;
   const verificationClass = typeof input.verificationClass === "string" && CLASSES.has(input.verificationClass)
     ? input.verificationClass as ContactVerificationClass : null;
@@ -681,15 +765,41 @@ function normalizeVerifierDescriptor(value: unknown): ContactVerifierDescriptor 
 }
 
 function normalizeStoredVerificationAuthority(value: unknown) {
-  const input = record(value);
+  const input = exactRecord(value, [
+    "assignmentId", "prospectId", "role", "quoteRevision",
+    "verifierId", "verifierVersion", "verdictReference", "verdictDigest",
+  ]);
   if (!input) return null;
+  const assignmentId = opaque(input.assignmentId, 256);
+  const prospectId = opaque(input.prospectId, 256);
+  const role = input.role === "champion" || input.role === "economic_buyer" || input.role === "general"
+    ? input.role : null;
+  const quoteRevision = Number.isSafeInteger(input.quoteRevision) && (input.quoteRevision as number) > 0
+    ? input.quoteRevision as number : null;
   const verifierId = opaque(input.verifierId, 160);
   const verifierVersion = opaque(input.verifierVersion, 160);
   const verdictReference = opaque(input.verdictReference, 256);
   const verdictDigest = typeof input.verdictDigest === "string" && HASH.test(input.verdictDigest)
     ? input.verdictDigest : null;
-  return verifierId && verifierVersion && verdictReference && verdictDigest
-    ? Object.freeze({ verifierId, verifierVersion, verdictReference, verdictDigest })
+  return assignmentId && prospectId && role && quoteRevision && verifierId && verifierVersion && verdictReference && verdictDigest
+    ? Object.freeze({
+        assignmentId, prospectId, role, quoteRevision,
+        verifierId, verifierVersion, verdictReference, verdictDigest,
+      })
+    : null;
+}
+
+function normalizeStoredAssignmentContext(value: unknown) {
+  const input = exactRecord(value, ["assignmentId", "prospectId", "role", "quoteRevision"]);
+  if (!input) return null;
+  const assignmentId = opaque(input.assignmentId, 256);
+  const prospectId = opaque(input.prospectId, 256);
+  const role = input.role === "champion" || input.role === "economic_buyer" || input.role === "general"
+    ? input.role : null;
+  const quoteRevision = Number.isSafeInteger(input.quoteRevision) && (input.quoteRevision as number) > 0
+    ? input.quoteRevision as number : null;
+  return assignmentId && prospectId && role && quoteRevision
+    ? Object.freeze({ assignmentId, prospectId, role, quoteRevision })
     : null;
 }
 
@@ -708,6 +818,31 @@ function assignmentRecord(value: unknown): ContactEvidenceAssignment | null {
   return workspaceId && contactId && profileConfigurationId && profileConfigurationDigest &&
     (input.providerAuthority === null || providerAuthority !== null)
     ? Object.freeze({ workspaceId, contactId, profileConfigurationId, profileConfigurationDigest, providerAuthority }) : null;
+}
+
+function committedAssignmentRecord(value: unknown): CommittedContactEvidenceAssignment | null {
+  const input = exactRecord(value, [
+    "assignmentId", "prospectId", "role", "quoteRevision",
+    "workspaceId", "contactId", "profileConfigurationId",
+    "profileConfigurationDigest", "providerAuthority",
+  ]);
+  if (!input) return null;
+  const base = assignmentRecord({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    profileConfigurationId: input.profileConfigurationId,
+    profileConfigurationDigest: input.profileConfigurationDigest,
+    providerAuthority: input.providerAuthority,
+  });
+  const assignmentId = opaque(input.assignmentId, 256);
+  const prospectId = opaque(input.prospectId, 256);
+  const role = input.role === "champion" || input.role === "economic_buyer" || input.role === "general"
+    ? input.role : null;
+  const quoteRevision = Number.isSafeInteger(input.quoteRevision) && (input.quoteRevision as number) > 0
+    ? input.quoteRevision as number : null;
+  return base && assignmentId && prospectId && role && quoteRevision
+    ? Object.freeze({ assignmentId, prospectId, role, quoteRevision, ...base })
+    : null;
 }
 
 function normalizeProviderAuthority(value: unknown) {
