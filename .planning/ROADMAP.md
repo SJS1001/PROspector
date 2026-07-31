@@ -139,11 +139,11 @@ Plans:
   3. Final dispatch holds a fenced send lease and rechecks the exact digest, approval, package/configuration/entity state, sender identity, unsubscribe, compliance acknowledgement, drift, and current suppression; ambiguous Gmail acceptance becomes DeliveryUnknown and is never resent automatically.
   4. Exact email/domain, E.164 phone, Contact, Organization, and all-Company suppression is enforced transactionally at call/send time, survives deletion/import/export/restore and identity merges, and is written before unsubscribe or explicit do-not-contact success is reported.
   5. Reply, bounce, suppression, pause, archive, or high-risk drift stops applicable follow-ups; manual phone remains verified-number click-to-call with a package-derived script and reasoned manual outcome, while compliance guidance is visibly advisory rather than legal approval.
-**Plans**: 10 plans
+**Plans**: 13 plans
 **UI hint**: yes
 
 Plans:
-- [ ] `06-01-PLAN.md` through `06-10-PLAN.md` — Checked governed-outreach and suppression sequence; execution has not started.
+- [ ] `06-01-PLAN.md` through `06-13-PLAN.md` — Checked predecessor acceptance, governed-outreach, Gmail composition, manual-call, suppression, and release sequence; execution has not started.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  
@@ -155,8 +155,11 @@ Plans:
   3. CRM Handoff produces a CSV with one row per currently eligible Enriched Contact and a stable Prospect ID, so contact-row count remains distinct from the weekly Export-ready Prospect count.
   4. Recent owner reauthentication can create an audited, passphrase-encrypted, versioned workspace archive containing canonical records, content-addressed objects, decisions, history, and suppression/deletion tombstones without storing the passphrase.
   5. The owner can review a restore dry run and restore the archive into a clean compatible deployment with schedules and sending disabled; tampering, wrong passphrase, version skew, unauthorized access, and expired delivery fail closed before release.
-**Plans**: TBD  
+**Plans**: 10 plans
 **UI hint**: yes
+
+Plans:
+- [ ] `07-01-PLAN.md` through `07-10-PLAN.md` — Checked Mining pilot handoff, CRM CSV, encrypted archive, and clean-restore sequence; execution has not started.
 
 ## Progress
 
@@ -169,5 +172,5 @@ Plans:
 | 3. Product Readiness and Market Discovery | 0/11 | Local 03-01..08 present without summaries; 03-09..11 external gates | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |
-| 6. Governed Outreach and Suppression | 0/10 | Planned; dependency-gated | - |
-| 7. Mining Pilot Handoff and Recovery | 0/TBD | Not started | - |
+| 6. Governed Outreach and Suppression | 0/13 | Planned; dependency-gated | - |
+| 7. Mining Pilot Handoff and Recovery | 0/10 | Planned; dependency-gated | - |
