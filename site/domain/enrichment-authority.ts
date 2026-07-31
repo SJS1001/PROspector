@@ -78,17 +78,22 @@ const committedAdmissions = new WeakMap<EnrichmentAuthorityRepository, Map<strin
 const committedAdmissionReceipts = new WeakSet<object>();
 
 /** Validates all current predicates without mutating. The repository is solely responsible for the atomic cap/consume commit. */
-export async function validateEnrichmentAuthority(authority: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
+export async function validateEnrichmentAuthority(authorityValue: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
+  const authority = snapshotReservationAuthority(authorityValue);
+  return validateEnrichmentAuthoritySnapshot(authority, input);
+}
+
+async function validateEnrichmentAuthoritySnapshot(authority: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
   if (!authority || !validInput(input)) return { kind: "blocked", reason: "grant_unavailable" };
   const { grant, configuration, quote } = authority;
   if (input.grantId !== grant.id) return { kind: "blocked", reason: "grant_unavailable" };
-  if (!authority.admitted || authority.principalSubject !== input.principalSubject || grant.tuple.ownerSubject !== input.principalSubject) return { kind: "blocked", reason: "owner_not_admitted" };
+  if (authority.admitted !== true || authority.principalSubject !== input.principalSubject || grant.tuple.ownerSubject !== input.principalSubject) return { kind: "blocked", reason: "owner_not_admitted" };
   if (grant.status !== "issued") return { kind: "blocked", reason: "grant_consumed" };
   const { digest, ...unsignedTuple } = grant.tuple;
   if (await canonicalDigest(unsignedTuple) !== digest) return { kind: "blocked", reason: "grant_unavailable" };
   if (authority.workspaceId !== grant.workspaceId || authority.workspaceId !== grant.tuple.workspaceId || authority.sourceRevision !== grant.tuple.sourceRevision) return { kind: "blocked", reason: "grant_unavailable" };
   if (grant.tuple.expiresAt <= input.now || quote.expiresAt <= input.now) return { kind: "blocked", reason: "quote_expired" };
-  if (!configuration.current || configuration.id !== grant.tuple.configurationId || configuration.digest !== grant.tuple.configurationDigest || configuration.revision !== grant.tuple.configurationRevision) return { kind: "blocked", reason: "configuration_not_current" };
+  if (configuration.current !== true || configuration.id !== grant.tuple.configurationId || configuration.digest !== grant.tuple.configurationDigest || configuration.revision !== grant.tuple.configurationRevision) return { kind: "blocked", reason: "configuration_not_current" };
   if (!sameQuote(quote, grant)) return { kind: "blocked", reason: quote.currency !== grant.tuple.currency ? "currency_mismatch" : "quote_unavailable" };
   if (!sameProspects(authority.prospects, grant)) return { kind: "blocked", reason: "prospect_not_approved" };
   if (!validEvidenceAssignments(authority.evidenceAssignments, authority.workspaceId, configuration.id, configuration.digest, grant.tuple.prospectIds, grant.tuple.maxUnits)) return { kind: "blocked", reason: "prospect_not_approved" };
@@ -97,12 +102,15 @@ export async function validateEnrichmentAuthority(authority: ReservationAuthorit
   if (input.operationKey !== grant.tuple.operationKey || derived !== grant.tuple.operationKey) return { kind: "blocked", reason: "operation_key_mismatch" };
   if (!withinAccounts(authority.accounts, grant)) return { kind: "blocked", reason: "budget_exceeded" };
   const reservationId = `er_${grant.tuple.digest.slice(0, 24)}`;
-  return { kind: "valid", accounts: authority.accounts.map(copyAccount), assignment: { reservationId, workspaceId: authority.workspaceId, configurationId: configuration.id, configurationDigest: configuration.digest, operationKey: grant.tuple.operationKey, providerId: grant.tuple.providerId, providerVersion: grant.tuple.providerVersion, catalogRef: grant.tuple.catalogRef, quoteRevision: grant.tuple.quoteRevision, quoteUnitCostMinor: grant.tuple.quoteUnitCostMinor, prospectIds: [...grant.tuple.prospectIds], evidenceAssignments: authority.evidenceAssignments.map((item) => ({ ...item })), operation: grant.tuple.operation, maxUnits: grant.tuple.maxUnits, maxCostMinor: grant.tuple.maxCostMinor, currency: grant.tuple.currency, expiresAt: grant.tuple.expiresAt } };
+  return { kind: "valid", accounts: authority.accounts, assignment: { reservationId, workspaceId: authority.workspaceId, configurationId: configuration.id, configurationDigest: configuration.digest, operationKey: grant.tuple.operationKey, providerId: grant.tuple.providerId, providerVersion: grant.tuple.providerVersion, catalogRef: grant.tuple.catalogRef, quoteRevision: grant.tuple.quoteRevision, quoteUnitCostMinor: grant.tuple.quoteUnitCostMinor, prospectIds: [...grant.tuple.prospectIds], evidenceAssignments: authority.evidenceAssignments.map((item) => ({ ...item })), operation: grant.tuple.operation, maxUnits: grant.tuple.maxUnits, maxCostMinor: grant.tuple.maxCostMinor, currency: grant.tuple.currency, expiresAt: grant.tuple.expiresAt } };
 }
 
 export async function reserveEnrichmentOperation(repository: EnrichmentAuthorityRepository, input: ReserveEnrichmentInput): Promise<ReserveEnrichmentResult> {
-  const authority = await repository.loadReservationAuthority(input.grantId);
-  const checked = await validateEnrichmentAuthority(authority, input);
+  const loadedAuthority = await repository.loadReservationAuthority(input.grantId);
+  // Snapshot synchronously before validation or another await. Repository-owned
+  // objects are never retained across the digest boundary or passed to commit.
+  const authority = snapshotReservationAuthority(loadedAuthority);
+  const checked = await validateEnrichmentAuthoritySnapshot(authority, input);
   if (checked.kind === "blocked") return checked;
   const grant = authority!.grant;
   const record = freezeReservation({
@@ -218,7 +226,6 @@ function withinAccounts(accounts: readonly BudgetAccount[], grant: EnrichmentGra
       && safeSumWithin(account.actualCostMinor, account.reservedCostMinor, grant.tuple.maxCostMinor, account.maxCostMinor);
   });
 }
-function copyAccount(account: BudgetAccount): BudgetAccount { return Object.freeze({ ...account }); }
 function enrichmentAccountId(workspaceId: string, scope: BudgetAccount["scope"], entityId: string): string {
   return `enrichment:${component(workspaceId)}:${scope}:${component(entityId)}`;
 }
@@ -257,6 +264,140 @@ function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[
   );
 }
 function bounded(value: unknown, max: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
+
+function snapshotReservationAuthority(value: unknown): ReservationAuthority | null {
+  if (value === null) return null;
+  const snapshot = snapshotRepositoryValue(value);
+  const root = exactDataRecord(snapshot, [
+    "admitted", "principalSubject", "workspaceId", "sourceRevision", "grant",
+    "configuration", "prospects", "quote", "accounts", "evidenceAssignments",
+  ]);
+  const grant = root && exactDataRecord(root.grant, [
+    "id", "workspaceId", "idempotencyKey", "requestDigest", "tuple", "status",
+  ]);
+  const tuple = grant && exactDataRecord(grant.tuple, [
+    "workspaceId", "providerId", "providerVersion", "catalogRef", "quoteRevision",
+    "quoteUnitCostMinor", "quoteExpiresAt", "prospectIds", "operation", "operationKey",
+    "maxUnits", "maxCostMinor", "currency", "expiresAt", "ownerSubject", "nonce",
+    "configurationId", "configurationDigest", "configurationRevision", "sourceRevision",
+    "prospectRevisions", "digest",
+  ]);
+  const configuration = root && exactDataRecord(root.configuration, ["id", "digest", "revision", "current"]);
+  const quote = root && exactDataRecord(root.quote, [
+    "providerId", "providerVersion", "catalogRef", "revision", "currency", "unitCostMinor", "expiresAt",
+  ]);
+  const prospects = root && exactDataArray(root.prospects, 0, 100);
+  const accounts = root && exactDataArray(root.accounts, 0, 4);
+  const evidenceAssignments = root && exactDataArray(root.evidenceAssignments, 0, 100);
+  const prospectIds = tuple && exactDataArray(tuple.prospectIds, 1, 100);
+  const prospectRevisions = tuple && exactDataArray(tuple.prospectRevisions, 1, 100);
+  if (
+    !root || !grant || !tuple || !configuration || !quote || !prospects || !accounts
+    || !evidenceAssignments || !prospectIds || !prospectRevisions
+  ) return null;
+  if (
+    prospects.some((prospect) => !exactDataRecord(prospect, [
+      "id", "state", "configurationId", "configurationDigest", "revision",
+    ]))
+    || accounts.some((account) => !exactDataRecord(account, [
+      "authorityType", "accountId", "scope", "workspaceId", "entityId", "currency",
+      "actualUnits", "reservedUnits", "maxUnits", "actualCostMinor", "reservedCostMinor", "maxCostMinor",
+    ]))
+    || evidenceAssignments.some((assignment) => !exactDataRecord(assignment, [
+      "assignmentId", "prospectId", "role", "workspaceId", "contactId",
+      "profileConfigurationId", "profileConfigurationDigest",
+    ]))
+    || prospectRevisions.some((revision) => !exactDataRecord(revision, ["id", "revision"]))
+  ) return null;
+  return snapshot as ReservationAuthority;
+}
+
+const invalidSnapshot = Symbol("invalid_repository_snapshot");
+
+function snapshotRepositoryValue<T = unknown>(value: unknown): T | null {
+  if (value === null) return null;
+  const snapshot = snapshotPlainNode(value, new Set<object>());
+  if (snapshot === invalidSnapshot) return null;
+  try {
+    // structuredClone rejects Proxy and exotic repository results. The value
+    // returned below remains the descriptor-derived immutable copy.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return snapshot as T;
+}
+
+function snapshotPlainNode(value: unknown, seen: Set<object>): unknown | typeof invalidSnapshot {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : invalidSnapshot;
+  if (typeof value !== "object" || seen.has(value)) return invalidSnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string")) return invalidSnapshot;
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return invalidSnapshot;
+      const lengthDescriptor = descriptors.length;
+      if (
+        !lengthDescriptor || !("value" in lengthDescriptor)
+        || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0
+      ) return invalidSnapshot;
+      const length = lengthDescriptor.value;
+      if (ownKeys.length !== length + 1) return invalidSnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidSnapshot;
+        const child = snapshotPlainNode(descriptor.value, seen);
+        if (child === invalidSnapshot) return invalidSnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if (prototype !== Object.prototype) return invalidSnapshot;
+    const copy: Record<string, unknown> = {};
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidSnapshot;
+      const child = snapshotPlainNode(descriptor.value, seen);
+      if (child === invalidSnapshot) return invalidSnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidSnapshot;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function exactDataArray(value: unknown, min: number, max: number): unknown[] | null {
+  try {
+    if (
+      !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+      || value.length < min || value.length > max
+    ) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.some((key) => typeof key !== "string")
+      || keys.length !== value.length + 1
+      || !("length" in descriptors)
+    ) return null;
+    const result: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result.push(descriptor.value);
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
 
 function freezeReservation(record: EnrichmentReservation): EnrichmentReservation {
   const evidenceAssignments = Object.freeze(record.assignment.evidenceAssignments.map((item) => Object.freeze({
