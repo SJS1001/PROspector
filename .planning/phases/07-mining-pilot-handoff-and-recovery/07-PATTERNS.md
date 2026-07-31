@@ -46,7 +46,7 @@ recent owner reauth + server workspace
   -> authenticated encrypted archive + delivery metadata
   -> dry-run decrypt/verify/compatibility/clean-target/invariants (no target writes)
   -> explicit restore nonce/lock + idempotent apply
-  -> target schedules/sends/providers remain disabled until separate authority
+  -> target schedules/sends/providers remain disabled until fresh upstream authority; recurring schedule state specifically requires Phase 4 readiness activation and evidence
 ```
 
 ## Integrity Checks

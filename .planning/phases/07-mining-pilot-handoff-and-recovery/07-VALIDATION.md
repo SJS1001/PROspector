@@ -20,7 +20,7 @@ Use the existing Node built-in runner and Miniflare D1/R2 test seams. Inject fak
 
 | Area | Threat / failure | Required proof |
 |---|---|---|
-| Seed/readiness/schedule | Mining labels accidentally activate Greenfield or schedule work | synthetic seed shows generic hierarchy, Operating vs Draft/nurture Greenfield, 06:00 America/Toronto visibility; absent readiness/gate leaves schedule disabled and invokes no scheduler. |
+| Seed/readiness/schedule | Mining labels accidentally activate Greenfield or schedule work | synthetic seed shows generic hierarchy, Operating vs Draft/nurture Greenfield, and read-only 06:00 America/Toronto Phase 4 schedule visibility; absent or stale upstream readiness/evidence reports blocked state and invokes no scheduler. |
 | Weekly cohort | CSV rows, re-export, reversal, UTC boundary, or multiple contacts inflate target | table-driven Monday–Sunday Toronto transitions prove one first ExportReady transition per Prospect; seven fixtures can yield >7 rows; reversal/losses remain visible but uncounted. |
 | Funnel losses | quality gates hidden to hit target | rejection, deferral, enrichment failed/uncertain, review delay, stale, suppressed, drifted, and reversal fixtures render/count distinct labelled losses with no ExportReady increment. |
 | CSV eligibility | unverified/stale/unapproved/cross-scope rows leak | every invalid upstream condition yields no contactable row; only current fresh verified non-suppressed contacts under a valid package are included. |

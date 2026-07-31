@@ -15,7 +15,7 @@ created: 2026-07-30
 
 ## Scope and sources
 
-Phase 7 adds three owner-read/owner-controlled surfaces to the established private workspace: **Morning Brief**, **Exports & History**, and **Workspace Recovery**. They explain the current operating state and expose only the governed requests defined below. They never become a CRM, campaign console, scheduler, enrichment console, or restore automation screen.
+Phase 7 adds three owner-read/owner-controlled surfaces to the established private workspace: **Morning Brief**, **Exports & History**, and **Workspace Recovery**. They explain the current operating state and expose only the governed export/recovery requests defined below. They never become a CRM, campaign console, scheduler, enrichment console, or restore automation screen.
 
 Authoritative inputs are the Phase 7 `CONTEXT.md`, `RESEARCH.md`, `PATTERNS.md`, and `VALIDATION.md`; the accepted Direction, implementation contract, and ADRs; and the Phase 3–6 projections named in `07-CONTEXT.md`. The UI consumes server-owned projections and immutable audit/manifest references. A client path, selected workspace, reported target, artifact key, restore target, or displayed green status is never authority.
 
@@ -83,7 +83,7 @@ Use the established semantic treatments: positive `#2a725b` on `#e8f5ee`, attent
 ## Shared safety and scope contract
 
 - Repeat the selected hierarchy path, Profile lifecycle, active configuration digest, data-as-of timestamp, and a safe audit/reference ID on every Phase 7 surface. A breadcrumb is context, not eligibility proof.
-- The controlled-pilot banner remains visible: **Controlled pilot — all displayed records are illustrative or synthetic until the required Phase 3–6 authority and Phase 7 release gates are accepted. Schedules, providers, outreach, and restore effects remain disabled.**
+- The controlled-pilot banner remains visible: **Controlled pilot — all displayed records are illustrative or synthetic until the required Phase 3–6 authority and Phase 7 release gates are accepted. This Phase 7 surface cannot change schedules, providers, outreach, or restore effects; restored targets remain disabled.**
 - Attach one explicit provenance label to any non-live sample: **Synthetic fixture — not a lead, contact, pilot outcome, or import.** Mining source/deck evidence is labelled **Proposed source evidence**; masked Mining figures are labelled **Illustrative — not outcome evidence**. Never use “live,” “proved,” or “ready to send” for those materials.
 - Use four textual status families: **Current**, **Needs review**, **Blocked**, and **Historical**. For recovery also use **Verified dry run**, **Restore blocked**, and **Restored — effects disabled**. All include plain-language reason, checked time, and safe reference.
 - Every server mutation/request has a pending state that disables competing controls, retains the immutable summary, and announces one result. Unknown network outcomes reload the authoritative projection; no request, download, restore, or retry is automatically replayed.
@@ -174,7 +174,7 @@ The recovery screen may expose **Create encrypted workspace archive**, **Run rea
 | Morning Brief loading | **Loading current weekly outcome and readiness evidence…** Do not show cached counts as current or a green placeholder. |
 | Morning Brief empty | **No weekly outcome evidence is available.** **Load current Phase 3–6 authority and immutable transition history before interpreting the seven-lead target.** Show no implied zero-success result. |
 | Morning Brief error | **Morning Brief could not load current evidence. Nothing has been scheduled or enabled.** Provide **Retry Morning Brief**. |
-| Schedule blocked | **Schedule visibility only — weekday 06:00 America/Toronto remains disabled until readiness and capability gates are accepted. No runner will start.** |
+| Schedule blocked | **Schedule state is reported from Phase 4 only — weekday 06:00 America/Toronto is not current upstream. This view cannot enable it or start a runner.** |
 | Handoff loading | **Loading current eligibility projection and immutable handoff history…** No artifact/download action is enabled. |
 | Handoff empty | **No eligible contact rows are available for CSV handoff.** **Export-ready Prospects, fresh verified contacts, an approved package, and no Company-wide suppression are required.** |
 | Handoff error | **CSV handoff could not load the current eligibility projection. No file was created or delivered.** Provide **Retry handoff status**. |

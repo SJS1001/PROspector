@@ -150,7 +150,7 @@ Plans:
 **Depends on**: Phase 6  
 **Requirements**: REQ-crm-and-workspace-exports, REQ-initial-operating-target  
 **Success Criteria** (what must be TRUE):
-  1. The owner can review the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` hierarchy with Greenfield remaining Draft/nurture and activate Operating weekdays at 06:00 America/Toronto only after its in-application readiness review.
+  1. The owner can review the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` hierarchy with Greenfield remaining Draft/nurture and see the upstream Phase 4 weekday `06:00 America/Toronto` schedule state. Phase 7 never authorizes, provisions, or activates that schedule.
   2. Morning Brief and Exports & History report the first transition of each Prospect to Export-ready within the Monday–Sunday America/Toronto week, target seven new Export-ready Prospects, and continue to show rejections, deferrals, enrichment failures, reversals, and review delays without weakening gates.
   3. CRM Handoff produces a CSV with one row per currently eligible Enriched Contact and a stable Prospect ID, so contact-row count remains distinct from the weekly Export-ready Prospect count.
   4. Recent owner reauthentication can create an audited, passphrase-encrypted, versioned workspace archive containing canonical records, content-addressed objects, decisions, history, and suppression/deletion tombstones without storing the passphrase.

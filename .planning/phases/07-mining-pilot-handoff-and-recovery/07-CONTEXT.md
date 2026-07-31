@@ -22,8 +22,13 @@ It is not a CRM, an enrichment/outreach/scheduling implementation, a live pilot 
 ### Seeded Mining operating view
 
 - Render the accepted hierarchy exactly as `Digitalrain -> ONE -> ONE for Mining -> Operating`; show `Greenfield` separately as Draft/nurture, never active by implication.
-- Operating weekday schedule visibility is `06:00 America/Toronto`, including its local timezone and current enabled/disabled state. It remains disabled until the in-application readiness review and upstream capability gates are accepted; this phase never schedules a runner.
+- Operating weekday schedule visibility is `06:00 America/Toronto`, including its local timezone and current enabled/disabled state. It is a Phase 4-owned recurring-schedule projection; this phase never schedules a runner.
 - Morning Brief is an owner read surface. It reports the current Monday–Sunday America/Toronto weekly cohort and funnel losses, rather than treating a target as permission to relax qualification, review, verification, package approval, or suppression.
+
+### Recurring-schedule authority allocation
+
+- Phase 4 readiness is the sole authority that may activate or change recurring prospecting schedule intent. Phase 7 only consumes, reports, and validates the upstream weekday `06:00 America/Toronto` schedule state and its safe references; it never authorizes, provisions, or records a separate schedule-activation command.
+- A clean restored target starts with schedules disabled and pause-fenced. Historical source schedule state is retained only as evidence; it cannot reactivate the target. A fresh upstream Phase 4 readiness activation and its required evidence are required before any later schedule state can change.
 
 ### Seven-lead weekly outcome
 
@@ -55,7 +60,7 @@ It is not a CRM, an enrichment/outreach/scheduling implementation, a live pilot 
 
 ### Audit and scope fences
 
-- Audit every schedule-readiness view, weekly cohort calculation/version, export request/snapshot/materialization/download/expiry, duplicate/suppression exclusion, reauth authorization, archive creation/delivery, dry run, restore attempt/result, replay/invariant failure, and disabled-effect fence. Audit stores actor, workspace, immutable subject/version/digest, bounded outcome/reason, and time—not passphrases, credentials, raw archive contents, or raw sensitive contacts beyond justified references.
+- Audit every schedule-state view/validation, weekly cohort calculation/version, export request/snapshot/materialization/download/expiry, duplicate/suppression exclusion, reauth authorization, archive creation/delivery, dry run, restore attempt/result, replay/invariant failure, and disabled-effect fence. Audit stores actor, workspace, immutable subject/version/digest, bounded outcome/reason, and time—not passphrases, credentials, raw archive contents, or raw sensitive contacts beyond justified references.
 - Mining brochure/deck claims are proposed source evidence, not proof of outcomes. The sanitized `enrichment/sample_leads.json` may supply only non-production fixtures such as Operating/Greenfield segregation, one disqualified record, and formula-safe CSV cells; it must not be represented as live leads or imported operational data.
 
 ### Claude's discretion
