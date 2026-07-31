@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { createServer } from "vite";
 
@@ -95,6 +96,43 @@ async function plan(domain, repository, input) {
   return domain.planIdentitySuggestion(repository, owner, input);
 }
 
+function stable(value) {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function digest(value) {
+  return createHash("sha256").update(stable(value)).digest("hex");
+}
+
+function resignResolution(record) {
+  const appliedMaterial = {
+    workspaceId: record.workspaceId,
+    ownerSubject: record.ownerSubject,
+    suggestionId: record.suggestionId,
+    suggestionDigest: record.suggestionDigest,
+    idempotencyKey: record.idempotencyKey,
+    decision: record.decision,
+    operationDigest: record.operationDigest,
+    retainedSourceLineageIds: record.retainedSourceLineageIds,
+    retainedIdentityLineageIds: record.retainedIdentityLineageIds,
+    retainedAliases: record.retainedAliases,
+    retainedSuppressionSubjectRefs: record.retainedSuppressionSubjectRefs,
+    rePointedAssociationIds: record.rePointedAssociationIds,
+    invalidations: record.invalidations,
+  };
+  record.resultDigest = digest({ schema: "identity-resolution-result/v1", ...appliedMaterial });
+  record.id = digest({
+    operationDigest: record.operationDigest,
+    idempotencyKey: record.idempotencyKey,
+    resultDigest: record.resultDigest,
+  });
+  return record;
+}
+
 test("ambiguity is a non-authoritative proposal with bounded impact and no automatic mutation", async () => {
   const loaded = await load();
   try {
@@ -107,6 +145,14 @@ test("ambiguity is a non-authoritative proposal with bounded impact and no autom
     assert.deepEqual(replay, suggestion, "concurrent creation converges on one persisted server-created suggestion");
     assert.deepEqual(suggestion.candidateIds, ["identity-alpha", "identity-beta"]);
     assert.deepEqual(suggestion.sourceLineageIds, ["source-identity-alpha", "source-identity-beta"]);
+    assert.deepEqual(suggestion.retainedIdentityLineageIds, [
+      "identity-alpha",
+      "identity-beta",
+      "lineage-identity-alpha",
+      "lineage-identity-beta",
+    ]);
+    assert.deepEqual(suggestion.retainedAliases, ["alias-identity-alpha", "alias-identity-beta"]);
+    assert.deepEqual(suggestion.retainedSuppressionSubjectRefs, ["suppression-identity-alpha", "suppression-identity-beta"]);
     assert.equal(suggestion.suppressionPreservationNotice, "preserve_all_existing_subject_references");
     assert.equal(suggestion.associationImpact.length, 2);
     assert.deepEqual(repository.identitySnapshot(), before, "suggestion persistence cannot merge identities, alter relevance, or mutate suppression references");
@@ -225,6 +271,40 @@ test("idempotent retry returns the original resolution; changed payload and conc
     assert.deepEqual(replay, first); assert.equal(repository.mutations, 1);
     await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "merge", primaryId: "identity-beta", secondaryIds: ["identity-alpha"] }, "identity-resolution-key-0002"), /identity_resolution_rejected/);
     await assert.rejects(() => apply(loaded.domain, repository, suggestion, decision, "identity-resolution-key-0003"), /identity_resolution_rejected/, "the original suggestion revision is stale after the first decision");
+    assert.equal(repository.mutations, 1);
+  } finally { await loaded.vite.close(); }
+});
+
+test("idempotent replay rejects self-consistent records that drop pre-decision preservation authority", async () => {
+  const loaded = await load();
+  try {
+    const repository = new FakeIdentityRepository([identity("identity-alpha", 3), identity("identity-beta", 4)]);
+    const suggestion = await plan(loaded.domain, repository, { workspaceId, kind: "merge", candidateIds: ["identity-alpha", "identity-beta"] });
+    const decision = { kind: "merge", primaryId: "identity-alpha", secondaryIds: ["identity-beta"] };
+    const idempotencyKey = "identity-resolution-preservation-replay-0001";
+    const original = await apply(loaded.domain, repository, suggestion, decision, idempotencyKey);
+    const mutations = [
+      (record) => { record.retainedAliases = ["alias-identity-alpha"]; },
+      (record) => { record.retainedSourceLineageIds = ["source-identity-alpha"]; },
+      (record) => { record.retainedIdentityLineageIds = ["identity-alpha", "identity-beta"]; },
+      (record) => { record.retainedSuppressionSubjectRefs = ["suppression-identity-alpha"]; },
+    ];
+    for (const mutate of mutations) {
+      const forged = structuredClone(original);
+      mutate(forged);
+      repository.applied[0].resolution = resignResolution(forged);
+      await assert.rejects(
+        () => apply(loaded.domain, repository, suggestion, decision, idempotencyKey),
+        /identity_resolution_rejected/,
+        "a recomputed result digest and id cannot erase preservation authority",
+      );
+    }
+    repository.applied[0].resolution = structuredClone(original);
+    assert.deepEqual(
+      await apply(loaded.domain, repository, suggestion, decision, idempotencyKey),
+      original,
+      "the exact same-key replay remains safe",
+    );
     assert.equal(repository.mutations, 1);
   } finally { await loaded.vite.close(); }
 });

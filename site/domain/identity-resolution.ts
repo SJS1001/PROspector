@@ -43,6 +43,9 @@ export type IdentitySuggestion = Readonly<{
   candidateRevisions: Readonly<Record<string, number>>;
   revision: number;
   sourceLineageIds: readonly string[];
+  retainedIdentityLineageIds: readonly string[];
+  retainedAliases: readonly string[];
+  retainedSuppressionSubjectRefs: readonly string[];
   associationImpact: readonly Readonly<{ id: string; scope: IdentityAssociation["scope"]; relevanceId: string }> [];
   suppressionPreservationNotice: "preserve_all_existing_subject_references";
   proposedPartition: Readonly<{
@@ -120,6 +123,9 @@ export async function planIdentitySuggestion(
   const candidates = [...snapshots].sort((left, right) => left.id.localeCompare(right.id));
   const candidateRevisions = Object.fromEntries(candidates.map((candidate) => [candidate.id, candidate.revision]));
   const sources = unique(candidates.flatMap((candidate) => candidate.sourceLineageIds)).sort();
+  const retainedIdentityLineageIds = unique(candidates.flatMap((candidate) => [candidate.id, ...candidate.identityLineageIds])).sort();
+  const retainedAliases = unique(candidates.flatMap((candidate) => candidate.aliases)).sort();
+  const retainedSuppressionSubjectRefs = unique(candidates.flatMap((candidate) => candidate.suppressionSubjectRefs)).sort();
   const proposedPartition = input.kind === "split"
     ? freezePartition({
       sourceId: input.sourceId,
@@ -142,6 +148,9 @@ export async function planIdentitySuggestion(
     candidateRevisions: Object.freeze(candidateRevisions),
     revision,
     sourceLineageIds: Object.freeze(sources),
+    retainedIdentityLineageIds: Object.freeze(retainedIdentityLineageIds),
+    retainedAliases: Object.freeze(retainedAliases),
+    retainedSuppressionSubjectRefs: Object.freeze(retainedSuppressionSubjectRefs),
     associationImpact: Object.freeze(associationImpact),
     suppressionPreservationNotice: "preserve_all_existing_subject_references",
     proposedPartition,
@@ -318,6 +327,15 @@ function validateSuggestionShape(suggestion: IdentitySuggestion) {
   if (!Number.isSafeInteger(suggestion.revision) || suggestion.revision !== Object.values(revisions).reduce((total, revision) => total + revision, 0)) throw rejected();
   assertIdArray(suggestion.sourceLineageIds, 1, 2_048);
   if (stable([...suggestion.sourceLineageIds].sort()) !== stable(suggestion.sourceLineageIds)) throw rejected();
+  assertIdArray(suggestion.retainedIdentityLineageIds, candidates.length, 2_048);
+  assertIdArray(suggestion.retainedAliases, 0, 2_048);
+  assertIdArray(suggestion.retainedSuppressionSubjectRefs, 0, 2_048);
+  if (
+    candidates.some((id) => !suggestion.retainedIdentityLineageIds.includes(id))
+    || stable([...suggestion.retainedIdentityLineageIds].sort()) !== stable(suggestion.retainedIdentityLineageIds)
+    || stable([...suggestion.retainedAliases].sort()) !== stable(suggestion.retainedAliases)
+    || stable([...suggestion.retainedSuppressionSubjectRefs].sort()) !== stable(suggestion.retainedSuppressionSubjectRefs)
+  ) throw rejected();
   if (!Array.isArray(suggestion.associationImpact) || suggestion.associationImpact.length > 2_048) throw rejected();
   const associations = suggestion.associationImpact.map((association) => {
     if (!association || typeof association !== "object" || !validId(association.id) || !validId(association.relevanceId) || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
@@ -420,7 +438,9 @@ async function validateAppliedResolution(candidate: unknown, context: AppliedRes
         resultDigest: record.resultDigest,
       })
       || stable(retainedSourceLineageIds) !== stable(context.suggestion.sourceLineageIds)
-      || context.suggestion.candidateIds.some((id) => !retainedIdentityLineageIds.includes(id))
+      || stable(retainedIdentityLineageIds) !== stable(context.suggestion.retainedIdentityLineageIds)
+      || stable(retainedAliases) !== stable(context.suggestion.retainedAliases)
+      || stable(retainedSuppressionSubjectRefs) !== stable(context.suggestion.retainedSuppressionSubjectRefs)
       || stable(rePointedAssociationIds) !== stable(expectedAssociationIds)
       || invalidations.length !== rePointedAssociationIds.length
       || invalidations.some((item, index) => item.associationId !== rePointedAssociationIds[index] || item.projection !== expectedProjection)
@@ -457,6 +477,9 @@ function suggestionEvidence(suggestion: IdentitySuggestion) {
     candidateRevisions: { ...suggestion.candidateRevisions },
     revision: suggestion.revision,
     sourceLineageIds: [...suggestion.sourceLineageIds],
+    retainedIdentityLineageIds: [...suggestion.retainedIdentityLineageIds],
+    retainedAliases: [...suggestion.retainedAliases],
+    retainedSuppressionSubjectRefs: [...suggestion.retainedSuppressionSubjectRefs],
     associationImpact: suggestion.associationImpact.map((association) => ({ ...association })),
     suppressionPreservationNotice: suggestion.suppressionPreservationNotice,
     proposedPartition: suggestion.proposedPartition ? {
@@ -470,7 +493,15 @@ function suggestionEvidence(suggestion: IdentitySuggestion) {
 function assertSuggestionMatchesSnapshots(suggestion: IdentitySuggestion, snapshots: readonly IdentitySnapshot[]) {
   if (!sameRevisions(suggestion.candidateRevisions, snapshots) || totalRevision(snapshots) !== suggestion.revision) throw rejected();
   const sources = unique(snapshots.flatMap((snapshot) => snapshot.sourceLineageIds)).sort();
-  if (stable(sources) !== stable(suggestion.sourceLineageIds)) throw rejected();
+  const identityLineage = unique(snapshots.flatMap((snapshot) => [snapshot.id, ...snapshot.identityLineageIds])).sort();
+  const aliases = unique(snapshots.flatMap((snapshot) => snapshot.aliases)).sort();
+  const suppressionSubjectRefs = unique(snapshots.flatMap((snapshot) => snapshot.suppressionSubjectRefs)).sort();
+  if (
+    stable(sources) !== stable(suggestion.sourceLineageIds)
+    || stable(identityLineage) !== stable(suggestion.retainedIdentityLineageIds)
+    || stable(aliases) !== stable(suggestion.retainedAliases)
+    || stable(suppressionSubjectRefs) !== stable(suggestion.retainedSuppressionSubjectRefs)
+  ) throw rejected();
   const associations = suggestion.proposedPartition
     ? associationsForPartition(snapshots[0], suggestion.proposedPartition.moveAssociationIds)
     : snapshots.flatMap((snapshot) => snapshot.associations);
