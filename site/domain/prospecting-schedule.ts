@@ -94,14 +94,17 @@ export async function createMaterialChangeProspectingIntent(database: D1Database
 
 export async function completeProspectingRun(database: D1Database, workspaceId: string, input: { runId: string; successfulWatermark: number; now: number }) {
   const run = await database.prepare("SELECT id, schedule_id, execution_state FROM prospecting_runs WHERE id = ? AND workspace_id = ? LIMIT 1").bind(input.runId, workspaceId).first<{ id: string; schedule_id: string | null; execution_state: string }>();
-  if (!run || run.execution_state !== "running") throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
+  if (!run) throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
   if (!Number.isSafeInteger(input.successfulWatermark)) throw new ProspectingScheduleConflictError("Invalid successful watermark");
+  if(run.execution_state==="succeeded")return{replayed:true};
+  if (run.execution_state !== "running") throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
   const eventJson = stable({ state: "succeeded", successfulWatermark: input.successfulWatermark });
-  await database.batch([
+  try{const result=await database.batch([
     database.prepare("UPDATE prospecting_runs SET execution_state = 'succeeded', successful_watermark = ?, completed_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND execution_state = 'running'").bind(input.successfulWatermark, input.now, input.now, run.id, workspaceId),
     ...(run.schedule_id ? [database.prepare("UPDATE prospecting_schedules SET last_successful_watermark = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ?").bind(input.successfulWatermark, input.now, run.schedule_id, workspaceId)] : []),
     database.prepare("INSERT INTO prospecting_run_events (id,workspace_id,run_id,event_type,event_json,event_digest,operation_digest,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(v7(), workspaceId, run.id, "succeeded", eventJson, await sha256(eventJson), await sha256(`prospecting:${run.id}:succeeded:${input.successfulWatermark}`), input.now),
-  ]);
+  ]);if(Number(result[0]?.meta?.changes??0)===1)return{replayed:false};}catch{/* The competing completion may have committed atomically. */}
+  const winner=await database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=? AND workspace_id=? LIMIT 1").bind(run.id,workspaceId).first<{execution_state:string;successful_watermark:number|null}>();if(winner?.execution_state==="succeeded"&&Number(winner.successful_watermark)===input.successfulWatermark)return{replayed:true};throw new ProspectingScheduleConflictError("Prospecting run completion conflicted");
 }
 
 async function persistSkippedOverlap(database:D1Database, workspaceId:string, intent:Intent, activeRunId:string) {
