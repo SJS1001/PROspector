@@ -1,7 +1,20 @@
 import { canonicalDigest, deriveOperationKey, type EnrichmentBlockedReason, type EnrichmentGrant, type IssuanceSnapshot, type ProviderQuote } from "./enrichment-grant-issuance";
 import type { ContactEvidenceAssignment, ContactObservation } from "./contact-evidence";
 
-export type BudgetAccount = { scope: string; currency: string; actualUnits: number; reservedUnits: number; maxUnits: number; actualCostMinor: number; reservedCostMinor: number; maxCostMinor: number };
+export type BudgetAccount = Readonly<{
+  authorityType: "enrichment";
+  accountId: string;
+  scope: "grant" | "profile" | "workspace" | "provider";
+  workspaceId: string;
+  entityId: string;
+  currency: string;
+  actualUnits: number;
+  reservedUnits: number;
+  maxUnits: number;
+  actualCostMinor: number;
+  reservedCostMinor: number;
+  maxCostMinor: number;
+}>;
 export type AssignedContactEvidence = Readonly<ContactEvidenceAssignment & { prospectId: string }>;
 export type ReservationAuthority = {
   admitted: boolean; principalSubject: string; workspaceId: string; sourceRevision: number; grant: EnrichmentGrant;
@@ -67,11 +80,48 @@ export async function reserveEnrichmentOperation(repository: EnrichmentAuthority
 function sameQuote(quote: ProviderQuote, grant: EnrichmentGrant): boolean { const tuple = grant.tuple; return quote.providerId === tuple.providerId && quote.providerVersion === tuple.providerVersion && quote.catalogRef === tuple.catalogRef && quote.revision === tuple.quoteRevision && quote.unitCostMinor === tuple.quoteUnitCostMinor && quote.expiresAt === tuple.quoteExpiresAt && quote.currency === tuple.currency; }
 function sameProspects(prospects: ReservationAuthority["prospects"], grant: EnrichmentGrant): boolean { const expected = grant.tuple.prospectIds; const revisions = new Map(grant.tuple.prospectRevisions.map((item) => [item.id, item.revision])); return prospects.length === expected.length && revisions.size === expected.length && prospects.every((prospect) => prospect.state === "approved" && prospect.configurationId === grant.tuple.configurationId && prospect.configurationDigest === grant.tuple.configurationDigest && expected.includes(prospect.id) && revisions.get(prospect.id) === prospect.revision); }
 function withinAccounts(accounts: readonly BudgetAccount[], grant: EnrichmentGrant): boolean {
-  const required = ["grant", "profile", "workspace", "provider"];
-  if (accounts.length !== required.length || new Set(accounts.map((account) => account.scope)).size !== required.length || !required.every((scope) => accounts.some((account) => account.scope === scope))) return false;
-  return accounts.every((account) => account.currency === grant.tuple.currency && nonNegative(account.actualUnits) && nonNegative(account.reservedUnits) && nonNegative(account.maxUnits) && nonNegative(account.actualCostMinor) && nonNegative(account.reservedCostMinor) && nonNegative(account.maxCostMinor) && account.actualUnits + account.reservedUnits + grant.tuple.maxUnits <= account.maxUnits && account.actualCostMinor + account.reservedCostMinor + grant.tuple.maxCostMinor <= account.maxCostMinor);
+  const expectedEntities = new Map<BudgetAccount["scope"], string>([
+    ["grant", grant.id],
+    ["profile", grant.tuple.configurationId],
+    ["workspace", grant.workspaceId],
+    ["provider", grant.tuple.providerId],
+  ]);
+  if (
+    accounts.length !== expectedEntities.size
+    || new Set(accounts.map((account) => account.scope)).size !== expectedEntities.size
+    || new Set(accounts.map((account) => account.accountId)).size !== expectedEntities.size
+  ) return false;
+  return accounts.every((account) => {
+    const entityId = expectedEntities.get(account.scope);
+    return exactBudgetAccount(account)
+      && account.authorityType === "enrichment"
+      && account.workspaceId === grant.workspaceId
+      && entityId !== undefined
+      && account.entityId === entityId
+      && account.accountId === enrichmentAccountId(grant.workspaceId, account.scope, entityId)
+      && account.currency === grant.tuple.currency
+      && nonNegative(account.actualUnits)
+      && nonNegative(account.reservedUnits)
+      && nonNegative(account.maxUnits)
+      && nonNegative(account.actualCostMinor)
+      && nonNegative(account.reservedCostMinor)
+      && nonNegative(account.maxCostMinor)
+      && safeSumWithin(account.actualUnits, account.reservedUnits, grant.tuple.maxUnits, account.maxUnits)
+      && safeSumWithin(account.actualCostMinor, account.reservedCostMinor, grant.tuple.maxCostMinor, account.maxCostMinor);
+  });
 }
-function copyAccount(account: BudgetAccount): BudgetAccount { return { ...account }; }
+function copyAccount(account: BudgetAccount): BudgetAccount { return Object.freeze({ ...account }); }
+function enrichmentAccountId(workspaceId: string, scope: BudgetAccount["scope"], entityId: string): string { return `enrichment:${workspaceId}:${scope}:${entityId}`; }
+function exactBudgetAccount(account: BudgetAccount): boolean {
+  if (!account || typeof account !== "object") return false;
+  return Object.keys(account).sort().join(",") === "accountId,actualCostMinor,actualUnits,authorityType,currency,entityId,maxCostMinor,maxUnits,reservedCostMinor,reservedUnits,scope,workspaceId"
+    && bounded(account.accountId, 1_024)
+    && bounded(account.workspaceId, 256)
+    && bounded(account.entityId, 256);
+}
+function safeSumWithin(actual: number, reserved: number, addition: number, maximum: number): boolean {
+  return actual <= maximum && reserved <= maximum - actual && addition <= maximum - actual - reserved;
+}
 function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now) && value.now > 0; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[]): boolean {
