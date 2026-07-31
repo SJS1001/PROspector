@@ -184,15 +184,15 @@ export async function applyIdentityResolution(
 ): Promise<AppliedResolution> {
   if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
   if (!validId(input.suggestionId)) throw rejected();
+  const decision = snapshotIdentityDecision(input.decision);
   const suggestion = await parseIdentitySuggestion(
     await repository.readIdentitySuggestion(input.workspaceId, principal.subject, input.suggestionId),
   );
   if (!suggestion) throw rejected();
   if (suggestion.id !== input.suggestionId || suggestion.workspaceId !== input.workspaceId || suggestion.ownerSubject !== principal.subject || input.expectedRevision !== suggestion.revision) throw rejected();
   validateKey(input.idempotencyKey);
-  if (input.decision.kind === "split" && hasOwn(input.decision, "newIdentityId")) throw rejected();
-  validateDecision(suggestion, input.decision);
-  const authoritativeDecision = canonicalDecision(suggestion, input.decision);
+  validateDecision(suggestion, decision);
+  const authoritativeDecision = canonicalDecision(suggestion, decision);
   const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: authoritativeDecision, actor: principal.subject });
   const context: AppliedResolutionContext = {
     workspaceId: input.workspaceId,
@@ -222,7 +222,7 @@ export async function applyIdentityResolution(
     const retainedIdentityLineageIds = unique(current.flatMap((identity) => [identity.id, ...identity.identityLineageIds])).sort();
     const retainedAliases = unique(current.flatMap((identity) => identity.aliases)).sort();
     const retainedSuppressionSubjectRefs = unique(current.flatMap((identity) => identity.suppressionSubjectRefs)).sort();
-    const moved = associationsForDecision(current, input.decision);
+    const moved = associationsForDecision(current, authoritativeDecision);
     const rePointedAssociationIds = moved.map((association) => association.id).sort();
     const appliedMaterial = {
       workspaceId: input.workspaceId,
@@ -239,7 +239,7 @@ export async function applyIdentityResolution(
       rePointedAssociationIds: Object.freeze(rePointedAssociationIds),
       invalidations: Object.freeze(rePointedAssociationIds.map((associationId) => Object.freeze({
         associationId,
-        projection: input.decision.kind === "merge" ? "NeedsReview" as const : "NonContactable" as const,
+        projection: authoritativeDecision.kind === "merge" ? "NeedsReview" as const : "NonContactable" as const,
       }))),
     };
     const resultDigest = await hash({ schema: "identity-resolution-result/v1", ...appliedMaterial });
@@ -653,16 +653,73 @@ function totalRevision(snapshots: readonly IdentitySnapshot[]) {
 
 function canonicalDecision(suggestion: IdentitySuggestion, decision: IdentityDecision): AppliedIdentityDecision {
   if (decision.kind === "merge") {
-    return { kind: "merge", primaryId: decision.primaryId, secondaryIds: [...decision.secondaryIds].sort() };
+    return freezeDecision({ kind: "merge", primaryId: decision.primaryId, secondaryIds: [...decision.secondaryIds].sort() });
   }
   const partition = suggestion.proposedPartition;
   if (!partition) throw rejected();
-  return {
+  return freezeDecision({
     kind: "split",
     sourceId: decision.sourceId,
     newIdentityId: partition.newIdentityId,
     moveAssociationIds: [...decision.moveAssociationIds].sort(),
-  };
+  });
+}
+
+function snapshotIdentityDecision(value: unknown): IdentityDecision {
+  let record: Record<string, unknown>;
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) throw rejected();
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const kindDescriptor = descriptors.kind;
+    if (!kindDescriptor || !("value" in kindDescriptor) || !kindDescriptor.enumerable) throw rejected();
+    const keys = kindDescriptor.value === "merge"
+      ? ["kind", "primaryId", "secondaryIds"]
+      : kindDescriptor.value === "split"
+        ? ["kind", "sourceId", "moveAssociationIds"]
+        : null;
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      !keys
+      || ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) throw rejected();
+    record = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw rejected();
+      record[key] = descriptor.value;
+    }
+  } catch {
+    throw rejected();
+  }
+  const kind = record.kind;
+  const ids = exactDataArray(
+    kind === "merge" ? record.secondaryIds : record.moveAssociationIds,
+    1,
+    kind === "merge" ? 15 : 128,
+  );
+  const subjectId = kind === "merge" ? record.primaryId : record.sourceId;
+  if (!validId(subjectId) || !ids || ids.some((id) => !validId(id)) || new Set(ids).size !== ids.length) throw rejected();
+  try {
+    // Descriptor validation above prevents accessors from running. The clone
+    // check rejects Proxy/exotic input; authority remains the immutable
+    // descriptor-derived snapshot below.
+    structuredClone(value);
+  } catch {
+    throw rejected();
+  }
+  return kind === "merge"
+    ? Object.freeze({
+      kind: "merge",
+      primaryId: subjectId,
+      secondaryIds: Object.freeze(ids as string[]),
+    })
+    : Object.freeze({
+      kind: "split",
+      sourceId: subjectId,
+      moveAssociationIds: Object.freeze(ids as string[]),
+    });
 }
 
 function freezeDecision(decision: AppliedIdentityDecision): AppliedIdentityDecision {
