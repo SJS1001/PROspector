@@ -464,9 +464,26 @@ BEGIN SELECT RAISE(ABORT, 'prospecting run requires exact profile configuration 
 CREATE TRIGGER `runner_assignment_scope_insert`
 BEFORE INSERT ON `runner_assignments`
 WHEN NOT EXISTS (
-  SELECT 1 FROM `prospecting_runs` r WHERE r.id = NEW.run_id AND r.workspace_id = NEW.workspace_id
+  SELECT 1 FROM `prospecting_runs` r
+  JOIN `typed_configurations` c ON c.id = r.configuration_id AND c.workspace_id = r.workspace_id
+  WHERE r.id = NEW.run_id AND r.workspace_id = NEW.workspace_id
     AND r.profile_id = NEW.profile_id AND r.configuration_id = NEW.configuration_id AND r.configuration_digest = NEW.configuration_digest
-    AND r.execution_state IN ('queued', 'assigned', 'running')
+    AND c.owner_type = 'profile' AND c.owner_id = r.profile_id AND c.kind = 'profile_effective'
+    AND (
+      (c.active = 1 AND r.execution_state IN ('queued', 'assigned', 'running'))
+      OR (
+        r.execution_state = 'submitted'
+        AND EXISTS (
+          SELECT 1 FROM `runner_submissions` s
+          JOIN `runner_assignments` prior ON prior.id = s.assignment_id
+            AND prior.workspace_id = s.workspace_id AND prior.run_id = s.run_id
+          WHERE s.run_id = r.id AND s.workspace_id = r.workspace_id
+            AND s.configuration_id = r.configuration_id AND s.status = 'received'
+            AND json_extract(s.submission_json, '$.status') = 'partial'
+            AND prior.status = 'consumed'
+        )
+      )
+    )
 )
 BEGIN SELECT RAISE(ABORT, 'runner assignment requires exact mutable run binding'); END;--> statement-breakpoint
 CREATE TRIGGER `runner_assignment_secret_immutable_update`

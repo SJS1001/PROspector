@@ -43,6 +43,46 @@ test("issue/revoke capabilities are hash-only, exact-run scoped, and replay-safe
   } finally { await seed.fixture.dispose(); }
 });
 
+test("runner capability TTL is capped at five minutes and remains expiry-bound", async () => {
+  const seed = await setup();
+  try {
+    const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    assert.equal(runner.RUNNER_CAPABILITY_MAX_TTL_MS, 5 * 60 * 1_000);
+    const before = await runnerDurableState(seed);
+    await assert.rejects(
+      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+        expiresAt: NOW + runner.RUNNER_CAPABILITY_MAX_TTL_MS + 1,
+        idempotencyKey: "ttl-over-maximum",
+      })),
+      /runner_assignment_rejected/i,
+    );
+    assert.deepEqual(await runnerDurableState(seed), before, "max TTL + 1 is rejected before any durable mutation");
+
+    const issued = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+      expiresAt: NOW + runner.RUNNER_CAPABILITY_MAX_TTL_MS,
+      idempotencyKey: "ttl-exact-maximum",
+    }));
+    const body = JSON.parse(new TextDecoder().decode(fromBase64UrlTest(issued.capability.split(".")[0])));
+    assert.equal(body.expiresAt, NOW + runner.RUNNER_CAPABILITY_MAX_TTL_MS);
+    await assert.rejects(
+      () => runner.submitRunnerObservations(seed.fixture.database, {
+        capability: issued.capability,
+        idempotencyKey: "ttl-at-expiry",
+        now: body.expiresAt,
+        capabilitySecret: secret,
+        payload: validPayload(),
+      }),
+      /runner_assignment_rejected/i,
+    );
+    assert.equal(
+      await seed.fixture.database.prepare("SELECT COUNT(*) AS count FROM runner_submissions").first().then((row) => Number(row.count)),
+      0,
+      "the exact expiry instant cannot append a submission",
+    );
+    assert.equal((await seed.fixture.database.prepare("SELECT status FROM runner_assignments WHERE id=?").bind(issued.assignmentId).first()).status, "issued");
+  } finally { await seed.fixture.dispose(); }
+});
+
 test("runner submission is bounded append-only observation data and rejects authority fields", async () => {
   const seed = await setup();
   try {
@@ -104,6 +144,11 @@ test("a submitted historical run may receive an explicit retry assignment but re
       seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='submitted' WHERE id='runner-run'"),
       seed.fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id='runner-config'"),
     ]);
+    assert.equal(
+      await seed.fixture.database.prepare("SELECT json_extract(submission_json,'$.status') status FROM runner_submissions WHERE run_id='runner-run'").first().then((row) => row.status),
+      "partial",
+      "the retry authority is an accepted immutable partial submission",
+    );
     const retry = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
       idempotencyKey: "historical-retry-assignment",
       reason: "explicit retry of accepted historical partial submission",
@@ -118,6 +163,44 @@ test("a submitted historical run may receive an explicit retry assignment but re
       /runner_assignment_rejected/i,
     );
   } finally { await seed.fixture.dispose(); }
+});
+
+test("the D1 assignment trigger rejects forged submitted, rejected, and stale run authority", async () => {
+  for (const scenario of [
+    { name: "forged-submitted", runState: "submitted", active: 1 },
+    { name: "terminal-rejected", runState: "rejected", active: 1 },
+    { name: "stale-queued", runState: "queued", active: 0 },
+  ]) {
+    const seed = await setup();
+    try {
+      const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+      await seed.fixture.database.batch([
+        seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state=? WHERE id='runner-run'").bind(scenario.runState),
+        seed.fixture.database.prepare("UPDATE typed_configurations SET active=? WHERE id='runner-config'").bind(scenario.active),
+      ]);
+      await assert.rejects(
+        () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+          idempotencyKey: `service-${scenario.name}`,
+        })),
+        /runner_assignment_rejected/i,
+        `${scenario.name} cannot pass the trusted service`,
+      );
+      await assert.rejects(
+        () => seed.fixture.database.batch(directAssignmentBatch(seed, scenario.name)),
+        /exact mutable run binding/i,
+        `${scenario.name} cannot bypass the service with a direct insert`,
+      );
+      assert.equal(
+        await seed.fixture.database.prepare("SELECT COUNT(*) AS count FROM runner_assignments").first().then((row) => Number(row.count)),
+        0,
+      );
+      assert.equal(
+        await seed.fixture.database.prepare("SELECT COUNT(*) AS count FROM authority_commands WHERE id=?").bind(`direct-command-${scenario.name}`).first().then((row) => Number(row.count)),
+        0,
+        "the rejected trigger batch rolls back its supporting authority rows",
+      );
+    } finally { await seed.fixture.dispose(); }
+  }
 });
 
 test("capabilities fail neutrally on tamper, expiry, audience, exact provenance, and one-shot nonce races", async () => {
@@ -268,6 +351,27 @@ test("source policy assigns trusted tiers, independence, recency, and leaves ret
 function validPayload() { return { status: "complete", findings: [{ kind: "operating-signal", sourceUrl: "https://example.invalid/source", observedAt: NOW, excerpt: "Bounded synthetic observation" }], sources: [{ url: "https://example.invalid/source", retrievedAt: NOW, excerpt: "Bounded source excerpt", publisher: "Synthetic publisher" }], provenance: { provider: "runner-provider", model: "runner-model", instructionVersion: "runner-instructions/v1", toolConfigurationDigest: "e".repeat(64), tools: [], transformations: [] } }; }
 function payloadAt(index) { const payload = validPayload(); payload.findings[0].sourceUrl = `https://example.invalid/source-${index}`; payload.findings[0].observedAt += index; payload.sources[0].url = payload.findings[0].sourceUrl; return payload; }
 function payloadAtTime(observedAt) { const payload = validPayload(); payload.findings[0].observedAt = observedAt; payload.sources[0].retrievedAt = observedAt; return payload; }
+async function runnerDurableState(seed) {
+  return seed.fixture.database.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM runner_assignments) assignments,
+      (SELECT COUNT(*) FROM authority_commands WHERE command_type='runner.assignment.issue') commands,
+      (SELECT COUNT(*) FROM audit_events WHERE action='runner.assignment.issued') audits,
+      execution_state run_state,
+      revision run_revision
+    FROM prospecting_runs WHERE id='runner-run'
+  `).first();
+}
+function directAssignmentBatch(seed, label) {
+  const commandId = `direct-command-${label}`;
+  const auditId = `direct-audit-${label}`;
+  const assignmentId = `direct-assignment-${label}`;
+  return [
+    seed.fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'runner.assignment.issue',?,?,1,'prospecting_run','runner-run','accepted')").bind(commandId, seed.workspaceId, NOW, NOW, `direct-key-${label}`, "4".repeat(64)),
+    seed.fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES (?,?,'system','direct-trigger-test','runner.assignment.issued','runner_assignment',?,'{}',?)").bind(auditId, seed.workspaceId, assignmentId, NOW),
+    seed.fixture.database.prepare("INSERT INTO runner_assignments (id,workspace_id,created_at,updated_at,revision,run_id,profile_id,configuration_id,configuration_digest,audience,token_hash,nonce_hash,instruction_version,tool_configuration_digest,quota_json,quota_digest,expires_at,status,authority_command_id,audit_event_id) VALUES (?,?,?,?,1,'runner-run',?,'runner-config',?,'prospecting-runner/v1',?,?,'runner-instructions/v1',?,'{}',?,?,'issued',?,?)").bind(assignmentId, seed.workspaceId, NOW, NOW, seed.profileId, DIGEST, "5".repeat(64), "6".repeat(64), "7".repeat(64), "8".repeat(64), NOW + 60_000, commandId, auditId),
+  ];
+}
 async function canonicalRelation(seed, chain) { const rows = await seed.fixture.database.prepare("SELECT lineage_json FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1'").bind(seed.workspaceId).all(); const expected = chain.map((member) => member.id); const relation = rows.results.map((row) => JSON.parse(row.lineage_json)).find((candidate) => candidate.chain.map((member) => member.signalId).join(",") === expected.join(",")); assert.ok(relation, "an exact canonical relation must cover every material fact"); return relation; }
 async function canonicalRelationRow(seed, chain) { const rows = await seed.fixture.database.prepare("SELECT * FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospecting-source-lineage-chain/v1'").bind(seed.workspaceId).all(); const expected = chain.map((member) => member.id).join(","); const row = rows.results.find((candidate) => JSON.parse(candidate.lineage_json).chain.map((member) => member.signalId).join(",") === expected); assert.ok(row, "an exact canonical relation row must exist"); return row; }
 async function insertForgedSnapshot(seed, base, label, snapshot, createdAt) { const lineageJson = typeof snapshot === "string" ? snapshot : canonicalTest(snapshot); const lineageDigest = typeof snapshot === "string" ? "b".repeat(64) : await digestTest(lineageJson); await seed.fixture.database.prepare("INSERT INTO prospecting_source_lineage (id,workspace_id,run_id,submission_id,source_id,source_url,publisher_identity,underlying_origin_identity,independence_group,source_tier,published_at,occurred_at,retrieved_at,excerpt,lineage_json,lineage_digest,created_at) VALUES (?,?,?,?,NULL,?,?,?,?,?,NULL,?,?,?,?,?,?)").bind(`forged-${label}`, seed.workspaceId, base.run_id, base.submission_id, base.source_url, base.publisher_identity, base.underlying_origin_identity, base.independence_group, base.source_tier, base.occurred_at, base.retrieved_at, base.excerpt, lineageJson, lineageDigest, createdAt).run(); }

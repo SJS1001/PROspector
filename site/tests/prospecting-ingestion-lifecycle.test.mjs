@@ -50,7 +50,7 @@ async function submit(seed, key, value = payload()) {
   const issued = await runner.issueRunnerAssignment(seed.fixture.database, {
     workspaceId:seed.workspaceId, runId:seed.runId, profileId:seed.profileId,
     configurationId:seed.configurationId, configurationDigest:seed.configurationDigest,
-    audience:"prospecting-runner/v1", expiresAt:NOW+600_000,
+    audience:"prospecting-runner/v1", expiresAt:NOW+60_000,
     instructionVersion:"runner-instructions/v1", toolConfigurationDigest:"f".repeat(64),
     quotas:{maxBytes:20_000,maxFindings:3,maxSources:3}, grantReference:"synthetic",
     reason:`synthetic lifecycle ${key}`, idempotencyKey:`${key}-assignment`, now:NOW,
