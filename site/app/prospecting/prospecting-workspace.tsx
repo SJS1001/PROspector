@@ -8,7 +8,7 @@ import {
 import { ProspectWorkspace } from "./prospect-workspace";
 import { ReviewQueue } from "./review-queue";
 
-type Projection = {
+export type ProspectingProjection = {
   authority?: "owner" | "blocked" | "malformed";
   readiness?: ProfileReadinessProjection | null;
   runs?: Record<string, unknown>[];
@@ -30,9 +30,11 @@ const PROSPECTING_NOTICES = Object.freeze({
 export function ProspectingWorkspace({
   projection: initial,
   initialNotice = "",
+  onUnauthorized,
 }: {
-  projection: Projection;
+  projection: ProspectingProjection;
   initialNotice?: Notice;
+  onUnauthorized?: () => void;
 }) {
   const [projection, setProjection] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -42,10 +44,25 @@ export function ProspectingWorkspace({
       cache: "no-store",
       credentials: "same-origin",
     });
+    if (response.status === 404) {
+      onUnauthorized?.();
+      throw Error("Private prospecting workspace unavailable.");
+    }
     if (!response.ok)
       throw Error("Unable to reconcile the authoritative workspace.");
     setProjection(await response.json());
-  }, []);
+  }, [onUnauthorized]);
+  const recover = useCallback(async () => {
+    setBusy(true);
+    try {
+      await reload();
+      setNotice("loaded");
+    } catch {
+      setNotice("load_failed");
+    } finally {
+      setBusy(false);
+    }
+  }, [reload]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void reload().catch(() => setNotice("load_failed"));
@@ -74,6 +91,10 @@ export function ProspectingWorkspace({
           setNotice("stale");
           return;
         }
+        if (response.status === 404) {
+          onUnauthorized?.();
+          return;
+        }
         if (!response.ok) throw Error();
         setProjection(await response.json());
         setNotice("loaded");
@@ -83,28 +104,28 @@ export function ProspectingWorkspace({
         setBusy(false);
       }
     },
-    [],
+    [onUnauthorized],
   );
   const denied =
     projection.authority === "blocked" ||
     projection.authority === "malformed";
   if (denied) {
     return (
-      <main className="prospecting">
+      <section className="prospecting">
         <style>{CSS}</style>
         <h1>Prospecting unavailable</h1>
         <p role="alert">
           The private prospecting workspace is unavailable. No profile, run,
           evidence, or prospect details are shown.
         </p>
-      </main>
+      </section>
     );
   }
   const readiness = projection.readiness ?? null;
   const profileId = readiness?.profile?.id;
   const activation = readiness?.activation;
   return (
-    <main className="prospecting">
+    <section className="prospecting">
       <style>{CSS}</style>
       <h1>Profile Readiness and Prospect Workspace</h1>
       {notice && (
@@ -118,11 +139,7 @@ export function ProspectingWorkspace({
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
-                void reload()
-                  .then(() => setNotice("loaded"))
-                  .catch(() => setNotice("load_failed"))
-              }
+              onClick={() => void recover()}
             >
               Load current candidate
             </button>
@@ -131,11 +148,7 @@ export function ProspectingWorkspace({
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
-                void reload()
-                  .then(() => setNotice("loaded"))
-                  .catch(() => setNotice("load_failed"))
-              }
+              onClick={() => void recover()}
             >
               Check current profile configuration
             </button>
@@ -145,6 +158,7 @@ export function ProspectingWorkspace({
       <ProfileReadiness
         readiness={readiness}
         onCommand={command}
+        onReload={() => void recover()}
         busy={busy}
       />
       <ProspectWorkspace
@@ -192,7 +206,7 @@ export function ProspectingWorkspace({
           </button>
         ))}
       </section>
-    </main>
+    </section>
   );
 }
 
@@ -224,6 +238,7 @@ const CSS = `
 .destructive{color:#a84b3e}
 .evidence-cards article blockquote{padding:12px;border-left:3px solid var(--line);overflow-wrap:anywhere;white-space:pre-wrap}
 .evidence-cards a,.assessment-link{display:inline-flex;align-items:center;color:var(--green);font-weight:760}
+.evidence-url{display:block}
 .external-warning{font-size:10px}
 .outcome-disqualified>header strong{color:#a84b3e}
 .outcome-insufficientevidence>header strong{color:#7b5b00}

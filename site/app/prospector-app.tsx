@@ -3,6 +3,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { KnowledgeWorkspace } from "./knowledge/knowledge-workspace";
 import { DiscoveryWorkspace } from "./discovery/discovery-workspace";
+import {
+  ProspectingWorkspace,
+  type ProspectingProjection,
+} from "./prospecting/prospecting-workspace";
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
 type CapabilityItem = {
@@ -47,15 +51,21 @@ export function ProspectorApp({
   initialView = "Pilot Status",
   initialAccess = "authorized",
   initialCapabilityState = null,
+  initialProspectingProjection = EMPTY_PROSPECTING_PROJECTION,
 }: {
   initialView?: View;
   initialAccess?: "authorized" | "unauthorized";
   initialCapabilityState?: CapabilityApiState | null;
+  initialProspectingProjection?: ProspectingProjection;
 } = {}) {
   const [view, setView] = useState<View>(initialView);
   const [access, setAccess] = useState(initialAccess);
   const [profile, setProfile] = useState("Operating sites");
   const [query, setQuery] = useState("");
+  const handleUnauthorized = useCallback(
+    () => setAccess("unauthorized"),
+    [],
+  );
 
   const filteredSignals = useMemo(
     () => signals.filter((item) => `${item.company} ${item.target} ${item.signal}`.toLowerCase().includes(query.toLowerCase())),
@@ -81,7 +91,6 @@ export function ProspectorApp({
           {views.map((item) => (
             <button key={item.label} type="button" className={view === item.label ? "active" : ""} onClick={() => setView(item.label)}>
               <span>{item.key}</span>{item.label}
-              {item.label === "Review Queue" && <em>4 sample</em>}
             </button>
           ))}
         </nav>
@@ -108,12 +117,16 @@ export function ProspectorApp({
         </div>
 
         <div className="content">
-          {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={() => setAccess("unauthorized")} />}
+          {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
           {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={setView} />}
-          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={() => setAccess("unauthorized")} />}
-          {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={() => setAccess("unauthorized")} />}
-          {view === "Review Queue" && <ReviewQueue items={filteredSignals} />}
-          {view === "Prospects" && <Prospects items={filteredSignals} />}
+          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} />}
+          {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
+          {(view === "Review Queue" || view === "Prospects") && (
+            <ProspectingWorkspace
+              projection={initialProspectingProjection}
+              onUnauthorized={handleUnauthorized}
+            />
+          )}
           {view === "Exports & History" && <Exports />}
         </div>
       </section>
@@ -460,14 +473,15 @@ function SignalRow({ item }: { item: (typeof signals)[number] }) {
   </article>;
 }
 
-function ReviewQueue({ items }: { items: typeof signals }) {
-  return <><PageHeading eyebrow="OPERATING SITES · SYNTHETIC FIXTURE" title="Review Queue" copy="A layout preview. Qualification and decisions are not yet operational." /><section className="panel queue"><div className="queue-head"><span>SCORE</span><span>PROSPECT & SIGNAL</span><span>EVIDENCE</span><span>DECISION</span></div>{items.map((item) => <SignalRow key={item.company} item={item} />)}</section></>;
-}
-
-function Prospects({ items }: { items: typeof signals }) {
-  return <><PageHeading eyebrow="ONE FOR MINING · SYNTHETIC FIXTURE" title="Prospect Workspace" copy="A layout preview. No account or qualification shown here exists in live storage." /><section className="prospect-grid">{items.map((item) => <article className="panel prospect-card" key={item.company}><div className="prospect-top"><span>Synthetic · {item.tier}</span><b>{item.score}/10 sample</b></div><h2>{item.company}</h2><p>{item.target}</p><div className="mini-steps"><i className="on" /><i className="on" /><i /><i /><i /></div><small>Fixture candidate · not operationally qualified</small><button className="outline" type="button" disabled>Prospect disabled</button></article>)}</section></>;
-}
-
 function Exports() {
   return <><PageHeading eyebrow="PORTABILITY & HANDOFF" title="Exports & History" copy="These controls stay disabled until live eligibility and restore safety are proven." /><div className="export-grid"><section className="panel export-card"><span className="file-mark">CSV</span><h2>CRM Handoff</h2><p>Planned: one row per verified, non-suppressed contact with stable Prospect IDs and approved package references.</p><dl><div><dt>Eligible now</dt><dd>0 live prospects</dd></div><div><dt>Last export</dt><dd>Never</dd></div></dl><button className="primary" type="button" disabled title="Available after Wave 3">CSV disabled</button></section><section className="panel export-card"><span className="file-mark safe">LOCK</span><h2>Company Workspace Export</h2><p>Planned: encrypted, versioned, integrity-checked knowledge, history, objects, and suppression tombstones.</p><dl><div><dt>Restore drill</dt><dd>Not yet completed</dd></div><div><dt>Hosted retention</dt><dd>Not activated</dd></div></dl><button className="outline" type="button" disabled title="Available after Wave 0">Export disabled</button></section></div></>;
 }
+
+const EMPTY_PROSPECTING_PROJECTION: ProspectingProjection = Object.freeze({
+  authority: "owner",
+  readiness: null,
+  runs: [],
+  evidence: [],
+  assessments: [],
+  queue: [],
+});

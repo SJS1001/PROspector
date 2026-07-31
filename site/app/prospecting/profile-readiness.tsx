@@ -59,10 +59,12 @@ export type ProfileReadinessProjection = {
 export function ProfileReadiness({
   readiness,
   onCommand,
+  onReload,
   busy,
 }: {
   readiness: ProfileReadinessProjection | null;
   onCommand: (body: Record<string, unknown>) => void;
+  onReload: () => void;
   busy: boolean;
 }) {
   if (!readiness) {
@@ -74,13 +76,21 @@ export function ProfileReadiness({
           Load the current Product, Market Play, Offer, and Phase 3 authorities
           before preparing this profile.
         </p>
-        <button type="button">Load current authority</button>
+        <button type="button" disabled={busy} onClick={onReload}>
+          Load current authority
+        </button>
       </section>
     );
   }
   const profile = readiness.profile;
   const candidate = readiness.candidate;
   const active = readiness.activation;
+  const readinessItems = readiness.items ?? [];
+  const authorityIsCurrent =
+    readiness.complete === true &&
+    readinessItems.length > 0 &&
+    readinessItems.every((item) => item.status === "complete") &&
+    (readiness.missing?.length ?? 0) === 0;
   const candidateIsCurrent =
     candidate?.status === "candidate" ||
     candidate?.status === "candidate_not_active";
@@ -92,12 +102,12 @@ export function ProfileReadiness({
       <h2 id="profile-readiness">Profile Readiness</h2>
       {profile?.path && <ScopePath path={profile.path} />}
       <p>
-        {readiness.complete
+        {authorityIsCurrent
           ? "All required predecessor references are current."
           : "This profile is not ready. Confirm the required item before creating a configuration candidate."}
       </p>
       <ol>
-        {(readiness.items ?? []).map((item) => (
+        {readinessItems.map((item) => (
           <li key={item.category}>
             <strong>{label(item.category)}</strong>
             <span>{readinessStatus(item.status)}</span>
@@ -107,7 +117,7 @@ export function ProfileReadiness({
           </li>
         ))}
       </ol>
-      {!readiness.complete && (
+      {!authorityIsCurrent && (
         <p role="alert">
           Missing or stale:{" "}
           {(readiness.missing ?? []).map(label).join(", ") ||
@@ -143,7 +153,7 @@ export function ProfileReadiness({
           </p>
           <p>Audit {active.auditEventId}</p>
         </section>
-      ) : candidateIsCurrent && candidate ? (
+      ) : candidateIsCurrent && candidate && authorityIsCurrent ? (
         <section className="authority-card candidate-review">
           <h3>Candidate — not active</h3>
           <p>
@@ -179,6 +189,22 @@ export function ProfileReadiness({
             Activate Profile configuration
           </button>
         </section>
+      ) : candidateIsCurrent && candidate ? (
+        <section className="authority-card candidate-recovery" role="alert">
+          <h3>Candidate authority needs recovery</h3>
+          <p>
+            A persisted candidate exists, but one or more of its predecessor
+            authorities are stale or incomplete. Activation is unavailable
+            until the server returns a current, complete readiness projection.
+          </p>
+          <code>
+            Candidate {candidate.id} · revision {candidate.revision} · digest{" "}
+            {candidate.digest}
+          </code>
+          <button type="button" disabled={busy} onClick={onReload}>
+            Load current authority
+          </button>
+        </section>
       ) : (
         <section className="authority-card">
           <h3>Configuration candidate</h3>
@@ -189,7 +215,7 @@ export function ProfileReadiness({
           <button
             className="primary"
             type="button"
-            disabled={busy || !readiness.complete || !profile}
+            disabled={busy || !authorityIsCurrent || !profile}
             onClick={() =>
               profile &&
               onCommand({

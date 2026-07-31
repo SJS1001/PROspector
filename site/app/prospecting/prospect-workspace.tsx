@@ -217,14 +217,8 @@ export function ProspectWorkspace({
                 {item.underlying_origin_identity} · independence{" "}
                 {item.independence_group}
               </p>
-              <a
-                href={item.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Open source externally: ${item.publisher_identity || domain(item.source_url)}`}
-              >
-                Open source externally
-              </a>
+              <EvidenceLink url={item.source_url} />
+              <code className="evidence-url">{item.source_url}</code>
               <p className="external-warning">
                 External link — verify the destination before leaving the
                 private workspace.
@@ -458,6 +452,36 @@ function domain(url: string) {
     return new URL(url).hostname;
   } catch {
     return "invalid source";
+  }
+}
+function EvidenceLink({ url }: { url: string }) {
+  const href = externalSourceUrl(url);
+  if (!href) {
+    return (
+      <span role="note">
+        Evidence URL is not a permitted HTTP(S) destination.
+      </span>
+    );
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Open evidence URL externally: ${url}`}
+    >
+      Open source externally
+    </a>
+  );
+}
+function externalSourceUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.href
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 function outcome(value?: string) {

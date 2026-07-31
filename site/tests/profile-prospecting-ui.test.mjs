@@ -80,6 +80,9 @@ test("persisted candidate projection renders the complete frozen decision author
         onCommand() {
           throw new Error("SSR must not mutate");
         },
+        onReload() {
+          throw new Error("SSR must not reload");
+        },
       }),
     );
     for (const expected of [
@@ -172,6 +175,18 @@ test("Prospect Workspace keeps evidence ahead of score, exposes the complete led
               recency: "account_context_reconfirmation_required",
             }),
           },
+          {
+            id: "signal-unsafe-url",
+            source_url: "javascript:alert('blocked')",
+            source_tier: 3,
+            publisher_identity: "Rejected URL scheme",
+            underlying_origin_identity: "Untrusted origin",
+            independence_group: "group-unsafe",
+            retrieved_at: NOW - 1,
+            excerpt: "The text remains inspectable without a navigable link.",
+            run_id: "run-1",
+            submission_id: "submission-1",
+          },
         ],
         assessments: [
           {
@@ -217,6 +232,7 @@ test("Prospect Workspace keeps evidence ahead of score, exposes the complete led
       "validation_rejected",
       "Evidence title",
       "evidence.example",
+      "https://evidence.example/source",
       "Account Context — reconfirmation required",
       "Application-calculated qualification",
       "Qualified",
@@ -232,6 +248,15 @@ test("Prospect Workspace keeps evidence ahead of score, exposes the complete led
     );
     assert.match(html, /&lt;img src=x onerror=&quot;steal\(\)&quot;\/?&gt; &amp; hostile/);
     assert.doesNotMatch(html, /<img src=x/);
+    assert.match(
+      html,
+      /aria-label="Open evidence URL externally: https:\/\/evidence\.example\/source"/,
+    );
+    assert.match(
+      html,
+      /Evidence URL is not a permitted HTTP\(S\) destination/,
+    );
+    assert.doesNotMatch(html, /href="javascript:/);
     assert.match(
       html,
       /type="checkbox"[\s\S]{0,120}I confirm this scoped source window and quota/,
@@ -373,15 +398,66 @@ test("stale, unknown, missing, and stale-predecessor states give explicit recove
     );
     assert.match(unknown, /Nothing will be retried automatically/);
     assert.match(unknown, /Check current profile configuration/);
-    const missing = renderToStaticMarkup(
-      React.createElement(readiness.ProfileReadiness, {
-        readiness: null,
-        busy: false,
-        onCommand() {},
-      }),
-    );
+    let recoveryLoads = 0;
+    const missingProps = {
+      readiness: null,
+      busy: false,
+      onCommand() {},
+      onReload() {
+        recoveryLoads += 1;
+      },
+    };
+    const missingElement = readiness.ProfileReadiness(missingProps);
+    const missing = renderToStaticMarkup(missingElement);
     assert.match(missing, /No readiness items are available/);
     assert.match(missing, /Load current authority/);
+    findButton(missingElement, "Load current authority").props.onClick();
+    assert.equal(recoveryLoads, 1, "recovery delegates to the owning transport");
+
+    const staleCandidateProps = {
+      readiness: {
+        profile: { id: "profile-1", revision: 4 },
+        complete: true,
+        missing: ["source_policy"],
+        items: [
+          {
+            category: "source_policy",
+            status: "stale",
+            versionIds: ["version-old"],
+          },
+        ],
+        candidate: {
+          id: "candidate-stale",
+          revision: 2,
+          digest: DIGEST,
+          status: "candidate",
+        },
+      },
+      busy: false,
+      onCommand() {
+        throw new Error("stale authority must not mutate");
+      },
+      onReload() {
+        recoveryLoads += 1;
+      },
+    };
+    const staleCandidateElement =
+      readiness.ProfileReadiness(staleCandidateProps);
+    const staleCandidate = renderToStaticMarkup(staleCandidateElement);
+    assert.match(staleCandidate, /Candidate authority needs recovery/);
+    assert.match(
+      staleCandidate,
+      /persisted candidate exists[\s\S]*stale or incomplete/i,
+    );
+    assert.match(staleCandidate, /Load current authority/);
+    assert.doesNotMatch(
+      staleCandidate,
+      /Activate Profile configuration/,
+      "incomplete predecessor authority must never expose activation",
+    );
+    findButton(staleCandidateElement, "Load current authority").props.onClick();
+    assert.equal(recoveryLoads, 2);
+
     const stalePredecessor = renderToStaticMarkup(
       React.createElement(readiness.ProfileReadiness, {
         readiness: {
@@ -398,6 +474,7 @@ test("stale, unknown, missing, and stale-predecessor states give explicit recove
         },
         busy: false,
         onCommand() {},
+        onReload() {},
       }),
     );
     assert.match(stalePredecessor, /Stale predecessor/);
@@ -559,4 +636,23 @@ function activation() {
 }
 function escape(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function findButton(node, label) {
+  const match = findElement(
+    node,
+    (element) =>
+      element.type === "button" &&
+      React.Children.toArray(element.props.children).join("").includes(label),
+  );
+  assert.ok(match, `expected button ${label}`);
+  return match;
+}
+function findElement(node, predicate) {
+  if (!node || typeof node !== "object") return null;
+  if (predicate(node)) return node;
+  for (const child of React.Children.toArray(node.props?.children)) {
+    const match = findElement(child, predicate);
+    if (match) return match;
+  }
+  return null;
 }

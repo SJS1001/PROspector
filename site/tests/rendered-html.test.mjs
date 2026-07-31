@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import react from "@vitejs/plugin-react";
 import { createServer } from "vite";
 
-test("build/source smoke identifies the fixture-only workbench and removes the starter", async () => {
+test("build/source smoke identifies the controlled workbench and removes the starter", async () => {
   const [page, app, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/prospector-app.tsx", import.meta.url), "utf8"),
@@ -26,9 +26,82 @@ test("build/source smoke identifies the fixture-only workbench and removes the s
   assert.match(app, /Confirm submitted answer/);
   assert.match(app, /Start corrected review/);
   assert.match(app, /Applying this policy to scoring and prospecting remains disabled/);
-  assert.match(app, /Fixture candidate · not operationally qualified/);
+  assert.match(app, /ProspectingWorkspace/);
+  assert.doesNotMatch(app, /function ReviewQueue\(|function Prospects\(/);
   assert.doesNotMatch(app, /Connected · advisory|Last run 06:00|Eligible now<\/dt><dd>3 prospects/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
+});
+
+test("Prospects and Review Queue navigation compose the real owner-scoped workspace", async () => {
+  const server = await createServer({
+    configFile: false,
+    logLevel: "silent",
+    plugins: [react()],
+    server: { middlewareMode: true },
+  });
+  try {
+    const { ProspectorApp } = await server.ssrLoadModule(
+      new URL("../app/prospector-app.tsx", import.meta.url).pathname,
+    );
+    const projection = {
+      authority: "owner",
+      readiness: null,
+      runs: [],
+      evidence: [
+        {
+          id: "signal-shell",
+          source_url: "https://bounded.example/evidence/shell",
+          source_tier: 2,
+          publisher_identity: "Persisted bounded publisher",
+          underlying_origin_identity: "Independent origin",
+          independence_group: "independent-shell",
+          retrieved_at: 1_780_000_000_000,
+          excerpt: "Server-projected evidence, not a shell fixture.",
+          run_id: "run-shell",
+          submission_id: "submission-shell",
+        },
+      ],
+      assessments: [],
+      queue: [
+        {
+          id: "prospect-shell",
+          assessment_id: "assessment-shell",
+          revision: 1,
+          offer_id: "offer-shell",
+          score: 8,
+          outcome: "Passed",
+          configuration_digest: "a".repeat(64),
+          account: {
+            id: "account-shell",
+            value: "Persisted Account",
+          },
+          target: {
+            id: "target-shell",
+            value: "Persisted Target",
+          },
+        },
+      ],
+    };
+    for (const initialView of ["Prospects", "Review Queue"]) {
+      const html = renderToStaticMarkup(
+        createElement(ProspectorApp, {
+          initialView,
+          initialProspectingProjection: projection,
+        }),
+      );
+      assert.match(html, /Profile Readiness and Prospect Workspace/);
+      assert.match(html, /Persisted bounded publisher/);
+      assert.match(html, /https:\/\/bounded\.example\/evidence\/shell/);
+      assert.match(html, /Persisted Account/);
+      assert.match(html, /Persisted Target/);
+      assert.doesNotMatch(
+        html,
+        /Fixture candidate · not operationally qualified|A layout preview/,
+      );
+    }
+  } finally {
+    await server.close();
+  }
 });
 
 test("Pilot Status renders the evidence hierarchy and a neutral denial", async () => {
