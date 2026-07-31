@@ -273,10 +273,12 @@ async function runnerAuthority(runner) {
   const period = runner.deriveRunnerUtcMonthPeriod(1_100);
   return {
     admitted: true,
+    workspaceId: "workspace-snapshot",
     ...seed,
     perRun: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerPerRunAccountId({
+        workspaceId: "workspace-snapshot",
         principalSubject,
         grantId: grant.id,
         providerId: grant.providerId,
@@ -299,6 +301,7 @@ async function runnerAuthority(runner) {
     monthly: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerMonthlyAccountId({
+        workspaceId: "workspace-snapshot",
         principalSubject,
         providerId: grant.providerId,
         scopeId: grant.scopeId,

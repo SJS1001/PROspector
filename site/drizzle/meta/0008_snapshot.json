@@ -775,6 +775,27 @@
           "notNull": true,
           "autoincrement": false
         },
+        "configuration_digest": {
+          "name": "configuration_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "configuration_revision": {
+          "name": "configuration_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "prospect_revision": {
+          "name": "prospect_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "state": {
           "name": "state",
           "type": "text",
@@ -886,7 +907,11 @@
       "checkConstraints": {
         "contact_eligibility_snapshot_digest_check": {
           "name": "contact_eligibility_snapshot_digest_check",
-          "value": "length(\"contact_eligibility_snapshots\".\"snapshot_digest\") = 64 and \"contact_eligibility_snapshots\".\"snapshot_digest\" not glob '*[^0-9a-f]*'"
+          "value": "length(\"contact_eligibility_snapshots\".\"snapshot_digest\") = 64 and \"contact_eligibility_snapshots\".\"snapshot_digest\" not glob '*[^0-9a-f]*' and length(\"contact_eligibility_snapshots\".\"configuration_digest\") = 64 and \"contact_eligibility_snapshots\".\"configuration_digest\" not glob '*[^0-9a-f]*'"
+        },
+        "contact_eligibility_snapshot_revision_check": {
+          "name": "contact_eligibility_snapshot_revision_check",
+          "value": "\"contact_eligibility_snapshots\".\"configuration_revision\" > 0 and \"contact_eligibility_snapshots\".\"prospect_revision\" > 0"
         }
       }
     },
@@ -11528,6 +11553,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "per_run_account_expected_revision": {
+          "name": "per_run_account_expected_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "monthly_account_expected_revision": {
+          "name": "monthly_account_expected_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "provider_id": {
           "name": "provider_id",
           "type": "text",
@@ -11659,7 +11698,7 @@
       "checkConstraints": {
         "runner_spend_reservation_bounds_check": {
           "name": "runner_spend_reservation_bounds_check",
-          "value": "\"runner_spend_reservations\".\"attempt_number\" >= 0 and \"runner_spend_reservations\".\"reserved_cost_minor\" >= 0 and \"runner_spend_reservations\".\"max_retries\" >= \"runner_spend_reservations\".\"attempt_number\""
+          "value": "\"runner_spend_reservations\".\"attempt_number\" >= 0 and \"runner_spend_reservations\".\"reserved_cost_minor\" >= 0 and \"runner_spend_reservations\".\"max_retries\" >= \"runner_spend_reservations\".\"attempt_number\" and \"runner_spend_reservations\".\"per_run_account_expected_revision\" > 0 and \"runner_spend_reservations\".\"monthly_account_expected_revision\" > 0"
         },
         "runner_spend_reservation_currency_check": {
           "name": "runner_spend_reservation_currency_check",

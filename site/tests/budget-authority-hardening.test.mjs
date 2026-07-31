@@ -216,19 +216,21 @@ async function runnerAuthority(runner, patch = {}) {
     maxRetries: 0,
   };
   const principalSubject = "owner-synthetic";
+  const workspaceId = "workspace-synthetic";
   const attempt = { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] };
   const seed = { principalSubject, grant, attempt };
   const operationKey = await runner.deriveRunnerOperationKey(seed);
   const period = runner.deriveRunnerUtcMonthPeriod(1_100);
   const base = {
     admitted: true,
+    workspaceId,
     principalSubject,
     grant,
     attempt,
     perRun: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerPerRunAccountId({
-        principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
+        workspaceId, principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
         attemptNumber: attempt.attemptNumber, operationKey,
       }),
       scope: "runner_per_run",
@@ -245,7 +247,7 @@ async function runnerAuthority(runner, patch = {}) {
     },
     monthly: {
       authorityType: "runner_spend",
-      accountId: runner.deriveRunnerMonthlyAccountId({ principalSubject, providerId: grant.providerId, scopeId: grant.scopeId, period }),
+      accountId: runner.deriveRunnerMonthlyAccountId({ workspaceId, principalSubject, providerId: grant.providerId, scopeId: grant.scopeId, period }),
       scope: "runner_monthly",
       principalSubject,
       grantId: grant.id,

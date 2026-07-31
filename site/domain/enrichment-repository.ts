@@ -315,7 +315,11 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
         return { kind: "blocked" };
       }
       const committed = await readReservation(database, scope.workspaceId, record.id);
-      if (!committed || !sameCanonical(committed, record)) return { kind: "blocked" };
+      const initialEvent = await reservationEventAtRevision(database, scope.workspaceId, record.id, 1);
+      if (
+        !committed || !sameCanonical(committed, record) || !initialEvent
+        || !await validateEnrichmentEventAcknowledgement(record.id, initialEvent)
+      ) return { kind: "blocked" };
       committedReservations.set(committed.id, committed);
       return { kind: "created", record: committed };
     },
@@ -345,6 +349,11 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
       } catch {
         return { kind: "blocked", reason: "unavailable" };
       }
+      const committedClaim = await latestReservationEvent(database, scope.workspaceId, reservationId);
+      if (
+        !committedClaim || committedClaim.durable_revision !== revision || committedClaim.state !== "invoking"
+        || !await validateEnrichmentEventAcknowledgement(reservationId, committedClaim)
+      ) return { kind: "blocked", reason: "unavailable" };
       return freeze({ kind: "claimed", assignment: admittedRecord.assignment, claimedAt: now }) as InvocationClaim;
     },
 
@@ -402,11 +411,11 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
       const period = deriveRunnerUtcMonthPeriod(positiveTime(clock()));
       if (!period) return null;
       const perRunId = deriveRunnerPerRunAccountId({
-        principalSubject: scope.ownerSubject, grantId, providerId: grant.providerId, scopeId: grant.scopeId,
+        workspaceId: scope.workspaceId, principalSubject: scope.ownerSubject, grantId, providerId: grant.providerId, scopeId: grant.scopeId,
         attemptNumber: attempt.attemptNumber, operationKey,
       });
       const monthlyId = deriveRunnerMonthlyAccountId({
-        principalSubject: scope.ownerSubject, providerId: grant.providerId, scopeId: grant.scopeId, period,
+        workspaceId: scope.workspaceId, principalSubject: scope.ownerSubject, providerId: grant.providerId, scopeId: grant.scopeId, period,
       });
       const [perRunRow, monthlyRow] = await Promise.all([
         database.prepare("SELECT * FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1").bind(perRunId, scope.workspaceId).first<Record<string, unknown>>(),
@@ -419,7 +428,7 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
         actualCostMinor: Number(account.actual_cost_minor), reservedCostMinor: Number(account.reserved_cost_minor), maxCostMinor: Number(account.max_cost_minor),
       });
       return freeze({
-        admitted: true, principalSubject: scope.ownerSubject, grant, attempt,
+        admitted: true, workspaceId: scope.workspaceId, principalSubject: scope.ownerSubject, grant, attempt,
         perRun: {
           ...common(perRunRow), scope: "runner_per_run", grantId, attemptNumber: Number(perRunRow.attempt_number), operationKey: String(perRunRow.operation_key),
         },
@@ -429,7 +438,13 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
 
     async commitRunnerReservation(record, accounts, attempt) {
       const existing = await readRunnerReservation(database, scope.workspaceId, record.id);
-      if (existing) return sameCanonical(existing, record) ? { kind: "existing", record: existing } : { kind: "blocked" };
+      if (existing) {
+        const existingEvent = await latestRunnerEvent(database, scope.workspaceId, record.id);
+        return sameCanonical(existing, record) && existingEvent
+          && await validateRunnerEventAcknowledgement(record.id, existingEvent)
+          ? { kind: "existing", record: existing }
+          : { kind: "blocked" };
+      }
       const grantRow = await database.prepare(
         `SELECT id,owner_subject,provider_id,model,catalog_ref,run_type,scope_id,per_run_cost_minor,
           monthly_cost_minor,currency,expires_at,max_retries
@@ -453,6 +468,16 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
       const perRun = accounts.find((account) => account.scope === "runner_per_run");
       const monthly = accounts.find((account) => account.scope === "runner_monthly");
       if (!perRun || !monthly) return { kind: "blocked" };
+      const [perRunCurrent, monthlyCurrent] = await Promise.all([
+        database.prepare("SELECT revision FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1")
+          .bind(perRun.accountId, scope.workspaceId).first<{ revision: number }>(),
+        database.prepare("SELECT revision FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1")
+          .bind(monthly.accountId, scope.workspaceId).first<{ revision: number }>(),
+      ]);
+      if (!perRunCurrent || !monthlyCurrent) return { kind: "blocked" };
+      const perRunExpectedRevision = Number(perRunCurrent.revision);
+      const monthlyExpectedRevision = Number(monthlyCurrent.revision);
+      if (!positiveSafe(perRunExpectedRevision) || !positiveSafe(monthlyExpectedRevision)) return { kind: "blocked" };
       const acknowledgementDigest = await digest({
         schema: "runner-reservation-event/v1", reservationId: record.id, durableRevision: 1, state: "reserved",
       });
@@ -461,12 +486,13 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
           database.prepare(
             `INSERT INTO runner_spend_reservations (
               id,workspace_id,grant_id,per_run_account_id,monthly_account_id,operation_key,attempt_number,period,
-              previous_outcome,previous_operation_keys_json,provider_id,model,catalog_ref,scope_id,run_type,currency,
-              reserved_cost_minor,max_retries,attempt_digest,created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              previous_outcome,previous_operation_keys_json,per_run_account_expected_revision,monthly_account_expected_revision,
+              provider_id,model,catalog_ref,scope_id,run_type,currency,reserved_cost_minor,max_retries,attempt_digest,created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).bind(
             record.id, scope.workspaceId, record.grantId, perRun.accountId, monthly.accountId, record.operationKey,
             record.attemptNumber, period, attempt.previousOutcome, canonical(attempt.previousOperationKeys),
+            perRunExpectedRevision, monthlyExpectedRevision,
             record.providerId, record.model, record.catalogRef, record.scopeId, record.runType, record.currency,
             record.reservedCostMinor, record.maxRetries, record.attemptDigest, now,
           ),
@@ -479,15 +505,31 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
         if (!results.every((result) => Number(result.meta?.changes) >= 1)) return { kind: "blocked" };
       } catch {
         const winner = await readRunnerReservation(database, scope.workspaceId, record.id);
-        return winner && sameCanonical(winner, record) ? { kind: "existing", record: winner } : { kind: "blocked" };
+        const winnerEvent = winner ? await latestRunnerEvent(database, scope.workspaceId, record.id) : null;
+        return winner && sameCanonical(winner, record) && winnerEvent
+          && await validateRunnerEventAcknowledgement(record.id, winnerEvent)
+          ? { kind: "existing", record: winner }
+          : { kind: "blocked" };
       }
       const committed = await readRunnerReservation(database, scope.workspaceId, record.id);
-      return committed && sameCanonical(committed, record) ? { kind: "created", record: committed } : { kind: "blocked" };
+      const committedEvent = await latestRunnerEvent(database, scope.workspaceId, record.id);
+      return committed && sameCanonical(committed, record)
+        && committedEvent && await validateRunnerEventAcknowledgement(record.id, committedEvent)
+        ? { kind: "created", record: committed }
+        : { kind: "blocked" };
     },
 
     async markRunnerAssigned(reservationId, now) {
       const latest = await latestRunnerEvent(database, scope.workspaceId, reservationId);
-      if (!latest || latest.state !== "reserved" || !positiveSafe(now)) return false;
+      const timing = await database.prepare(
+        `SELECT r.created_at,g.expires_at FROM runner_spend_reservations r
+         JOIN runner_spend_grants g ON g.id=r.grant_id AND g.workspace_id=r.workspace_id
+         WHERE r.id=? AND r.workspace_id=? LIMIT 1`,
+      ).bind(reservationId, scope.workspaceId).first<{ created_at: number; expires_at: number }>();
+      if (
+        !latest || latest.state !== "reserved" || !positiveSafe(now) || !timing
+        || now < Number(timing.created_at) || now < Number(latest.created_at) || now >= Number(timing.expires_at)
+      ) return false;
       const revision = Number(latest.durable_revision) + 1;
       const acknowledgementDigest = await digest({ schema: "runner-reservation-event/v1", reservationId, durableRevision: revision, state: "assigned" });
       try {
@@ -496,21 +538,35 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
             (id,workspace_id,reservation_id,durable_revision,state,terminal_reason,settlement_digest,documented_cost_minor,acknowledgement_digest,created_at)
            VALUES (?, ?, ?, ?, 'assigned', NULL, NULL, NULL, ?, ?)`,
         ).bind(`rre_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, reservationId, revision, acknowledgementDigest, now).run();
-        return Number(result.meta?.changes) >= 1;
+        if (Number(result.meta?.changes) < 1) return false;
       } catch {
         return false;
       }
+      const committed = await latestRunnerEvent(database, scope.workspaceId, reservationId);
+      return !!committed && committed.durable_revision === revision
+        && committed.state === "assigned"
+        && await validateRunnerEventAcknowledgement(reservationId, committed);
     },
 
     async recordRunnerOutcome(input) {
-      if (!validId(input.reservationId) || !positiveSafe(input.now)) throw new Error("invalid_runner_outcome");
+      if (!validRunnerOutcomeInput(input)) throw new Error("invalid_runner_outcome");
       const latest = await latestRunnerEvent(database, scope.workspaceId, input.reservationId);
       if (!latest) throw new Error("runner_outcome_unavailable");
       if (latest.state === input.state) {
         if (latest.terminal_reason !== input.terminalReason || latest.settlement_digest !== input.settlementDigest || latest.documented_cost_minor !== input.documentedCostMinor) throw new Error("runner_outcome_conflict");
+        if (!await validateRunnerEventAcknowledgement(input.reservationId, latest)) throw new Error("runner_outcome_acknowledgement_invalid");
         return freeze({ durableRevision: Number(latest.durable_revision), state: latest.state, acknowledgementDigest: latest.acknowledgement_digest });
       }
-      if (latest.state !== "assigned" && latest.state !== "needs_reconciliation") throw new Error("runner_outcome_unavailable");
+      const timing = await database.prepare(
+        `SELECT r.created_at,g.expires_at FROM runner_spend_reservations r
+         JOIN runner_spend_grants g ON g.id=r.grant_id AND g.workspace_id=r.workspace_id
+         WHERE r.id=? AND r.workspace_id=? LIMIT 1`,
+      ).bind(input.reservationId, scope.workspaceId).first<{ created_at: number; expires_at: number }>();
+      if (
+        (latest.state !== "assigned" && latest.state !== "needs_reconciliation")
+        || !timing || input.now < Number(timing.created_at) || input.now < Number(latest.created_at)
+        || (input.state === "released" && input.terminalReason === "expired" && input.now < Number(timing.expires_at))
+      ) throw new Error("runner_outcome_unavailable");
       const revision = Number(latest.durable_revision) + 1;
       const acknowledgementDigest = await digest({
         schema: "runner-reservation-event/v1", reservationId: input.reservationId, durableRevision: revision,
@@ -530,10 +586,14 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
       } catch {
         const winner = await latestRunnerEvent(database, scope.workspaceId, input.reservationId);
         if (!winner || winner.state !== input.state || winner.terminal_reason !== input.terminalReason || winner.settlement_digest !== input.settlementDigest || winner.documented_cost_minor !== input.documentedCostMinor) throw new Error("runner_outcome_commit_failed");
+        if (!await validateRunnerEventAcknowledgement(input.reservationId, winner)) throw new Error("runner_outcome_acknowledgement_invalid");
         return freeze({ durableRevision: Number(winner.durable_revision), state: winner.state, acknowledgementDigest: winner.acknowledgement_digest });
       }
       const committed = await latestRunnerEvent(database, scope.workspaceId, input.reservationId);
-      if (!committed || committed.state !== input.state || committed.acknowledgement_digest !== acknowledgementDigest) throw new Error("runner_outcome_acknowledgement_invalid");
+      if (
+        !committed || committed.state !== input.state || committed.acknowledgement_digest !== acknowledgementDigest
+        || !await validateRunnerEventAcknowledgement(input.reservationId, committed)
+      ) throw new Error("runner_outcome_acknowledgement_invalid");
       return freeze({ durableRevision: revision, state: input.state, acknowledgementDigest });
     },
   };
@@ -634,6 +694,48 @@ function positiveSafe(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
+function validRunnerOutcomeInput(value: unknown): value is Parameters<D1RunnerSpendRepository["recordRunnerOutcome"]>[0] {
+  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const input = value as Record<string, unknown>;
+  if (
+    Object.keys(input).sort().join(",") !== "documentedCostMinor,now,reservationId,settlementDigest,state,terminalReason"
+    || !validId(input.reservationId) || !positiveSafe(input.now)
+  ) return false;
+  if (input.state === "needs_reconciliation") {
+    return ["timeout", "ambiguous", "provider_error"].includes(String(input.terminalReason))
+      && input.documentedCostMinor === null && input.settlementDigest === null;
+  }
+  if (!["failed_retryable", "settled", "released"].includes(String(input.state))) return false;
+  if (!positiveOrZeroSafe(input.documentedCostMinor) || typeof input.settlementDigest !== "string" || !DIGEST_PATTERN.test(input.settlementDigest)) return false;
+  return (input.state === "failed_retryable" && input.terminalReason === "failed_retryable")
+    || (input.state === "settled" && ["completed", "partial"].includes(String(input.terminalReason)))
+    || (input.state === "released" && ["rejected", "expired"].includes(String(input.terminalReason)));
+}
+
+function positiveOrZeroSafe(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+async function validateRunnerEventAcknowledgement(
+  reservationId: string,
+  event: NonNullable<Awaited<ReturnType<typeof latestRunnerEvent>>>,
+): Promise<boolean> {
+  let material: Record<string, unknown>;
+  if (event.state === "reserved" || event.state === "assigned") {
+    if (event.terminal_reason !== null || event.settlement_digest !== null || event.documented_cost_minor !== null) return false;
+    material = { schema: "runner-reservation-event/v1", reservationId, durableRevision: Number(event.durable_revision), state: event.state };
+  } else {
+    if (event.terminal_reason === null) return false;
+    material = {
+      schema: "runner-reservation-event/v1", reservationId, durableRevision: Number(event.durable_revision),
+      state: event.state, terminalReason: event.terminal_reason, documentedCostMinor: event.documented_cost_minor,
+      settlementDigest: event.settlement_digest,
+    };
+  }
+  return DIGEST_PATTERN.test(event.acknowledgement_digest)
+    && event.acknowledgement_digest === await digest(material);
+}
+
 function derivedEnrichmentAccountId(workspaceId: string, scope: BudgetAccount["scope"], entityId: string): string {
   return `enrichment:${workspaceId.length}:${workspaceId}:${scope}:${entityId.length}:${entityId}`;
 }
@@ -665,6 +767,51 @@ async function latestReservationEvent(database: D1Database, workspaceId: string,
     terminal_reason: string | null; settlement_digest: string | null; documented_units: number | null;
     documented_cost_minor: number | null; observation_ids_json: string; acknowledgement_digest: string; created_at: number;
   }>();
+}
+
+async function reservationEventAtRevision(database: D1Database, workspaceId: string, reservationId: string, revision: number) {
+  return database.prepare(
+    `SELECT durable_revision, state, claimed_at, terminal_reason, settlement_digest, documented_units,
+      documented_cost_minor, observation_ids_json, acknowledgement_digest, created_at
+     FROM enrichment_reservation_events WHERE workspace_id = ? AND reservation_id = ? AND durable_revision = ? LIMIT 1`,
+  ).bind(workspaceId, reservationId, revision).first<NonNullable<Awaited<ReturnType<typeof latestReservationEvent>>>>();
+}
+
+async function validateEnrichmentEventAcknowledgement(
+  reservationId: string,
+  event: NonNullable<Awaited<ReturnType<typeof latestReservationEvent>>>,
+): Promise<boolean> {
+  let material: Record<string, unknown>;
+  if (event.state === "reserved") {
+    if (event.claimed_at !== null || event.terminal_reason !== null || event.settlement_digest !== null
+      || event.documented_units !== null || event.documented_cost_minor !== null || event.observation_ids_json !== "[]") return false;
+    material = { schema: "enrichment-reservation-event/v1", reservationId, durableRevision: Number(event.durable_revision), state: "reserved" };
+  } else if (event.state === "invoking") {
+    if (event.claimed_at === null || event.terminal_reason !== null || event.settlement_digest !== null
+      || event.documented_units !== null || event.documented_cost_minor !== null || event.observation_ids_json !== "[]") return false;
+    material = {
+      schema: "enrichment-reservation-event/v1", reservationId, durableRevision: Number(event.durable_revision),
+      state: "invoking", claimedAt: Number(event.claimed_at),
+    };
+  } else if (event.state === "needs_reconciliation") {
+    if (event.terminal_reason === null || event.settlement_digest !== null
+      || event.documented_units !== null || event.documented_cost_minor !== null || event.observation_ids_json !== "[]") return false;
+    material = {
+      schema: "enrichment-reservation-event/v1", reservationId, durableRevision: Number(event.durable_revision),
+      state: "needs_reconciliation", reason: event.terminal_reason,
+    };
+  } else {
+    const observationIds = parseIdList(event.observation_ids_json);
+    if (event.terminal_reason === null || event.settlement_digest === null
+      || event.documented_units === null || event.documented_cost_minor === null) return false;
+    material = {
+      schema: "enrichment-reservation-event/v1", reservationId, durableRevision: Number(event.durable_revision),
+      state: event.state, reason: event.terminal_reason, settlementDigest: event.settlement_digest,
+      documentedUnits: Number(event.documented_units), documentedCostMinor: Number(event.documented_cost_minor), observationIds,
+    };
+  }
+  return DIGEST_PATTERN.test(event.acknowledgement_digest)
+    && event.acknowledgement_digest === await digest(material);
 }
 
 async function releaseExpiredReservation(database: D1Database, workspaceId: string, reservationId: string, now: number): Promise<boolean> {
@@ -741,6 +888,7 @@ async function settleCommittedReservation(
       || Number(latest.documented_units) !== settlement.documentedUnits
       || Number(latest.documented_cost_minor) !== settlement.documentedCostMinor
       || canonical(observationIds) !== canonical(settlement.observations.map((observation) => observation.id))
+      || !await validateEnrichmentEventAcknowledgement(reservationId, latest)
     ) throw new Error("enrichment_settlement_conflict");
     return freeze({
       kind: "durably_recorded", reservationId, terminalState: latest.state, terminalReason: settlement.reason,
@@ -839,6 +987,7 @@ async function settleCommittedReservation(
       && Number(winner.documented_units) === settlement.documentedUnits
       && Number(winner.documented_cost_minor) === settlement.documentedCostMinor
       && canonical(parseIdList(winner.observation_ids_json)) === canonical(observationIds)
+      && await validateEnrichmentEventAcknowledgement(reservationId, winner)
     ) {
       return freeze({
         kind: "durably_recorded", reservationId, terminalState: winner.state, terminalReason: settlement.reason,
@@ -847,6 +996,11 @@ async function settleCommittedReservation(
     }
     throw new Error("enrichment_settlement_commit_failed");
   }
+  const committed = await latestReservationEvent(database, workspaceId, reservationId);
+  if (
+    !committed || committed.durable_revision !== durableRevision || committed.state !== settlement.state
+    || !await validateEnrichmentEventAcknowledgement(reservationId, committed)
+  ) throw new Error("enrichment_settlement_acknowledgement_invalid");
   return freeze({
     kind: "durably_recorded", reservationId, terminalState: settlement.state, terminalReason: settlement.reason,
     settlementDigest: settlement.settlementDigest, observationIds, durableRevision,
@@ -857,7 +1011,10 @@ async function appendReconciliation(database: D1Database, workspaceId: string, r
   const latest = await latestReservationEvent(database, workspaceId, reservationId);
   if (!latest) throw new Error("enrichment_reconciliation_unavailable");
   if (latest.state === "needs_reconciliation") {
-    if (latest.terminal_reason !== reason || latest.settlement_digest !== null) throw new Error("enrichment_reconciliation_conflict");
+    if (
+      latest.terminal_reason !== reason || latest.settlement_digest !== null
+      || !await validateEnrichmentEventAcknowledgement(reservationId, latest)
+    ) throw new Error("enrichment_reconciliation_conflict");
     return freeze({
       kind: "durably_recorded", reservationId, terminalState: "needs_reconciliation", terminalReason: reason,
       settlementDigest: null, observationIds: [], durableRevision: Number(latest.durable_revision),
@@ -875,7 +1032,10 @@ async function appendReconciliation(database: D1Database, workspaceId: string, r
     ).bind(`ere_${acknowledgementDigest.slice(0, 24)}`, workspaceId, reservationId, durableRevision, reason, acknowledgementDigest, now).run();
   } catch {
     const winner = await latestReservationEvent(database, workspaceId, reservationId);
-    if (winner?.state === "needs_reconciliation" && winner.terminal_reason === reason && winner.settlement_digest === null) {
+    if (
+      winner?.state === "needs_reconciliation" && winner.terminal_reason === reason && winner.settlement_digest === null
+      && await validateEnrichmentEventAcknowledgement(reservationId, winner)
+    ) {
       return freeze({
         kind: "durably_recorded", reservationId, terminalState: "needs_reconciliation", terminalReason: reason,
         settlementDigest: null, observationIds: [], durableRevision: Number(winner.durable_revision),
@@ -884,11 +1044,18 @@ async function appendReconciliation(database: D1Database, workspaceId: string, r
     throw new Error("enrichment_reconciliation_commit_failed");
   }
   if (Number(result.meta?.changes) !== 1) throw new Error("enrichment_reconciliation_commit_failed");
+  const committed = await latestReservationEvent(database, workspaceId, reservationId);
+  if (
+    !committed || committed.durable_revision !== durableRevision || committed.state !== "needs_reconciliation"
+    || !await validateEnrichmentEventAcknowledgement(reservationId, committed)
+  ) throw new Error("enrichment_reconciliation_acknowledgement_invalid");
   return freeze({ kind: "durably_recorded", reservationId, terminalState: "needs_reconciliation", terminalReason: reason, settlementDigest: null, observationIds: [], durableRevision });
 }
 
 function validSettlement(value: SettlementWrite, workspaceId: string): boolean {
-  return !!value && (value.state === "settled" || value.state === "released")
+  return !!value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype
+    && Object.keys(value).sort().join(",") === "documentedCostMinor,documentedUnits,observations,reason,settlementDigest,state"
+    && (value.state === "settled" || value.state === "released")
     && ((value.state === "released" && value.reason === "rejected") || (value.state === "settled" && (value.reason === "completed" || value.reason === "partial")))
     && Number.isSafeInteger(value.documentedUnits) && value.documentedUnits >= 0
     && Number.isSafeInteger(value.documentedCostMinor) && value.documentedCostMinor >= 0

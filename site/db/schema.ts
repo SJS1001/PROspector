@@ -625,6 +625,8 @@ export const contactEligibilitySnapshots = sqliteTable("contact_eligibility_snap
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   contactId: text("contact_id").notNull().references(() => contacts.id), prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
   configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  configurationDigest: text("configuration_digest").notNull(), configurationRevision: integer("configuration_revision").notNull(),
+  prospectRevision: integer("prospect_revision").notNull(),
   state: text("state", { enum: ["ContactReady", "ContactSuggestion", "NeedsReview", "NonContactable"] }).notNull(),
   eligible: integer("eligible", { mode: "boolean" }).notNull(), observationIdsJson: text("observation_ids_json").notNull(),
   reasonCodesJson: text("reason_codes_json").notNull(), preservedSuppressionRefsJson: text("preserved_suppression_refs_json").notNull().default("[]"),
@@ -632,7 +634,8 @@ export const contactEligibilitySnapshots = sqliteTable("contact_eligibility_snap
 }, (t) => [
   uniqueIndex("contact_eligibility_snapshot_digest_unique").on(t.workspaceId, t.snapshotDigest),
   index("contact_eligibility_snapshot_current_idx").on(t.workspaceId, t.prospectId, t.contactId, t.projectedAt),
-  check("contact_eligibility_snapshot_digest_check", sql`length(${t.snapshotDigest}) = 64 and ${t.snapshotDigest} not glob '*[^0-9a-f]*'`),
+  check("contact_eligibility_snapshot_digest_check", sql`length(${t.snapshotDigest}) = 64 and ${t.snapshotDigest} not glob '*[^0-9a-f]*' and length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+  check("contact_eligibility_snapshot_revision_check", sql`${t.configurationRevision} > 0 and ${t.prospectRevision} > 0`),
 ]);
 
 export const identitySuggestions = sqliteTable("identity_suggestions", {
@@ -734,14 +737,17 @@ export const runnerSpendReservations = sqliteTable("runner_spend_reservations", 
   monthlyAccountId: text("monthly_account_id").notNull().references(() => runnerBudgetAccounts.id), operationKey: text("operation_key").notNull(),
   attemptNumber: integer("attempt_number").notNull(), period: text("period").notNull(),
   previousOutcome: text("previous_outcome", { enum: ["none", "failed_retryable"] }).notNull(),
-  previousOperationKeysJson: text("previous_operation_keys_json").notNull(), providerId: text("provider_id").notNull(), model: text("model").notNull(),
+  previousOperationKeysJson: text("previous_operation_keys_json").notNull(),
+  perRunAccountExpectedRevision: integer("per_run_account_expected_revision").notNull(),
+  monthlyAccountExpectedRevision: integer("monthly_account_expected_revision").notNull(),
+  providerId: text("provider_id").notNull(), model: text("model").notNull(),
   catalogRef: text("catalog_ref").notNull(), scopeId: text("scope_id").notNull(), runType: text("run_type").notNull(),
   currency: text("currency").notNull(), reservedCostMinor: integer("reserved_cost_minor").notNull(), maxRetries: integer("max_retries").notNull(),
   attemptDigest: text("attempt_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (t) => [
   uniqueIndex("runner_spend_reservation_attempt_unique").on(t.workspaceId, t.grantId, t.attemptNumber),
   uniqueIndex("runner_spend_reservation_operation_unique").on(t.workspaceId, t.operationKey), uniqueIndex("runner_spend_reservation_attempt_digest_unique").on(t.workspaceId, t.grantId, t.attemptDigest),
-  check("runner_spend_reservation_bounds_check", sql`${t.attemptNumber} >= 0 and ${t.reservedCostMinor} >= 0 and ${t.maxRetries} >= ${t.attemptNumber}`),
+  check("runner_spend_reservation_bounds_check", sql`${t.attemptNumber} >= 0 and ${t.reservedCostMinor} >= 0 and ${t.maxRetries} >= ${t.attemptNumber} and ${t.perRunAccountExpectedRevision} > 0 and ${t.monthlyAccountExpectedRevision} > 0`),
   check("runner_spend_reservation_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
   check("runner_spend_reservation_digest_check", sql`length(${t.attemptDigest}) = 64 and ${t.attemptDigest} not glob '*[^0-9a-f]*'`),
 ]);

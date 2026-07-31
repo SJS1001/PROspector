@@ -285,8 +285,8 @@ function enrichmentAuthority(grant) {
   const snapshot = issuanceSnapshot();
   return {
     admitted: true,
-    principalSubject: ownerSubject,
     workspaceId,
+    principalSubject: ownerSubject,
     sourceRevision: snapshot.revision,
     grant,
     configuration: snapshot.configuration,
@@ -347,12 +347,14 @@ async function makeRunnerAuthority(runner) {
   const period = runner.deriveRunnerUtcMonthPeriod(now);
   return {
     admitted: true,
+    workspaceId,
     principalSubject: ownerSubject,
     grant,
     attempt,
     perRun: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerPerRunAccountId({
+        workspaceId,
         principalSubject: ownerSubject,
         grantId: grant.id,
         providerId: grant.providerId,
@@ -375,6 +377,7 @@ async function makeRunnerAuthority(runner) {
     monthly: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerMonthlyAccountId({
+        workspaceId,
         principalSubject: ownerSubject,
         providerId: grant.providerId,
         scopeId: grant.scopeId,

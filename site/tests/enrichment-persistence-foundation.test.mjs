@@ -75,10 +75,11 @@ test("repository replays exact grants and atomically admits only one bounded res
     const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
     const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
     const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+    const contactEvidence = await fixture.vite.ssrLoadModule(new URL("../domain/contact-evidence.ts", import.meta.url).pathname);
     const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
       workspaceId: seeded.workspaceId,
       ownerSubject: OWNER.subject,
-      now: () => NOW + 100,
+      now: () => NOW,
     });
     await fixture.database.prepare(
       `INSERT INTO provider_quotes
@@ -112,6 +113,58 @@ test("repository replays exact grants and atomically admits only one bounded res
     assert.equal(await countRows(fixture.database, "enrichment_grant_issuance_events"), 1);
 
     await seedReservationInputs(fixture.database, seeded, first.grant);
+    await assert.rejects(
+      fixture.database.prepare(
+        `UPDATE enrichment_budget_accounts
+         SET actual_units=actual_units+1,actual_cost_minor=actual_cost_minor+1,revision=revision+1,updated_at=?
+         WHERE workspace_id=?`,
+      ).bind(NOW + 1, seeded.workspaceId).run(),
+      /invalid enrichment budget mutation/,
+      "application SQL cannot manufacture enrichment ledger usage",
+    );
+    const eligibilityLineage = await fixture.database.prepare(
+      `SELECT p.revision AS prospect_revision,cfg.revision AS configuration_revision,cfg.digest AS configuration_digest
+       FROM profile_prospects p
+       JOIN typed_configurations cfg
+         ON cfg.workspace_id=p.workspace_id AND cfg.owner_type='profile' AND cfg.owner_id=p.profile_id
+        AND cfg.kind='profile_effective' AND cfg.active=1
+       WHERE p.id=? AND p.workspace_id=?`,
+    ).bind(seeded.prospectId, seeded.workspaceId).first();
+    assert.ok(eligibilityLineage);
+    await fixture.database.prepare(
+      `INSERT INTO contact_eligibility_snapshots
+        (id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
+         prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,
+         snapshot_digest,projected_at)
+       VALUES ('eligibility-current',?,'p5-contact','p5-prospect',?,?,?,?,'NeedsReview',0,'[]','[]','[]',?,?)`,
+    ).bind(
+      seeded.workspaceId,
+      seeded.configurationId,
+      eligibilityLineage.configuration_digest,
+      eligibilityLineage.configuration_revision,
+      eligibilityLineage.prospect_revision,
+      "5".repeat(64),
+      NOW,
+    ).run();
+    await assert.rejects(
+      fixture.database.prepare(
+        `INSERT INTO contact_eligibility_snapshots
+          (id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
+           prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,
+           snapshot_digest,projected_at)
+         VALUES ('eligibility-stale',?,'p5-contact','p5-prospect',?,?,?,?,'NeedsReview',0,'[]','[]','[]',?,?)`,
+      ).bind(
+        seeded.workspaceId,
+        seeded.configurationId,
+        eligibilityLineage.configuration_digest,
+        eligibilityLineage.configuration_revision,
+        Number(eligibilityLineage.prospect_revision) + 1,
+        "6".repeat(64),
+        NOW,
+      ).run(),
+      /invalid contact eligibility snapshot/,
+      "eligibility snapshots require the exact current prospect and configuration lineage",
+    );
     await fixture.database.prepare(
       `INSERT INTO enrichment_budget_accounts
         (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,
@@ -156,7 +209,69 @@ test("repository replays exact grants and atomically admits only one bounded res
     assert.equal(await countRows(fixture.database, "enrichment_reservations"), 1);
     assert.equal(await countRows(fixture.database, "enrichment_reservation_budget_entries"), 4);
     const claim = await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, NOW + 3);
-    assert.equal(claim.kind, "claimed");
+    assert.equal(
+      claim.kind,
+      "claimed",
+      JSON.stringify((await fixture.database.prepare(
+        "SELECT durable_revision,state,terminal_reason,settlement_digest,documented_units,documented_cost_minor,observation_ids_json,acknowledgement_digest,claimed_at,created_at FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision",
+      ).bind(reserved.reservation.id).all()).results),
+    );
+    await fixture.database.prepare(
+      `INSERT INTO contact_evidence_assignments
+        (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,
+         provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
+       VALUES ('later-contact-assignment',?,?,?,'p5-prospect','p5-contact','economic_buyer',?,?,?,?,?,1,?,?)`,
+    ).bind(
+      seeded.workspaceId, reserved.reservation.id, first.grant.id, first.grant.tuple.configurationId,
+      first.grant.tuple.configurationDigest, first.grant.tuple.providerId, first.grant.tuple.providerVersion,
+      first.grant.tuple.catalogRef, "7".repeat(64), NOW + 4,
+    ).run();
+    const laterAssignmentEvidence = contactEvidence.ingestContactEvidence({
+      assignmentId: "later-contact-assignment",
+      prospectId: seeded.prospectId,
+      role: "economic_buyer",
+      quoteRevision: 1,
+      workspaceId: seeded.workspaceId,
+      contactId: "p5-contact",
+      profileConfigurationId: first.grant.tuple.configurationId,
+      profileConfigurationDigest: first.grant.tuple.configurationDigest,
+      providerAuthority: {
+        providerId: first.grant.tuple.providerId,
+        providerVersion: first.grant.tuple.providerVersion,
+        catalogRef: first.grant.tuple.catalogRef,
+      },
+    }, {
+      id: "later-assignment-observation",
+      workspaceId: seeded.workspaceId,
+      contactId: "p5-contact",
+      profileConfigurationId: first.grant.tuple.configurationId,
+      profileConfigurationDigest: first.grant.tuple.configurationDigest,
+      kind: "email",
+      value: "contact@example.invalid",
+      confidence: 0.5,
+      provenance: {
+        sourceReference: "source:later-assignment",
+        excerpt: "synthetic later assignment",
+        objectReference: "object:later-assignment",
+        contentHash: "8".repeat(64),
+        retrievedAt: NOW,
+      },
+      observedAt: NOW + 1,
+      lineage: { parentObservationId: null },
+    });
+    assert.equal(laterAssignmentEvidence.accepted, true);
+    await assert.rejects(
+      repository.settleReservation(reserved.reservation.id, {
+        state: "settled",
+        documentedUnits: 1,
+        documentedCostMinor: 10,
+        reason: "partial",
+        observations: [laterAssignmentEvidence.observation],
+        settlementDigest: "9".repeat(64),
+      }),
+      /enrichment_observation_assignment_unavailable/,
+      "a later assignment row cannot replace the immutable reservation assignment snapshot",
+    );
     const exactReplay = await repository.commitReservation(reserved.reservation, []);
     assert.equal(exactReplay.kind, "existing", "exact durable header replay precedes account re-evaluation");
     const changedReplay = await repository.commitReservation({ ...reserved.reservation, operationKey: `op_${"f".repeat(64)}` }, []);
@@ -227,7 +342,7 @@ test("expired invocation claims durably release every reserved enrichment accoun
     const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
       workspaceId: seeded.workspaceId,
       ownerSubject: OWNER.subject,
-      now: () => NOW + 100,
+      now: () => NOW,
     });
     await fixture.database.prepare(
       `INSERT INTO provider_quotes
@@ -300,7 +415,7 @@ test("replacement configuration and prospect races cannot reuse stale enrichment
     const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
       workspaceId: seeded.workspaceId,
       ownerSubject: OWNER.subject,
-      now: () => NOW + 100,
+      now: () => NOW,
     });
     await fixture.database.prepare(
       `INSERT INTO provider_quotes
@@ -308,6 +423,33 @@ test("replacement configuration and prospect races cannot reuse stale enrichment
        VALUES ('quote-stale-race',?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
     ).bind(seeded.workspaceId, "1".repeat(64), NOW + 10_000, NOW).run();
     const issuanceSnapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+    const staleIssuanceRepository = {
+      loadIssuanceSnapshot: async () => issuanceSnapshot,
+      findGrantByIdempotency: (...args) => repository.findGrantByIdempotency(...args),
+      commitGrant: async (record) => {
+        await fixture.database.prepare(
+          "UPDATE workspaces SET revision=revision+1,updated_at=? WHERE id=?",
+        ).bind(NOW + 1, seeded.workspaceId).run();
+        return repository.commitGrant(record);
+      },
+    };
+    await assert.rejects(
+      issuance.issueEnrichmentGrant(staleIssuanceRepository, {
+        principalSubject: OWNER.subject,
+        prospectIds: [seeded.prospectId],
+        operation: "business_contact_lookup/v1",
+        maxUnits: 1,
+        maxCostMinor: 10,
+        currency: "CAD",
+        expiresAt: NOW + 5_000,
+        expectedRevision: issuanceSnapshot.revision,
+        idempotencyKey: "phase5-stale-workspace-grant-key",
+        now: NOW + 1,
+      }),
+      /enrichment_grant_commit_failed/,
+      "grant insertion atomically rejects a workspace revision changed after admission",
+    );
+    const currentIssuanceSnapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
     const issued = await issuance.issueEnrichmentGrant(repository, {
       principalSubject: OWNER.subject,
       prospectIds: [seeded.prospectId],
@@ -316,7 +458,7 @@ test("replacement configuration and prospect races cannot reuse stale enrichment
       maxCostMinor: 10,
       currency: "CAD",
       expiresAt: NOW + 5_000,
-      expectedRevision: issuanceSnapshot.revision,
+      expectedRevision: currentIssuanceSnapshot.revision,
       idempotencyKey: "phase5-stale-race-grant-key",
       now: NOW + 1,
     });
@@ -415,7 +557,40 @@ test("runner reservations enforce retry lineage and atomically settle both accou
       now: NOW,
     });
     assert.equal(reservation0.kind, "reserved", JSON.stringify(reservation0));
+    await assert.rejects(
+      fixture.database.prepare(
+        `UPDATE runner_budget_accounts
+         SET actual_cost_minor=actual_cost_minor+1,revision=revision+1,updated_at=?
+         WHERE id=?`,
+      ).bind(NOW + 1, seeded.monthlyId).run(),
+      /invalid runner budget mutation/,
+      "application SQL cannot manufacture runner ledger usage",
+    );
+    assert.equal(await repository.markRunnerAssigned(reservation0.reservation.id, NOW - 1), false);
+    assert.equal(await repository.markRunnerAssigned(reservation0.reservation.id, seeded.grant.expiresAt), false);
+    await assert.rejects(
+      fixture.database.prepare(
+        `INSERT INTO runner_spend_reservation_events
+          (id,workspace_id,reservation_id,durable_revision,state,terminal_reason,settlement_digest,
+           documented_cost_minor,acknowledgement_digest,created_at)
+         VALUES ('runner-null-reason',?,?,2,'needs_reconciliation',NULL,NULL,NULL,?,?)`,
+      ).bind(workspaceId, reservation0.reservation.id, "e".repeat(64), NOW + 1).run(),
+      /invalid runner reservation lifecycle/,
+      "NULL cannot fall through a runner reason allowlist",
+    );
     assert.equal(await repository.markRunnerAssigned(reservation0.reservation.id, NOW + 1), true);
+    await assert.rejects(
+      repository.recordRunnerOutcome({
+        reservationId: reservation0.reservation.id,
+        state: "needs_reconciliation",
+        terminalReason: "timeout",
+        documentedCostMinor: null,
+        settlementDigest: null,
+        now: NOW,
+      }),
+      /runner_outcome_unavailable/,
+      "runner outcomes cannot move backwards in durable time",
+    );
     await repository.recordRunnerOutcome({
       reservationId: reservation0.reservation.id,
       state: "needs_reconciliation",
@@ -644,6 +819,7 @@ async function seedRunnerAuthority(database, runner, input) {
   ).run();
   const period = runner.deriveRunnerUtcMonthPeriod(NOW);
   const monthlyId = runner.deriveRunnerMonthlyAccountId({
+    workspaceId: input.workspaceId,
     principalSubject: input.ownerSubject,
     providerId: grant.providerId,
     scopeId: grant.scopeId,
@@ -666,6 +842,7 @@ async function seedRunnerAuthority(database, runner, input) {
     const operationKey = await runner.deriveRunnerOperationKey({ principalSubject: input.ownerSubject, grant, attempt });
     previousOperationKeys.push(operationKey);
     const perRunId = runner.deriveRunnerPerRunAccountId({
+      workspaceId: input.workspaceId,
       principalSubject: input.ownerSubject,
       grantId: grant.id,
       providerId: grant.providerId,

@@ -4,6 +4,7 @@ import { createServer } from "vite";
 
 const NOW = Date.UTC(2026, 6, 15);
 const PRINCIPAL = "owner-synthetic";
+const WORKSPACE = "workspace-synthetic";
 
 async function loadRunner(vite) {
   return vite.ssrLoadModule(
@@ -50,12 +51,14 @@ async function authorityFor(runner, attempt, maxRetries = 2) {
   const period = runner.deriveRunnerUtcMonthPeriod(NOW);
   return {
     admitted: true,
+    workspaceId: WORKSPACE,
     principalSubject: PRINCIPAL,
     grant: immutableGrant,
     attempt,
     perRun: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerPerRunAccountId({
+        workspaceId: WORKSPACE,
         principalSubject: PRINCIPAL,
         grantId: immutableGrant.id,
         providerId: immutableGrant.providerId,
@@ -78,6 +81,7 @@ async function authorityFor(runner, attempt, maxRetries = 2) {
     monthly: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerMonthlyAccountId({
+        workspaceId: WORKSPACE,
         principalSubject: PRINCIPAL,
         providerId: immutableGrant.providerId,
         scopeId: immutableGrant.scopeId,

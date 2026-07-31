@@ -199,9 +199,9 @@ test("P5 hardening: immutable grants and exact synthetic authority shapes fail c
       assert.equal(result.kind, "blocked", name); assert.deepEqual(writes, [], name);
     }
     const malformedWrites = [];
-    const malformed = await runner.reserveRunnerSpend({ async loadRunnerAuthority() { return { admitted: true, principalSubject: "owner-synthetic", grant: { authorityType: "runner_spend", id: "", providerId: "", model: "", catalogRef: "", runType: "", scopeId: "", maxRetries: -1, currency: "US", expiresAt: 2_000, perRunCostMinor: -1, monthlyCostMinor: -1 }, perRun: budget("runner-run", 9), monthly: budget("runner-month", 9) }; }, async commitRunnerReservation(record) { malformedWrites.push(record); return { kind: "created", record }; } }, { grantId: "runner-grant", principalSubject: "owner-synthetic", operationKey: `ro_${"a".repeat(64)}`, now: 1_100 });
+    const malformed = await runner.reserveRunnerSpend({ async loadRunnerAuthority() { return { admitted: true, workspaceId: "workspace-synthetic", principalSubject: "owner-synthetic", grant: { authorityType: "runner_spend", id: "", providerId: "", model: "", catalogRef: "", runType: "", scopeId: "", maxRetries: -1, currency: "US", expiresAt: 2_000, perRunCostMinor: -1, monthlyCostMinor: -1 }, perRun: budget("runner-run", 9), monthly: budget("runner-month", 9) }; }, async commitRunnerReservation(record) { malformedWrites.push(record); return { kind: "created", record }; } }, { grantId: "runner-grant", principalSubject: "owner-synthetic", operationKey: `ro_${"a".repeat(64)}`, now: 1_100 });
     assert.equal(malformed.kind, "blocked"); assert.deepEqual(malformedWrites, []);
-    const runnerAuthority = { admitted: true, principalSubject: "owner-synthetic", grant: { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries: 0, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 }, attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] }, perRun: budget("runner_per_run", 9), monthly: budget("runner_monthly", 9) };
+    const runnerAuthority = { admitted: true, workspaceId: "workspace-synthetic", principalSubject: "owner-synthetic", grant: { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries: 0, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 }, attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] }, perRun: budget("runner_per_run", 9), monthly: budget("runner_monthly", 9) };
     const semanticWrites = [];
     const wrongOperation = await runner.reserveRunnerSpend({ async loadRunnerAuthority() { return runnerAuthority; }, async commitRunnerReservation(record) { semanticWrites.push(record); return { kind: "created", record }; } }, { grantId: "runner-grant", principalSubject: "owner-synthetic", operationKey: `ro_${"b".repeat(64)}`, now: 1_100 });
     assert.equal(wrongOperation.kind, "blocked"); assert.deepEqual(semanticWrites, []);
@@ -608,7 +608,7 @@ test("P5 hardening: claimed assignments and hostile provider outcomes cannot lea
     assert.equal(hostileResult.kind, "needs_reconciliation");
     assert.equal(hostileState.reason, "invalid_provider_outcome");
     assert.equal(hostilePort.calls, 1);
-    assert.equal(hostileGetterReads, 1);
+    assert.equal(hostileGetterReads, 0, "provider outcome accessors are rejected without evaluation");
     assert.equal(hostileState.settled, 0);
     assert.equal(hostileState.reconciled, 1);
   } finally { await vite.close(); }
@@ -780,21 +780,22 @@ function contactVerification(raw = contactEnvelope(), patch = {}) { return { obs
 async function configuredRunnerAuthority(runner, { maxRetries, attempt }) {
   const principalSubject = "owner-synthetic";
   const grant = { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 };
-  const seed = { admitted: true, principalSubject, grant, attempt };
+  const workspaceId = "workspace-synthetic";
+  const seed = { admitted: true, workspaceId, principalSubject, grant, attempt };
   const operationKey = await runner.deriveRunnerOperationKey(seed);
   const period = runner.deriveRunnerUtcMonthPeriod(1_100);
   return {
     ...seed,
     perRun: {
       authorityType: "runner_spend",
-      accountId: runner.deriveRunnerPerRunAccountId({ principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId, attemptNumber: attempt.attemptNumber, operationKey }),
+      accountId: runner.deriveRunnerPerRunAccountId({ workspaceId, principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId, attemptNumber: attempt.attemptNumber, operationKey }),
       scope: "runner_per_run", principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
       attemptNumber: attempt.attemptNumber, operationKey, currency: "USD",
       actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor: 9,
     },
     monthly: {
       authorityType: "runner_spend",
-      accountId: runner.deriveRunnerMonthlyAccountId({ principalSubject, providerId: grant.providerId, scopeId: grant.scopeId, period }),
+      accountId: runner.deriveRunnerMonthlyAccountId({ workspaceId, principalSubject, providerId: grant.providerId, scopeId: grant.scopeId, period }),
       scope: "runner_monthly", principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
       period, currency: "USD", actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor: 9,
     },

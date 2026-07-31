@@ -52,6 +52,7 @@ export type RunnerAttemptState = Readonly<{
 }>;
 export type RunnerSpendAuthority = {
   admitted: boolean;
+  workspaceId: string;
   principalSubject: string;
   grant: RunnerSpendGrant;
   attempt: RunnerAttemptState;
@@ -113,7 +114,7 @@ export async function reserveRunnerSpend(
   if (loadedAuthority !== null && !authority) {
     return { kind: "blocked", reason: "runner_grant_unavailable" };
   }
-  if (!authority || !validGrant(authority.grant) || authority.grant.id !== request.grantId) {
+  if (!authority || !bounded(authority.workspaceId, 256) || !validGrant(authority.grant) || authority.grant.id !== request.grantId) {
     return { kind: "blocked", reason: "runner_grant_unavailable" };
   }
   if (authority.admitted !== true || authority.principalSubject !== request.principalSubject) {
@@ -218,6 +219,7 @@ export function deriveRunnerUtcMonthPeriod(now: number): string | null {
 }
 
 export function deriveRunnerPerRunAccountId(input: {
+  workspaceId: string;
   principalSubject: string;
   grantId: string;
   providerId: string;
@@ -227,6 +229,7 @@ export function deriveRunnerPerRunAccountId(input: {
 }): string {
   return `runner:${lengthPrefixed(
     "runner_per_run",
+    input.workspaceId,
     input.principalSubject,
     input.grantId,
     input.providerId,
@@ -237,6 +240,7 @@ export function deriveRunnerPerRunAccountId(input: {
 }
 
 export function deriveRunnerMonthlyAccountId(input: {
+  workspaceId: string;
   principalSubject: string;
   providerId: string;
   scopeId: string;
@@ -244,6 +248,7 @@ export function deriveRunnerMonthlyAccountId(input: {
 }): string {
   return `runner:${lengthPrefixed(
     "runner_monthly",
+    input.workspaceId,
     input.principalSubject,
     input.providerId,
     input.scopeId,
@@ -342,7 +347,7 @@ function validPerRunAccount(
   operationKey: string,
 ): boolean {
   if (!account || typeof account !== "object") return false;
-  const { grant, principalSubject, attempt } = authority;
+  const { grant, principalSubject, attempt, workspaceId } = authority;
   return exactKeys(account, [
     "accountId", "actualCostMinor", "attemptNumber", "authorityType", "currency", "grantId",
     "maxCostMinor", "operationKey", "principalSubject", "providerId", "reservedCostMinor",
@@ -354,6 +359,7 @@ function validPerRunAccount(
     && account.attemptNumber === attempt.attemptNumber
     && account.operationKey === operationKey
     && account.accountId === deriveRunnerPerRunAccountId({
+      workspaceId,
       principalSubject,
       grantId: grant.id,
       providerId: grant.providerId,
@@ -369,7 +375,7 @@ function validMonthlyAccount(
   period: string,
 ): boolean {
   if (!account || typeof account !== "object") return false;
-  const { grant, principalSubject } = authority;
+  const { grant, principalSubject, workspaceId } = authority;
   return exactKeys(account, [
     "accountId", "actualCostMinor", "authorityType", "currency", "grantId", "maxCostMinor",
     "period", "principalSubject", "providerId", "reservedCostMinor", "scope", "scopeId",
@@ -379,6 +385,7 @@ function validMonthlyAccount(
     && account.grantId === grant.id
     && account.period === period
     && account.accountId === deriveRunnerMonthlyAccountId({
+      workspaceId,
       principalSubject,
       providerId: grant.providerId,
       scopeId: grant.scopeId,
@@ -492,7 +499,7 @@ function freezeRunnerReservation(record: RunnerSpendReservation): RunnerSpendRes
 function snapshotRunnerAuthority(value: unknown): RunnerSpendAuthority | null {
   if (value === null) return null;
   const snapshot = snapshotRepositoryValue(value);
-  const root = exactDataRecord(snapshot, ["admitted", "principalSubject", "grant", "attempt", "perRun", "monthly"]);
+  const root = exactDataRecord(snapshot, ["admitted", "workspaceId", "principalSubject", "grant", "attempt", "perRun", "monthly"]);
   const grant = root && exactDataRecord(root.grant, [
     "authorityType", "id", "providerId", "model", "catalogRef", "runType", "scopeId",
     "perRunCostMinor", "monthlyCostMinor", "currency", "expiresAt", "maxRetries",
@@ -510,6 +517,7 @@ function snapshotRunnerAuthority(value: unknown): RunnerSpendAuthority | null {
   if (!root || !grant || !attempt || !previousOperationKeys || !perRun || !monthly) return null;
   return Object.freeze({
     admitted: root.admitted as boolean,
+    workspaceId: root.workspaceId as string,
     principalSubject: root.principalSubject as string,
     grant: Object.freeze({
       authorityType: grant.authorityType as "runner_spend",

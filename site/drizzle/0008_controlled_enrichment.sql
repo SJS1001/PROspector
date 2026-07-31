@@ -4,6 +4,9 @@ CREATE TABLE `contact_eligibility_snapshots` (
 	`contact_id` text NOT NULL,
 	`prospect_id` text NOT NULL,
 	`configuration_id` text NOT NULL,
+	`configuration_digest` text NOT NULL,
+	`configuration_revision` integer NOT NULL,
+	`prospect_revision` integer NOT NULL,
 	`state` text NOT NULL,
 	`eligible` integer NOT NULL,
 	`observation_ids_json` text NOT NULL,
@@ -15,7 +18,8 @@ CREATE TABLE `contact_eligibility_snapshots` (
 	FOREIGN KEY (`contact_id`) REFERENCES `contacts`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`prospect_id`) REFERENCES `profile_prospects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`configuration_id`) REFERENCES `typed_configurations`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "contact_eligibility_snapshot_digest_check" CHECK(length("contact_eligibility_snapshots"."snapshot_digest") = 64 and "contact_eligibility_snapshots"."snapshot_digest" not glob '*[^0-9a-f]*')
+	CONSTRAINT "contact_eligibility_snapshot_digest_check" CHECK(length("contact_eligibility_snapshots"."snapshot_digest") = 64 and "contact_eligibility_snapshots"."snapshot_digest" not glob '*[^0-9a-f]*' and length("contact_eligibility_snapshots"."configuration_digest") = 64 and "contact_eligibility_snapshots"."configuration_digest" not glob '*[^0-9a-f]*'),
+	CONSTRAINT "contact_eligibility_snapshot_revision_check" CHECK("contact_eligibility_snapshots"."configuration_revision" > 0 and "contact_eligibility_snapshots"."prospect_revision" > 0)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `contact_eligibility_snapshot_digest_unique` ON `contact_eligibility_snapshots` (`workspace_id`,`snapshot_digest`);--> statement-breakpoint
@@ -460,6 +464,8 @@ CREATE TABLE `runner_spend_reservations` (
 	`period` text NOT NULL,
 	`previous_outcome` text NOT NULL,
 	`previous_operation_keys_json` text NOT NULL,
+	`per_run_account_expected_revision` integer NOT NULL,
+	`monthly_account_expected_revision` integer NOT NULL,
 	`provider_id` text NOT NULL,
 	`model` text NOT NULL,
 	`catalog_ref` text NOT NULL,
@@ -474,7 +480,7 @@ CREATE TABLE `runner_spend_reservations` (
 	FOREIGN KEY (`grant_id`) REFERENCES `runner_spend_grants`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`per_run_account_id`) REFERENCES `runner_budget_accounts`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`monthly_account_id`) REFERENCES `runner_budget_accounts`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "runner_spend_reservation_bounds_check" CHECK("runner_spend_reservations"."attempt_number" >= 0 and "runner_spend_reservations"."reserved_cost_minor" >= 0 and "runner_spend_reservations"."max_retries" >= "runner_spend_reservations"."attempt_number"),
+	CONSTRAINT "runner_spend_reservation_bounds_check" CHECK("runner_spend_reservations"."attempt_number" >= 0 and "runner_spend_reservations"."reserved_cost_minor" >= 0 and "runner_spend_reservations"."max_retries" >= "runner_spend_reservations"."attempt_number" and "runner_spend_reservations"."per_run_account_expected_revision" > 0 and "runner_spend_reservations"."monthly_account_expected_revision" > 0),
 	CONSTRAINT "runner_spend_reservation_currency_check" CHECK(length("runner_spend_reservations"."currency") = 3 and "runner_spend_reservations"."currency" = upper("runner_spend_reservations"."currency") and "runner_spend_reservations"."currency" not glob '*[^A-Z]*'),
 	CONSTRAINT "runner_spend_reservation_digest_check" CHECK(length("runner_spend_reservations"."attempt_digest") = 64 and "runner_spend_reservations"."attempt_digest" not glob '*[^0-9a-f]*')
 );
@@ -493,6 +499,7 @@ CREATE TRIGGER enrichment_grants_scope_guard BEFORE INSERT ON enrichment_grants 
     JOIN provider_quotes q ON q.id = NEW.quote_id AND q.workspace_id = w.id
     JOIN typed_configurations c ON c.id = NEW.configuration_id AND c.workspace_id = w.id
     WHERE w.id = NEW.workspace_id AND w.owner_subject = NEW.owner_subject
+      AND NEW.source_revision = w.revision
       AND c.digest = NEW.configuration_digest AND c.revision = NEW.configuration_revision AND c.active = 1
       AND q.provider_id = NEW.provider_id AND q.provider_version = NEW.provider_version
       AND q.catalog_ref = NEW.catalog_ref AND q.revision = NEW.quote_revision
@@ -533,8 +540,29 @@ CREATE TRIGGER enrichment_budget_update_guard BEFORE UPDATE ON enrichment_budget
   SELECT CASE WHEN NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.authority_type <> OLD.authority_type
     OR NEW.scope <> OLD.scope OR NEW.entity_id <> OLD.entity_id OR NEW.currency <> OLD.currency
     OR NEW.max_units <> OLD.max_units OR NEW.max_cost_minor <> OLD.max_cost_minor OR NEW.created_at <> OLD.created_at
-    OR NEW.revision <> OLD.revision + 1 OR NEW.actual_units < OLD.actual_units OR NEW.reserved_units < 0
-    OR NEW.actual_cost_minor < OLD.actual_cost_minor OR NEW.reserved_cost_minor < 0
+    OR NEW.revision <> OLD.revision + 1 OR NEW.reserved_units < 0 OR NEW.reserved_cost_minor < 0
+    OR NOT (
+      EXISTS (
+        SELECT 1 FROM enrichment_reservation_budget_entries be
+        WHERE be.account_id = OLD.id AND be.workspace_id = OLD.workspace_id
+          AND be.account_expected_revision = OLD.revision AND be.created_at = NEW.updated_at
+          AND NEW.actual_units = OLD.actual_units AND NEW.actual_cost_minor = OLD.actual_cost_minor
+          AND NEW.reserved_units = OLD.reserved_units + be.reserved_units
+          AND NEW.reserved_cost_minor = OLD.reserved_cost_minor + be.reserved_cost_minor
+      )
+      OR EXISTS (
+        SELECT 1 FROM enrichment_reservation_budget_entries be
+        JOIN enrichment_reservation_events e ON e.reservation_id = be.reservation_id
+        WHERE be.account_id = OLD.id AND be.workspace_id = OLD.workspace_id
+          AND be.account_expected_revision + 1 = OLD.revision AND e.created_at = NEW.updated_at
+          AND e.durable_revision = (SELECT max(e2.durable_revision) FROM enrichment_reservation_events e2 WHERE e2.reservation_id = be.reservation_id)
+          AND e.state IN ('settled','released') AND e.documented_units IS NOT NULL AND e.documented_cost_minor IS NOT NULL
+          AND NEW.reserved_units = OLD.reserved_units - be.reserved_units
+          AND NEW.reserved_cost_minor = OLD.reserved_cost_minor - be.reserved_cost_minor
+          AND NEW.actual_units = OLD.actual_units + e.documented_units
+          AND NEW.actual_cost_minor = OLD.actual_cost_minor + e.documented_cost_minor
+      )
+    )
     THEN RAISE(ABORT, 'invalid enrichment budget mutation') END;
 END;
 --> statement-breakpoint
@@ -591,11 +619,20 @@ END;
 CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_reservation_events BEGIN
   SELECT CASE WHEN NEW.state NOT IN ('reserved','invoking','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
-    OR (NEW.state IN ('reserved','invoking','needs_reconciliation') AND (NEW.documented_units IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL))
-    OR (NEW.state = 'settled' AND NEW.terminal_reason NOT IN ('completed','partial'))
-    OR (NEW.state = 'released' AND NEW.terminal_reason NOT IN ('rejected','expired'))
+    OR (NEW.state IN ('reserved','invoking') AND (
+      NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL
+      OR NEW.documented_units IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL
+      OR NEW.observation_ids_json <> '[]'
+    ))
+    OR (NEW.state = 'needs_reconciliation' AND (
+      NEW.terminal_reason IS NULL
+      OR NEW.terminal_reason NOT IN ('timeout','ambiguous','provider_port_mismatch','invalid_provider_outcome','invalid_assignment','invalid_evidence','provider_throw','settlement_failure')
+      OR NEW.settlement_digest IS NOT NULL OR NEW.documented_units IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL
+      OR NEW.observation_ids_json <> '[]'
+    ))
+    OR (NEW.state = 'settled' AND (NEW.terminal_reason IS NULL OR NEW.terminal_reason NOT IN ('completed','partial')))
+    OR (NEW.state = 'released' AND (NEW.terminal_reason IS NULL OR NEW.terminal_reason NOT IN ('rejected','expired')))
     OR (NEW.state = 'released' AND NEW.terminal_reason = 'expired' AND (NEW.documented_units <> 0 OR NEW.documented_cost_minor <> 0))
-    OR (NEW.state = 'needs_reconciliation' AND NEW.terminal_reason NOT IN ('timeout','ambiguous','provider_port_mismatch','invalid_provider_outcome','invalid_assignment','invalid_evidence','provider_throw','settlement_failure'))
     OR (NEW.state = 'reserved' AND (
       (SELECT count(*) FROM enrichment_reservation_budget_entries be WHERE be.reservation_id = NEW.reservation_id) <> 4
       OR (SELECT count(DISTINCT a.scope) FROM enrichment_reservation_budget_entries be JOIN enrichment_budget_accounts a ON a.id = be.account_id WHERE be.reservation_id = NEW.reservation_id) <> 4
@@ -626,6 +663,10 @@ CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_re
       )
     ))
     OR (NEW.durable_revision = 1 AND NEW.state <> 'reserved')
+    OR NOT EXISTS (
+      SELECT 1 FROM enrichment_reservations r
+      WHERE r.id = NEW.reservation_id AND NEW.created_at >= r.created_at
+    )
     OR (NEW.state = 'invoking' AND NOT EXISTS (
       SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND NEW.created_at < r.expires_at
     ))
@@ -696,7 +737,15 @@ CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibil
     OR NEW.eligible NOT IN (0,1) OR (NEW.eligible = 1 AND NEW.state <> 'ContactReady')
     OR NOT EXISTS (SELECT 1 FROM contacts c JOIN profile_prospects p ON p.id = NEW.prospect_id AND p.workspace_id = c.workspace_id
       JOIN typed_configurations cfg ON cfg.id = NEW.configuration_id AND cfg.workspace_id = c.workspace_id
-      WHERE c.id = NEW.contact_id AND c.workspace_id = NEW.workspace_id AND cfg.owner_type = 'profile' AND cfg.owner_id = p.profile_id)
+      JOIN prospecting_candidates pc ON pc.id = p.candidate_id AND pc.workspace_id = p.workspace_id
+      JOIN qualification_assessments qa ON qa.id = p.assessment_id AND qa.workspace_id = p.workspace_id
+      WHERE c.id = NEW.contact_id AND c.workspace_id = NEW.workspace_id
+        AND p.active = 1 AND p.state = 'approved' AND p.revision = NEW.prospect_revision
+        AND cfg.owner_type = 'profile' AND cfg.owner_id = p.profile_id AND cfg.kind = 'profile_effective'
+        AND cfg.active = 1 AND cfg.digest = NEW.configuration_digest AND cfg.revision = NEW.configuration_revision
+        AND pc.profile_id = p.profile_id AND pc.configuration_id = cfg.id AND pc.status = 'qualified'
+        AND qa.candidate_id = pc.id AND qa.configuration_id = cfg.id
+        AND qa.configuration_digest = cfg.digest AND qa.outcome = 'Passed')
     THEN RAISE(ABORT, 'invalid contact eligibility snapshot') END;
 END;
 --> statement-breakpoint
@@ -762,7 +811,30 @@ CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget
     OR NEW.owner_subject <> OLD.owner_subject OR NEW.provider_id <> OLD.provider_id OR NEW.scope_id <> OLD.scope_id
     OR NEW.period IS NOT OLD.period OR NEW.attempt_number IS NOT OLD.attempt_number OR NEW.operation_key IS NOT OLD.operation_key
     OR NEW.currency <> OLD.currency OR NEW.max_cost_minor <> OLD.max_cost_minor OR NEW.created_at <> OLD.created_at
-    OR NEW.revision <> OLD.revision + 1 OR NEW.actual_cost_minor < OLD.actual_cost_minor OR NEW.reserved_cost_minor < 0
+    OR NEW.revision <> OLD.revision + 1 OR NEW.reserved_cost_minor < 0
+    OR NOT (
+      EXISTS (
+        SELECT 1 FROM runner_spend_reservations r
+        WHERE r.workspace_id = OLD.workspace_id AND (r.per_run_account_id = OLD.id OR r.monthly_account_id = OLD.id)
+          AND r.created_at = NEW.updated_at
+          AND ((r.per_run_account_id = OLD.id AND r.per_run_account_expected_revision = OLD.revision)
+            OR (r.monthly_account_id = OLD.id AND r.monthly_account_expected_revision = OLD.revision))
+          AND NEW.actual_cost_minor = OLD.actual_cost_minor
+          AND NEW.reserved_cost_minor = OLD.reserved_cost_minor + r.reserved_cost_minor
+      )
+      OR EXISTS (
+        SELECT 1 FROM runner_spend_reservations r
+        JOIN runner_spend_reservation_events e ON e.reservation_id = r.id
+        WHERE r.workspace_id = OLD.workspace_id AND (r.per_run_account_id = OLD.id OR r.monthly_account_id = OLD.id)
+          AND e.created_at = NEW.updated_at
+          AND e.durable_revision = (SELECT max(e2.durable_revision) FROM runner_spend_reservation_events e2 WHERE e2.reservation_id = r.id)
+          AND e.state IN ('failed_retryable','settled','released') AND e.documented_cost_minor IS NOT NULL
+          AND ((r.per_run_account_id = OLD.id AND r.per_run_account_expected_revision + 1 = OLD.revision)
+            OR (r.monthly_account_id = OLD.id AND r.monthly_account_expected_revision + 1 = OLD.revision))
+          AND NEW.reserved_cost_minor = OLD.reserved_cost_minor - r.reserved_cost_minor
+          AND NEW.actual_cost_minor = OLD.actual_cost_minor + e.documented_cost_minor
+      )
+    )
     THEN RAISE(ABORT, 'invalid runner budget mutation') END;
 END;
 --> statement-breakpoint
@@ -791,6 +863,8 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
       AND pr.currency = g.currency AND pr.actual_cost_minor + pr.reserved_cost_minor + NEW.reserved_cost_minor <= pr.max_cost_minor
       AND mo.scope = 'runner_monthly' AND mo.owner_subject = g.owner_subject AND mo.provider_id = g.provider_id
       AND mo.scope_id = g.scope_id AND mo.currency = g.currency AND mo.period = NEW.period
+      AND pr.revision = NEW.per_run_account_expected_revision
+      AND mo.revision = NEW.monthly_account_expected_revision
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= mo.max_cost_minor
   ) THEN RAISE(ABORT, 'invalid runner reservation accounts') END;
   SELECT CASE WHEN EXISTS (
@@ -815,16 +889,29 @@ END;
 CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spend_reservation_events BEGIN
   SELECT CASE WHEN NEW.state NOT IN ('reserved','assigned','failed_retryable','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM runner_spend_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
-    OR (NEW.state IN ('reserved','assigned','needs_reconciliation') AND NEW.documented_cost_minor IS NOT NULL)
-    OR (NEW.state IN ('reserved','assigned') AND (NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL))
-    OR (NEW.state = 'needs_reconciliation' AND (NEW.terminal_reason NOT IN ('timeout','ambiguous','provider_error') OR NEW.settlement_digest IS NOT NULL))
-    OR (NEW.state = 'failed_retryable' AND (NEW.terminal_reason <> 'failed_retryable' OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL))
+    OR (NEW.state IN ('reserved','assigned') AND (
+      NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL
+    ))
+    OR (NEW.state = 'needs_reconciliation' AND (
+      NEW.terminal_reason IS NULL OR NEW.terminal_reason NOT IN ('timeout','ambiguous','provider_error')
+      OR NEW.settlement_digest IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL
+    ))
+    OR (NEW.state = 'failed_retryable' AND (
+      NEW.terminal_reason IS NULL OR NEW.terminal_reason <> 'failed_retryable'
+      OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL
+    ))
     OR (NEW.state = 'failed_retryable' AND NOT EXISTS (
       SELECT 1 FROM runner_spend_reservations r
       WHERE r.id = NEW.reservation_id AND r.attempt_number < r.max_retries
     ))
-    OR (NEW.state = 'settled' AND (NEW.terminal_reason NOT IN ('completed','partial') OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL))
-    OR (NEW.state = 'released' AND (NEW.terminal_reason NOT IN ('rejected','expired') OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL))
+    OR (NEW.state = 'settled' AND (
+      NEW.terminal_reason IS NULL OR NEW.terminal_reason NOT IN ('completed','partial')
+      OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL
+    ))
+    OR (NEW.state = 'released' AND (
+      NEW.terminal_reason IS NULL OR NEW.terminal_reason NOT IN ('rejected','expired')
+      OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL
+    ))
     OR (NEW.state IN ('failed_retryable','settled','released') AND (
       NEW.documented_cost_minor < 0
       OR NOT EXISTS (
@@ -838,9 +925,15 @@ CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spen
       )
     ))
     OR (NEW.durable_revision = 1 AND NEW.state <> 'reserved')
+    OR NOT EXISTS (
+      SELECT 1 FROM runner_spend_reservations r JOIN runner_spend_grants g ON g.id = r.grant_id
+      WHERE r.id = NEW.reservation_id AND NEW.created_at >= r.created_at
+        AND (NEW.state <> 'assigned' OR NEW.created_at < g.expires_at)
+        AND (NEW.state <> 'released' OR NEW.terminal_reason <> 'expired' OR NEW.created_at >= g.expires_at)
+    )
     OR (NEW.durable_revision > 1 AND NOT EXISTS (
       SELECT 1 FROM runner_spend_reservation_events prior WHERE prior.reservation_id = NEW.reservation_id
-        AND prior.durable_revision = NEW.durable_revision - 1
+        AND prior.durable_revision = NEW.durable_revision - 1 AND NEW.created_at >= prior.created_at
         AND ((prior.state = 'reserved' AND NEW.state IN ('assigned','released'))
           OR (prior.state = 'assigned' AND NEW.state IN ('failed_retryable','settled','released','needs_reconciliation'))
           OR (prior.state = 'needs_reconciliation' AND NEW.state IN ('settled','released')))

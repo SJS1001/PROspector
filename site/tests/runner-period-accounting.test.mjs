@@ -9,6 +9,38 @@ async function loadRunner(vite) {
   return vite.ssrLoadModule(new URL("../domain/runner-spend-authority.ts", import.meta.url).pathname);
 }
 
+test("runner ledger identities are isolated by workspace", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const runner = await loadRunner(vite);
+    const authority = await authorityFor(runner, { now: JULY });
+    const commonPerRun = {
+      principalSubject: authority.principalSubject,
+      grantId: authority.grant.id,
+      providerId: authority.grant.providerId,
+      scopeId: authority.grant.scopeId,
+      attemptNumber: authority.attempt.attemptNumber,
+      operationKey: authority.perRun.operationKey,
+    };
+    const commonMonthly = {
+      principalSubject: authority.principalSubject,
+      providerId: authority.grant.providerId,
+      scopeId: authority.grant.scopeId,
+      period: authority.monthly.period,
+    };
+    assert.notEqual(
+      runner.deriveRunnerPerRunAccountId({ workspaceId: authority.workspaceId, ...commonPerRun }),
+      runner.deriveRunnerPerRunAccountId({ workspaceId: "workspace-other", ...commonPerRun }),
+    );
+    assert.notEqual(
+      runner.deriveRunnerMonthlyAccountId({ workspaceId: authority.workspaceId, ...commonMonthly }),
+      runner.deriveRunnerMonthlyAccountId({ workspaceId: "workspace-other", ...commonMonthly }),
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
 test("runner per-run ledgers bind the exact attempt and operation while retries share the month", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
@@ -172,6 +204,7 @@ async function authorityFor(runner, options = {}) {
   };
   const authority = {
     admitted: true,
+    workspaceId: "workspace-synthetic",
     principalSubject: "owner-synthetic",
     grant,
     attempt,
@@ -183,6 +216,7 @@ async function authorityFor(runner, options = {}) {
     perRun: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerPerRunAccountId({
+        workspaceId: authority.workspaceId,
         principalSubject: authority.principalSubject,
         grantId: grant.id,
         providerId: grant.providerId,
@@ -205,6 +239,7 @@ async function authorityFor(runner, options = {}) {
     monthly: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerMonthlyAccountId({
+        workspaceId: authority.workspaceId,
         principalSubject: authority.principalSubject,
         providerId: grant.providerId,
         scopeId: grant.scopeId,

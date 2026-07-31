@@ -274,12 +274,14 @@ async function runnerAuthority(runner) {
   const period = runner.deriveRunnerUtcMonthPeriod(NOW);
   return {
     admitted: true,
+    workspaceId: "workspace-input-snapshot",
     principalSubject: OWNER,
     grant,
     attempt,
     perRun: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerPerRunAccountId({
+        workspaceId: "workspace-input-snapshot",
         principalSubject: OWNER,
         grantId: grant.id,
         providerId: grant.providerId,
@@ -302,6 +304,7 @@ async function runnerAuthority(runner) {
     monthly: {
       authorityType: "runner_spend",
       accountId: runner.deriveRunnerMonthlyAccountId({
+        workspaceId: "workspace-input-snapshot",
         principalSubject: OWNER,
         providerId: grant.providerId,
         scopeId: grant.scopeId,
