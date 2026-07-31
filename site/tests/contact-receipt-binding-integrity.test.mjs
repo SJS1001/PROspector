@@ -161,10 +161,12 @@ test("verification rejects every cross-scope envelope before invoking the verifi
 test("a branded receipt cannot be transplanted across provenance, confidence, time, lineage, or authority", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [evidence, eligibility] = await Promise.all([
-      vite.ssrLoadModule(new URL("../domain/contact-evidence.ts", import.meta.url).pathname),
-      vite.ssrLoadModule(new URL("../domain/contact-eligibility.ts", import.meta.url).pathname),
-    ]);
+    const evidence = await vite.ssrLoadModule(
+      new URL("../domain/contact-evidence.ts", import.meta.url).pathname,
+    );
+    const eligibility = await vite.ssrLoadModule(
+      new URL("../domain/contact-eligibility.ts", import.meta.url).pathname,
+    );
     const original = envelope();
     const verifier = evidence.bindContactEvidenceVerifier(
       { verifierId: "server-verifier", verifierVersion: "v1" },

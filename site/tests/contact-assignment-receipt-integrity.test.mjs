@@ -8,10 +8,14 @@ const DIGEST = "a".repeat(64);
 test("a verification receipt is usable only by its exact committed assignment context", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [evidence, eligibility] = await Promise.all([
-      vite.ssrLoadModule(new URL("../domain/contact-evidence.ts", import.meta.url).pathname),
-      vite.ssrLoadModule(new URL("../domain/contact-eligibility.ts", import.meta.url).pathname),
-    ]);
+    // Load the authority owner before its consumer so Vite cannot construct two
+    // SSR module graphs and split the module-local admission receipt WeakSet.
+    const evidence = await vite.ssrLoadModule(
+      new URL("../domain/contact-evidence.ts", import.meta.url).pathname,
+    );
+    const eligibility = await vite.ssrLoadModule(
+      new URL("../domain/contact-eligibility.ts", import.meta.url).pathname,
+    );
     const raw = envelope();
     const verifier = evidence.bindContactEvidenceVerifier(
       { verifierId: "server-verifier", verifierVersion: "v1" },
