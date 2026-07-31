@@ -45,3 +45,74 @@ test("Phase 4 synthetic lifecycle keeps all external and later-phase effects una
     assert.deepEqual(after, before);
   } finally { await fixture.dispose(); }
 });
+
+test("owner handler consumes and rotates its HttpOnly CSRF cookie across exact profile reads", async () => {
+  const fixture = await createD1Fixture("phase4-handler-csrf");
+  try {
+    await applyMigrations(fixture.database);
+    const identity = {
+      email: "phase4-owner@example.com",
+      displayName: "Phase 4 owner",
+    };
+    const subjectPepper = "phase4-handler-test-pepper";
+    const access = await fixture.vite.ssrLoadModule(new URL("../domain/pilot-access.ts", import.meta.url).pathname);
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-handler.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    const principal = await access.admitPilotOwner(identity, identity.email, subjectPepper);
+    const model = await commercial.initializeCommercialModel(fixture.database, principal, {
+      idempotencyKey: "phase4-handler-commercial-model",
+    });
+    const profile = model.profiles.find((entry) => entry.name === "Operating");
+    assert.ok(profile);
+    const dependencies = {
+      database: fixture.database,
+      subjectPepper,
+      pilotOwnerEmail: identity.email,
+      async getIdentity() { return identity; },
+    };
+    const baseUrl = `https://prospector.test/api/prospecting?profileId=${encodeURIComponent(profile.id)}`;
+    const initial = await handler.handleProspectingGet(new Request(baseUrl), dependencies);
+    assert.equal(initial.status, 200);
+    const firstCookie = csrfCookie(initial);
+
+    const post = (cookie) => handler.handleProspectingPost(new Request(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie,
+        origin: "https://prospector.test",
+        "sec-fetch-site": "same-origin",
+        "x-prospector-intent": handler.PROSPECTING_MUTATION_INTENT,
+      },
+      body: JSON.stringify({
+        action: "read_profile_readiness",
+        profileId: profile.id,
+      }),
+    }), dependencies);
+
+    const first = await post(firstCookie);
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get("cache-control"), "no-store");
+    const firstProjection = await first.json();
+    assert.equal(firstProjection.readiness.profile.id, profile.id);
+    const rotatedCookie = csrfCookie(first);
+    assert.notEqual(rotatedCookie, firstCookie);
+
+    const replay = await post(firstCookie);
+    assert.equal(replay.status, 403);
+    assert.deepEqual(await replay.json(), { error: "invalid_csrf_token" });
+
+    const second = await post(rotatedCookie);
+    assert.equal(second.status, 200);
+    assert.equal((await second.json()).readiness.profile.id, profile.id);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+function csrfCookie(response) {
+  const value = response.headers.get("set-cookie");
+  const match = /(?:^|,\s*)(__Host-prospector-csrf=[A-Za-z0-9_-]{43})/.exec(value ?? "");
+  assert.ok(match, "the owner response must set the opaque HttpOnly CSRF cookie");
+  return match[1];
+}
