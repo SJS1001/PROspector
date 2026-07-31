@@ -49,27 +49,33 @@ export type EnrichmentBlockedReason =
 export async function issueEnrichmentGrant(repository: IssuanceRepository, input: IssueEnrichmentGrantInput): Promise<IssueEnrichmentGrantResult> {
   const prospectIds = normalizeIds(input.prospectIds);
   if (!prospectIds || !validRequest(input, prospectIds)) return { kind: "blocked", reason: "invalid_request" };
-  const snapshot = await repository.loadIssuanceSnapshot(input.principalSubject, prospectIds);
-  const reason = validateSnapshot(snapshot, input, prospectIds);
-  if (reason) return { kind: "blocked", reason };
+  const loadedSnapshot = await repository.loadIssuanceSnapshot(input.principalSubject, prospectIds);
+  const snapshot = snapshotIssuanceAuthority(loadedSnapshot);
+  if (loadedSnapshot !== null && !snapshot) return { kind: "blocked", reason: "repository_result_invalid" };
+  const admissionReason = validateAdmission(snapshot, input);
+  if (admissionReason) return { kind: "blocked", reason: admissionReason };
   const current = snapshot!;
-  const operationKey = await deriveOperationKey({ snapshot: current, input, prospectIds });
-  const requestMaterial = tupleMaterial(current, input, prospectIds, operationKey);
-  const requestDigest = await canonicalDigest(requestMaterial);
-  const existingResult = await repository.findGrantByIdempotency(current.workspaceId, input.idempotencyKey);
-  if (existingResult) {
-    const existing = await validateRepositoryGrant(existingResult, {
+
+  const loadedExisting = await repository.findGrantByIdempotency(current.workspaceId, input.idempotencyKey);
+  const existingSnapshot = snapshotRepositoryValue(loadedExisting);
+  if (loadedExisting !== null && !existingSnapshot) return { kind: "blocked", reason: "repository_result_invalid" };
+  if (existingSnapshot !== null) {
+    const existing = await validateRepositoryGrant(existingSnapshot, {
       workspaceId: current.workspaceId,
+      ownerSubject: current.ownerSubject,
       idempotencyKey: input.idempotencyKey,
-      requestDigest,
-      requestMaterial,
     });
     if (!existing) return { kind: "blocked", reason: "repository_result_invalid" };
-    return existing.requestMatches
+    return replayInputMatches(existing.grant, input, prospectIds)
       ? issued(existing.grant, true)
       : { kind: "conflict", reason: "idempotency_conflict" };
   }
-  if (existingResult !== null) return { kind: "blocked", reason: "repository_result_invalid" };
+
+  const reason = validateCurrentAuthority(current, input, prospectIds);
+  if (reason) return { kind: "blocked", reason };
+  const operationKey = await deriveOperationKey({ snapshot: current, input, prospectIds });
+  const requestMaterial = tupleMaterial(current, input, prospectIds, operationKey);
+  const requestDigest = await canonicalDigest(requestMaterial);
   const nonce = serverNonce(repository);
   const unsigned = { ...requestMaterial, nonce };
   const tuple: EnrichmentGrantTuple = { ...unsigned, digest: await canonicalDigest(unsigned) };
@@ -77,13 +83,16 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
     id: `eg_${tuple.digest.slice(0, 24)}`, workspaceId: current.workspaceId, idempotencyKey: input.idempotencyKey,
     requestDigest, tuple, status: "issued",
   });
-  const committedResult = await repository.commitGrant(grant);
+  const loadedCommittedResult = await repository.commitGrant(grant);
+  const committedResult = snapshotRepositoryValue(loadedCommittedResult);
+  if (!committedResult) return { kind: "blocked", reason: "repository_result_invalid" };
   const committedEnvelope = exactDataRecord(committedResult, ["kind", "record"]);
   if (!committedEnvelope || (committedEnvelope.kind !== "created" && committedEnvelope.kind !== "existing")) {
     return { kind: "blocked", reason: "repository_result_invalid" };
   }
   const committed = await validateRepositoryGrant(committedEnvelope.record, {
     workspaceId: current.workspaceId,
+    ownerSubject: current.ownerSubject,
     idempotencyKey: input.idempotencyKey,
     requestDigest,
     requestMaterial,
@@ -125,11 +134,26 @@ export async function canonicalDigest(value: unknown): Promise<string> { return 
 function issued(grant: EnrichmentGrant, replayed: boolean): Extract<IssueEnrichmentGrantResult, { kind: "issued" }> {
   return { kind: "issued", grant, replayed, audit: { action: "enrichment.grant.issued", grantId: grant.id, operationKey: grant.tuple.operationKey, digest: grant.tuple.digest, requestDigest: grant.requestDigest, boundedReason: "issued" } };
 }
-function validateSnapshot(snapshot: IssuanceSnapshot | null, input: IssueEnrichmentGrantInput, ids: readonly string[]): EnrichmentBlockedReason | null {
-  if (!snapshot || !snapshot.admitted || snapshot.ownerSubject !== input.principalSubject) return "owner_not_admitted";
-  if (!bounded(snapshot.workspaceId, 256) || !bounded(snapshot.ownerSubject, 256) || !positive(snapshot.revision) || snapshot.revision !== input.expectedRevision) return "stale_revision";
+function replayInputMatches(grant: EnrichmentGrant, input: IssueEnrichmentGrantInput, ids: readonly string[]): boolean {
+  const tuple = grant.tuple;
+  return tuple.ownerSubject === input.principalSubject
+    && tuple.sourceRevision === input.expectedRevision
+    && tuple.operation === input.operation
+    && tuple.maxUnits === input.maxUnits
+    && tuple.maxCostMinor === input.maxCostMinor
+    && tuple.currency === input.currency
+    && tuple.expiresAt === input.expiresAt
+    && canonical(tuple.prospectIds) === canonical(ids);
+}
+function validateAdmission(snapshot: IssuanceSnapshot | null, input: IssueEnrichmentGrantInput): EnrichmentBlockedReason | null {
+  if (!snapshot || snapshot.admitted !== true || snapshot.ownerSubject !== input.principalSubject) return "owner_not_admitted";
+  if (!bounded(snapshot.workspaceId, 256) || !bounded(snapshot.ownerSubject, 256)) return "repository_result_invalid";
+  return null;
+}
+function validateCurrentAuthority(snapshot: IssuanceSnapshot, input: IssueEnrichmentGrantInput, ids: readonly string[]): EnrichmentBlockedReason | null {
+  if (!positive(snapshot.revision) || snapshot.revision !== input.expectedRevision) return "stale_revision";
   if (!snapshot.configuration.current || !bounded(snapshot.configuration.id, 256) || !digestLike(snapshot.configuration.digest) || !positive(snapshot.configuration.revision)) return "configuration_not_current";
-  if (!snapshot.quote || !bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !positive(snapshot.quote.revision) || !canonicalCurrency(snapshot.quote.currency) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0 || !positive(snapshot.quote.expiresAt)) return "quote_unavailable";
+  if (!bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !positive(snapshot.quote.revision) || !canonicalCurrency(snapshot.quote.currency) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0 || !positive(snapshot.quote.expiresAt)) return "quote_unavailable";
   if (snapshot.quote.expiresAt <= input.now) return "quote_expired";
   if (snapshot.quote.currency !== input.currency) return "currency_mismatch";
   if (!safeProduct(snapshot.quote.unitCostMinor, input.maxUnits) || input.maxCostMinor < snapshot.quote.unitCostMinor * input.maxUnits) return "cost_unbounded";
@@ -167,9 +191,10 @@ function freezeGrant(grant: EnrichmentGrant): EnrichmentGrant {
 
 type ExpectedRepositoryGrant = Readonly<{
   workspaceId: string;
+  ownerSubject: string;
   idempotencyKey: string;
-  requestDigest: string;
-  requestMaterial: ReturnType<typeof tupleMaterial>;
+  requestDigest?: string;
+  requestMaterial?: ReturnType<typeof tupleMaterial>;
   exactGrant?: EnrichmentGrant;
 }>;
 
@@ -230,7 +255,7 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
       || grant.idempotencyKey !== expected.idempotencyKey
       || grant.status !== "issued"
       || !digestLike(grant.requestDigest)
-      || !bounded(parsedTuple.workspaceId, 256)
+      || parsedTuple.workspaceId !== expected.workspaceId
       || !bounded(parsedTuple.providerId, 128)
       || !bounded(parsedTuple.providerVersion, 128)
       || !bounded(parsedTuple.catalogRef, 256)
@@ -240,10 +265,14 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
       || parsedTuple.operation !== "business_contact_lookup/v1"
       || !/^op_[a-f0-9]{64}$/.test(parsedTuple.operationKey)
       || !positive(parsedTuple.maxUnits)
+      || parsedTuple.maxUnits > 1_000
       || !nonNegativeInteger(parsedTuple.maxCostMinor)
+      || !safeProduct(parsedTuple.quoteUnitCostMinor, parsedTuple.maxUnits)
+      || parsedTuple.maxCostMinor < parsedTuple.quoteUnitCostMinor * parsedTuple.maxUnits
       || !canonicalCurrency(parsedTuple.currency)
       || !positive(parsedTuple.expiresAt)
-      || !bounded(parsedTuple.ownerSubject, 256)
+      || parsedTuple.expiresAt > parsedTuple.quoteExpiresAt
+      || parsedTuple.ownerSubject !== expected.ownerSubject
       || !bounded(parsedTuple.nonce, 256)
       || !bounded(parsedTuple.configurationId, 256)
       || !digestLike(parsedTuple.configurationDigest)
@@ -276,6 +305,11 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
     if (
       await canonicalDigest(actualRequestMaterial) !== grant.requestDigest
     ) return null;
+    const expectedOperationKey = `op_${await canonicalDigest({
+      ...actualRequestMaterial,
+      operationKey: "operation-key-derived",
+    })}`;
+    if (parsedTuple.operationKey !== expectedOperationKey) return null;
     const unsignedTuple = { ...actualRequestMaterial, nonce: parsedTuple.nonce };
     if (
       await canonicalDigest(unsignedTuple) !== parsedTuple.digest
@@ -290,13 +324,128 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
       status: "issued",
     });
     if (expected.exactGrant && canonical(parsedGrant) !== canonical(expected.exactGrant)) return null;
+    const requestMatches = expected.requestDigest === undefined || expected.requestMaterial === undefined
+      ? true
+      : grant.requestDigest === expected.requestDigest
+        && canonical(actualRequestMaterial) === canonical(expected.requestMaterial);
     return {
       grant: parsedGrant,
-      requestMatches: grant.requestDigest === expected.requestDigest
-        && canonical(actualRequestMaterial) === canonical(expected.requestMaterial),
+      requestMatches,
     };
   } catch {
     return null;
+  }
+}
+
+function snapshotIssuanceAuthority(value: unknown): IssuanceSnapshot | null {
+  if (value === null) return null;
+  const snapshot = snapshotRepositoryValue(value);
+  const root = exactDataRecord(snapshot, [
+    "admitted", "workspaceId", "ownerSubject", "revision", "configuration", "prospects", "quote",
+  ]);
+  const configuration = root && exactDataRecord(root.configuration, ["id", "digest", "revision", "current"]);
+  const quote = root && exactDataRecord(root.quote, [
+    "providerId", "providerVersion", "catalogRef", "revision", "currency", "unitCostMinor", "expiresAt",
+  ]);
+  const prospectValues = root && exactDataArray(root.prospects, 0, 100);
+  if (!root || !configuration || !quote || !prospectValues) return null;
+  const prospects: IssuanceSnapshot["prospects"] = [];
+  for (const value of prospectValues) {
+    const prospect = exactDataRecord(value, [
+      "id", "state", "configurationId", "configurationDigest", "revision",
+    ]);
+    if (!prospect) return null;
+    prospects.push(Object.freeze({
+      id: prospect.id as string,
+      state: prospect.state as string,
+      configurationId: prospect.configurationId as string,
+      configurationDigest: prospect.configurationDigest as string,
+      revision: prospect.revision as number,
+    }));
+  }
+  return Object.freeze({
+    admitted: root.admitted as boolean,
+    workspaceId: root.workspaceId as string,
+    ownerSubject: root.ownerSubject as string,
+    revision: root.revision as number,
+    configuration: Object.freeze({
+      id: configuration.id as string,
+      digest: configuration.digest as string,
+      revision: configuration.revision as number,
+      current: configuration.current as boolean,
+    }),
+    prospects: Object.freeze(prospects) as unknown as IssuanceSnapshot["prospects"],
+    quote: Object.freeze({
+      providerId: quote.providerId as string,
+      providerVersion: quote.providerVersion as string,
+      catalogRef: quote.catalogRef as string,
+      revision: quote.revision as number,
+      currency: quote.currency as string,
+      unitCostMinor: quote.unitCostMinor as number,
+      expiresAt: quote.expiresAt as number,
+    }),
+  });
+}
+
+const invalidSnapshot = Symbol("invalid_repository_snapshot");
+
+function snapshotRepositoryValue<T = unknown>(value: unknown): T | null {
+  if (value === null) return null;
+  const snapshot = snapshotPlainNode(value, new Set<object>());
+  if (snapshot === invalidSnapshot) return null;
+  try {
+    // The descriptor walk above rejects accessors without invoking them. A
+    // structured clone is then used only as an exotic-object/Proxy check; the
+    // returned authority remains the descriptor-derived immutable snapshot.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return snapshot as T;
+}
+
+function snapshotPlainNode(value: unknown, seen: Set<object>): unknown | typeof invalidSnapshot {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : invalidSnapshot;
+  if (typeof value !== "object" || seen.has(value)) return invalidSnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string")) return invalidSnapshot;
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return invalidSnapshot;
+      const lengthDescriptor = descriptors.length;
+      if (!lengthDescriptor || !("value" in lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
+        return invalidSnapshot;
+      }
+      const length = lengthDescriptor.value;
+      if (ownKeys.length !== length + 1) return invalidSnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidSnapshot;
+        const child = snapshotPlainNode(descriptor.value, seen);
+        if (child === invalidSnapshot) return invalidSnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if (prototype !== Object.prototype) return invalidSnapshot;
+    const copy: Record<string, unknown> = {};
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidSnapshot;
+      const child = snapshotPlainNode(descriptor.value, seen);
+      if (child === invalidSnapshot) return invalidSnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidSnapshot;
+  } finally {
+    seen.delete(value);
   }
 }
 

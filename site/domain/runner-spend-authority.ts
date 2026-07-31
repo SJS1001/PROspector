@@ -106,11 +106,15 @@ export async function reserveRunnerSpend(
 ): Promise<ReserveRunnerSpendResult> {
   const period = deriveRunnerUtcMonthPeriod(input.now);
   if (!validInput(input) || period === null) return { kind: "blocked", reason: "runner_invalid_request" };
-  const authority = await repository.loadRunnerAuthority(input.grantId);
+  const loadedAuthority = await repository.loadRunnerAuthority(input.grantId);
+  const authority = snapshotRunnerAuthority(loadedAuthority);
+  if (loadedAuthority !== null && !authority) {
+    return { kind: "blocked", reason: "runner_grant_unavailable" };
+  }
   if (!authority || !validGrant(authority.grant) || authority.grant.id !== input.grantId) {
     return { kind: "blocked", reason: "runner_grant_unavailable" };
   }
-  if (!authority.admitted || authority.principalSubject !== input.principalSubject) {
+  if (authority.admitted !== true || authority.principalSubject !== input.principalSubject) {
     return { kind: "blocked", reason: "runner_owner_denied" };
   }
   if (authority.grant.expiresAt <= input.now) {
@@ -157,7 +161,9 @@ export async function reserveRunnerSpend(
     freezePerRunAccount(authority.perRun),
     freezeMonthlyAccount(authority.monthly),
   ]) as readonly [RunnerPerRunBudgetAccount, RunnerMonthlyBudgetAccount];
-  const committedResult = await repository.commitRunnerReservation({ ...record }, accounts, freezeAttempt(authority.attempt));
+  const loadedCommittedResult = await repository.commitRunnerReservation({ ...record }, accounts, freezeAttempt(authority.attempt));
+  const committedResult = snapshotRepositoryValue(loadedCommittedResult);
+  if (!committedResult) return { kind: "blocked", reason: "runner_grant_unavailable" };
   const blockedEnvelope = exactDataRecord(committedResult, ["kind"]);
   if (blockedEnvelope?.kind === "blocked") return { kind: "blocked", reason: "runner_budget_exceeded" };
   const committed = exactDataRecord(committedResult, ["kind", "record"]);
@@ -439,6 +445,138 @@ function freezeRunnerReservation(record: RunnerSpendReservation): RunnerSpendRes
   });
 }
 
+function snapshotRunnerAuthority(value: unknown): RunnerSpendAuthority | null {
+  if (value === null) return null;
+  const snapshot = snapshotRepositoryValue(value);
+  const root = exactDataRecord(snapshot, ["admitted", "principalSubject", "grant", "attempt", "perRun", "monthly"]);
+  const grant = root && exactDataRecord(root.grant, [
+    "authorityType", "id", "providerId", "model", "catalogRef", "runType", "scopeId",
+    "perRunCostMinor", "monthlyCostMinor", "currency", "expiresAt", "maxRetries",
+  ]);
+  const attempt = root && exactDataRecord(root.attempt, ["attemptNumber", "previousOutcome", "previousOperationKeys"]);
+  const previousOperationKeys = attempt && exactDataArray(attempt.previousOperationKeys, 0, 4);
+  const perRun = root && exactDataRecord(root.perRun, [
+    "authorityType", "accountId", "scope", "principalSubject", "grantId", "providerId", "scopeId",
+    "attemptNumber", "operationKey", "currency", "actualCostMinor", "reservedCostMinor", "maxCostMinor",
+  ]);
+  const monthly = root && exactDataRecord(root.monthly, [
+    "authorityType", "accountId", "scope", "principalSubject", "grantId", "providerId", "scopeId",
+    "period", "currency", "actualCostMinor", "reservedCostMinor", "maxCostMinor",
+  ]);
+  if (!root || !grant || !attempt || !previousOperationKeys || !perRun || !monthly) return null;
+  return Object.freeze({
+    admitted: root.admitted as boolean,
+    principalSubject: root.principalSubject as string,
+    grant: Object.freeze({
+      authorityType: grant.authorityType as "runner_spend",
+      id: grant.id as string,
+      providerId: grant.providerId as string,
+      model: grant.model as string,
+      catalogRef: grant.catalogRef as string,
+      runType: grant.runType as string,
+      scopeId: grant.scopeId as string,
+      perRunCostMinor: grant.perRunCostMinor as number,
+      monthlyCostMinor: grant.monthlyCostMinor as number,
+      currency: grant.currency as string,
+      expiresAt: grant.expiresAt as number,
+      maxRetries: grant.maxRetries as number,
+    }),
+    attempt: Object.freeze({
+      attemptNumber: attempt.attemptNumber as number,
+      previousOutcome: attempt.previousOutcome as RunnerAttemptState["previousOutcome"],
+      previousOperationKeys: Object.freeze([...previousOperationKeys]) as readonly string[],
+    }),
+    perRun: Object.freeze({
+      authorityType: perRun.authorityType as "runner_spend",
+      accountId: perRun.accountId as string,
+      scope: perRun.scope as "runner_per_run",
+      principalSubject: perRun.principalSubject as string,
+      grantId: perRun.grantId as string,
+      providerId: perRun.providerId as string,
+      scopeId: perRun.scopeId as string,
+      attemptNumber: perRun.attemptNumber as number,
+      operationKey: perRun.operationKey as string,
+      currency: perRun.currency as string,
+      actualCostMinor: perRun.actualCostMinor as number,
+      reservedCostMinor: perRun.reservedCostMinor as number,
+      maxCostMinor: perRun.maxCostMinor as number,
+    }),
+    monthly: Object.freeze({
+      authorityType: monthly.authorityType as "runner_spend",
+      accountId: monthly.accountId as string,
+      scope: monthly.scope as "runner_monthly",
+      principalSubject: monthly.principalSubject as string,
+      grantId: monthly.grantId as string,
+      providerId: monthly.providerId as string,
+      scopeId: monthly.scopeId as string,
+      period: monthly.period as string,
+      currency: monthly.currency as string,
+      actualCostMinor: monthly.actualCostMinor as number,
+      reservedCostMinor: monthly.reservedCostMinor as number,
+      maxCostMinor: monthly.maxCostMinor as number,
+    }),
+  });
+}
+
+const invalidSnapshot = Symbol("invalid_repository_snapshot");
+
+function snapshotRepositoryValue<T = unknown>(value: unknown): T | null {
+  if (value === null) return null;
+  const snapshot = snapshotPlainNode(value, new Set<object>());
+  if (snapshot === invalidSnapshot) return null;
+  try {
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return snapshot as T;
+}
+
+function snapshotPlainNode(value: unknown, seen: Set<object>): unknown | typeof invalidSnapshot {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : invalidSnapshot;
+  if (typeof value !== "object" || seen.has(value)) return invalidSnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string")) return invalidSnapshot;
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return invalidSnapshot;
+      const lengthDescriptor = descriptors.length;
+      if (!lengthDescriptor || !("value" in lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
+        return invalidSnapshot;
+      }
+      const length = lengthDescriptor.value;
+      if (ownKeys.length !== length + 1) return invalidSnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidSnapshot;
+        const child = snapshotPlainNode(descriptor.value, seen);
+        if (child === invalidSnapshot) return invalidSnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if (prototype !== Object.prototype) return invalidSnapshot;
+    const copy: Record<string, unknown> = {};
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidSnapshot;
+      const child = snapshotPlainNode(descriptor.value, seen);
+      if (child === invalidSnapshot) return invalidSnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidSnapshot;
+  } finally {
+    seen.delete(value);
+  }
+}
+
 function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
   try {
     if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
@@ -454,6 +592,24 @@ function exactDataRecord(value: unknown, keys: readonly string[]): Record<string
       const descriptor = descriptors[key];
       if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
       result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function exactDataArray(value: unknown, min: number, max: number): unknown[] | null {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length < min || value.length > max) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.some((key) => typeof key !== "string") || keys.length !== value.length + 1 || !("length" in descriptors)) return null;
+    const result: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result.push(descriptor.value);
     }
     return result;
   } catch {
