@@ -123,7 +123,10 @@ export async function reserveRunnerSpend(
   if (!validAttempt(authority.attempt, authority.grant.maxRetries)) {
     return { kind: "blocked", reason: "runner_retry_unavailable" };
   }
-  if (input.operationKey !== await deriveRunnerOperationKey(authority)) {
+  if (!await hasExactRetryHistory(authority)) {
+    return { kind: "blocked", reason: "runner_retry_unavailable" };
+  }
+  if (input.operationKey !== await deriveRunnerOperationKeyForAttempt(authority, authority.attempt.attemptNumber)) {
     return { kind: "blocked", reason: "runner_invalid_request" };
   }
   if (authority.attempt.previousOperationKeys.includes(input.operationKey)) {
@@ -179,6 +182,13 @@ export async function reserveRunnerSpend(
 export async function deriveRunnerOperationKey(
   authority: Pick<RunnerSpendAuthority, "principalSubject" | "grant" | "attempt">,
 ): Promise<string> {
+  return deriveRunnerOperationKeyForAttempt(authority, authority.attempt.attemptNumber);
+}
+
+async function deriveRunnerOperationKeyForAttempt(
+  authority: Pick<RunnerSpendAuthority, "principalSubject" | "grant">,
+  attemptNumber: number,
+): Promise<string> {
   const { grant } = authority;
   return `ro_${await digest(stable({
     ownerSubject: authority.principalSubject,
@@ -193,7 +203,7 @@ export async function deriveRunnerOperationKey(
     currency: grant.currency,
     expiresAt: grant.expiresAt,
     maxRetries: grant.maxRetries,
-    attemptNumber: authority.attempt.attemptNumber,
+    attemptNumber,
   }))}`;
 }
 
@@ -290,6 +300,20 @@ function validAttempt(value: unknown, maxRetries: number): value is RunnerAttemp
   return attempt.attemptNumber === 0
     ? attempt.previousOutcome === "none"
     : attempt.previousOutcome === "failed_retryable";
+}
+
+async function hasExactRetryHistory(
+  authority: Pick<RunnerSpendAuthority, "principalSubject" | "grant" | "attempt">,
+): Promise<boolean> {
+  const expected = await Promise.all(
+    Array.from(
+      { length: authority.attempt.attemptNumber },
+      (_, attemptNumber) => deriveRunnerOperationKeyForAttempt(authority, attemptNumber),
+    ),
+  );
+  return expected.every(
+    (operationKey, index) => authority.attempt.previousOperationKeys[index] === operationKey,
+  );
 }
 
 function validPerRunAccount(
