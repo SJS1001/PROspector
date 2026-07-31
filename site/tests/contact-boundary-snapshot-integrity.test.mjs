@@ -13,10 +13,9 @@ const ZERO_EFFECTS = Object.freeze({
 });
 
 async function modules(vite) {
-  return Promise.all([
-    vite.ssrLoadModule(new URL("../domain/contact-evidence.ts", import.meta.url).pathname),
-    vite.ssrLoadModule(new URL("../domain/contact-eligibility.ts", import.meta.url).pathname),
-  ]);
+  const evidence = await vite.ssrLoadModule(new URL("../domain/contact-evidence.ts", import.meta.url).pathname);
+  const eligibility = await vite.ssrLoadModule(new URL("../domain/contact-eligibility.ts", import.meta.url).pathname);
+  return [evidence, eligibility];
 }
 
 function envelope(patch = {}) {
