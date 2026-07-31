@@ -226,6 +226,52 @@ test("owner handler consumes and rotates its HttpOnly CSRF cookie across exact p
   }
 });
 
+test("owner revocation resolves the assignment's exact workspace Profile before projecting state", async () => {
+  const fixture = await createD1Fixture("phase4-handler-revoke-scope");
+  try {
+    await applyMigrations(fixture.database);
+    const identity={email:"phase4-revoke-owner@example.com",displayName:"Phase 4 revoke owner"};
+    const subjectPepper="phase4-revoke-owner-pepper-at-least-thirty-two-bytes";
+    const access=await fixture.vite.ssrLoadModule(new URL("../domain/pilot-access.ts",import.meta.url).pathname);
+    const handler=await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-handler.ts",import.meta.url).pathname);
+    const runner=await fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts",import.meta.url).pathname);
+    const principal=await access.admitPilotOwner(identity,identity.email,subjectPepper);
+    const seeded=await seedProfileAuthority(fixture,principal,NOW);
+    const otherProfile=await fixture.database.prepare("SELECT id FROM customer_profiles WHERE workspace_id=? AND id<>? ORDER BY id LIMIT 1").bind(seeded.workspaceId,seeded.profileId).first();
+    assert.ok(otherProfile);
+    const configurationId="phase4-other-profile-config",configurationDigest="9".repeat(64),runId="phase4-other-profile-run",runCommandId="phase4-other-profile-run-command";
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO typed_configurations (id,workspace_id,created_at,updated_at,revision,company_id,owner_type,owner_id,kind,digest,manifest_json,active) VALUES (?,?,?, ?,1,NULL,'profile',?,'profile_effective',?,'{}',1)").bind(configurationId,seeded.workspaceId,NOW,NOW,otherProfile.id,configurationDigest),
+      fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'test.prospecting.run','phase4-other-profile-run-command-key',?,1,'profile',?,'accepted')").bind(runCommandId,seeded.workspaceId,NOW,NOW,"7".repeat(64),otherProfile.id),
+      fixture.database.prepare("INSERT INTO prospecting_runs (id,workspace_id,created_at,updated_at,revision,profile_id,configuration_id,schedule_id,configuration_digest,trigger_kind,trigger_key,window_lower_exclusive,window_upper_inclusive,last_successful_watermark,successful_watermark,manifest_json,manifest_digest,execution_state,authority_command_id,operation_digest,idempotency_key,started_at,completed_at) VALUES (?,?,?, ?,1,?,?,NULL,?,'manual','other-profile-run',NULL,?,NULL,NULL,'{}',?,'queued',?,?,'phase4-other-profile-run-key',?,NULL)").bind(runId,seeded.workspaceId,NOW,NOW,otherProfile.id,configurationId,configurationDigest,NOW,"8".repeat(64),runCommandId,"7".repeat(64),NOW),
+    ]);
+    const assignment=await runner.issueRunnerAssignment(fixture.database,{workspaceId:seeded.workspaceId,runId,profileId:otherProfile.id,configurationId,configurationDigest,audience:"prospecting-runner/v1",expiresAt:NOW+60_000,instructionVersion:"runner-instructions/v1",toolConfigurationDigest:"f".repeat(64),quotas:{maxBytes:20_000,maxFindings:3,maxSources:3},grantReference:"synthetic",reason:"cross-profile revocation scope regression",idempotencyKey:"phase4-other-profile-assignment",now:NOW,capabilitySecret:RUNNER_SECRET});
+    const dependencies={database:fixture.database,subjectPepper,pilotOwnerEmail:identity.email,async getIdentity(){return identity;}};
+    const selectedUrl=`https://prospector.test/api/prospecting?profileId=${encodeURIComponent(seeded.profileId)}`;
+    const initial=await handler.handleProspectingGet(new Request(selectedUrl),dependencies);
+    let cookie=csrfCookie(initial);
+    const revokeBody={action:"revoke_assignment",assignmentId:assignment.assignmentId,reason:"Owner revoked exact assignment",idempotencyKey:"phase4-handler-revoke-other-profile"};
+    const mutation=(body,headers={})=>handler.handleProspectingPost(new Request(selectedUrl,{method:"POST",headers:{"content-type":"application/json",cookie,origin:"https://prospector.test","sec-fetch-site":"same-origin","x-prospector-intent":handler.PROSPECTING_MUTATION_INTENT,...headers},body:JSON.stringify(body)}),dependencies);
+    const foreign=await mutation(revokeBody,{origin:"https://foreign.example"});
+    assert.equal(foreign.status,403);assert.deepEqual(await foreign.json(),{error:"foreign_origin"});
+    const oversized=await mutation(revokeBody,{"content-length":String(handler.MAX_PROSPECTING_BODY_BYTES+1)});
+    assert.equal(oversized.status,413);assert.deepEqual(await oversized.json(),{error:"payload_too_large"});
+    const openBody=await mutation({...revokeBody,profileId:seeded.profileId});
+    assert.equal(openBody.status,409);assert.deepEqual(await openBody.json(),{error:"command_conflict"});
+    assert.equal((await fixture.database.prepare("SELECT status FROM runner_assignments WHERE id=?").bind(assignment.assignmentId).first()).status,"issued","closed-body and request-security negatives have no revocation effect");
+    cookie=csrfCookie(await handler.handleProspectingGet(new Request(selectedUrl),dependencies));
+    const revoke=await mutation(revokeBody);
+    assert.equal(revoke.status,200);
+    const projection=await revoke.json();
+    assert.equal(projection.readiness.profile.id,otherProfile.id);
+    assert.ok(projection.runs.length>0);
+    assert.ok(projection.runs.every((run)=>run.profile_id===otherProfile.id),"revocation cannot widen the response to another selected Profile");
+    assert.equal((await fixture.database.prepare("SELECT status FROM runner_assignments WHERE id=?").bind(assignment.assignmentId).first()).status,"revoked");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 function csrfCookie(response) {
   const value = response.headers.get("set-cookie");
   const match = /(?:^|,\s*)(__Host-prospector-csrf=[A-Za-z0-9_-]{43})/.exec(value ?? "");

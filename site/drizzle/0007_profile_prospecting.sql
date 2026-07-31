@@ -168,7 +168,7 @@ CREATE TABLE `prospecting_candidates` (
 	CONSTRAINT "prospecting_candidate_digest_check" CHECK(length("prospecting_candidates"."candidate_digest") = 64 and "prospecting_candidates"."candidate_digest" not glob '*[^0-9a-f]*')
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `prospecting_candidate_fingerprint_unique` ON `prospecting_candidates` (`workspace_id`,`profile_id`,`offer_id`,`fingerprint`);--> statement-breakpoint
+CREATE UNIQUE INDEX `prospecting_candidate_fingerprint_unique` ON `prospecting_candidates` (`workspace_id`,`profile_id`,`offer_id`,`configuration_id`,`fingerprint`);--> statement-breakpoint
 CREATE UNIQUE INDEX `prospecting_candidate_digest_unique` ON `prospecting_candidates` (`workspace_id`,`candidate_digest`);--> statement-breakpoint
 CREATE INDEX `prospecting_candidate_profile_status_idx` ON `prospecting_candidates` (`workspace_id`,`profile_id`,`status`);--> statement-breakpoint
 CREATE TABLE `prospecting_run_events` (

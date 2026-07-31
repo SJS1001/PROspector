@@ -259,14 +259,17 @@ async function materializeCandidate(database:D1Database, submission:Submission, 
     dataReadiness:draft.dataReadiness, commercialViability:draft.commercialViability,
     requiredEvidence:[...(draft.requiredEvidence ?? [])], hardDisqualifiers:[...(draft.hardDisqualifiers ?? [])] };
   const candidateJson=stable(candidateValue), candidateDigest=await sha256(stable({candidateValue,submissionId:submission.id,configurationDigest:submission.configuration_digest}));
-  const fingerprint=await sha256(stable({accountId:target.account_id,targetId:target.id,offerId:target.offer_id,configurationDigest:submission.configuration_digest}));
-  const existing=await database.prepare("SELECT id FROM prospecting_candidates WHERE workspace_id=? AND profile_id=? AND offer_id=? AND fingerprint=? LIMIT 1").bind(submission.workspace_id,submission.profile_id,target.offer_id,fingerprint).first<{id:string}>();
+  // Prospect identity is deliberately independent of the replaceable Profile
+  // configuration. The candidate remains immutable configuration provenance.
+  const fingerprint=await sha256(stable({workspaceId:submission.workspace_id,profileId:submission.profile_id,accountId:target.account_id,targetId:target.id,offerId:target.offer_id}));
+  const existing=await database.prepare("SELECT id FROM prospecting_candidates WHERE workspace_id=? AND profile_id=? AND offer_id=? AND configuration_id=? AND fingerprint=? LIMIT 1").bind(submission.workspace_id,submission.profile_id,target.offer_id,submission.configuration_id,fingerprint).first<{id:string}>();
   if(existing) return existing.id;
+  const predecessor=await database.prepare("SELECT id FROM prospecting_candidates WHERE workspace_id=? AND profile_id=? AND offer_id=? AND fingerprint=? AND configuration_id<>? ORDER BY created_at DESC,id DESC LIMIT 1").bind(submission.workspace_id,submission.profile_id,target.offer_id,fingerprint,submission.configuration_id).first<{id:string}>();
   const id=v7();
   try { await database.prepare(
-    "INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,'observed')",
-  ).bind(id,submission.workspace_id,now,now,submission.profile_id,target.offer_id,submission.run_id,submission.id,submission.configuration_id,fingerprint,candidateJson,candidateDigest).run(); }
-  catch { const winner=await database.prepare("SELECT id FROM prospecting_candidates WHERE workspace_id=? AND profile_id=? AND offer_id=? AND fingerprint=? LIMIT 1").bind(submission.workspace_id,submission.profile_id,target.offer_id,fingerprint).first<{id:string}>(); if(winner)return winner.id; throw fail(); }
+    "INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,predecessor_candidate_id,status) VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,'observed')",
+  ).bind(id,submission.workspace_id,now,now,submission.profile_id,target.offer_id,submission.run_id,submission.id,submission.configuration_id,fingerprint,candidateJson,candidateDigest,predecessor?.id??null).run(); }
+  catch { const winner=await database.prepare("SELECT id FROM prospecting_candidates WHERE workspace_id=? AND profile_id=? AND offer_id=? AND configuration_id=? AND fingerprint=? LIMIT 1").bind(submission.workspace_id,submission.profile_id,target.offer_id,submission.configuration_id,fingerprint).first<{id:string}>(); if(winner)return winner.id; throw fail(); }
   return id;
 }
 function normalizeDrafts(value:readonly CandidateDraft[]) {

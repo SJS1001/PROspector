@@ -7489,6 +7489,7 @@
             "workspace_id",
             "profile_id",
             "offer_id",
+            "configuration_id",
             "fingerprint"
           ],
           "isUnique": true
