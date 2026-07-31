@@ -36,6 +36,16 @@ export async function createProspectingIntent(database: D1Database, workspaceId:
     if (prior.trigger_kind !== intent.triggerKind || prior.trigger_key !== intent.triggerKey) throw new ProspectingScheduleConflictError("Idempotency key was used for another prospecting intent");
     return { id: prior.id, trigger: intent.triggerKind, key: prior.trigger_key, executionState: prior.execution_state, replayed: true };
   }
+  const activeConfiguration = await database.prepare(
+    "SELECT id FROM typed_configurations WHERE id=? AND workspace_id=? AND owner_type='profile' AND owner_id=? AND kind='profile_effective' AND digest=? AND active=1 LIMIT 1",
+  ).bind(intent.configurationId,workspaceId,intent.profileId,intent.configurationDigest).first<{id:string}>();
+  if(!activeConfiguration)throw new ProspectingScheduleConflictError("Prospecting intent requires the active Profile configuration");
+  if(intent.triggerKind==="scheduled"){
+    const activeSchedule=await database.prepare(
+      "SELECT id FROM prospecting_schedules WHERE id=? AND workspace_id=? AND profile_id=? AND configuration_id=? AND configuration_digest=? AND active=1 LIMIT 1",
+    ).bind(intent.scheduleId,workspaceId,intent.profileId,intent.configurationId,intent.configurationDigest).first<{id:string}>();
+    if(!activeSchedule)throw new ProspectingScheduleConflictError("Scheduled intent requires its active pinned schedule");
+  }
   if (intent.triggerKind === "scheduled") {
     const active = await database.prepare(
       "SELECT id FROM prospecting_runs WHERE workspace_id = ? AND profile_id = ? AND execution_state IN ('queued','assigned','running','submitted','validating') LIMIT 1",
@@ -93,16 +103,16 @@ export async function createMaterialChangeProspectingIntent(database: D1Database
 }
 
 export async function completeProspectingRun(database: D1Database, workspaceId: string, input: { runId: string; successfulWatermark: number; now: number }) {
-  const run = await database.prepare("SELECT id, schedule_id, execution_state, successful_watermark FROM prospecting_runs WHERE id = ? AND workspace_id = ? LIMIT 1").bind(input.runId, workspaceId).first<{ id: string; schedule_id: string | null; execution_state: string; successful_watermark:number|null }>();
+  const run = await database.prepare("SELECT id, schedule_id, configuration_id, configuration_digest, window_upper_inclusive, execution_state, successful_watermark FROM prospecting_runs WHERE id = ? AND workspace_id = ? LIMIT 1").bind(input.runId, workspaceId).first<{ id: string; schedule_id: string | null; configuration_id:string; configuration_digest:string; window_upper_inclusive:number; execution_state: string; successful_watermark:number|null }>();
   if (!run) throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
-  if (!Number.isSafeInteger(input.successfulWatermark)) throw new ProspectingScheduleConflictError("Invalid successful watermark");
+  if (!Number.isSafeInteger(input.successfulWatermark)||input.successfulWatermark!==Number(run.window_upper_inclusive)) throw new ProspectingScheduleConflictError("Invalid successful watermark");
   if(run.execution_state==="succeeded"&&Number(run.successful_watermark)===input.successfulWatermark)return{replayed:true};
   if(run.execution_state==="succeeded")throw new ProspectingScheduleConflictError("Prospecting run completion watermark conflicts");
-  if (run.execution_state !== "running") throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
+  if (!["running","validating"].includes(run.execution_state)) throw new ProspectingScheduleConflictError("Only a validating prospecting run may succeed");
   const eventJson = stable({ state: "succeeded", successfulWatermark: input.successfulWatermark });
   try{const result=await database.batch([
-    database.prepare("UPDATE prospecting_runs SET execution_state = 'succeeded', successful_watermark = ?, completed_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND execution_state = 'running'").bind(input.successfulWatermark, input.now, input.now, run.id, workspaceId),
-    ...(run.schedule_id ? [database.prepare("UPDATE prospecting_schedules SET last_successful_watermark = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ?").bind(input.successfulWatermark, input.now, run.schedule_id, workspaceId)] : []),
+    database.prepare("UPDATE prospecting_runs SET execution_state = 'succeeded', successful_watermark = ?, completed_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND execution_state IN ('running','validating')").bind(input.successfulWatermark, input.now, input.now, run.id, workspaceId),
+    ...(run.schedule_id ? [database.prepare("UPDATE prospecting_schedules SET last_successful_watermark = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND configuration_id=? AND configuration_digest=?").bind(input.successfulWatermark, input.now, run.schedule_id, workspaceId,run.configuration_id,run.configuration_digest)] : []),
     database.prepare("INSERT INTO prospecting_run_events (id,workspace_id,run_id,event_type,event_json,event_digest,operation_digest,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(v7(), workspaceId, run.id, "succeeded", eventJson, await sha256(eventJson), await sha256(`prospecting:${run.id}:succeeded:${input.successfulWatermark}`), input.now),
   ]);if(Number(result[0]?.meta?.changes??0)===1)return{replayed:false};}catch{/* The competing completion may have committed atomically. */}
   const winner=await database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=? AND workspace_id=? LIMIT 1").bind(run.id,workspaceId).first<{execution_state:string;successful_watermark:number|null}>();if(winner?.execution_state==="succeeded"&&Number(winner.successful_watermark)===input.successfulWatermark)return{replayed:true};throw new ProspectingScheduleConflictError("Prospecting run completion conflicted");
