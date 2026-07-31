@@ -107,6 +107,7 @@ const CLASSES = new Set<string>(CONTACT_VERIFICATION_CLASSES);
 const HASH = /^[a-f0-9]{64}$/u;
 const E164 = /^\+[1-9][0-9]{7,14}$/u;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const admittedContactObservations = new WeakSet<object>();
 
 /**
  * Defensively accepts only a bounded, assignment-bound immutable observation.
@@ -165,34 +166,33 @@ export function ingestContactEvidence(
   const parentObservationId = envelope.lineage === undefined ? null : optionalLineage(envelope.lineage);
   if (envelope.lineage !== undefined && parentObservationId === undefined) return blocked("invalid_evidence_lineage");
 
-  return Object.freeze({
-    accepted: true as const,
-    observation: deepFreeze({
-      id,
-      workspaceId: assignment.workspaceId,
-      contactId: assignment.contactId,
-      profileConfigurationId: assignment.profileConfigurationId,
-      profileConfigurationDigest: assignment.profileConfigurationDigest,
-      kind,
-      normalizedValue,
-      verificationClass,
-      confidence,
-      method,
-      provenance,
-      observedAt,
-      verifiedAt,
-      providerId: trusted?.providerId ?? null,
-      providerVersion: trusted?.providerVersion ?? null,
-      catalogRef: trusted?.catalogRef ?? null,
-      verificationAuthority: trusted ? {
-        verifierId: trusted.verifierId,
-        verifierVersion: trusted.verifierVersion,
-        verdictReference: trusted.verdictReference,
-        verdictDigest: trusted.verdictDigest,
-      } : null,
-      lineage: { parentObservationId: parentObservationId ?? null },
-    }),
+  const observation = deepFreeze({
+    id,
+    workspaceId: assignment.workspaceId,
+    contactId: assignment.contactId,
+    profileConfigurationId: assignment.profileConfigurationId,
+    profileConfigurationDigest: assignment.profileConfigurationDigest,
+    kind,
+    normalizedValue,
+    verificationClass,
+    confidence,
+    method,
+    provenance,
+    observedAt,
+    verifiedAt,
+    providerId: trusted?.providerId ?? null,
+    providerVersion: trusted?.providerVersion ?? null,
+    catalogRef: trusted?.catalogRef ?? null,
+    verificationAuthority: trusted ? {
+      verifierId: trusted.verifierId,
+      verifierVersion: trusted.verifierVersion,
+      verdictReference: trusted.verdictReference,
+      verdictDigest: trusted.verdictDigest,
+    } : null,
+    lineage: { parentObservationId: parentObservationId ?? null },
   });
+  admittedContactObservations.add(observation);
+  return Object.freeze({ accepted: true as const, observation });
 }
 
 export function normalizeBusinessEmail(value: unknown): string | null {
@@ -210,13 +210,19 @@ export function normalizeBusinessPhone(value: unknown): string | null {
 }
 
 /**
- * Re-validates a stored/read-model observation before it is used as eligibility
- * input.  Type assertions, provider-shaped JSON, and partial projections must not
- * be able to manufacture a verified contact point outside the ingestion boundary.
+ * Re-validates an observation before it is used as eligibility input. During this
+ * local/in-memory preparation lane, structural validity is necessary but not
+ * sufficient: the exact object must also carry the module-local admission receipt
+ * issued only by ingestContactEvidence. JSON copies and provider-shaped objects
+ * therefore fail closed even when every field is well formed.
+ *
+ * Persisted observations intentionally remain invalid after deserialization until
+ * a future authenticated repository rehydration seam can verify durable authority
+ * and issue a fresh internal receipt. No public bypass exists in this module.
  */
 export function isDefensivelyValidContactObservation(value: unknown): value is ContactObservation {
   const observation = record(value);
-  if (!observation) return false;
+  if (!observation || !admittedContactObservations.has(observation)) return false;
   const id = opaque(observation.id, 160);
   const workspaceId = opaque(observation.workspaceId, 160);
   const contactId = opaque(observation.contactId, 160);

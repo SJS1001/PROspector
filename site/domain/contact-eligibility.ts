@@ -80,9 +80,16 @@ export function projectContactEligibility(value: {
   const strategy = normalizeStrategy(input?.strategy);
   if (!strategy) reasonCodes.push("invalid_contact_strategy");
 
-  const points = Array.isArray(input?.points) ? input.points.filter(isDefensivelyValidContactObservation) : [];
+  const suppliedPoints = Array.isArray(input?.points) ? input.points : [];
+  const points: ContactObservation[] = [];
+  let hasInvalidEvidence = false;
+  for (const point of suppliedPoints) {
+    if (isDefensivelyValidContactObservation(point)) points.push(point);
+    else hasInvalidEvidence = true;
+  }
   const projected = points.map((point) => projectPoint(point, target, strategy, now));
   if (!points.length) reasonCodes.push("no_contact_evidence");
+  if (hasInvalidEvidence) reasonCodes.push("contact_evidence_invalid");
   if (projected.some((point) => point.state === "stale")) reasonCodes.push("contact_evidence_stale");
   if (projected.some((point) => point.state === "invalid")) reasonCodes.push("contact_evidence_invalid");
   if (projected.some((point) => point.state === "scope_mismatch")) reasonCodes.push("contact_scope_mismatch");
@@ -95,7 +102,7 @@ export function projectContactEligibility(value: {
   const state: ContactEligibilityState = suppressed
     ? "NonContactable"
     : hasEligible && !blockedForReview ? "ContactReady"
-    : hasEligible || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
+    : hasEligible || hasInvalidEvidence || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
       ? "NeedsReview"
       : "ContactSuggestion";
   return freeze({ state, eligible: state === "ContactReady", reasonCodes: uniqueSorted(reasonCodes), points: projected });
