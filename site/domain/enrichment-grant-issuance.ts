@@ -108,7 +108,7 @@ function validateSnapshot(snapshot: IssuanceSnapshot | null, input: IssueEnrichm
   if (!snapshot || !snapshot.admitted || snapshot.ownerSubject !== input.principalSubject) return "owner_not_admitted";
   if (!bounded(snapshot.workspaceId, 256) || !bounded(snapshot.ownerSubject, 256) || !positive(snapshot.revision) || snapshot.revision !== input.expectedRevision) return "stale_revision";
   if (!snapshot.configuration.current || !bounded(snapshot.configuration.id, 256) || !digestLike(snapshot.configuration.digest) || !positive(snapshot.configuration.revision)) return "configuration_not_current";
-  if (!snapshot.quote || !bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !positive(snapshot.quote.revision) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0 || !positive(snapshot.quote.expiresAt)) return "quote_unavailable";
+  if (!snapshot.quote || !bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !positive(snapshot.quote.revision) || !canonicalCurrency(snapshot.quote.currency) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0 || !positive(snapshot.quote.expiresAt)) return "quote_unavailable";
   if (snapshot.quote.expiresAt <= input.now) return "quote_expired";
   if (snapshot.quote.currency !== input.currency) return "currency_mismatch";
   if (!safeProduct(snapshot.quote.unitCostMinor, input.maxUnits) || input.maxCostMinor < snapshot.quote.unitCostMinor * input.maxUnits) return "cost_unbounded";
@@ -118,7 +118,7 @@ function validateSnapshot(snapshot: IssuanceSnapshot | null, input: IssueEnrichm
   return null;
 }
 function validRequest(input: IssueEnrichmentGrantInput, ids: readonly string[]): boolean {
-  return ids.length > 0 && bounded(input.principalSubject, 256) && input.operation === "business_contact_lookup/v1" && integer(input.maxUnits) && input.maxUnits > 0 && input.maxUnits <= 1_000 && integer(input.maxCostMinor) && input.maxCostMinor >= 0 && bounded(input.currency, 8) && positive(input.expiresAt) && positive(input.now) && input.expiresAt > input.now && input.expiresAt <= input.now + 60 * 60 * 1_000 && positive(input.expectedRevision) && bounded(input.idempotencyKey, 256);
+  return ids.length > 0 && bounded(input.principalSubject, 256) && input.operation === "business_contact_lookup/v1" && integer(input.maxUnits) && input.maxUnits > 0 && input.maxUnits <= 1_000 && integer(input.maxCostMinor) && input.maxCostMinor >= 0 && canonicalCurrency(input.currency) && positive(input.expiresAt) && positive(input.now) && input.expiresAt > input.now && input.expiresAt <= input.now + 60 * 60 * 1_000 && positive(input.expectedRevision) && bounded(input.idempotencyKey, 256);
 }
 function normalizeIds(ids: readonly string[]): string[] | null {
   if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some((id) => !bounded(id, 256))) return null;
@@ -130,6 +130,7 @@ function serverNonce(repository: IssuanceRepository): string {
   return nonce;
 }
 function bounded(value: unknown, length: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= length; }
+function canonicalCurrency(value: unknown): value is string { return typeof value === "string" && /^[A-Z]{3}$/.test(value); }
 function integer(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value); }
 function positive(value: unknown): value is number { return integer(value) && value > 0; }
 function safeProduct(left: number, right: number): boolean { return left === 0 || left <= Math.floor(Number.MAX_SAFE_INTEGER / right); }

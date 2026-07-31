@@ -5,6 +5,8 @@
  * separately authorised persistence layer must inject the transaction below.
  */
 
+import { v7 } from "uuid";
+
 export class IdentityResolutionError extends Error {
   readonly code = "identity_resolution_rejected";
 }
@@ -59,17 +61,17 @@ export type MergeDecision = Readonly<{
 export type SplitDecision = Readonly<{
   kind: "split";
   sourceId: string;
-  newIdentityId: string;
   moveAssociationIds: readonly string[];
 }>;
 
 export type IdentityDecision = MergeDecision | SplitDecision;
+export type AppliedIdentityDecision = MergeDecision | Readonly<SplitDecision & { newIdentityId: string }>;
 
 export type AppliedResolution = Readonly<{
   id: string;
   workspaceId: string;
   idempotencyKey: string;
-  decision: IdentityDecision;
+  decision: AppliedIdentityDecision;
   operationDigest: string;
   retainedSourceLineageIds: readonly string[];
   retainedIdentityLineageIds: readonly string[];
@@ -97,7 +99,7 @@ export interface IdentityResolutionRepository {
 export type IdentityResolutionPrincipal = Readonly<{ subject: string; admittedOwner: boolean }>;
 export type PlanIdentitySuggestionInput =
   | Readonly<{ workspaceId: string; kind: "merge"; candidateIds: readonly string[] }>
-  | Readonly<{ workspaceId: string; kind: "split"; sourceId: string; newIdentityId: string; moveAssociationIds: readonly string[] }>;
+  | Readonly<{ workspaceId: string; kind: "split"; sourceId: string; moveAssociationIds: readonly string[] }>;
 
 export async function planIdentitySuggestion(
   repository: IdentityResolutionRepository,
@@ -105,6 +107,7 @@ export async function planIdentitySuggestion(
   input: PlanIdentitySuggestionInput,
 ): Promise<IdentitySuggestion> {
   if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
+  if (input.kind === "split" && hasOwn(input, "newIdentityId")) throw rejected();
   const candidateIds = input.kind === "merge"
     ? uniqueIds(input.candidateIds, 2, 16)
     : uniqueIds([input.sourceId], 1, 1);
@@ -116,11 +119,11 @@ export async function planIdentitySuggestion(
   const proposedPartition = input.kind === "split"
     ? freezePartition({
       sourceId: input.sourceId,
-      newIdentityId: input.newIdentityId,
+      newIdentityId: v7(),
       moveAssociationIds: uniqueIds(input.moveAssociationIds, 1, 128),
     })
     : null;
-  if (proposedPartition && (!validId(proposedPartition.newIdentityId) || candidateIds.includes(proposedPartition.newIdentityId))) throw rejected();
+  if (proposedPartition && (!validServerIdentityId(proposedPartition.newIdentityId) || candidateIds.includes(proposedPartition.newIdentityId))) throw rejected();
   const impactedAssociations = proposedPartition
     ? associationsForPartition(candidates[0], proposedPartition.moveAssociationIds)
     : candidates.flatMap((candidate) => candidate.associations);
@@ -171,13 +174,19 @@ export async function applyIdentityResolution(
   await assertSuggestionIntegrity(suggestion);
   if (suggestion.id !== input.suggestionId || suggestion.workspaceId !== input.workspaceId || suggestion.ownerSubject !== principal.subject || input.expectedRevision !== suggestion.revision) throw rejected();
   validateKey(input.idempotencyKey);
+  if (input.decision.kind === "split" && hasOwn(input.decision, "newIdentityId")) throw rejected();
   validateDecision(suggestion, input.decision);
-  const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: canonicalDecision(input.decision), actor: principal.subject });
+  const authoritativeDecision = canonicalDecision(suggestion, input.decision);
+  const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: authoritativeDecision, actor: principal.subject });
   return repository.transaction(input.workspaceId, async (transaction) => {
     const existing = await transaction.findByIdempotencyKey(input.idempotencyKey);
     if (existing) {
       if (existing.operationDigest !== operationDigest) throw rejected();
       return existing;
+    }
+    if (authoritativeDecision.kind === "split") {
+      const destination = await transaction.readIdentitySnapshots([authoritativeDecision.newIdentityId]);
+      if (!Array.isArray(destination) || destination.length !== 0) throw rejected();
     }
     const current = await transaction.readIdentitySnapshots(suggestion.candidateIds);
     assertExactWorkspaceSnapshots(input.workspaceId, suggestion.candidateIds, current);
@@ -192,7 +201,7 @@ export async function applyIdentityResolution(
       id: await hash({ operationDigest, idempotencyKey: input.idempotencyKey }),
       workspaceId: input.workspaceId,
       idempotencyKey: input.idempotencyKey,
-      decision: freezeDecision(input.decision),
+      decision: freezeDecision(authoritativeDecision),
       operationDigest,
       retainedSourceLineageIds: Object.freeze(retainedSourceLineageIds),
       retainedIdentityLineageIds: Object.freeze(retainedIdentityLineageIds),
@@ -241,7 +250,7 @@ function validateDecision(suggestion: IdentitySuggestion, decision: IdentityDeci
     return;
   }
   const partition = suggestion.proposedPartition;
-  if (!partition || suggestion.candidateIds.length !== 1 || decision.sourceId !== partition.sourceId || decision.newIdentityId !== partition.newIdentityId) throw rejected();
+  if (!partition || suggestion.candidateIds.length !== 1 || decision.sourceId !== partition.sourceId) throw rejected();
   const moved = uniqueIds(decision.moveAssociationIds, 1, 128);
   if (stable(moved) !== stable(partition.moveAssociationIds)) throw rejected();
 }
@@ -290,7 +299,7 @@ function validateSuggestionShape(suggestion: IdentitySuggestion) {
     if (suggestion.proposedPartition !== null) throw rejected();
   } else {
     const partition = suggestion.proposedPartition;
-    if (!partition || typeof partition !== "object" || partition.sourceId !== candidates[0] || !validId(partition.newIdentityId) || candidates.includes(partition.newIdentityId)) throw rejected();
+    if (!partition || typeof partition !== "object" || partition.sourceId !== candidates[0] || !validServerIdentityId(partition.newIdentityId) || candidates.includes(partition.newIdentityId)) throw rejected();
     const moved = uniqueIds(partition.moveAssociationIds, 1, 128);
     if (stable(moved) !== stable(partition.moveAssociationIds) || stable(moved) !== stable(associations)) throw rejected();
   }
@@ -345,17 +354,24 @@ function totalRevision(snapshots: readonly IdentitySnapshot[]) {
   return total;
 }
 
-function canonicalDecision(decision: IdentityDecision): IdentityDecision {
-  return decision.kind === "merge"
-    ? { kind: "merge", primaryId: decision.primaryId, secondaryIds: [...decision.secondaryIds].sort() }
-    : { kind: "split", sourceId: decision.sourceId, newIdentityId: decision.newIdentityId, moveAssociationIds: [...decision.moveAssociationIds].sort() };
+function canonicalDecision(suggestion: IdentitySuggestion, decision: IdentityDecision): AppliedIdentityDecision {
+  if (decision.kind === "merge") {
+    return { kind: "merge", primaryId: decision.primaryId, secondaryIds: [...decision.secondaryIds].sort() };
+  }
+  const partition = suggestion.proposedPartition;
+  if (!partition) throw rejected();
+  return {
+    kind: "split",
+    sourceId: decision.sourceId,
+    newIdentityId: partition.newIdentityId,
+    moveAssociationIds: [...decision.moveAssociationIds].sort(),
+  };
 }
 
-function freezeDecision(decision: IdentityDecision): IdentityDecision {
-  const canonical = canonicalDecision(decision);
-  return canonical.kind === "merge"
-    ? Object.freeze({ ...canonical, secondaryIds: Object.freeze(canonical.secondaryIds) })
-    : Object.freeze({ ...canonical, moveAssociationIds: Object.freeze(canonical.moveAssociationIds) });
+function freezeDecision(decision: AppliedIdentityDecision): AppliedIdentityDecision {
+  return decision.kind === "merge"
+    ? Object.freeze({ ...decision, secondaryIds: Object.freeze([...decision.secondaryIds]) })
+    : Object.freeze({ ...decision, moveAssociationIds: Object.freeze([...decision.moveAssociationIds]) });
 }
 
 function freezePartition(partition: { sourceId: string; newIdentityId: string; moveAssociationIds: readonly string[] }) {
@@ -371,7 +387,9 @@ function assertIdArray(values: unknown, min: number, max: number): asserts value
   if (!Array.isArray(values) || values.length < min || values.length > max || values.some((value) => !validId(value)) || new Set(values).size !== values.length) throw rejected();
 }
 function unique(values: readonly string[]) { return [...new Set(values)]; }
+function hasOwn(value: object, property: string): boolean { return Object.prototype.hasOwnProperty.call(value, property); }
 function validId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{2,127}$/i.test(value); }
+function validServerIdentityId(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function validDigest(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
 function validateKey(value: string) { if (!/^[a-z0-9][a-z0-9_-]{7,127}$/i.test(value)) throw rejected(); }
 function rejected() { return new IdentityResolutionError("identity_resolution_rejected"); }
