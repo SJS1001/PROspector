@@ -79,8 +79,8 @@ export async function readProspectingProjection(database:D1Database, principal:P
  const workspace=await workspaceFor(database,principal);
  const [profiles,runs,evidence,assessments,queue]=await Promise.all([
   database.prepare("SELECT id,name,lifecycle,revision FROM customer_profiles WHERE workspace_id=? ORDER BY name,id").bind(workspace.id).all(),
-  database.prepare("SELECT r.id,r.profile_id,r.configuration_id,r.configuration_digest,r.trigger_kind,r.trigger_key,r.execution_state,r.window_lower_exclusive,r.window_upper_inclusive,r.started_at,r.completed_at,r.successful_watermark,s.id schedule_id,s.timezone,s.cadence,s.execution_state schedule_state,ra.id assignment_id,ra.audience,ra.instruction_version,ra.tool_configuration_digest,ra.expires_at,ra.quota_json FROM prospecting_runs r LEFT JOIN prospecting_schedules s ON s.id=r.schedule_id LEFT JOIN runner_assignments ra ON ra.run_id=r.id AND ra.workspace_id=r.workspace_id WHERE r.workspace_id=? ORDER BY r.started_at DESC,r.id DESC").bind(workspace.id).all(),
-  database.prepare("SELECT ps.id,ps.profile_id,ps.signal_kind,ps.material,ps.created_at,pl.source_url,pl.source_tier,pl.publisher_identity,pl.underlying_origin_identity,pl.independence_group,pl.published_at,pl.occurred_at,pl.retrieved_at,pl.excerpt,pl.run_id,pl.submission_id,ps.signal_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.workspace_id=? ORDER BY ps.created_at DESC,ps.id DESC").bind(workspace.id).all(),
+  database.prepare("SELECT r.id,r.profile_id,r.configuration_id,r.configuration_digest,r.trigger_kind,r.trigger_key,r.execution_state,r.window_lower_exclusive,r.window_upper_inclusive,r.started_at,r.completed_at,r.successful_watermark,r.manifest_digest,s.id schedule_id,s.schedule_key,s.timezone,s.intended_local_time,s.utc_offset_minutes,s.cadence,s.next_run_at,s.last_successful_watermark schedule_watermark,s.execution_state schedule_state,ra.id assignment_id,ra.audience,ra.instruction_version,ra.tool_configuration_digest,ra.expires_at,ra.status assignment_status,ra.quota_json,ra.created_at assignment_created_at FROM prospecting_runs r LEFT JOIN prospecting_schedules s ON s.id=r.schedule_id LEFT JOIN runner_assignments ra ON ra.run_id=r.id AND ra.workspace_id=r.workspace_id WHERE r.workspace_id=? ORDER BY r.started_at DESC,r.id DESC,ra.created_at DESC,ra.id DESC").bind(workspace.id).all(),
+  database.prepare("SELECT ps.id,ps.profile_id,ps.signal_kind,ps.material,ps.created_at,pl.source_id,pl.source_url,pl.source_tier,pl.publisher_identity,pl.underlying_origin_identity,pl.independence_group,pl.published_at,pl.occurred_at,pl.retrieved_at,pl.excerpt,pl.lineage_digest,pl.run_id,pl.submission_id,r.configuration_digest,ps.signal_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id JOIN prospecting_runs r ON r.id=pl.run_id AND r.workspace_id=pl.workspace_id WHERE ps.workspace_id=? ORDER BY ps.created_at DESC,ps.id DESC").bind(workspace.id).all(),
   database.prepare("SELECT a.id,a.candidate_id,c.candidate_digest,c.run_id,c.submission_id,a.configuration_id,a.configuration_digest,a.input_json,a.input_digest,a.anchor_json,a.evidence_json,a.gate_json,a.score_json,a.score,a.outcome,a.tie_order,a.assessment_digest,a.created_at FROM qualification_assessments a JOIN prospecting_candidates c ON c.id=a.candidate_id AND c.workspace_id=a.workspace_id WHERE a.workspace_id=? ORDER BY a.created_at DESC,a.id DESC").bind(workspace.id).all(),
   database.prepare("SELECT p.id,p.profile_id,p.offer_id,p.candidate_id,p.assessment_id,p.revision,p.state,p.active,a.score,a.outcome,a.configuration_digest,a.assessment_digest,c.candidate_json,c.candidate_digest,account.id account_id,organization.canonical_name account_value,target.id target_id,COALESCE(json_extract(c.candidate_json,'$.targetValue'),json_extract(c.candidate_json,'$.targetName'),target.id) target_value FROM profile_prospects p JOIN qualification_assessments a ON a.id=p.assessment_id AND a.workspace_id=p.workspace_id JOIN prospecting_candidates c ON c.id=p.candidate_id AND c.workspace_id=p.workspace_id JOIN targets target ON target.id=json_extract(c.candidate_json,'$.targetId') AND target.workspace_id=p.workspace_id AND target.profile_id=p.profile_id JOIN accounts account ON account.id=target.account_id AND account.workspace_id=p.workspace_id AND account.id=json_extract(c.candidate_json,'$.accountId') JOIN organizations organization ON organization.id=account.organization_id AND organization.workspace_id=p.workspace_id WHERE p.workspace_id=? ORDER BY p.created_at DESC,p.id DESC").bind(workspace.id).all(),
  ]);
@@ -89,17 +89,61 @@ export async function readProspectingProjection(database:D1Database, principal:P
  const canonicalLineages=new Map(await Promise.all(lineageKeys.map(async([key,row])=>[key,await readCanonicalMaterialLineage(database,{workspaceId:workspace.id,profileId:row.profile_id,kind:row.signal_kind,underlyingOriginIdentity:row.underlying_origin_identity})] as const)));
  const lineageKeyBySignal=new Map(materialLineages.results.map(row=>[row.id,`${row.profile_id}\u0000${row.signal_kind}\u0000${row.underlying_origin_identity}`]));
  const projectedEvidence=evidence.results.map((row:Record<string,unknown>)=>{const key=lineageKeyBySignal.get(String(row.id)),chain=key?canonicalLineages.get(key):undefined;return chain?{...row,canonicalMaterialLineage:chain.map(member=>({signalId:member.id,signalDigest:member.signal_digest,lineageId:member.lineage_id,lineageDigest:member.lineage_digest,occurredAt:Number(member.occurred_at)}))}:row;});
- const [decisionRows,cooldownRows,reentryRows]=await Promise.all([
+ const [decisionRows,cooldownRows,reentryRows,runEventRows]=await Promise.all([
   database.prepare("SELECT d.id,d.prospect_id,d.decision,d.reason,d.review_at,d.created_at decision_at,d.audit_event_id,a.actor_id owner_subject FROM prospect_review_decisions d JOIN audit_events a ON a.id=d.audit_event_id AND a.workspace_id=d.workspace_id WHERE d.workspace_id=? ORDER BY d.prospect_id,d.created_at,d.id").bind(workspace.id).all(),
   database.prepare("SELECT id,prospect_id,review_decision_id,assessment_id,reason,starts_at,ends_at,status,created_at FROM prospect_cooldowns WHERE workspace_id=? ORDER BY prospect_id,created_at,id").bind(workspace.id).all(),
   database.prepare("SELECT id,prospect_id,cooldown_id,signal_id,prior_assessment_id,event_kind,event_json,event_digest,authority_command_id,audit_event_id,created_at FROM prospect_reentry_events WHERE workspace_id=? ORDER BY prospect_id,created_at,id").bind(workspace.id).all(),
+  database.prepare("SELECT id,run_id,event_type,event_json,created_at FROM prospecting_run_events WHERE workspace_id=? ORDER BY run_id,created_at,id").bind(workspace.id).all(),
  ]);
+ const runEvents=byKey(runEventRows.results as Record<string,unknown>[],"run_id");
+ const latestRunAssignments=[...new Map(runs.results.map((row:Record<string,unknown>)=>[String(row.id),row])).values()];
+ const projectedRuns=latestRunAssignments.map((row:Record<string,unknown>)=>{
+  const ledger=(runEvents[String(row.id)]??[]).map(event=>({...event,detail:safeJson(text(event.event_json))}));
+  const claims=ledger.filter(event=>event.detail.stage==="claim");
+  const terminal=ledger.filter(event=>event.detail.stage==="terminal").at(-1);
+  const assignmentLedger=safeJson(text(row.quota_json));
+  return {
+   ...row,
+   provider:text(assignmentLedger.provider)||"not assigned",
+   model:text(assignmentLedger.model)||"not assigned",
+   allowedTools:Array.isArray(assignmentLedger.allowedTools)?assignmentLedger.allowedTools:[],
+   quotas:object(assignmentLedger.quotas)??{},
+   attempt:terminal&&Number.isSafeInteger(terminal.detail.attempt)
+    ? Number(terminal.detail.attempt)
+    : claims.length?Math.max(...claims.map(event=>Number(event.detail.attempt))):null,
+   terminalReason:terminal?text(terminal.detail.terminalReason)||"not recorded":null,
+   terminalRetryable:terminal?.detail.retryable,
+   events:ledger.map(event=>({id:event.id,type:event.event_type,createdAt:Number(event.created_at),detail:event.detail})),
+  };
+ });
  const now=Date.now(), byProspect=<T extends Record<string,unknown>>(rows:T[])=>rows.reduce((result,row)=>{const id=String(row.prospect_id);(result[id]??=[]).push(row);return result;},{} as Record<string,T[]>), decisions=byProspect(decisionRows.results), cooldowns=byProspect(cooldownRows.results), reentries=byProspect(reentryRows.results), prospectByAssessment=new Map(queue.results.map((row:Record<string,unknown>)=>[String(row.assessment_id),String(row.id)]));
  for(const event of reentryRows.results as Record<string,unknown>[]){const detail=safeJson(text(event.event_json)),currentProspectId=text(detail.reenteredProspectId)||prospectByAssessment.get(text(detail.assessmentId));if(!currentProspectId||currentProspectId===text(event.prospect_id))continue;const history=reentries[currentProspectId]??=[];if(!history.some((entry)=>String(entry.id)===String(event.id)))history.push({...event,prior_prospect_id:event.prospect_id});reentries[currentProspectId]=history;}
- const queueRows=queue.results.map((row:Record<string,unknown>)=>{const history=decisions[String(row.id)]??[], cooldownHistory=cooldowns[String(row.id)]??[], reentryHistory=reentries[String(row.id)]??[], latestCooldown=cooldownHistory.at(-1);return {...row,account:{id:text(row.account_id),value:text(row.account_value)},target:{id:text(row.target_id),value:text(row.target_value)},decisionHistory:history,cooldownHistory,reentryHistory,cooldownState:reentryHistory.length?"reentered":latestCooldown?(Number(latestCooldown.ends_at)<=now?"expired":"active"):"none"};});
+ const assessmentById=new Map(assessments.results.map((row:Record<string,unknown>)=>[String(row.id),row]));
+ const evidenceById=new Map(projectedEvidence.map((row:Record<string,unknown>)=>[String(row.id),row]));
+ const queueRows=queue.results.map((row:Record<string,unknown>)=>{
+  const history=decisions[String(row.id)]??[], cooldownHistory=cooldowns[String(row.id)]??[], reentryHistory=reentries[String(row.id)]??[], latestCooldown=cooldownHistory.at(-1);
+  const assessment=assessmentById.get(String(row.assessment_id));
+  const freshness=parseArray(text(assessment?.evidence_json)).map(source=>evidenceById.get(text(source.id))??source).map(source=>({
+   id:text(source.id),
+   retrievedAt:Number(source.retrieved_at??source.retrievedAt),
+   recency:recency(text(source.signal_json))==="account_context_reconfirmation_required"?"account_context_reconfirmation_required":text(source.recency)||"current",
+   tier:Number(source.source_tier??source.tier),
+   material:Boolean(source.material),
+  })).sort((a,b)=>b.retrievedAt-a.retrievedAt||a.id.localeCompare(b.id));
+  return {
+   ...row,
+   account:{id:text(row.account_id),value:text(row.account_value)},
+   target:{id:text(row.target_id),value:text(row.target_value)},
+   evidenceFreshness:{state:freshness.some(item=>item.recency==="account_context_reconfirmation_required")?"reconfirmation_required":freshness.length?"current":"unknown",sources:freshness,newestRetrievedAt:freshness[0]?.retrievedAt??null},
+   decisionHistory:history,
+   cooldownHistory,
+   reentryHistory,
+   cooldownState:reentryHistory.length?"reentered":latestCooldown?(Number(latestCooldown.ends_at)<=now?"expired":"active"):"none",
+  };
+ });
  const paths=reviewLineage(queue.results as Record<string,unknown>[],reentryRows.results as Record<string,unknown>[],prospectByAssessment);
  const lineageRows=queueRows.map(row=>{const history=paths.get(String(row.id))??[String(row.id)],reentryHistory=history.flatMap(id=>paths.events.get(id)??[]),decisionHistory=history.flatMap(id=>decisions[id]??[]),cooldownHistory=history.flatMap(id=>cooldowns[id]??[]),latestCooldown=cooldownHistory.at(-1);return {...row,decisionHistory:orderedUnique(decisionHistory),cooldownHistory:orderedUnique(cooldownHistory),reentryHistory:orderedUnique(reentryHistory),cooldownState:reentryHistory.length?"reentered":latestCooldown?(Number(latestCooldown.ends_at)<=now?"expired":"active"):"none"};});
- return {profiles:profiles.results,runs:runs.results,evidence:projectedEvidence,assessments:assessments.results,queue:lineageRows.filter((x)=>x.state==="qualified"&&x.active===1&&x.outcome==="Passed"),decisions:lineageRows,readiness:null};
+ return {authority:"owner",profiles:profiles.results,runs:projectedRuns,evidence:projectedEvidence,assessments:assessments.results,queue:lineageRows.filter((x)=>x.state==="qualified"&&x.active===1&&x.outcome==="Passed"),decisions:lineageRows,readiness:null};
 }
 async function workspaceFor(database:D1Database,principal:Principal){const w=await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?,?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject,principal.legacySubject??principal.subject,principal.subject).first<{id:string}>();if(!w)throw fail("Private workspace unavailable");return w;}
 type SignalRow={id:string;source_lineage_id:string;signal_digest:string;material:number;source_tier:number;independence_group:string;occurred_at:number|null;retrieved_at:number;lineage_digest:string;signal_json:string};
@@ -138,6 +182,8 @@ function reviewLineage(queue:Record<string,unknown>[],events:Record<string,unkno
 function historyOrder(a:Record<string,unknown>,b:Record<string,unknown>){return Number(a.created_at)-Number(b.created_at)||String(a.id).localeCompare(String(b.id));}
 function orderedUnique<T extends Record<string,unknown>>(rows:T[]){return [...new Map(rows.sort(historyOrder).map(row=>[String(row.id),row])).values()];}
 function safeJson(s:string){try{const x=JSON.parse(s);return x&&typeof x==="object"&&!Array.isArray(x)?x as Record<string,unknown>:{};}catch{return {};}}
+function parseArray(s:string):Record<string,unknown>[]{try{const x=JSON.parse(s);return Array.isArray(x)?x.filter((value):value is Record<string,unknown>=>Boolean(object(value))):[];}catch{return[];}}
+function byKey(rows:Record<string,unknown>[],key:string){return rows.reduce((result,row)=>{const id=String(row[key]);(result[id]??=[]).push(row);return result;},{} as Record<string,Record<string,unknown>[]>);}
 function object(x:unknown){return x&&typeof x==="object"&&!Array.isArray(x)?x as Record<string,unknown>:null;}
 function rubricDigest(manifest:string){const parsed=safeJson(manifest);if(typeof parsed.rubricDigest==="string"&&/^[a-f0-9]{64}$/.test(parsed.rubricDigest))return parsed.rubricDigest;const inputs=parsed.confirmedCategoryInputs;if(!inputs||typeof inputs!=="object"||Array.isArray(inputs))return"0".repeat(64);const rubric=(inputs as Record<string,unknown>).rubric;if(!Array.isArray(rubric)||rubric.length!==1)return"0".repeat(64);const digest=(rubric[0] as Record<string,unknown>|null)?.digest;return typeof digest==="string"&&/^[a-f0-9]{64}$/.test(digest)?digest:"0".repeat(64);}
 function recency(signal:string){return safeJson(signal).recency==="account_context_reconfirmation_required"?"account_context_reconfirmation_required":"current";}
