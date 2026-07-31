@@ -38,7 +38,7 @@ export type ContactEligibility = Readonly<{
   reasonCodes: readonly string[];
   points: readonly Readonly<{
     observationId: string;
-    state: "eligible" | "suggestion" | "invalid" | "stale";
+    state: "eligible" | "suggestion" | "invalid" | "stale" | "configuration_mismatch";
     freshnessExpiresAt: number | null;
     verificationClass: ContactObservation["verificationClass"];
   }> [];
@@ -78,6 +78,7 @@ export function projectContactEligibility(value: {
   if (!points.length) reasonCodes.push("no_contact_evidence");
   if (projected.some((point) => point.state === "stale")) reasonCodes.push("contact_evidence_stale");
   if (projected.some((point) => point.state === "invalid")) reasonCodes.push("contact_evidence_invalid");
+  if (projected.some((point) => point.state === "configuration_mismatch")) reasonCodes.push("contact_configuration_mismatch");
   if (projected.length > 0 && projected.every((point) => point.state === "suggestion")) reasonCodes.push("verification_class_ineligible");
 
   const hasEligible = projected.some((point) => point.state === "eligible");
@@ -86,7 +87,7 @@ export function projectContactEligibility(value: {
   const state: ContactEligibilityState = suppressed
     ? "NonContactable"
     : hasEligible && !blockedForReview ? "ContactReady"
-    : hasEligible || projected.some((point) => point.state === "stale" || point.state === "invalid") || authority.drifted || authority.disqualified
+    : hasEligible || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
       ? "NeedsReview"
       : "ContactSuggestion";
   return freeze({ state, eligible: state === "ContactReady", reasonCodes: uniqueSorted(reasonCodes), points: projected });
@@ -114,13 +115,16 @@ function blockedRecheck(boundary: DownstreamBoundary, input: unknown): Downstrea
 function projectPoint(point: ContactObservation, strategy: Freshness | null, now: number) {
   const eligibleClass = point.verificationClass === "mailbox_verified" || point.verificationClass === "source_verified";
   if (!eligibleClass) return freeze({ observationId: point.id, state: point.verificationClass === "invalid" ? "invalid" as const : "suggestion" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
+  if (strategy && (point.profileConfigurationId !== strategy.configurationId || point.profileConfigurationDigest !== strategy.configurationDigest)) {
+    return freeze({ observationId: point.id, state: "configuration_mismatch" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
+  }
   const maxAge = strategy ? freshnessFor(point, strategy) : null;
   if (maxAge === null || point.verifiedAt === null || point.verifiedAt > now) return freeze({ observationId: point.id, state: "invalid" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
   const freshnessExpiresAt = point.verifiedAt + maxAge;
   return freeze({ observationId: point.id, state: now >= freshnessExpiresAt ? "stale" as const : "eligible" as const, freshnessExpiresAt, verificationClass: point.verificationClass });
 }
 
-type Freshness = Required<Pick<ContactStrategy, "mailboxVerifiedEmailFreshnessMs" | "sourceVerifiedEmailFreshnessMs" | "verifiedBusinessPhoneFreshnessMs">>;
+type Freshness = Readonly<Pick<ContactStrategy, "configurationId" | "configurationDigest"> & Required<Pick<ContactStrategy, "mailboxVerifiedEmailFreshnessMs" | "sourceVerifiedEmailFreshnessMs" | "verifiedBusinessPhoneFreshnessMs">>>;
 function normalizeStrategy(value: unknown): Freshness | null {
   const strategy = record(value);
   if (!strategy || !opaque(strategy.configurationId) || typeof strategy.configurationDigest !== "string" || !DIGEST.test(strategy.configurationDigest)) return null;
@@ -128,7 +132,7 @@ function normalizeStrategy(value: unknown): Freshness | null {
   const sourceVerifiedEmailFreshnessMs = freshness(strategy.sourceVerifiedEmailFreshnessMs, DEFAULT_CONTACT_FRESHNESS_MS.sourceVerifiedEmail);
   const verifiedBusinessPhoneFreshnessMs = freshness(strategy.verifiedBusinessPhoneFreshnessMs, DEFAULT_CONTACT_FRESHNESS_MS.verifiedBusinessPhone);
   return mailboxVerifiedEmailFreshnessMs && sourceVerifiedEmailFreshnessMs && verifiedBusinessPhoneFreshnessMs
-    ? Object.freeze({ mailboxVerifiedEmailFreshnessMs, sourceVerifiedEmailFreshnessMs, verifiedBusinessPhoneFreshnessMs }) : null;
+    ? Object.freeze({ configurationId: strategy.configurationId as string, configurationDigest: strategy.configurationDigest, mailboxVerifiedEmailFreshnessMs, sourceVerifiedEmailFreshnessMs, verifiedBusinessPhoneFreshnessMs }) : null;
 }
 function freshnessFor(point: ContactObservation, strategy: Freshness) {
   if (point.verificationClass === "mailbox_verified" && point.kind === "email") return strategy.mailboxVerifiedEmailFreshnessMs;

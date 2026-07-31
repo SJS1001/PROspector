@@ -19,7 +19,7 @@ function envelope(patch = {}) {
     observedAt: NOW - 1_000, verifiedAt: NOW - 1_500, provider: "synthetic-fake", catalogVersion: "synthetic-v1", lineage: { parentObservationId: null }, ...patch,
   };
 }
-function strategy() { return { configurationId: assignment.profileConfigurationId, configurationDigest: DIGEST }; }
+function strategy(patch = {}) { return { configurationId: assignment.profileConfigurationId, configurationDigest: DIGEST, ...patch }; }
 function authority(patch = {}) { return { profileAvailable: true, configurationCurrent: true, phase4Approved: true, contactCapabilityEnabled: true, drifted: false, disqualified: false, suppressed: false, ...patch }; }
 
 test("P5 prep accepts only bounded assignment-bound evidence and canonicalizes synthetic business contact values", async () => {
@@ -98,6 +98,30 @@ test("P5 prep applies default 30/90/90 day freshness and current invalidations",
       assert.notEqual(result.state, "ContactReady", JSON.stringify(patch));
     }
     assert.equal(eligibility.projectContactEligibility({ points: [mailbox.observation], strategy: strategy(), now: NOW }).state, "NeedsReview", "production default is fail closed");
+  } finally { await vite.close(); }
+});
+
+test("P5 prep invalidates observations from a different current Contact Strategy with zero downstream effects", async () => {
+  const { vite, evidence, eligibility } = await modules();
+  try {
+    const accepted = evidence.ingestContactEvidence(assignment, envelope());
+    assert.equal(accepted.accepted, true);
+    const zeroEffects = { packageMutations: 0, exportMutations: 0, callInvocations: 0, sendInvocations: 0, suppressionMutations: 0 };
+    for (const currentStrategy of [strategy({ configurationId: "config-new" }), strategy({ configurationDigest: "c".repeat(64) })]) {
+      const input = { points: [accepted.observation], strategy: currentStrategy, authority: authority(), now: NOW };
+      const projection = eligibility.projectContactEligibility(input);
+      assert.equal(projection.state, "NeedsReview");
+      assert.equal(projection.eligible, false);
+      assert.equal(projection.points[0].state, "configuration_mismatch");
+      assert.ok(projection.reasonCodes.includes("contact_configuration_mismatch"));
+      for (const helper of [eligibility.recheckForPackageApproval, eligibility.recheckForCrmExport, eligibility.recheckForClickToCall, eligibility.recheckForFinalSend]) {
+        const recheck = helper(input);
+        assert.equal(recheck.blocked, true);
+        assert.equal(recheck.eligibility.state, "NeedsReview");
+        assert.deepEqual(recheck.effectsBefore, zeroEffects);
+        assert.deepEqual(recheck.effectsAfter, zeroEffects);
+      }
+    }
   } finally { await vite.close(); }
 });
 
