@@ -1,4 +1,4 @@
-import { deriveOperationKey, parseIssuedEnrichmentGrant, type EnrichmentBlockedReason, type EnrichmentGrant, type IssuanceSnapshot, type ProviderQuote } from "./enrichment-grant-issuance";
+import { canonicalDigest, deriveOperationKey, parseIssuedEnrichmentGrant, type EnrichmentBlockedReason, type EnrichmentGrant, type IssuanceSnapshot, type ProviderQuote } from "./enrichment-grant-issuance";
 import type { ContactEvidenceAssignment, ContactObservation } from "./contact-evidence";
 
 export type BudgetAccount = Readonly<{
@@ -39,6 +39,11 @@ export type SettlementWrite = Readonly<{
   reason: "completed" | "partial" | "rejected";
   observations: readonly ContactObservation[];
   settlementDigest: string;
+}>;
+export type EnrichmentSettlementObservationBinding = Readonly<{
+  observationId: string;
+  observationDigest: string;
+  verificationReceiptDigest: string | null;
 }>;
 export type DurableReservationAcknowledgement = Readonly<{
   kind: "durably_recorded";
@@ -242,9 +247,9 @@ export async function claimAdmittedCommittedInvocation(
     || (localAdmissionValid && !durableAdmission && !admission!.allowEquivalentClaim && !claimedInputIdentity)
     || !exactPlainData(claimed.assignment, expectedAssignment)
     || !positiveSafeInteger(claimed.claimedAt)
-    || claimed.claimedAt > now
+    || (!durableAdmission && claimed.claimedAt > now)
     || !positiveSafeInteger(expectedAssignment.expiresAt)
-    || expectedAssignment.expiresAt <= now
+    || (!durableAdmission && expectedAssignment.expiresAt <= now)
   ) {
     return Object.freeze({ kind: "invalid" });
   }
@@ -253,6 +258,78 @@ export async function claimAdmittedCommittedInvocation(
     assignment: expectedAssignment,
     claimedAt: claimed.claimedAt,
   });
+}
+
+/**
+ * Canonical settlement identity binds immutable evidence content, not merely
+ * provider-controlled observation IDs. The verification receipt digest omits
+ * grantId because reservationId already resolves one immutable grant in D1.
+ */
+export async function deriveEnrichmentSettlementIdentity(input: Readonly<{
+  reservationId: string;
+  terminalState: "settled" | "released";
+  terminalReason: "completed" | "partial" | "rejected";
+  documentedUnits: number;
+  documentedCostMinor: number;
+  observations: readonly ContactObservation[];
+}>): Promise<Readonly<{
+  settlementDigest: string;
+  observationBindings: readonly EnrichmentSettlementObservationBinding[];
+}>> {
+  const observationBindings = Object.freeze(await Promise.all(input.observations.map(async (observation) => {
+    const verification = observation.verificationAuthority;
+    const assignment = observation.assignmentContext;
+    const contactPointDigest = await canonicalDigest({
+      schema: "contact-point/v1",
+      kind: observation.kind,
+      normalizedValue: observation.normalizedValue,
+    });
+    const verificationReceiptDigest = verification && assignment
+      ? await canonicalDigest({
+          schema: "contact-verification-receipt/v1",
+          workspaceId: observation.workspaceId,
+          reservationId: input.reservationId,
+          assignmentId: assignment.assignmentId,
+          prospectId: assignment.prospectId,
+          role: assignment.role,
+          contactId: observation.contactId,
+          configurationId: observation.profileConfigurationId,
+          configurationDigest: observation.profileConfigurationDigest,
+          providerId: observation.providerId,
+          providerVersion: observation.providerVersion,
+          catalogRef: observation.catalogRef,
+          quoteRevision: assignment.quoteRevision,
+          verifierId: verification.verifierId,
+          verifierVersion: verification.verifierVersion,
+          requestDigest: verification.requestDigest,
+          verdictReference: verification.verdictReference,
+          verdictDigest: verification.verdictDigest,
+          observationId: observation.id,
+          kind: observation.kind,
+          contactPointDigest,
+          verificationClass: observation.verificationClass,
+          method: observation.method,
+          retrievedAt: observation.provenance.retrievedAt,
+          observedAt: observation.observedAt,
+          verifiedAt: observation.verifiedAt,
+          contentHash: observation.provenance.contentHash,
+        })
+      : null;
+    return Object.freeze({
+      observationId: observation.id,
+      observationDigest: await canonicalDigest({ schema: "contact-observation/v1", observation }),
+      verificationReceiptDigest,
+    });
+  })));
+  const settlementDigest = await canonicalDigest({
+    reservationId: input.reservationId,
+    terminalState: input.terminalState,
+    terminalReason: input.terminalReason,
+    documentedUnits: input.documentedUnits,
+    documentedCostMinor: input.documentedCostMinor,
+    observationBindings,
+  });
+  return Object.freeze({ settlementDigest, observationBindings });
 }
 
 function admitCommittedReservation(

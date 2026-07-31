@@ -10,9 +10,9 @@ import {
   type ContactObservation,
 } from "./contact-evidence";
 import { isContactProviderPortBoundTo } from "./contact-provider-port";
-import { canonicalDigest } from "./enrichment-grant-issuance";
 import {
   claimAdmittedCommittedInvocation,
+  deriveEnrichmentSettlementIdentity,
   type AssignedContactEvidence,
   type AuthorizedEnrichmentAssignment,
   type DurableReservationAcknowledgement,
@@ -56,11 +56,11 @@ export async function executeEnrichmentOperation(
   if (claim.kind === "invalid") return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
   let assignment: Readonly<AuthorizedEnrichmentAssignment>;
   try {
-    if (!positive(claim.claimedAt) || claim.claimedAt > inputSnapshot.now) {
+    if (!positive(claim.claimedAt)) {
       return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
     }
     const assignmentSnapshot = snapshotAssignment(claim.assignment);
-    if (!validAssignment(assignmentSnapshot, inputSnapshot.reservationId, inputSnapshot.now)) {
+    if (!validAssignment(assignmentSnapshot, inputSnapshot.reservationId, claim.claimedAt)) {
       return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
     }
     assignment = freezeAssignment(assignmentSnapshot);
@@ -84,13 +84,13 @@ export async function executeEnrichmentOperation(
   const observationIds = Object.freeze(observations.map((observation) => observation.id));
   let settlement: SettlementWrite;
   try {
-    const settlementDigest = await canonicalDigest({
+    const { settlementDigest } = await deriveEnrichmentSettlementIdentity({
       reservationId: inputSnapshot.reservationId,
       terminalState: state,
       terminalReason: outcome.kind,
       documentedUnits: outcome.documentedUnits,
       documentedCostMinor: outcome.documentedCostMinor,
-      observationIds,
+      observations,
     });
     settlement = Object.freeze({
       state,

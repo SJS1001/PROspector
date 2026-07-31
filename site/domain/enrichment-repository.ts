@@ -7,6 +7,7 @@ import {
 } from "./enrichment-grant-issuance";
 import {
   brandDurablyVerifiedInvocationClaim,
+  deriveEnrichmentSettlementIdentity,
   registerDurableEnrichmentAuthorityRepository,
   type BudgetAccount,
   type DurableReservationAcknowledgement,
@@ -19,6 +20,16 @@ import {
 } from "./enrichment-authority";
 import { isDefensivelyValidContactObservation, type ContactObservation } from "./contact-evidence";
 import {
+  isBoundContactSettlementAttestor,
+  type ContactSettlementAttestation,
+  type ContactSettlementAttestor,
+  type ContactSettlementReceiptBinding,
+} from "./contact-settlement-attestor";
+import {
+  buildContactSettlementAttestationMaterial,
+  verifyPersistedContactSettlement,
+} from "./contact-settlement-persistence";
+import {
   deriveRunnerMonthlyAccountId,
   deriveRunnerOperationKey,
   deriveRunnerPerRunAccountId,
@@ -29,10 +40,11 @@ import {
   type RunnerSpendReservation,
 } from "./runner-spend-authority";
 
-type RepositoryScope = Readonly<{
+export type RepositoryScope = Readonly<{
   workspaceId: string;
   ownerSubject: string;
   now?: () => number;
+  contactSettlementAttestor?: ContactSettlementAttestor;
 }>;
 
 export type D1EnrichmentRepository = IssuanceRepository & EnrichmentAuthorityRepository;
@@ -48,6 +60,28 @@ export type D1RunnerSpendRepository = RunnerSpendRepository & Readonly<{
   }>): Promise<Readonly<{ durableRevision: number; state: string; acknowledgementDigest: string }>>;
 }>;
 
+export type IssueRunnerSpendAuthorityInput = Readonly<{
+  providerId: string;
+  model: string;
+  catalogRef: string;
+  runType: string;
+  scopeId: string;
+  perRunCostMinor: number;
+  monthlyCostMinor: number;
+  currency: string;
+  maxRetries: number;
+  expiresAt: number;
+  expectedRevision: number;
+  idempotencyKey: string;
+}>;
+
+export type IssuedRunnerSpendAuthority = Readonly<{
+  grant: RunnerSpendGrant;
+  monthlyAccountId: string;
+  perRunAccountIds: readonly string[];
+  replayed: boolean;
+}>;
+
 type GrantRow = {
   id: string; workspace_id: string; idempotency_key: string; request_digest: string; status: "issued";
   provider_id: string; provider_version: string; catalog_ref: string; quote_revision: number; quote_unit_cost_minor: number;
@@ -58,6 +92,14 @@ type GrantRow = {
 
 type ProspectRow = {
   id: string; revision: number; state: string; configuration_id: string; configuration_digest: string;
+};
+
+type RunnerGrantRow = {
+  id: string; workspace_id: string; owner_subject: string; provider_id: string; model: string;
+  catalog_ref: string; run_type: string; scope_id: string; per_run_cost_minor: number;
+  monthly_cost_minor: number; currency: string; max_retries: number; source_revision: number;
+  idempotency_key: string; request_digest: string; grant_digest: string; authority_command_id: string;
+  audit_event_id: string; nonce: string; expires_at: number; created_at: number;
 };
 
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
@@ -205,6 +247,9 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
     async loadReservationAuthority(grantId) {
       const grant = await readGrantBy(database, scope.workspaceId, "id", grantId);
       if (!grant) return null;
+      const workspace = await database.prepare(
+        "SELECT revision FROM workspaces WHERE id = ? AND owner_subject = ? LIMIT 1",
+      ).bind(scope.workspaceId, scope.ownerSubject).first<{ revision: number }>();
       const config = await database.prepare(
         "SELECT id, digest, revision, active FROM typed_configurations WHERE id = ? AND workspace_id = ? LIMIT 1",
       ).bind(grant.tuple.configurationId, scope.workspaceId).first<{ id: string; digest: string; revision: number; active: number }>();
@@ -213,7 +258,7 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
          FROM provider_quotes WHERE workspace_id = ? AND provider_id = ? AND provider_version = ? AND catalog_ref = ? AND revision = ? LIMIT 1`,
       ).bind(scope.workspaceId, grant.tuple.providerId, grant.tuple.providerVersion, grant.tuple.catalogRef, grant.tuple.quoteRevision)
         .first<{ provider_id: string; provider_version: string; catalog_ref: string; revision: number; currency: string; unit_cost_minor: number; expires_at: number }>();
-      if (!config || !quote) return null;
+      if (!workspace || !config || !quote) return null;
       const prospects = (await database.prepare(
         `SELECT p.id, p.state, p.revision, gp.configuration_id, gp.configuration_digest
          FROM enrichment_grant_prospects gp JOIN profile_prospects p ON p.id = gp.prospect_id AND p.workspace_id = gp.workspace_id
@@ -246,7 +291,7 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
         profileConfigurationDigest: String(row.configuration_digest),
       }));
       return freeze({
-        admitted: true, principalSubject: scope.ownerSubject, workspaceId: scope.workspaceId, sourceRevision: grant.tuple.sourceRevision,
+        admitted: true, principalSubject: scope.ownerSubject, workspaceId: scope.workspaceId, sourceRevision: Number(workspace.revision),
         grant, configuration: { id: config.id, digest: config.digest, revision: Number(config.revision), current: Number(config.active) === 1 },
         prospects: prospects.map((row) => ({ id: row.id, state: row.state, configurationId: row.configuration_id, configurationDigest: row.configuration_digest, revision: Number(row.revision) })),
         quote: { providerId: quote.provider_id, providerVersion: quote.provider_version, catalogRef: quote.catalog_ref, revision: Number(quote.revision), currency: quote.currency, unitCostMinor: Number(quote.unit_cost_minor), expiresAt: Number(quote.expires_at) },
@@ -323,23 +368,24 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
 
     async claimCommittedInvocation(reservationId, now) {
       if (!validId(reservationId) || !Number.isSafeInteger(now) || now <= 0) return { kind: "blocked", reason: "unavailable" };
+      const trustedNow = positiveTime(clock());
       const record = await readReservation(database, scope.workspaceId, reservationId);
       if (!record) return { kind: "blocked", reason: "unavailable" };
-      if (record.assignment.expiresAt <= now) {
-        return await releaseExpiredReservation(database, scope.workspaceId, reservationId, now)
+      if (record.assignment.expiresAt <= trustedNow) {
+        return await releaseExpiredReservation(database, scope.workspaceId, reservationId, trustedNow)
           ? { kind: "blocked", reason: "expired" }
           : { kind: "blocked", reason: "unavailable" };
       }
       const latest = await latestReservationEvent(database, scope.workspaceId, reservationId);
       if (!latest || latest.state !== "reserved") return { kind: "blocked", reason: "unavailable" };
       const revision = latest.durable_revision + 1;
-      const acknowledgementDigest = await digest({ schema: "enrichment-reservation-event/v1", reservationId, durableRevision: revision, state: "invoking", claimedAt: now });
+      const acknowledgementDigest = await digest({ schema: "enrichment-reservation-event/v1", reservationId, durableRevision: revision, state: "invoking", claimedAt: trustedNow });
       try {
         const result = await database.prepare(
           `INSERT INTO enrichment_reservation_events
             (id, workspace_id, reservation_id, durable_revision, state, observation_ids_json, acknowledgement_digest, claimed_at, created_at)
            VALUES (?, ?, ?, ?, 'invoking', '[]', ?, ?, ?)`,
-        ).bind(`ere_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, reservationId, revision, acknowledgementDigest, now, now).run();
+        ).bind(`ere_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, reservationId, revision, acknowledgementDigest, trustedNow, trustedNow).run();
         if (Number(result.meta?.changes) !== 1) return { kind: "blocked", reason: "unavailable" };
       } catch {
         return { kind: "blocked", reason: "unavailable" };
@@ -349,11 +395,18 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
         !committedClaim || committedClaim.durable_revision !== revision || committedClaim.state !== "invoking"
         || !await validateEnrichmentEventAcknowledgement(reservationId, committedClaim)
       ) return { kind: "blocked", reason: "unavailable" };
-      return brandDurablyVerifiedInvocationClaim(repository, record.assignment, now);
+      return brandDurablyVerifiedInvocationClaim(repository, record.assignment, trustedNow);
     },
 
     async settleReservation(reservationId, settlement) {
-      return settleCommittedReservation(database, scope.workspaceId, reservationId, settlement, positiveTime(clock()));
+      return settleCommittedReservation(
+        database,
+        scope.workspaceId,
+        reservationId,
+        settlement,
+        positiveTime(clock()),
+        scope.contactSettlementAttestor,
+      );
     },
 
     async markNeedsReconciliation(reservationId, reason) {
@@ -374,17 +427,18 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
 
     async releaseExpiredReservations(input) {
       if (!Number.isSafeInteger(input.now) || input.now <= 0 || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) return [];
+      const trustedNow = positiveTime(clock());
       const rows = (await database.prepare(
         `SELECT r.id FROM enrichment_reservations r
          JOIN enrichment_reservation_events e ON e.reservation_id=r.id
           AND e.durable_revision=(SELECT max(e2.durable_revision) FROM enrichment_reservation_events e2 WHERE e2.reservation_id=r.id)
          WHERE r.workspace_id=? AND r.expires_at<=? AND e.state='reserved'
          ORDER BY r.expires_at,r.id LIMIT ?`,
-      ).bind(scope.workspaceId, input.now, input.limit).all<{ id: string }>()).results;
+      ).bind(scope.workspaceId, trustedNow, input.limit).all<{ id: string }>()).results;
       const released: string[] = [];
       for (const row of rows) {
         const record = await readReservation(database, scope.workspaceId, row.id);
-        if (record && await releaseExpiredReservation(database, scope.workspaceId, row.id, input.now)) released.push(row.id);
+        if (record && await releaseExpiredReservation(database, scope.workspaceId, row.id, trustedNow)) released.push(row.id);
       }
       return Object.freeze(released);
     },
@@ -399,13 +453,9 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
   const repository: D1RunnerSpendRepository = {
     async loadRunnerAuthority(grantId) {
       if (!validId(grantId)) return null;
-      const row = await database.prepare(
-        `SELECT id,owner_subject,provider_id,model,catalog_ref,run_type,scope_id,per_run_cost_minor,
-          monthly_cost_minor,currency,expires_at,max_retries
-         FROM runner_spend_grants WHERE id=? AND workspace_id=? AND owner_subject=? LIMIT 1`,
-      ).bind(grantId, scope.workspaceId, scope.ownerSubject).first<Record<string, unknown>>();
-      if (!row) return null;
-      const grant = runnerGrantFromRow(row);
+      const validatedGrant = await readValidatedRunnerGrant(database, scope.workspaceId, scope.ownerSubject, grantId);
+      if (!validatedGrant) return null;
+      const { grant } = validatedGrant;
       const history = (await database.prepare(
         `SELECT r.attempt_number,r.operation_key,e.state
          FROM runner_spend_reservations r
@@ -434,7 +484,11 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
         database.prepare("SELECT * FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1").bind(perRunId, scope.workspaceId).first<Record<string, unknown>>(),
         database.prepare("SELECT * FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1").bind(monthlyId, scope.workspaceId).first<Record<string, unknown>>(),
       ]);
-      if (!perRunRow || !monthlyRow) return null;
+      if (
+        !perRunRow || !monthlyRow
+        || !await validateRunnerAccount(database, perRunRow, scope.workspaceId, scope.ownerSubject)
+        || !await validateRunnerAccount(database, monthlyRow, scope.workspaceId, scope.ownerSubject)
+      ) return null;
       const common = (account: Record<string, unknown>) => ({
         authorityType: "runner_spend" as const, accountId: String(account.id), principalSubject: String(account.owner_subject),
         providerId: String(account.provider_id), scopeId: String(account.scope_id), currency: String(account.currency),
@@ -459,12 +513,13 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
           : { kind: "blocked" };
       }
       const grantRow = await database.prepare(
-        `SELECT id,owner_subject,provider_id,model,catalog_ref,run_type,scope_id,per_run_cost_minor,
-          monthly_cost_minor,currency,expires_at,max_retries
-         FROM runner_spend_grants WHERE id=? AND workspace_id=? AND owner_subject=? LIMIT 1`,
-      ).bind(record.grantId, scope.workspaceId, scope.ownerSubject).first<Record<string, unknown>>();
-      if (!grantRow || accounts.length !== 2) return { kind: "blocked" };
-      const grant = runnerGrantFromRow(grantRow);
+        "SELECT id FROM runner_spend_grants WHERE id=? AND workspace_id=? AND owner_subject=? LIMIT 1",
+      ).bind(record.grantId, scope.workspaceId, scope.ownerSubject).first<{ id: string }>();
+      const validatedGrant = grantRow
+        ? await readValidatedRunnerGrant(database, scope.workspaceId, scope.ownerSubject, grantRow.id)
+        : null;
+      if (!validatedGrant || accounts.length !== 2) return { kind: "blocked" };
+      const grant = validatedGrant.grant;
       const expectedOperationKey = await deriveRunnerOperationKey({ workspaceId: scope.workspaceId, principalSubject: scope.ownerSubject, grant, attempt });
       const expectedAttemptDigest = await digestStable(attempt);
       const expectedId = `rr_${await digestLengthPrefixed(record.workspaceId, record.grantId, record.operationKey, String(record.attemptNumber))}`;
@@ -534,6 +589,8 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
     },
 
     async markRunnerAssigned(reservationId, now) {
+      if (!positiveSafe(now)) return false;
+      const trustedNow = positiveTime(clock());
       const latest = await latestRunnerEvent(database, scope.workspaceId, reservationId);
       const timing = await database.prepare(
         `SELECT r.created_at,g.expires_at FROM runner_spend_reservations r
@@ -541,8 +598,8 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
          WHERE r.id=? AND r.workspace_id=? LIMIT 1`,
       ).bind(reservationId, scope.workspaceId).first<{ created_at: number; expires_at: number }>();
       if (
-        !latest || latest.state !== "reserved" || !positiveSafe(now) || !timing
-        || now < Number(timing.created_at) || now < Number(latest.created_at) || now >= Number(timing.expires_at)
+        !latest || latest.state !== "reserved" || !timing
+        || trustedNow < Number(timing.created_at) || trustedNow < Number(latest.created_at) || trustedNow >= Number(timing.expires_at)
       ) return false;
       const revision = Number(latest.durable_revision) + 1;
       const acknowledgementDigest = await digest({ schema: "runner-reservation-event/v1", reservationId, durableRevision: revision, state: "assigned" });
@@ -551,7 +608,7 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
           `INSERT INTO runner_spend_reservation_events
             (id,workspace_id,reservation_id,durable_revision,state,terminal_reason,settlement_digest,documented_cost_minor,acknowledgement_digest,created_at)
            VALUES (?, ?, ?, ?, 'assigned', NULL, NULL, NULL, ?, ?)`,
-        ).bind(`rre_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, reservationId, revision, acknowledgementDigest, now).run();
+        ).bind(`rre_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, reservationId, revision, acknowledgementDigest, trustedNow).run();
         if (Number(result.meta?.changes) < 1) return false;
       } catch {
         return false;
@@ -564,6 +621,7 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
 
     async recordRunnerOutcome(input) {
       if (!validRunnerOutcomeInput(input)) throw new Error("invalid_runner_outcome");
+      const trustedNow = positiveTime(clock());
       const latest = await latestRunnerEvent(database, scope.workspaceId, input.reservationId);
       if (!latest) throw new Error("runner_outcome_unavailable");
       if (latest.state === input.state) {
@@ -578,8 +636,8 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
       ).bind(input.reservationId, scope.workspaceId).first<{ created_at: number; expires_at: number }>();
       if (
         (latest.state !== "assigned" && latest.state !== "needs_reconciliation")
-        || !timing || input.now < Number(timing.created_at) || input.now < Number(latest.created_at)
-        || (input.state === "released" && input.terminalReason === "expired" && input.now < Number(timing.expires_at))
+        || !timing || trustedNow < Number(timing.created_at) || trustedNow < Number(latest.created_at)
+        || (input.state === "released" && input.terminalReason === "expired" && trustedNow < Number(timing.expires_at))
       ) throw new Error("runner_outcome_unavailable");
       const revision = Number(latest.durable_revision) + 1;
       const acknowledgementDigest = await digest({
@@ -594,7 +652,7 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
            VALUES (?,?,?,?,?,?,?,?,?,?)`,
         ).bind(
           `rre_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, input.reservationId, revision, input.state,
-          input.terminalReason, input.settlementDigest, input.documentedCostMinor, acknowledgementDigest, input.now,
+          input.terminalReason, input.settlementDigest, input.documentedCostMinor, acknowledgementDigest, trustedNow,
         ).run();
         if (Number(result.meta?.changes) < 1) throw new Error();
       } catch {
@@ -612,6 +670,228 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
     },
   };
   return Object.freeze(repository);
+}
+
+/**
+ * Persists the owner command, audit evidence, grant, and zeroed runner-only
+ * accounts as one D1 batch. This is local infrastructure; it never invokes a
+ * provider and accepts no caller-supplied grant, command, audit, or account IDs.
+ */
+export async function issueD1RunnerSpendAuthority(
+  database: D1Database,
+  scope: RepositoryScope,
+  input: IssueRunnerSpendAuthorityInput,
+): Promise<IssuedRunnerSpendAuthority> {
+  if (!validId(scope.workspaceId) || !validId(scope.ownerSubject)) throw new TypeError("invalid_runner_repository_scope");
+  const clock = scope.now ?? Date.now;
+  const now = positiveTime(clock());
+  if (!validRunnerIssuanceInput(input, now)) throw new TypeError("invalid_runner_issuance");
+  const workspace = await database.prepare(
+    "SELECT revision FROM workspaces WHERE id=? AND owner_subject=? LIMIT 1",
+  ).bind(scope.workspaceId, scope.ownerSubject).first<{ revision: number }>();
+  if (!workspace || Number(workspace.revision) !== input.expectedRevision) throw new Error("runner_issuance_revision_conflict");
+
+  const requestMaterial = {
+    schema: "runner-spend-request/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    providerId: input.providerId,
+    model: input.model,
+    catalogRef: input.catalogRef,
+    runType: input.runType,
+    scopeId: input.scopeId,
+    perRunCostMinor: input.perRunCostMinor,
+    monthlyCostMinor: input.monthlyCostMinor,
+    currency: input.currency,
+    maxRetries: input.maxRetries,
+    expiresAt: input.expiresAt,
+    sourceRevision: input.expectedRevision,
+    idempotencyKey: input.idempotencyKey,
+  };
+  const requestDigest = await digest(requestMaterial);
+  const prior = await database.prepare(
+    "SELECT id,request_digest FROM runner_spend_grants WHERE workspace_id=? AND idempotency_key=? LIMIT 1",
+  ).bind(scope.workspaceId, input.idempotencyKey).first<{ id: string; request_digest: string }>();
+  if (prior) {
+    if (prior.request_digest !== requestDigest) throw new Error("runner_issuance_idempotency_conflict");
+    const replay = await readIssuedRunnerSpendAuthority(database, scope, prior.id, now);
+    if (!replay) throw new Error("runner_issuance_replay_invalid");
+    return freeze({ ...replay, replayed: true });
+  }
+
+  const authorityCommandId = `rac_${requestDigest.slice(0, 24)}`;
+  const auditEventId = `rae_${(await digest({
+    schema: "runner-spend-audit-id/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    requestDigest,
+  })).slice(0, 24)}`;
+  const nonce = await digest({ schema: "runner-spend-nonce/v1", requestDigest });
+  const grantDigest = await digest({
+    schema: "runner-spend-grant/v1",
+    ...requestMaterial,
+    nonce,
+    requestDigest,
+    authorityCommandId,
+    auditEventId,
+  });
+  const grantId = `rsg_${grantDigest.slice(0, 24)}`;
+  const grant: RunnerSpendGrant = freeze({
+    authorityType: "runner_spend",
+    id: grantId,
+    providerId: input.providerId,
+    model: input.model,
+    catalogRef: input.catalogRef,
+    runType: input.runType,
+    scopeId: input.scopeId,
+    perRunCostMinor: input.perRunCostMinor,
+    monthlyCostMinor: input.monthlyCostMinor,
+    currency: input.currency,
+    expiresAt: input.expiresAt,
+    maxRetries: input.maxRetries,
+  });
+  const period = deriveRunnerUtcMonthPeriod(now);
+  if (!period) throw new TypeError("invalid_runner_issuance");
+  const monthlyAccountId = deriveRunnerMonthlyAccountId({
+    workspaceId: scope.workspaceId,
+    principalSubject: scope.ownerSubject,
+    providerId: grant.providerId,
+    scopeId: grant.scopeId,
+    period,
+  });
+  const existingMonthly = await database.prepare(
+    "SELECT * FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1",
+  ).bind(monthlyAccountId, scope.workspaceId).first<Record<string, unknown>>();
+  if (existingMonthly && !await validateRunnerAccount(database, existingMonthly, scope.workspaceId, scope.ownerSubject)) {
+    throw new Error("runner_monthly_account_invalid");
+  }
+  const accountRows: Array<Readonly<{
+    id: string;
+    scope: "runner_monthly" | "runner_per_run";
+    period: string | null;
+    attemptNumber: number | null;
+    operationKey: string | null;
+    maxCostMinor: number;
+  }>> = [];
+  if (!existingMonthly) {
+    accountRows.push({
+      id: monthlyAccountId,
+      scope: "runner_monthly",
+      period,
+      attemptNumber: null,
+      operationKey: null,
+      maxCostMinor: input.monthlyCostMinor,
+    });
+  }
+  const perRunAccountIds: string[] = [];
+  const previousOperationKeys: string[] = [];
+  for (let attemptNumber = 0; attemptNumber <= grant.maxRetries; attemptNumber += 1) {
+    const attempt: RunnerAttemptState = freeze({
+      attemptNumber,
+      previousOutcome: attemptNumber === 0 ? "none" : "failed_retryable",
+      previousOperationKeys: [...previousOperationKeys],
+    });
+    const operationKey = await deriveRunnerOperationKey({
+      workspaceId: scope.workspaceId,
+      principalSubject: scope.ownerSubject,
+      grant,
+      attempt,
+    });
+    previousOperationKeys.push(operationKey);
+    const accountId = deriveRunnerPerRunAccountId({
+      workspaceId: scope.workspaceId,
+      principalSubject: scope.ownerSubject,
+      grantId,
+      providerId: grant.providerId,
+      scopeId: grant.scopeId,
+      attemptNumber,
+      operationKey,
+    });
+    perRunAccountIds.push(accountId);
+    accountRows.push({
+      id: accountId,
+      scope: "runner_per_run",
+      period: null,
+      attemptNumber,
+      operationKey,
+      maxCostMinor: grant.perRunCostMinor,
+    });
+  }
+  const statements = [
+    database.prepare(
+      `INSERT INTO authority_commands
+        (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,
+         expected_revision,subject_type,subject_id,status)
+       VALUES (?,?,?,?,1,'runner_spend.grant.issue',?,?,?,'runner_spend_grant',?,'accepted')`,
+    ).bind(
+      authorityCommandId, scope.workspaceId, now, now, input.idempotencyKey,
+      requestDigest, input.expectedRevision, grantId,
+    ),
+    database.prepare(
+      `INSERT INTO audit_events
+        (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at)
+       VALUES (?,?,'owner',?,'runner_spend.grant.issued','runner_spend_grant',?,?,?)`,
+    ).bind(
+      auditEventId, scope.workspaceId, scope.ownerSubject, grantId,
+      canonical({ requestDigest, grantDigest, sourceRevision: input.expectedRevision }),
+      now,
+    ),
+    database.prepare(
+      `INSERT INTO runner_spend_grants
+        (id,workspace_id,owner_subject,provider_id,model,catalog_ref,run_type,scope_id,
+         per_run_cost_minor,monthly_cost_minor,currency,max_retries,source_revision,idempotency_key,
+         request_digest,grant_digest,authority_command_id,audit_event_id,nonce,expires_at,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).bind(
+      grantId, scope.workspaceId, scope.ownerSubject, grant.providerId, grant.model, grant.catalogRef,
+      grant.runType, grant.scopeId, grant.perRunCostMinor, grant.monthlyCostMinor, grant.currency,
+      grant.maxRetries, input.expectedRevision, input.idempotencyKey, requestDigest, grantDigest,
+      authorityCommandId, auditEventId, nonce, grant.expiresAt, now,
+    ),
+  ];
+  for (const account of accountRows) {
+    const accountDigest = await digest({
+      schema: "runner-budget-account/v1",
+      id: account.id,
+      workspaceId: scope.workspaceId,
+      scope: account.scope,
+      ownerSubject: scope.ownerSubject,
+      providerId: grant.providerId,
+      scopeId: grant.scopeId,
+      period: account.period,
+      attemptNumber: account.attemptNumber,
+      operationKey: account.operationKey,
+      currency: grant.currency,
+      maxCostMinor: account.maxCostMinor,
+      createdByGrantId: grantId,
+      authorityCommandId,
+      auditEventId,
+      createdAt: now,
+    });
+    statements.push(database.prepare(
+      `INSERT INTO runner_budget_accounts
+        (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,
+         currency,actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_by_grant_id,
+         authority_command_id,audit_event_id,account_digest,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,0,0,?,1,?,?,?,?,?,?)`,
+    ).bind(
+      account.id, scope.workspaceId, account.scope, scope.ownerSubject, grant.providerId, grant.scopeId,
+      account.period, account.attemptNumber, account.operationKey, grant.currency, account.maxCostMinor,
+      grantId, authorityCommandId, auditEventId, accountDigest, now, now,
+    ));
+  }
+  try {
+    const results = await database.batch(statements);
+    if (!results.every((result) => Number(result.meta?.changes) >= 1)) throw new Error("runner_issuance_not_committed");
+  } catch (error) {
+    const winner = await database.prepare(
+      "SELECT id,request_digest FROM runner_spend_grants WHERE workspace_id=? AND idempotency_key=? LIMIT 1",
+    ).bind(scope.workspaceId, input.idempotencyKey).first<{ id: string; request_digest: string }>();
+    if (!winner || winner.request_digest !== requestDigest) throw error;
+  }
+  const issued = await readIssuedRunnerSpendAuthority(database, scope, grantId, now);
+  if (!issued) throw new Error("runner_issuance_invalid");
+  return freeze({ ...issued, replayed: false });
 }
 
 async function readGrantBy(database: D1Database, workspaceId: string, column: "id" | "idempotency_key", value: string): Promise<EnrichmentGrant | null> {
@@ -636,13 +916,193 @@ async function readGrantBy(database: D1Database, workspaceId: string, column: "i
   return parseIssuedEnrichmentGrant(candidate);
 }
 
-function runnerGrantFromRow(row: Record<string, unknown>): RunnerSpendGrant {
-  return freeze({
-    authorityType: "runner_spend", id: String(row.id), providerId: String(row.provider_id), model: String(row.model),
-    catalogRef: String(row.catalog_ref), runType: String(row.run_type), scopeId: String(row.scope_id),
+async function readValidatedRunnerGrant(
+  database: D1Database,
+  workspaceId: string,
+  ownerSubject: string,
+  grantId: string,
+  requireCurrentRevision = true,
+): Promise<Readonly<{ grant: RunnerSpendGrant; row: RunnerGrantRow }> | null> {
+  const row = await database.prepare(
+    `SELECT g.*
+     FROM runner_spend_grants g
+     JOIN workspaces w ON w.id=g.workspace_id AND w.owner_subject=g.owner_subject
+     JOIN authority_commands command ON command.id=g.authority_command_id AND command.workspace_id=g.workspace_id
+       AND command.command_type='runner_spend.grant.issue' AND command.status='accepted'
+       AND command.subject_type='runner_spend_grant' AND command.subject_id=g.id
+       AND command.operation_digest=g.request_digest AND command.expected_revision=g.source_revision
+     JOIN audit_events audit ON audit.id=g.audit_event_id AND audit.workspace_id=g.workspace_id
+       AND audit.actor_type='owner' AND audit.actor_id=g.owner_subject
+       AND audit.action='runner_spend.grant.issued' AND audit.subject_type='runner_spend_grant' AND audit.subject_id=g.id
+     WHERE g.id=? AND g.workspace_id=? AND g.owner_subject=?
+       AND (?=0 OR w.revision=g.source_revision)
+     LIMIT 1`,
+  ).bind(grantId, workspaceId, ownerSubject, requireCurrentRevision ? 1 : 0).first<RunnerGrantRow>();
+  if (!row) return null;
+  const grant: RunnerSpendGrant = freeze({
+    authorityType: "runner_spend", id: row.id, providerId: row.provider_id, model: row.model,
+    catalogRef: row.catalog_ref, runType: row.run_type, scopeId: row.scope_id,
     perRunCostMinor: Number(row.per_run_cost_minor), monthlyCostMinor: Number(row.monthly_cost_minor),
-    currency: String(row.currency), expiresAt: Number(row.expires_at), maxRetries: Number(row.max_retries),
+    currency: row.currency, expiresAt: Number(row.expires_at), maxRetries: Number(row.max_retries),
   });
+  if (
+    !validId(row.id) || !validId(row.provider_id) || !validId(row.model) || !validId(row.catalog_ref)
+    || !validId(row.run_type) || !validId(row.scope_id) || !validId(row.idempotency_key)
+    || !validId(row.authority_command_id) || !validId(row.audit_event_id) || !validId(row.nonce)
+    || !positiveSafe(Number(row.source_revision)) || !positiveSafe(Number(row.created_at))
+    || !positiveSafe(Number(row.expires_at)) || Number(row.expires_at) <= Number(row.created_at)
+    || !positiveOrZeroSafe(Number(row.per_run_cost_minor))
+    || !positiveOrZeroSafe(Number(row.monthly_cost_minor))
+    || Number(row.monthly_cost_minor) < Number(row.per_run_cost_minor)
+    || !Number.isSafeInteger(Number(row.max_retries)) || Number(row.max_retries) < 0 || Number(row.max_retries) > 10
+    || !/^[A-Z]{3}$/u.test(row.currency)
+  ) return null;
+  const requestMaterial = {
+    schema: "runner-spend-request/v1",
+    workspaceId, ownerSubject, providerId: grant.providerId, model: grant.model,
+    catalogRef: grant.catalogRef, runType: grant.runType, scopeId: grant.scopeId,
+    perRunCostMinor: grant.perRunCostMinor, monthlyCostMinor: grant.monthlyCostMinor,
+    currency: grant.currency, maxRetries: grant.maxRetries, expiresAt: grant.expiresAt,
+    sourceRevision: Number(row.source_revision), idempotencyKey: row.idempotency_key,
+  };
+  const requestDigest = await digest(requestMaterial);
+  const grantDigest = await digest({
+    schema: "runner-spend-grant/v1", ...requestMaterial, nonce: row.nonce, requestDigest,
+    authorityCommandId: row.authority_command_id, auditEventId: row.audit_event_id,
+  });
+  if (
+    row.request_digest !== requestDigest || row.grant_digest !== grantDigest
+    || row.id !== `rsg_${grantDigest.slice(0, 24)}`
+  ) return null;
+  return freeze({ grant, row });
+}
+
+function validRunnerIssuanceInput(input: IssueRunnerSpendAuthorityInput, now: number): boolean {
+  return validId(input.providerId)
+    && validId(input.model)
+    && validId(input.catalogRef)
+    && validId(input.runType)
+    && validId(input.scopeId)
+    && validId(input.idempotencyKey)
+    && positiveOrZeroSafe(input.perRunCostMinor)
+    && positiveOrZeroSafe(input.monthlyCostMinor)
+    && input.monthlyCostMinor >= input.perRunCostMinor
+    && /^[A-Z]{3}$/u.test(input.currency)
+    && Number.isSafeInteger(input.maxRetries)
+    && input.maxRetries >= 0
+    && input.maxRetries <= 3
+    && positiveSafe(input.expectedRevision)
+    && positiveSafe(input.expiresAt)
+    && input.expiresAt > now;
+}
+
+async function readIssuedRunnerSpendAuthority(
+  database: D1Database,
+  scope: RepositoryScope,
+  grantId: string,
+  now: number,
+): Promise<Omit<IssuedRunnerSpendAuthority, "replayed"> | null> {
+  const validated = await readValidatedRunnerGrant(database, scope.workspaceId, scope.ownerSubject, grantId);
+  if (!validated) return null;
+  const period = deriveRunnerUtcMonthPeriod(now);
+  if (!period) return null;
+  const monthlyAccountId = deriveRunnerMonthlyAccountId({
+    workspaceId: scope.workspaceId,
+    principalSubject: scope.ownerSubject,
+    providerId: validated.grant.providerId,
+    scopeId: validated.grant.scopeId,
+    period,
+  });
+  const monthlyRow = await database.prepare(
+    "SELECT * FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1",
+  ).bind(monthlyAccountId, scope.workspaceId).first<Record<string, unknown>>();
+  if (!monthlyRow || !await validateRunnerAccount(database, monthlyRow, scope.workspaceId, scope.ownerSubject)) return null;
+  const perRunAccountIds: string[] = [];
+  const previousOperationKeys: string[] = [];
+  for (let attemptNumber = 0; attemptNumber <= validated.grant.maxRetries; attemptNumber += 1) {
+    const attempt: RunnerAttemptState = freeze({
+      attemptNumber,
+      previousOutcome: attemptNumber === 0 ? "none" : "failed_retryable",
+      previousOperationKeys: [...previousOperationKeys],
+    });
+    const operationKey = await deriveRunnerOperationKey({
+      workspaceId: scope.workspaceId,
+      principalSubject: scope.ownerSubject,
+      grant: validated.grant,
+      attempt,
+    });
+    previousOperationKeys.push(operationKey);
+    const accountId = deriveRunnerPerRunAccountId({
+      workspaceId: scope.workspaceId,
+      principalSubject: scope.ownerSubject,
+      grantId,
+      providerId: validated.grant.providerId,
+      scopeId: validated.grant.scopeId,
+      attemptNumber,
+      operationKey,
+    });
+    const row = await database.prepare(
+      "SELECT * FROM runner_budget_accounts WHERE id=? AND workspace_id=? LIMIT 1",
+    ).bind(accountId, scope.workspaceId).first<Record<string, unknown>>();
+    if (!row || !await validateRunnerAccount(database, row, scope.workspaceId, scope.ownerSubject)) return null;
+    perRunAccountIds.push(accountId);
+  }
+  return freeze({
+    grant: validated.grant,
+    monthlyAccountId,
+    perRunAccountIds: Object.freeze(perRunAccountIds),
+  });
+}
+
+async function validateRunnerAccount(
+  database: D1Database,
+  row: Record<string, unknown>,
+  workspaceId: string,
+  ownerSubject: string,
+): Promise<boolean> {
+  const createdByGrantId = String(row.created_by_grant_id ?? "");
+  const creator = await readValidatedRunnerGrant(database, workspaceId, ownerSubject, createdByGrantId, false);
+  if (!creator) return false;
+  const scope = row.scope;
+  const period = row.period === null ? null : String(row.period);
+  const attemptNumber = row.attempt_number === null ? null : Number(row.attempt_number);
+  const operationKey = row.operation_key === null ? null : String(row.operation_key);
+  const maxCostMinor = Number(row.max_cost_minor);
+  const createdAt = Number(row.created_at);
+  const accountId = String(row.id ?? "");
+  if (
+    row.workspace_id !== workspaceId || row.owner_subject !== ownerSubject
+    || row.provider_id !== creator.grant.providerId || row.scope_id !== creator.grant.scopeId
+    || row.currency !== creator.grant.currency
+    || row.authority_command_id !== creator.row.authority_command_id
+    || row.audit_event_id !== creator.row.audit_event_id
+    || !positiveOrZeroSafe(maxCostMinor) || !positiveSafe(createdAt)
+  ) return false;
+  const expectedId = scope === "runner_monthly" && period
+    ? deriveRunnerMonthlyAccountId({
+        workspaceId, principalSubject: ownerSubject, providerId: creator.grant.providerId,
+        scopeId: creator.grant.scopeId, period,
+      })
+    : scope === "runner_per_run" && attemptNumber !== null && operationKey
+      ? deriveRunnerPerRunAccountId({
+          workspaceId, principalSubject: ownerSubject, grantId: createdByGrantId,
+          providerId: creator.grant.providerId, scopeId: creator.grant.scopeId,
+          attemptNumber, operationKey,
+        })
+      : null;
+  if (
+    !expectedId || accountId !== expectedId
+    || (scope === "runner_monthly" && maxCostMinor > creator.grant.monthlyCostMinor)
+    || (scope === "runner_per_run" && maxCostMinor !== creator.grant.perRunCostMinor)
+  ) return false;
+  const accountDigest = await digest({
+    schema: "runner-budget-account/v1", id: accountId, workspaceId, scope,
+    ownerSubject, providerId: creator.grant.providerId, scopeId: creator.grant.scopeId,
+    period, attemptNumber, operationKey, currency: creator.grant.currency, maxCostMinor,
+    createdByGrantId, authorityCommandId: creator.row.authority_command_id,
+    auditEventId: creator.row.audit_event_id, createdAt,
+  });
+  return row.account_digest === accountDigest;
 }
 
 async function readExactRunnerHistory(database: D1Database, workspaceId: string, grantId: string): Promise<string[]> {
@@ -941,8 +1401,24 @@ async function settleCommittedReservation(
   reservationId: string,
   settlement: SettlementWrite,
   now: number,
+  contactSettlementAttestor: ContactSettlementAttestor | undefined,
 ): Promise<DurableReservationAcknowledgement> {
   if (!validId(reservationId) || !validSettlement(settlement, workspaceId)) throw new Error("invalid_enrichment_settlement");
+  if (settlement.observations.some((observation) =>
+    !isDefensivelyValidContactObservation(observation) || observation.workspaceId !== workspaceId
+  )) throw new Error("invalid_enrichment_observation");
+  const settlementIdentity = await deriveEnrichmentSettlementIdentity({
+    reservationId,
+    terminalState: settlement.state,
+    terminalReason: settlement.reason,
+    documentedUnits: settlement.documentedUnits,
+    documentedCostMinor: settlement.documentedCostMinor,
+    observations: settlement.observations,
+  });
+  if (settlement.settlementDigest !== settlementIdentity.settlementDigest) throw new Error("invalid_enrichment_settlement");
+  const settlementBindings = new Map(
+    settlementIdentity.observationBindings.map((binding) => [binding.observationId, binding] as const),
+  );
   const reservation = await database.prepare(
     "SELECT id, grant_id, reserved_units, reserved_cost_minor FROM enrichment_reservations WHERE id = ? AND workspace_id = ? LIMIT 1",
   ).bind(reservationId, workspaceId).first<{ id: string; grant_id: string; reserved_units: number; reserved_cost_minor: number }>();
@@ -955,6 +1431,9 @@ async function settleCommittedReservation(
   }
   const latest = await latestReservationEvent(database, workspaceId, reservationId);
   if (!latest) throw new Error("enrichment_settlement_unavailable");
+  const requiresContactAttestation = settlement.observations.some((observation) =>
+    observation.verificationClass === "mailbox_verified" || observation.verificationClass === "source_verified"
+  );
   if (latest.state === "settled" || latest.state === "released") {
     const observationIds = parseIdList(latest.observation_ids_json);
     if (
@@ -965,6 +1444,12 @@ async function settleCommittedReservation(
       || Number(latest.documented_cost_minor) !== settlement.documentedCostMinor
       || canonical(observationIds) !== canonical(settlement.observations.map((observation) => observation.id))
       || !await validateEnrichmentEventAcknowledgement(reservationId, latest)
+      || (requiresContactAttestation && !await verifyPersistedContactSettlement(
+        database,
+        contactSettlementAttestor,
+        workspaceId,
+        reservationId,
+      ))
     ) throw new Error("enrichment_settlement_conflict");
     return freeze({
       kind: "durably_recorded", reservationId, terminalState: latest.state, terminalReason: settlement.reason,
@@ -972,9 +1457,68 @@ async function settleCommittedReservation(
     });
   }
   if (latest.state !== "invoking" && latest.state !== "needs_reconciliation") throw new Error("enrichment_settlement_unavailable");
+  const durableRevision = Number(latest.durable_revision) + 1;
+  const observationIds = settlement.observations.map((observation) => observation.id);
+  const acknowledgementDigest = await digest({
+    schema: "enrichment-reservation-event/v1", reservationId, durableRevision, state: settlement.state,
+    reason: settlement.reason, settlementDigest: settlement.settlementDigest,
+    documentedUnits: settlement.documentedUnits, documentedCostMinor: settlement.documentedCostMinor, observationIds,
+  });
+  const strongReceiptBindings: ContactSettlementReceiptBinding[] = [];
+  for (const observation of settlement.observations) {
+    if (observation.verificationClass !== "mailbox_verified" && observation.verificationClass !== "source_verified") continue;
+    const assignmentContext = observation.assignmentContext;
+    const verification = observation.verificationAuthority;
+    const binding = settlementBindings.get(observation.id);
+    if (
+      !assignmentContext || !verification || !binding?.verificationReceiptDigest
+      || !observation.providerId || !observation.providerVersion || !observation.catalogRef
+    ) throw new Error("enrichment_observation_receipt_unavailable");
+    strongReceiptBindings.push({
+      assignmentId: assignmentContext.assignmentId,
+      prospectId: assignmentContext.prospectId,
+      contactId: observation.contactId,
+      role: assignmentContext.role,
+      configurationId: observation.profileConfigurationId,
+      configurationDigest: observation.profileConfigurationDigest,
+      providerId: observation.providerId,
+      providerVersion: observation.providerVersion,
+      catalogRef: observation.catalogRef,
+      quoteRevision: assignmentContext.quoteRevision,
+      verifierId: verification.verifierId,
+      verifierVersion: verification.verifierVersion,
+      requestDigest: verification.requestDigest,
+      verdictReference: verification.verdictReference,
+      verdictDigest: verification.verdictDigest,
+      observationId: observation.id,
+      observationDigest: binding.observationDigest,
+      receiptDigest: binding.verificationReceiptDigest,
+      kind: observation.kind,
+      verificationClass: observation.verificationClass,
+      method: observation.method as ContactSettlementReceiptBinding["method"],
+    });
+  }
+  let contactAttestation: ContactSettlementAttestation | null = null;
+  if (strongReceiptBindings.length > 0) {
+    if (!isBoundContactSettlementAttestor(contactSettlementAttestor)) throw new Error("enrichment_contact_attestor_unavailable");
+    const material = buildContactSettlementAttestationMaterial({
+      workspaceId,
+      reservationId,
+      grantId: reservation.grant_id,
+      durableRevision,
+      terminalReason: settlement.reason as "completed" | "partial",
+      settlementDigest: settlement.settlementDigest,
+      acknowledgementDigest,
+      documentedUnits: settlement.documentedUnits,
+      documentedCostMinor: settlement.documentedCostMinor,
+      receipts: strongReceiptBindings,
+    });
+    contactAttestation = material ? await contactSettlementAttestor.sign(material) : null;
+    if (!contactAttestation) throw new Error("enrichment_contact_attestation_failed");
+  }
+  const receiptStatements: D1PreparedStatement[] = [];
   const observationStatements: D1PreparedStatement[] = [];
   for (const observation of settlement.observations) {
-    if (!isDefensivelyValidContactObservation(observation) || observation.workspaceId !== workspaceId) throw new Error("invalid_enrichment_observation");
     const assignmentContext = observation.assignmentContext;
     const committedAssignment = assignmentContext
       ? committedReservation.assignment.evidenceAssignments.find((item) =>
@@ -1011,17 +1555,56 @@ async function settleCommittedReservation(
     )
       .first<{ id: string }>();
     if (!assignment) throw new Error("enrichment_observation_assignment_unavailable");
-    const observationDigest = await digest({ schema: "contact-observation/v1", observation });
+    const settlementBinding = settlementBindings.get(observation.id);
+    if (!settlementBinding) throw new Error("invalid_enrichment_settlement");
+    const observationDigest = settlementBinding.observationDigest;
     const contactPointDigest = await digest({ schema: "contact-point/v1", kind: observation.kind, normalizedValue: observation.normalizedValue });
     const excerptDigest = await digest({ schema: "contact-evidence-excerpt/v1", excerpt: observation.provenance.excerpt });
+    const verification = observation.verificationAuthority;
+    const receiptDigest = settlementBinding.verificationReceiptDigest;
+    if (
+      (observation.verificationClass === "mailbox_verified" || observation.verificationClass === "source_verified")
+      && (!receiptDigest || !observation.providerId || !observation.providerVersion || !observation.catalogRef)
+    ) throw new Error("enrichment_observation_receipt_unavailable");
+    const receiptId = receiptDigest ? `cvr_${receiptDigest.slice(0, 24)}` : null;
+    if (verification && receiptDigest && receiptId) {
+      receiptStatements.push(database.prepare(
+        `INSERT INTO contact_verification_receipts (
+          id,workspace_id,reservation_id,grant_id,assignment_id,prospect_id,contact_id,role,
+          configuration_id,configuration_digest,provider_id,provider_version,catalog_ref,quote_revision,
+          verifier_id,verifier_version,request_digest,verdict_reference,verdict_digest,observation_id,kind,
+          contact_point_digest,verification_class,method,retrieved_at,observed_at,verified_at,content_hash,
+          receipt_digest,attestation_key_id,settlement_material_digest,settlement_attestation_tag,created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        receiptId, workspaceId, reservationId, reservation.grant_id, assignmentContext.assignmentId,
+        assignmentContext.prospectId, observation.contactId, assignmentContext.role,
+        observation.profileConfigurationId, observation.profileConfigurationDigest,
+        observation.providerId, observation.providerVersion, observation.catalogRef, assignmentContext.quoteRevision,
+        verification!.verifierId, verification!.verifierVersion, verification!.requestDigest,
+        verification!.verdictReference, verification!.verdictDigest, observation.id, observation.kind,
+        contactPointDigest, observation.verificationClass, observation.method, observation.provenance.retrievedAt,
+        observation.observedAt, observation.verifiedAt, observation.provenance.contentHash, receiptDigest,
+        observation.verificationClass === "mailbox_verified" || observation.verificationClass === "source_verified"
+          ? contactAttestation!.keyId
+          : null,
+        observation.verificationClass === "mailbox_verified" || observation.verificationClass === "source_verified"
+          ? contactAttestation!.materialDigest
+          : null,
+        observation.verificationClass === "mailbox_verified" || observation.verificationClass === "source_verified"
+          ? contactAttestation!.tag
+          : null,
+        now,
+      ));
+    }
     observationStatements.push(database.prepare(
       `INSERT INTO contact_point_observations (
         id, workspace_id, assignment_id, contact_id, configuration_id, configuration_digest, kind,
         contact_point_digest, contact_point_reference, verification_class, confidence_basis_points, method,
         source_reference, excerpt_digest, object_reference, content_hash, retrieved_at, observed_at, verified_at,
         provider_id, provider_version, catalog_ref, verifier_id, verifier_version, verdict_reference, verdict_digest,
-        parent_observation_id, observation_digest, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        verification_receipt_id, parent_observation_id, observation_digest, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       observation.id, workspaceId, assignment.id, observation.contactId, observation.profileConfigurationId,
       observation.profileConfigurationDigest, observation.kind, contactPointDigest, `contact-point:${contactPointDigest}`,
@@ -1031,16 +1614,9 @@ async function settleCommittedReservation(
       observation.providerId, observation.providerVersion, observation.catalogRef,
       observation.verificationAuthority?.verifierId ?? null, observation.verificationAuthority?.verifierVersion ?? null,
       observation.verificationAuthority?.verdictReference ?? null, observation.verificationAuthority?.verdictDigest ?? null,
-      observation.lineage.parentObservationId, observationDigest, now,
+      receiptId, observation.lineage.parentObservationId, observationDigest, now,
     ));
   }
-  const durableRevision = Number(latest.durable_revision) + 1;
-  const observationIds = settlement.observations.map((observation) => observation.id);
-  const acknowledgementDigest = await digest({
-    schema: "enrichment-reservation-event/v1", reservationId, durableRevision, state: settlement.state,
-    reason: settlement.reason, settlementDigest: settlement.settlementDigest,
-    documentedUnits: settlement.documentedUnits, documentedCostMinor: settlement.documentedCostMinor, observationIds,
-  });
   const event = database.prepare(
     `INSERT INTO enrichment_reservation_events (
       id, workspace_id, reservation_id, durable_revision, state, terminal_reason, settlement_digest,
@@ -1052,7 +1628,7 @@ async function settleCommittedReservation(
     canonical(observationIds), acknowledgementDigest, now,
   );
   try {
-    const results = await database.batch([...observationStatements, event]);
+    const results = await database.batch([...receiptStatements, ...observationStatements, event]);
     if (!results.every((result) => Number(result.meta?.changes) >= 1)) throw new Error("enrichment_settlement_write_not_exact");
   } catch {
     const winner = await latestReservationEvent(database, workspaceId, reservationId);
@@ -1064,6 +1640,12 @@ async function settleCommittedReservation(
       && Number(winner.documented_cost_minor) === settlement.documentedCostMinor
       && canonical(parseIdList(winner.observation_ids_json)) === canonical(observationIds)
       && await validateEnrichmentEventAcknowledgement(reservationId, winner)
+      && (!requiresContactAttestation || await verifyPersistedContactSettlement(
+        database,
+        contactSettlementAttestor,
+        workspaceId,
+        reservationId,
+      ))
     ) {
       return freeze({
         kind: "durably_recorded", reservationId, terminalState: winner.state, terminalReason: settlement.reason,
@@ -1076,6 +1658,12 @@ async function settleCommittedReservation(
   if (
     !committed || committed.durable_revision !== durableRevision || committed.state !== settlement.state
     || !await validateEnrichmentEventAcknowledgement(reservationId, committed)
+    || (requiresContactAttestation && !await verifyPersistedContactSettlement(
+      database,
+      contactSettlementAttestor,
+      workspaceId,
+      reservationId,
+    ))
   ) throw new Error("enrichment_settlement_acknowledgement_invalid");
   return freeze({
     kind: "durably_recorded", reservationId, terminalState: settlement.state, terminalReason: settlement.reason,
@@ -1133,6 +1721,11 @@ function validSettlement(value: SettlementWrite, workspaceId: string): boolean {
     && Object.keys(value).sort().join(",") === "documentedCostMinor,documentedUnits,observations,reason,settlementDigest,state"
     && (value.state === "settled" || value.state === "released")
     && ((value.state === "released" && value.reason === "rejected") || (value.state === "settled" && (value.reason === "completed" || value.reason === "partial")))
+    && (value.state !== "released" || (
+      value.documentedUnits === 0
+      && value.documentedCostMinor === 0
+      && value.observations.length === 0
+    ))
     && Number.isSafeInteger(value.documentedUnits) && value.documentedUnits >= 0
     && Number.isSafeInteger(value.documentedCostMinor) && value.documentedCostMinor >= 0
     && typeof value.settlementDigest === "string" && DIGEST_PATTERN.test(value.settlementDigest)

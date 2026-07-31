@@ -114,6 +114,7 @@ export type TrustedContactVerification = Readonly<{
   catalogRef: string | null;
   verifierId: string;
   verifierVersion: string;
+  requestDigest: string;
   verdictReference: string;
   verdictDigest: string;
 }>;
@@ -154,6 +155,7 @@ export type ContactObservation = Readonly<{
     quoteRevision: number;
     verifierId: string;
     verifierVersion: string;
+    requestDigest: string;
     verdictReference: string;
     verdictDigest: string;
   }> | null;
@@ -425,6 +427,7 @@ export function ingestContactEvidence(
       quoteRevision: committedAssignment!.quoteRevision,
       verifierId: trusted.verifierId,
       verifierVersion: trusted.verifierVersion,
+      requestDigest: trusted.requestDigest,
       verdictReference: trusted.verdictReference,
       verdictDigest: trusted.verdictDigest,
     } : null,
@@ -622,6 +625,7 @@ function normalizeTrustedVerification(
     catalogRef,
     verifierId,
     verifierVersion,
+    requestDigest: binding.requestDigest,
     verdictReference,
     verdictDigest,
   });
@@ -751,7 +755,7 @@ type PreparedTrustedVerification = Readonly<{
 }>;
 
 async function prepareTrustedVerification(
-  verdict: Omit<TrustedContactVerification, "verifierId" | "verifierVersion">,
+  verdict: Omit<TrustedContactVerification, "verifierId" | "verifierVersion" | "requestDigest">,
   request: ContactVerificationRequest,
   verifier: ContactVerifierDescriptor,
 ): Promise<PreparedTrustedVerification> {
@@ -762,6 +766,7 @@ async function prepareTrustedVerification(
       ...verdict,
       verifierId: verifier.verifierId,
       verifierVersion: verifier.verifierVersion,
+      requestDigest,
     }),
     binding: Object.freeze({
       request,
@@ -838,7 +843,7 @@ function normalizeVerificationEnvelope(
 function normalizeVerifierVerdict(
   value: unknown,
   request: ContactVerificationRequest,
-): Omit<TrustedContactVerification, "verifierId" | "verifierVersion"> | null {
+): Omit<TrustedContactVerification, "verifierId" | "verifierVersion" | "requestDigest"> | null {
   const input = exactRecord(value, [
     "observationId", "workspaceId", "contactId", "profileConfigurationId",
     "profileConfigurationDigest", "kind", "normalizedValue", "contentHash",
@@ -922,7 +927,7 @@ function normalizeVerifierDescriptor(value: unknown): ContactVerifierDescriptor 
 function normalizeStoredVerificationAuthority(value: unknown) {
   const input = exactRecord(value, [
     "assignmentId", "prospectId", "role", "quoteRevision",
-    "verifierId", "verifierVersion", "verdictReference", "verdictDigest",
+    "verifierId", "verifierVersion", "requestDigest", "verdictReference", "verdictDigest",
   ]);
   if (!input) return null;
   const assignmentId = opaque(input.assignmentId, 256);
@@ -933,13 +938,15 @@ function normalizeStoredVerificationAuthority(value: unknown) {
     ? input.quoteRevision as number : null;
   const verifierId = opaque(input.verifierId, 160);
   const verifierVersion = opaque(input.verifierVersion, 160);
+  const requestDigest = typeof input.requestDigest === "string" && HASH.test(input.requestDigest)
+    ? input.requestDigest : null;
   const verdictReference = opaque(input.verdictReference, 256);
   const verdictDigest = typeof input.verdictDigest === "string" && HASH.test(input.verdictDigest)
     ? input.verdictDigest : null;
-  return assignmentId && prospectId && role && quoteRevision && verifierId && verifierVersion && verdictReference && verdictDigest
+  return assignmentId && prospectId && role && quoteRevision && verifierId && verifierVersion && requestDigest && verdictReference && verdictDigest
     ? Object.freeze({
         assignmentId, prospectId, role, quoteRevision,
-        verifierId, verifierVersion, verdictReference, verdictDigest,
+        verifierId, verifierVersion, requestDigest, verdictReference, verdictDigest,
       })
     : null;
 }

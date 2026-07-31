@@ -32,6 +32,7 @@ test("a verification receipt is usable only by its exact committed assignment co
       quoteRevision: 3,
       verifierId: "server-verifier",
       verifierVersion: "v1",
+      requestDigest: receipt.requestDigest,
       verdictReference: "verdict-binding",
       verdictDigest: "c".repeat(64),
     });

@@ -13,6 +13,7 @@ export const MIGRATION_FILENAMES = [
   "0006_private-proof-run-binding.sql",
   "0007_profile_prospecting.sql",
   "0008_controlled_enrichment.sql",
+  "0009_gorgeous_captain_universe.sql",
 ];
 
 const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, 4);
@@ -87,8 +88,16 @@ export async function createD1Fixture(name = "prospector-authority-test") {
 }
 
 export async function applyMigrations(database, filenames = MIGRATION_FILENAMES) {
-  assert.deepEqual(filenames, MIGRATION_FILENAMES, "Authority fixtures require the exact 0000-0008 migration chain");
+  assert.deepEqual(filenames, MIGRATION_FILENAMES, "Authority fixtures require the exact 0000-0009 migration chain");
   await applyMigrationFiles(database, filenames);
+}
+
+export async function applyControlledEnrichmentBaseMigrations(database) {
+  await applyMigrationFiles(database, MIGRATION_FILENAMES.slice(0, 9));
+}
+
+export async function applyControlledEnrichmentUpgrade(database) {
+  await applyMigrationFiles(database, MIGRATION_FILENAMES.slice(9));
 }
 
 export async function applyPhase4Migrations(database) {
