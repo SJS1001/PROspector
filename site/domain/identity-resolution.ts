@@ -113,24 +113,25 @@ export async function planIdentitySuggestion(
   principal: IdentityResolutionPrincipal,
   input: PlanIdentitySuggestionInput,
 ): Promise<IdentitySuggestion> {
-  if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
-  if (input.kind === "split" && hasOwn(input, "newIdentityId")) throw rejected();
-  const candidateIds = input.kind === "merge"
-    ? uniqueIds(input.candidateIds, 2, 16)
-    : uniqueIds([input.sourceId], 1, 1);
-  const snapshots = await repository.readIdentitySnapshots(input.workspaceId, candidateIds);
-  assertExactWorkspaceSnapshots(input.workspaceId, candidateIds, snapshots);
+  const actor = snapshotIdentityResolutionPrincipal(principal);
+  const request = snapshotPlanIdentitySuggestionInput(input);
+  if (actor.admittedOwner !== true || !validId(actor.subject) || !validId(request.workspaceId)) throw rejected();
+  const candidateIds = request.kind === "merge"
+    ? uniqueIds(request.candidateIds, 2, 16)
+    : uniqueIds([request.sourceId], 1, 1);
+  const snapshots = await repository.readIdentitySnapshots(request.workspaceId, candidateIds);
+  assertExactWorkspaceSnapshots(request.workspaceId, candidateIds, snapshots);
   const candidates = [...snapshots].sort((left, right) => left.id.localeCompare(right.id));
   const candidateRevisions = Object.fromEntries(candidates.map((candidate) => [candidate.id, candidate.revision]));
   const sources = unique(candidates.flatMap((candidate) => candidate.sourceLineageIds)).sort();
   const retainedIdentityLineageIds = unique(candidates.flatMap((candidate) => [candidate.id, ...candidate.identityLineageIds])).sort();
   const retainedAliases = unique(candidates.flatMap((candidate) => candidate.aliases)).sort();
   const retainedSuppressionSubjectRefs = unique(candidates.flatMap((candidate) => candidate.suppressionSubjectRefs)).sort();
-  const proposedPartition = input.kind === "split"
+  const proposedPartition = request.kind === "split"
     ? freezePartition({
-      sourceId: input.sourceId,
+      sourceId: request.sourceId,
       newIdentityId: v7(),
-      moveAssociationIds: uniqueIds(input.moveAssociationIds, 1, 128),
+      moveAssociationIds: uniqueIds(request.moveAssociationIds, 1, 128),
     })
     : null;
   if (proposedPartition && (!validServerIdentityId(proposedPartition.newIdentityId) || candidateIds.includes(proposedPartition.newIdentityId))) throw rejected();
@@ -142,8 +143,8 @@ export async function planIdentitySuggestion(
     .sort((left, right) => left.id.localeCompare(right.id));
   const revision = totalRevision(candidates);
   const evidence = {
-    workspaceId: input.workspaceId,
-    kind: input.kind,
+    workspaceId: request.workspaceId,
+    kind: request.kind,
     candidateIds,
     candidateRevisions: Object.freeze(candidateRevisions),
     revision,
@@ -157,9 +158,9 @@ export async function planIdentitySuggestion(
   } as const;
   const digest = await hash({ schema: "identity-suggestion/v1", ...evidence });
   const suggestion = freezeIdentitySuggestion({
-    id: await hash({ schema: "identity-suggestion-id/v1", workspaceId: input.workspaceId, ownerSubject: principal.subject, digest }),
+    id: await hash({ schema: "identity-suggestion-id/v1", workspaceId: request.workspaceId, ownerSubject: actor.subject, digest }),
     digest,
-    ownerSubject: principal.subject,
+    ownerSubject: actor.subject,
     ...evidence,
   });
   await assertSuggestionIntegrity(suggestion);
@@ -182,28 +183,34 @@ export async function applyIdentityResolution(
     idempotencyKey: string;
   }>,
 ): Promise<AppliedResolution> {
-  if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
-  if (!validId(input.suggestionId)) throw rejected();
-  const decision = snapshotIdentityDecision(input.decision);
+  const actor = snapshotIdentityResolutionPrincipal(principal);
+  const request = snapshotApplyIdentityResolutionInput(input);
+  if (actor.admittedOwner !== true || !validId(actor.subject) || !validId(request.workspaceId)) throw rejected();
+  if (
+    !validId(request.suggestionId)
+    || !Number.isSafeInteger(request.expectedRevision)
+    || request.expectedRevision < 1
+  ) throw rejected();
+  validateKey(request.idempotencyKey);
+  const decision = request.decision;
   const suggestion = await parseIdentitySuggestion(
-    await repository.readIdentitySuggestion(input.workspaceId, principal.subject, input.suggestionId),
+    await repository.readIdentitySuggestion(request.workspaceId, actor.subject, request.suggestionId),
   );
   if (!suggestion) throw rejected();
-  if (suggestion.id !== input.suggestionId || suggestion.workspaceId !== input.workspaceId || suggestion.ownerSubject !== principal.subject || input.expectedRevision !== suggestion.revision) throw rejected();
-  validateKey(input.idempotencyKey);
+  if (suggestion.id !== request.suggestionId || suggestion.workspaceId !== request.workspaceId || suggestion.ownerSubject !== actor.subject || request.expectedRevision !== suggestion.revision) throw rejected();
   validateDecision(suggestion, decision);
   const authoritativeDecision = canonicalDecision(suggestion, decision);
-  const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: authoritativeDecision, actor: principal.subject });
+  const operationDigest = await hash({ workspaceId: request.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: authoritativeDecision, actor: actor.subject });
   const context: AppliedResolutionContext = {
-    workspaceId: input.workspaceId,
-    ownerSubject: principal.subject,
-    idempotencyKey: input.idempotencyKey,
+    workspaceId: request.workspaceId,
+    ownerSubject: actor.subject,
+    idempotencyKey: request.idempotencyKey,
     suggestion,
     decision: authoritativeDecision,
     operationDigest,
   };
-  const result = await repository.transaction(input.workspaceId, async (transaction) => {
-    const existingResult = await transaction.findByIdempotencyKey(input.idempotencyKey);
+  const result = await repository.transaction(request.workspaceId, async (transaction) => {
+    const existingResult = await transaction.findByIdempotencyKey(request.idempotencyKey);
     if (existingResult) {
       const existing = await validateAppliedResolution(existingResult, context);
       if (!existing) throw rejected();
@@ -215,9 +222,9 @@ export async function applyIdentityResolution(
       if (!exactDataArray(destination, 0, 0)) throw rejected();
     }
     const current = await transaction.readIdentitySnapshots(suggestion.candidateIds);
-    assertExactWorkspaceSnapshots(input.workspaceId, suggestion.candidateIds, current);
+    assertExactWorkspaceSnapshots(request.workspaceId, suggestion.candidateIds, current);
     assertSuggestionMatchesSnapshots(suggestion, current);
-    if (totalRevision(current) !== input.expectedRevision || !sameRevisions(suggestion.candidateRevisions, current)) throw rejected();
+    if (totalRevision(current) !== request.expectedRevision || !sameRevisions(suggestion.candidateRevisions, current)) throw rejected();
     const retainedSourceLineageIds = unique(current.flatMap((identity) => identity.sourceLineageIds)).sort();
     const retainedIdentityLineageIds = unique(current.flatMap((identity) => [identity.id, ...identity.identityLineageIds])).sort();
     const retainedAliases = unique(current.flatMap((identity) => identity.aliases)).sort();
@@ -225,11 +232,11 @@ export async function applyIdentityResolution(
     const moved = associationsForDecision(current, authoritativeDecision);
     const rePointedAssociationIds = moved.map((association) => association.id).sort();
     const appliedMaterial = {
-      workspaceId: input.workspaceId,
-      ownerSubject: principal.subject,
+      workspaceId: request.workspaceId,
+      ownerSubject: actor.subject,
       suggestionId: suggestion.id,
       suggestionDigest: suggestion.digest,
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey: request.idempotencyKey,
       decision: freezeDecision(authoritativeDecision),
       operationDigest,
       retainedSourceLineageIds: Object.freeze(retainedSourceLineageIds),
@@ -244,7 +251,7 @@ export async function applyIdentityResolution(
     };
     const resultDigest = await hash({ schema: "identity-resolution-result/v1", ...appliedMaterial });
     const applied: AppliedResolution = Object.freeze({
-      id: await hash({ operationDigest, idempotencyKey: input.idempotencyKey, resultDigest }),
+      id: await hash({ operationDigest, idempotencyKey: request.idempotencyKey, resultDigest }),
       ...appliedMaterial,
       resultDigest,
     });
@@ -665,6 +672,62 @@ function canonicalDecision(suggestion: IdentitySuggestion, decision: IdentityDec
   });
 }
 
+function snapshotIdentityResolutionPrincipal(value: unknown): IdentityResolutionPrincipal {
+  const record = exactDataRecord(value, ["subject", "admittedOwner"]);
+  if (!record || !cloneablePlainData(value)) throw rejected();
+  return Object.freeze({
+    subject: record.subject as string,
+    admittedOwner: record.admittedOwner as boolean,
+  });
+}
+
+function snapshotPlanIdentitySuggestionInput(value: unknown): PlanIdentitySuggestionInput {
+  const record = exactDiscriminatedDataRecord(value, "kind", {
+    merge: ["workspaceId", "kind", "candidateIds"],
+    split: ["workspaceId", "kind", "sourceId", "moveAssociationIds"],
+  });
+  if (!record) throw rejected();
+  if (record.kind === "merge") {
+    const candidateIds = exactDataArray(record.candidateIds, 0, 16);
+    if (!candidateIds || !cloneablePlainData(value)) throw rejected();
+    return Object.freeze({
+      workspaceId: record.workspaceId as string,
+      kind: "merge",
+      candidateIds: Object.freeze(candidateIds as string[]),
+    });
+  }
+  const moveAssociationIds = exactDataArray(record.moveAssociationIds, 0, 128);
+  if (!moveAssociationIds || !cloneablePlainData(value)) throw rejected();
+  return Object.freeze({
+    workspaceId: record.workspaceId as string,
+    kind: "split",
+    sourceId: record.sourceId as string,
+    moveAssociationIds: Object.freeze(moveAssociationIds as string[]),
+  });
+}
+
+function snapshotApplyIdentityResolutionInput(value: unknown): Readonly<{
+  workspaceId: string;
+  suggestionId: string;
+  decision: IdentityDecision;
+  expectedRevision: number;
+  idempotencyKey: string;
+}> {
+  const record = exactDataRecord(value, [
+    "workspaceId", "suggestionId", "decision", "expectedRevision", "idempotencyKey",
+  ]);
+  if (!record) throw rejected();
+  const decision = snapshotIdentityDecision(record.decision);
+  if (!cloneablePlainData(value)) throw rejected();
+  return Object.freeze({
+    workspaceId: record.workspaceId as string,
+    suggestionId: record.suggestionId as string,
+    decision,
+    expectedRevision: record.expectedRevision as number,
+    idempotencyKey: record.idempotencyKey as string,
+  });
+}
+
 function snapshotIdentityDecision(value: unknown): IdentityDecision {
   let record: Record<string, unknown>;
   try {
@@ -720,6 +783,50 @@ function snapshotIdentityDecision(value: unknown): IdentityDecision {
       sourceId: subjectId,
       moveAssociationIds: Object.freeze(ids as string[]),
     });
+}
+
+function exactDiscriminatedDataRecord(
+  value: unknown,
+  discriminant: string,
+  variants: Readonly<Record<string, readonly string[]>>,
+): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const discriminantDescriptor = descriptors[discriminant];
+    if (
+      !discriminantDescriptor
+      || !("value" in discriminantDescriptor)
+      || !discriminantDescriptor.enumerable
+      || typeof discriminantDescriptor.value !== "string"
+    ) return null;
+    const keys = variants[discriminantDescriptor.value];
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      !keys
+      || ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return null;
+    const result: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function cloneablePlainData(value: unknown): boolean {
+  try {
+    structuredClone(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function freezeDecision(decision: AppliedIdentityDecision): AppliedIdentityDecision {
@@ -881,11 +988,12 @@ function exactPlainData(candidate: unknown, expected: unknown): boolean {
   }
 }
 function unique(values: readonly string[]) { return [...new Set(values)]; }
-function hasOwn(value: object, property: string): boolean { return Object.prototype.hasOwnProperty.call(value, property); }
 function validId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{2,127}$/i.test(value); }
 function validServerIdentityId(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function validDigest(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
-function validateKey(value: string) { if (!/^[a-z0-9][a-z0-9_-]{7,127}$/i.test(value)) throw rejected(); }
+function validateKey(value: unknown): asserts value is string {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9_-]{7,127}$/i.test(value)) throw rejected();
+}
 function rejected() { return new IdentityResolutionError("identity_resolution_rejected"); }
 function stable(value: unknown): string { if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`; if (value && typeof value === "object") { const record = value as Record<string, unknown>; return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stable(record[key])}`).join(",")}}`; } return JSON.stringify(value); }
 async function hash(value: unknown) { const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stable(value))); return Array.from(new Uint8Array(digest), (part) => part.toString(16).padStart(2, "0")).join(""); }
