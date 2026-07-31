@@ -99,7 +99,7 @@ export async function planIdentitySuggestion(
   const associationImpact = candidates.flatMap((candidate) => candidate.associations)
     .map((association) => ({ id: association.id, scope: association.scope, relevanceId: association.relevanceId }))
     .sort((left, right) => left.id.localeCompare(right.id));
-  const revision = candidates.reduce((total, candidate) => total + candidate.revision, 0);
+  const revision = totalRevision(candidates);
   return Object.freeze({
     id: await hash({ workspaceId: input.workspaceId, kind: input.kind, candidateIds, candidateRevisions }),
     workspaceId: input.workspaceId,
@@ -125,6 +125,7 @@ export async function applyIdentityResolution(
   }>,
 ): Promise<AppliedResolution> {
   if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
+  validateSuggestion(input.suggestion);
   if (input.suggestion.workspaceId !== input.workspaceId || input.expectedRevision !== input.suggestion.revision) throw rejected();
   validateKey(input.idempotencyKey);
   validateDecision(input.suggestion, input.decision);
@@ -137,7 +138,7 @@ export async function applyIdentityResolution(
     }
     const current = await transaction.readIdentitySnapshots(input.suggestion.candidateIds);
     assertExactWorkspaceSnapshots(input.workspaceId, input.suggestion.candidateIds, current);
-    const revision = current.reduce((total, identity) => total + identity.revision, 0);
+    const revision = totalRevision(current);
     if (revision !== input.expectedRevision || !sameRevisions(input.suggestion.candidateRevisions, current)) throw rejected();
     const retainedSourceLineageIds = unique(current.flatMap((identity) => identity.sourceLineageIds)).sort();
     const retainedIdentityLineageIds = unique(current.flatMap((identity) => [identity.id, ...identity.identityLineageIds])).sort();
@@ -175,7 +176,9 @@ function associationsForDecision(snapshots: readonly IdentitySnapshot[], decisio
   const source = snapshots.find((identity) => identity.id === decision.sourceId);
   if (!source) throw rejected();
   const requested = new Set(decision.moveAssociationIds);
-  return source.associations.filter((association) => requested.has(association.id));
+  const moved = source.associations.filter((association) => requested.has(association.id));
+  if (moved.length !== requested.size || new Set(moved.map((association) => association.id)).size !== moved.length) throw rejected();
+  return moved;
 }
 
 function validateDecision(suggestion: IdentitySuggestion, decision: IdentityDecision) {
@@ -192,12 +195,51 @@ function validateDecision(suggestion: IdentitySuggestion, decision: IdentityDeci
 }
 
 function assertExactWorkspaceSnapshots(workspaceId: string, ids: readonly string[], snapshots: readonly IdentitySnapshot[]) {
-  if (snapshots.length !== ids.length || snapshots.some((snapshot) => snapshot.workspaceId !== workspaceId || !ids.includes(snapshot.id) || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 1)) throw rejected();
+  if (!Array.isArray(snapshots) || snapshots.length !== ids.length) throw rejected();
+  snapshots.forEach((snapshot) => assertSnapshot(workspaceId, snapshot));
+  if (snapshots.some((snapshot) => !ids.includes(snapshot.id))) throw rejected();
   if (new Set(snapshots.map((snapshot) => snapshot.id)).size !== ids.length) throw rejected();
+  const associationIds = snapshots.flatMap((snapshot) => snapshot.associations.map((association) => association.id));
+  if (new Set(associationIds).size !== associationIds.length) throw rejected();
+}
+
+function assertSnapshot(workspaceId: string, snapshot: IdentitySnapshot) {
+  if (!snapshot || typeof snapshot !== "object" || snapshot.workspaceId !== workspaceId || !validId(snapshot.id) || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 1) throw rejected();
+  assertIdArray(snapshot.aliases, 0, 256);
+  assertIdArray(snapshot.sourceLineageIds, 1, 1_024);
+  assertIdArray(snapshot.identityLineageIds, 0, 1_024);
+  assertIdArray(snapshot.suppressionSubjectRefs, 0, 1_024);
+  if (!Array.isArray(snapshot.associations) || snapshot.associations.length > 1_024) throw rejected();
+  const associationIds = snapshot.associations.map((association) => {
+    if (!association || typeof association !== "object" || !validId(association.id) || association.workspaceId !== workspaceId || !validId(association.relevanceId) || !validId(association.subjectId) || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
+    return association.id;
+  });
+  if (new Set(associationIds).size !== associationIds.length) throw rejected();
+}
+
+function validateSuggestion(suggestion: IdentitySuggestion) {
+  if (!suggestion || typeof suggestion !== "object" || !validId(suggestion.id) || !validId(suggestion.workspaceId) || (suggestion.kind !== "merge" && suggestion.kind !== "split")) throw rejected();
+  const candidates = uniqueIds(suggestion.candidateIds, 2, 16);
+  const revisions = suggestion.candidateRevisions;
+  if (!revisions || typeof revisions !== "object" || Array.isArray(revisions) || Object.keys(revisions).length !== candidates.length || candidates.some((id) => !Number.isSafeInteger(revisions[id]) || revisions[id] < 1)) throw rejected();
+  if (!Number.isSafeInteger(suggestion.revision) || suggestion.revision !== Object.values(revisions).reduce((total, revision) => total + revision, 0)) throw rejected();
+  assertIdArray(suggestion.sourceLineageIds, 1, 2_048);
+  if (!Array.isArray(suggestion.associationImpact) || suggestion.associationImpact.length > 2_048) throw rejected();
+  const associations = suggestion.associationImpact.map((association) => {
+    if (!association || typeof association !== "object" || !validId(association.id) || !validId(association.relevanceId) || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
+    return association.id;
+  });
+  if (new Set(associations).size !== associations.length || suggestion.suppressionPreservationNotice !== "preserve_all_existing_subject_references") throw rejected();
 }
 
 function sameRevisions(expected: Readonly<Record<string, number>>, current: readonly IdentitySnapshot[]) {
   return current.every((identity) => expected[identity.id] === identity.revision) && Object.keys(expected).length === current.length;
+}
+
+function totalRevision(snapshots: readonly IdentitySnapshot[]) {
+  const total = snapshots.reduce((sum, snapshot) => sum + snapshot.revision, 0);
+  if (!Number.isSafeInteger(total)) throw rejected();
+  return total;
 }
 
 function canonicalDecision(decision: IdentityDecision): IdentityDecision {
@@ -214,13 +256,14 @@ function freezeDecision(decision: IdentityDecision): IdentityDecision {
 }
 
 function uniqueIds(values: readonly string[], min: number, max: number) {
-  if (!Array.isArray(values) || values.length < min || values.length > max || values.some((value) => !validId(value))) throw rejected();
-  const result = unique(values).sort();
-  if (result.length !== values.length) throw rejected();
-  return result;
+  assertIdArray(values, min, max);
+  return [...values].sort();
 }
 
-function unique(values: readonly string[]) { return [...new Set(values.filter(validId))]; }
+function assertIdArray(values: unknown, min: number, max: number): asserts values is readonly string[] {
+  if (!Array.isArray(values) || values.length < min || values.length > max || values.some((value) => !validId(value)) || new Set(values).size !== values.length) throw rejected();
+}
+function unique(values: readonly string[]) { return [...new Set(values)]; }
 function validId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{2,127}$/i.test(value); }
 function validateKey(value: string) { if (!/^[a-z0-9][a-z0-9_-]{7,127}$/i.test(value)) throw rejected(); }
 function rejected() { return new IdentityResolutionError("identity_resolution_rejected"); }

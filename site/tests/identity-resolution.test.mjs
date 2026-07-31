@@ -103,6 +103,51 @@ test("split is owner-only, preserves retained references, and projects moved ass
   } finally { await loaded.vite.close(); }
 });
 
+test("split rejects duplicate or nonexistent moved associations with zero durable mutation", async () => {
+  const loaded = await load();
+  try {
+    const repository = new FakeIdentityRepository([identity("identity-alpha", 4), identity("identity-beta", 2)]);
+    const suggestion = await loaded.domain.planIdentitySuggestion(repository, { workspaceId, kind: "split", candidateIds: ["identity-alpha", "identity-beta"] });
+    const before = repository.snapshot();
+    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha", "association-identity-alpha"] }, "identity-resolution-key-0006"), /identity_resolution_rejected/);
+    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-missing"] }, "identity-resolution-key-0007"), /identity_resolution_rejected/);
+    assert.deepEqual(repository.snapshot(), before, "a split may not silently drop an unknown association or mutate a partial graph");
+  } finally { await loaded.vite.close(); }
+});
+
+test("malformed snapshot arrays and scoped associations fail closed without dropping lineage or mutating", async () => {
+  const loaded = await load();
+  try {
+    const malformed = [
+      { aliases: [""] },
+      { aliases: ["alias-duplicate", "alias-duplicate"] },
+      { sourceLineageIds: [] },
+      { sourceLineageIds: ["source-duplicate", "source-duplicate"] },
+      { identityLineageIds: [""] },
+      { suppressionSubjectRefs: [""] },
+      { suppressionSubjectRefs: ["suppression-duplicate", "suppression-duplicate"] },
+      { associations: "not-an-array" },
+      { associations: [{ id: "association-alpha", workspaceId: "synthetic-workspace-b", scope: "market_play", relevanceId: "relevance-alpha", subjectId: "identity-alpha" }] },
+      { associations: [{ id: "association-alpha", workspaceId, scope: "unknown", relevanceId: "relevance-alpha", subjectId: "identity-alpha" }] },
+      { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "", subjectId: "identity-alpha" }] },
+      { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-alpha", subjectId: "" }] },
+      { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-alpha", subjectId: "identity-alpha" }, { id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-other", subjectId: "identity-alpha" }] },
+    ];
+    for (const overrides of malformed) {
+      const repository = new FakeIdentityRepository([identity("identity-alpha", 3, overrides), identity("identity-beta", 4)]);
+      const before = repository.snapshot();
+      await assert.rejects(() => loaded.domain.planIdentitySuggestion(repository, { workspaceId, kind: "merge", candidateIds: ["identity-alpha", "identity-beta"] }), /identity_resolution_rejected/);
+      assert.deepEqual(repository.snapshot(), before, "malformed snapshots cannot be normalized by dropping fields");
+    }
+    const repository = new FakeIdentityRepository([identity("identity-alpha", 3), identity("identity-beta", 4)]);
+    const suggestion = await loaded.domain.planIdentitySuggestion(repository, { workspaceId, kind: "merge", candidateIds: ["identity-alpha", "identity-beta"] });
+    repository.rows.get("identity-alpha").suppressionSubjectRefs = [""];
+    const before = repository.snapshot();
+    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "merge", primaryId: "identity-alpha", secondaryIds: ["identity-beta"] }, "identity-resolution-key-0008"), /identity_resolution_rejected/);
+    assert.deepEqual(repository.snapshot(), before, "a malformed current snapshot is denied before the transaction can apply a resolution");
+  } finally { await loaded.vite.close(); }
+});
+
 test("idempotent retry returns the original resolution; changed payload and concurrent stale decisions mutate once", async () => {
   const loaded = await load();
   try {
