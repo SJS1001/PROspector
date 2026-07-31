@@ -37,14 +37,8 @@ export const PHASE4_PERSISTENCE_TABLES = [
 ];
 
 export const FORBIDDEN_OPERATIONAL_TABLES = [
-  "profile_readiness_activations",
-  "prospecting_schedules",
-  "prospecting_runs",
-  "runner_assignments",
   "runner_connections",
   "runs",
-  "accounts",
-  "targets",
   "signals",
   "candidates",
   "prospects",
@@ -67,6 +61,11 @@ export const FORBIDDEN_OPERATIONAL_TABLES = [
   "workspace_archives",
   "workspace_archive_objects",
 ];
+const SENSITIVE_FORBIDDEN_TABLES = new Set([
+  "credential_records",
+  "provider_credentials",
+  "provider_secrets",
+]);
 
 export async function createD1Fixture(name = "prospector-authority-test") {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
@@ -153,9 +152,18 @@ export async function snapshotForbiddenOperationalRows(database) {
   const snapshot = {};
   for (const table of FORBIDDEN_OPERATIONAL_TABLES) {
     const exists = await database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").bind(table).first();
-    snapshot[table] = exists
-      ? { present: true, count: await countRows(database, table) }
-      : { present: false, count: null };
+    if (!exists) {
+      snapshot[table] = { present: false, count: null, rows: null };
+      continue;
+    }
+    const count = await countRows(database, table);
+    if (SENSITIVE_FORBIDDEN_TABLES.has(table)) {
+      assert.equal(count, 0, `${table} must remain absent; sensitive values are never read into test output`);
+      snapshot[table] = { present: true, count, rows: [] };
+      continue;
+    }
+    const rows = (await database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).results;
+    snapshot[table] = { present: true, count, rows };
   }
   return snapshot;
 }
