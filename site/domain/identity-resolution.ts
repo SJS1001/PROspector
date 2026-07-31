@@ -211,7 +211,7 @@ function assertSnapshot(workspaceId: string, snapshot: IdentitySnapshot) {
   assertIdArray(snapshot.suppressionSubjectRefs, 0, 1_024);
   if (!Array.isArray(snapshot.associations) || snapshot.associations.length > 1_024) throw rejected();
   const associationIds = snapshot.associations.map((association) => {
-    if (!association || typeof association !== "object" || !validId(association.id) || association.workspaceId !== workspaceId || !validId(association.relevanceId) || !validId(association.subjectId) || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
+    if (!association || typeof association !== "object" || !validId(association.id) || association.workspaceId !== workspaceId || !validId(association.relevanceId) || association.subjectId !== snapshot.id || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
     return association.id;
   });
   if (new Set(associationIds).size !== associationIds.length) throw rejected();

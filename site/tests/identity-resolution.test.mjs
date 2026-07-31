@@ -131,6 +131,7 @@ test("malformed snapshot arrays and scoped associations fail closed without drop
       { associations: [{ id: "association-alpha", workspaceId, scope: "unknown", relevanceId: "relevance-alpha", subjectId: "identity-alpha" }] },
       { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "", subjectId: "identity-alpha" }] },
       { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-alpha", subjectId: "" }] },
+      { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-alpha", subjectId: "identity-beta" }] },
       { associations: [{ id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-alpha", subjectId: "identity-alpha" }, { id: "association-alpha", workspaceId, scope: "market_play", relevanceId: "relevance-other", subjectId: "identity-alpha" }] },
     ];
     for (const overrides of malformed) {
@@ -145,6 +146,16 @@ test("malformed snapshot arrays and scoped associations fail closed without drop
     const before = repository.snapshot();
     await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "merge", primaryId: "identity-alpha", secondaryIds: ["identity-beta"] }, "identity-resolution-key-0008"), /identity_resolution_rejected/);
     assert.deepEqual(repository.snapshot(), before, "a malformed current snapshot is denied before the transaction can apply a resolution");
+
+    const currentRepository = new FakeIdentityRepository([identity("identity-alpha", 3), identity("identity-beta", 4)]);
+    const currentSuggestion = await loaded.domain.planIdentitySuggestion(currentRepository, { workspaceId, kind: "merge", candidateIds: ["identity-alpha", "identity-beta"] });
+    const current = currentRepository.rows.get("identity-alpha");
+    current.sourceLineageIds = ["source-reconfirmed"];
+    current.associations[0].relevanceId = "relevance-reconfirmed";
+    current.revision += 1;
+    const currentBefore = currentRepository.snapshot();
+    await assert.rejects(() => apply(loaded.domain, currentRepository, currentSuggestion, { kind: "merge", primaryId: "identity-alpha", secondaryIds: ["identity-beta"] }, "identity-resolution-key-0009"), /identity_resolution_rejected/);
+    assert.deepEqual(currentRepository.snapshot(), currentBefore, "candidate source and association impact previews are never authority without a current snapshot reread");
   } finally { await loaded.vite.close(); }
 });
 
