@@ -22,6 +22,37 @@ export function profileSlotKey(profileId: string, localDate: string, localTime: 
   return `profile:${profileId}:slot:${localDate}T${localTime}:offset:${utcOffsetMinutes}`;
 }
 
+export function isSupportedProfileTimezone(timezone: unknown): timezone is string {
+  if (typeof timezone !== "string" || !timezone || timezone.length > 100) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the next Profile-owned weekday slot using the exact same timezone
+ * rules as durable reconciliation. The returned offset belongs to the future
+ * local instant, not to the time at which activation happened.
+ */
+export function nextProfileWeekdaySlot(profileId: string, after: number, localTime: string, timezone: string) {
+  if (!profileId || !Number.isSafeInteger(after) || !/^\d{2}:\d{2}$/.test(localTime) || !isSupportedProfileTimezone(timezone)) {
+    throw new ProspectingScheduleConflictError("Invalid Profile schedule authority");
+  }
+  const nextRunAt = nextWeekdayLocal(after, localTime, timezone);
+  const parts = localParts(nextRunAt, timezone);
+  const localDate = `${parts.year}-${parts.month}-${parts.day}`;
+  const utcOffsetMinutes = offsetAt(nextRunAt, timezone);
+  return {
+    nextRunAt,
+    localDate,
+    utcOffsetMinutes,
+    scheduleKey: profileSlotKey(profileId, localDate, localTime, utcOffsetMinutes),
+  };
+}
+
 export function profileSourceWindow(watermark: number | null, upperInclusive: number) {
   if (!Number.isSafeInteger(upperInclusive)) throw new ProspectingScheduleConflictError("Invalid prospecting window");
   return { lowerExclusive: watermark === null ? null : watermark - DAY, upperInclusive };
@@ -80,14 +111,17 @@ export async function reconcileProspectingSchedules(database: D1Database, worksp
   const results = [];
   for (const schedule of schedules.results) {
     if (Number(schedule.next_run_at) > now) continue;
-    const due = Number(schedule.next_run_at); const key = slotAt(schedule.profile_id, due, String(schedule.intended_local_time), String(schedule.timezone));
-    const next = nextWeekdayLocal(due, String(schedule.intended_local_time), String(schedule.timezone));
+    const due = Number(schedule.next_run_at);
+    const timezone = String(schedule.timezone);
+    const localTime = String(schedule.intended_local_time);
+    const key = slotAt(schedule.profile_id, due, localTime, timezone);
+    const next = nextProfileWeekdaySlot(schedule.profile_id, due, localTime, timezone);
     if (now - due > DAY) {
-      await advanceSchedule(database, workspaceId, schedule.id, next, now, "skipped_misfire");
+      await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, "skipped_misfire");
       results.push({ scheduleId: schedule.id, executionState: "skipped_misfire", key }); continue;
     }
     const result = await createProspectingIntent(database, workspaceId, { profileId:schedule.profile_id, configurationId:schedule.configuration_id, configurationDigest:schedule.configuration_digest, scheduleId:schedule.id, triggerKind:"scheduled", triggerKey:key, idempotencyKey:`schedule:${key}`, at:due, watermark:schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark), manifest:{ scheduleId:schedule.id, localSlot:key } });
-    await advanceSchedule(database, workspaceId, schedule.id, next, now, result.executionState);
+    await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, result.executionState);
     results.push({ scheduleId:schedule.id, ...result });
   }
   return results;
@@ -129,10 +163,10 @@ async function persistSkippedOverlap(database:D1Database, workspaceId:string, in
   ]); } catch(e) { const r=await database.prepare("SELECT id,execution_state FROM prospecting_runs WHERE workspace_id=? AND profile_id=? AND trigger_key=? LIMIT 1").bind(workspaceId,intent.profileId,intent.triggerKey).first<any>();if(r)return{id:r.id,trigger:intent.triggerKind,key:intent.triggerKey,executionState:r.execution_state,replayed:true};throw e }
   return {id:runId,trigger:intent.triggerKind,key:intent.triggerKey,executionState:"skipped_overlap" as const,replayed:false};
 }
-async function advanceSchedule(database:D1Database,workspaceId:string,id:string,next:number,now:number,state:string){await database.prepare("UPDATE prospecting_schedules SET next_run_at=?,utc_offset_minutes=?,execution_state=?,updated_at=?,revision=revision+1 WHERE id=? AND workspace_id=? AND active=1").bind(next,offsetAt(next),state,now,id,workspaceId).run();}
+async function advanceSchedule(database:D1Database,workspaceId:string,id:string,next:number,offset:number,now:number,state:string){await database.prepare("UPDATE prospecting_schedules SET next_run_at=?,utc_offset_minutes=?,execution_state=?,updated_at=?,revision=revision+1 WHERE id=? AND workspace_id=? AND active=1").bind(next,offset,state,now,id,workspaceId).run();}
 function slotAt(profileId:string,at:number,time:string,zone:string){const p=localParts(at,zone);return profileSlotKey(profileId,`${p.year}-${p.month}-${p.day}`,time,offsetAt(at,zone));}
 function localParts(at:number,zone:string){const x=new Intl.DateTimeFormat("en-CA",{timeZone:zone,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(at));const v=(k:string)=>x.find(p=>p.type===k)?.value??"";return{year:v("year"),month:v("month"),day:v("day")};}
-function offsetAt(at:number,zone="America/Toronto"){const n=new Intl.DateTimeFormat("en-US",{timeZone:zone,timeZoneName:"longOffset"}).formatToParts(new Date(at)).find(p=>p.type==="timeZoneName")?.value??"GMT-05:00";const m=/GMT([+-])(\d{2}):(\d{2})/.exec(n);return m?(m[1]==="+"?1:-1)*(Number(m[2])*60+Number(m[3])):-300;}
+function offsetAt(at:number,zone:string){const n=new Intl.DateTimeFormat("en-US",{timeZone:zone,timeZoneName:"longOffset"}).formatToParts(new Date(at)).find(p=>p.type==="timeZoneName")?.value??"";if(n==="GMT"||n==="UTC")return 0;const m=/^(?:GMT|UTC)([+-])(\d{2}):(\d{2})$/.exec(n);if(!m)throw new ProspectingScheduleConflictError("Unable to resolve Profile timezone offset");return(m[1]==="+"?1:-1)*(Number(m[2])*60+Number(m[3]));}
 function nextWeekdayLocal(after:number,time:string,zone:string){const [h,m]=time.split(":").map(Number);for(let at=after+60_000,i=0;i<12_000;i++,at+=60_000){const p=new Intl.DateTimeFormat("en-US",{timeZone:zone,weekday:"short",hour:"2-digit",hourCycle:"h23",minute:"2-digit"}).formatToParts(new Date(at)),v=(k:string)=>p.find(x=>x.type===k)?.value;if(!["Sat","Sun"].includes(v("weekday")??"")&&Number(v("hour"))===h&&Number(v("minute"))===m)return at;}throw new ProspectingScheduleConflictError("Unable to resolve next Profile local slot");}
 
 function validateIntent(intent: Intent) {

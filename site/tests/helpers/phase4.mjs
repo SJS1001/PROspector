@@ -7,8 +7,23 @@ export async function seedProfileAuthority(fixture, owner, now = 1_780_000_000_0
   const profile = model.profiles.find((entry) => entry.name === "Operating");
   const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1").bind(owner.subject).first();
   const company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
+  const productCommandId = "phase4-product-authority-command";
+  await fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'test.product.authority',?,?,1,'product',?,'accepted')").bind(productCommandId, workspace.id, now, now, "0198f400-0000-7000-8000-000000000090", "0".repeat(64), product.id).run();
+  const productCategories = ["capability", "limitation", "delivery", "proof", "ownership", "claim_guardrail", "source_policy", "discovery_policy", "default_runner_policy"];
+  const productVersions = [];
+  for (const [index, kind] of productCategories.entries()) {
+    const itemId = `phase4-product-item-${index}`, versionId = `phase4-product-version-${index}`;
+    productVersions.push({ id: versionId, kind });
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO knowledge_items (id,workspace_id,created_at,updated_at,revision,company_id,scope_type,scope_id,kind,slot,current_version_id) VALUES (?,?,?,?,1,?,'product',?,?, 'default',NULL)").bind(itemId,workspace.id,now,now,company.id,product.id,kind),
+      fixture.database.prepare("INSERT INTO knowledge_versions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,kind,value_json,status,source_digest,knowledge_item_id,proposal_id,decision_id,authority_command_id,value_digest,predecessor_version_id) VALUES (?,?,?,?,1,'product',?,?, '{}','confirmed',?,?,?,?,?,?,NULL)").bind(versionId,workspace.id,now,now,product.id,kind,"a".repeat(64),itemId,null,null,productCommandId,"a".repeat(64)),
+      fixture.database.prepare("UPDATE knowledge_items SET current_version_id=? WHERE id=?").bind(versionId,itemId),
+    ]);
+  }
   await fixture.database.batch([
     fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('phase4-product-config', ?, ?, ?, 1, NULL, 'product', ?, 'product_discovery', ?, ?, 1)").bind(workspace.id, now, now, product.id, "a".repeat(64), JSON.stringify({ policySnapshot: { sourcePolicy: { id: "phase4-source-policy", versionId: "phase4-version-3", digest: "a".repeat(64), value: { tier1Origins: ["example.invalid"], tier2Origins: [], materialSignalKinds: ["operating-signal"] } }, runnerPolicy: { id: "phase4-runner-policy", versionId: "phase4-version-3", digest: "a".repeat(64), value: { allowedTools: [] } } }, replacementDirectives: { id: "phase4-replacement-directives", digest: "a".repeat(64) } })),
+    ...productVersions.map((version, ordinal) => fixture.database.prepare("INSERT INTO product_discovery_configuration_prerequisites (id,workspace_id,product_id,configuration_id,knowledge_version_id,knowledge_version_digest,category,ordinal,created_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(`phase4-product-prerequisite-${ordinal}`,workspace.id,product.id,"phase4-product-config",version.id,"a".repeat(64),version.kind,ordinal,now)),
+    fixture.database.prepare("UPDATE products SET lifecycle = 'ready', updated_at = ?, revision = revision + 1 WHERE id = ? AND lifecycle = 'draft'").bind(now, product.id),
     fixture.database.prepare("UPDATE customer_profiles SET timezone = 'America/Toronto', weekly_target = 1 WHERE id = ?").bind(profile.id),
   ]);
   const row = await fixture.database.prepare("SELECT revision FROM customer_profiles WHERE id = ?").bind(profile.id).first();

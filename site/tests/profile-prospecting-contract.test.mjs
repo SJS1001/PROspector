@@ -203,7 +203,7 @@ test("D-01 Phase 4 rejects every missing, stale, or wrong-scoped immutable Phase
     const profile = await loadProfileReadiness(fixture);
     const before = await snapshotForbiddenOperationalRows(fixture.database);
     const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
-    await fixture.database.prepare("DELETE FROM typed_configurations WHERE id = 'phase4-product-config'").run();
+    await fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id = 'phase4-product-config'").run();
     await assert.rejects(
       () => profile.createProfileConfigurationCandidate(fixture.database, OWNER, {
         profileId: seeded.profileId, expectedProfileRevision: seeded.revision, phase3Authority: activePhase3Authority({ productConfiguration: null }), now: NOW,
@@ -225,6 +225,8 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
     const profile = await loadProfileReadiness(fixture);
     const before = await snapshotForbiddenOperationalRows(fixture.database);
     const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const draftProfile = await fixture.database.prepare("SELECT lifecycle,revision FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    assert.deepEqual({ lifecycle:draftProfile.lifecycle, revision:Number(draftProfile.revision) }, { lifecycle:"draft", revision:seeded.revision });
     const candidate = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, {
       profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW,
       idempotencyKey: "0198f400-0000-7000-8000-000000000101",
@@ -239,6 +241,8 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
     assert.equal(active.initialRun.trigger, "initial");
     assert.equal(active.schedule.timezone, "America/Toronto");
     assert.equal(active.initialRun.executionState, "blocked_missing_capability");
+    const readyProfile = await fixture.database.prepare("SELECT lifecycle,revision FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    assert.deepEqual({ lifecycle:readyProfile.lifecycle, revision:Number(readyProfile.revision) }, { lifecycle:"ready", revision:seeded.revision + 1 }, "activation atomically promotes the exact Draft Profile revision to Ready");
     const persisted = await fixture.database.prepare("SELECT manifest_json FROM typed_configurations WHERE id = ?").bind(active.configuration.id).first();
     const manifest = JSON.parse(persisted.manifest_json);
     assert.equal(manifest.authority.sourcePolicy.id, "phase4-source-policy");
@@ -247,6 +251,60 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
     for (const table of ["runner_assignments", "accounts", "contacts", "prospects"]) {
       assert.equal(await countRows(fixture.database, table), before[table]?.count ?? 0, `${table} must remain unaffected`);
     }
+  } finally { await fixture.dispose(); }
+});
+
+test("D-01 candidate and activation both require the exact parent Product to remain Ready", async () => {
+  const fixture = await createD1Fixture("phase4-product-lifecycle-authority");
+  try {
+    await applyMigrations(fixture.database);
+    const readiness = await loadProfileReadiness(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const product = await fixture.database.prepare("SELECT product.id FROM products product JOIN market_plays play ON play.product_id=product.id JOIN customer_profiles profile ON profile.play_id=play.id WHERE profile.id=?").bind(seeded.profileId).first();
+    await fixture.database.prepare("UPDATE products SET lifecycle='draft',revision=revision+1 WHERE id=? AND lifecycle='ready'").bind(product.id).run();
+    await assert.rejects(
+      () => readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:seeded.revision, now:NOW, idempotencyKey:"0198f400-0000-7000-8000-000000000121" }),
+      /Ready Product Discovery Configuration authority/i,
+    );
+    assert.equal(await countRows(fixture.database, "profile_configuration_candidates"), 0);
+
+    await fixture.database.prepare("UPDATE products SET lifecycle='ready',revision=revision+1 WHERE id=? AND lifecycle='draft'").bind(product.id).run();
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:seeded.revision, now:NOW, idempotencyKey:"0198f400-0000-7000-8000-000000000122" });
+    await fixture.database.prepare("UPDATE products SET lifecycle='draft',revision=revision+1 WHERE id=? AND lifecycle='ready'").bind(product.id).run();
+    const before = await Promise.all(["profile_configuration_activations", "prospecting_schedules", "prospecting_runs"].map(async (table) => [table, await countRows(fixture.database, table)]));
+    await assert.rejects(
+      () => readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:candidate.id, expectedRevision:candidate.revision, expectedDigest:candidate.digest, now:NOW + 1, idempotencyKey:"0198f400-0000-7000-8000-000000000123" }),
+      /Ready Product Discovery Configuration authority/i,
+    );
+    assert.deepEqual(await Promise.all(before.map(async ([table]) => [table, await countRows(fixture.database, table)])), before, "a stale active Product config cannot substitute for Product Ready lifecycle authority");
+  } finally { await fixture.dispose(); }
+});
+
+test("D-02 replacement activation keeps the Profile Ready and rolls exact configuration and schedule authority", async () => {
+  const fixture = await createD1Fixture("phase4-ready-profile-replacement");
+  try {
+    await applyMigrations(fixture.database);
+    const readiness = await loadProfileReadiness(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const firstCandidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:seeded.revision, now:NOW, idempotencyKey:"0198f400-0000-7000-8000-000000000131" });
+    const first = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:firstCandidate.id, expectedRevision:firstCandidate.revision, expectedDigest:firstCandidate.digest, now:NOW + 1, idempotencyKey:"0198f400-0000-7000-8000-000000000132" });
+    const ready = await fixture.database.prepare("SELECT lifecycle,revision FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    const productConfiguration = await fixture.database.prepare("SELECT owner_id FROM typed_configurations WHERE id='phase4-product-config' AND workspace_id=?").bind(seeded.workspaceId).first();
+    await fixture.database.batch([
+      fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id='phase4-product-config' AND workspace_id=?").bind(seeded.workspaceId),
+      fixture.database.prepare("INSERT INTO typed_configurations (id,workspace_id,created_at,updated_at,revision,company_id,owner_type,owner_id,kind,digest,manifest_json,active) VALUES ('phase4-product-config-successor',?,?,?,1,NULL,'product',?,'product_discovery',?,?,1)").bind(seeded.workspaceId, NOW + 2, NOW + 2, productConfiguration.owner_id, "b".repeat(64), JSON.stringify({ policySnapshot: { sourcePolicy: { id:"phase4-source-policy-successor", versionId:"phase4-version-3", digest:"b".repeat(64), value:{ tier1Origins:["example.invalid"], tier2Origins:[], materialSignalKinds:["operating-signal"] } }, runnerPolicy: { id:"phase4-runner-policy", versionId:"phase4-version-3", digest:"a".repeat(64), value:{ allowedTools:[] } } }, replacementDirectives:{ id:"phase4-replacement-directives", digest:"a".repeat(64) } })),
+    ]);
+    const successorCandidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:Number(ready.revision), now:NOW + 3, idempotencyKey:"0198f400-0000-7000-8000-000000000133" });
+    const successor = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:successorCandidate.id, expectedRevision:successorCandidate.revision, expectedDigest:successorCandidate.digest, now:NOW + 4, idempotencyKey:"0198f400-0000-7000-8000-000000000134" });
+    const after = await fixture.database.prepare("SELECT lifecycle,revision FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    assert.deepEqual({ lifecycle:after.lifecycle, revision:Number(after.revision) }, { lifecycle:"ready", revision:Number(ready.revision) }, "replacement activation preserves the Ready lifecycle and its bound revision");
+    assert.notEqual(successor.configuration.id, first.configuration.id);
+    assert.notEqual(successor.schedule.id, first.schedule.id);
+    const schedules = await fixture.database.prepare("SELECT id,configuration_id,active FROM prospecting_schedules WHERE profile_id=? ORDER BY created_at,id").bind(seeded.profileId).all();
+    assert.equal(schedules.results.length, 2);
+    assert.deepEqual(schedules.results.map((row) => Number(row.active)).sort(), [0,1], "only the successor schedule remains active");
+    const activeConfiguration = await fixture.database.prepare("SELECT id FROM typed_configurations WHERE workspace_id=? AND owner_type='profile' AND owner_id=? AND kind='profile_effective' AND active=1").bind(seeded.workspaceId,seeded.profileId).all();
+    assert.deepEqual(activeConfiguration.results.map((row) => row.id), [successor.configuration.id]);
   } finally { await fixture.dispose(); }
 });
 
@@ -311,6 +369,16 @@ test("04-03 readiness classification is table-driven and never trusts a client a
       if (expected === "complete") assert.equal(result.complete, true, name);
       else assert.equal(result.items.find((item) => item.category === "fit_target").status, expected, name);
     }
+    assert.deepEqual(
+      profile.evaluateProfileReadiness({ profile:{ id:"p", lifecycle:"draft" }, authority:{ ...authority, productConfiguration:{} }, versions:complete }).missing,
+      ["product_configuration"],
+      "a truthy partial authority object is not a valid predecessor",
+    );
+    assert.deepEqual(
+      profile.evaluateProfileReadiness({ profile:{ id:"p", lifecycle:"paused" }, authority, versions:complete }).missing,
+      ["profile_lifecycle"],
+      "only Draft or already-Ready Profile lifecycle can cross the readiness boundary",
+    );
   } finally { await fixture.dispose(); }
 });
 
@@ -328,5 +396,34 @@ test("04-03 Profile schedule utility matrix retains namespace, offset, and succe
     assert.deepEqual(schedule.profileSourceWindow(null, NOW), { lowerExclusive:null, upperInclusive:NOW });
     assert.deepEqual(schedule.profileSourceWindow(NOW, NOW + 2 * 86_400_000), { lowerExclusive:NOW - 86_400_000, upperInclusive:NOW + 2 * 86_400_000 });
     assert.throws(() => schedule.profileSlotKey("", "bad", "6", 0), /schedule slot/i);
+    const spring = schedule.nextProfileWeekdaySlot("profile-a", Date.parse("2026-03-06T18:00:00.000Z"), "06:00", "America/Los_Angeles");
+    assert.deepEqual(spring, {
+      nextRunAt:Date.parse("2026-03-09T13:00:00.000Z"),
+      localDate:"2026-03-09",
+      utcOffsetMinutes:-420,
+      scheduleKey:"profile:profile-a:slot:2026-03-09T06:00:offset:-420",
+    }, "the future slot uses the post-DST offset in the pinned non-Toronto timezone");
+    const fall = schedule.nextProfileWeekdaySlot("profile-a", Date.parse("2026-10-30T18:00:00.000Z"), "06:00", "America/Los_Angeles");
+    assert.equal(fall.nextRunAt, Date.parse("2026-11-02T14:00:00.000Z"));
+    assert.equal(fall.utcOffsetMinutes, -480);
+    assert.equal(schedule.nextProfileWeekdaySlot("profile-a", NOW, "06:00", "UTC").utcOffsetMinutes, 0);
+    assert.equal(schedule.isSupportedProfileTimezone("Not/A_Zone"), false);
+
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    await fixture.database.prepare("UPDATE customer_profiles SET timezone='America/Los_Angeles' WHERE id=?").bind(seeded.profileId).run();
+    const readiness = await loadProfileReadiness(fixture);
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:seeded.revision, now:Date.parse("2026-03-06T18:00:00.000Z"), idempotencyKey:"0198f400-0000-7000-8000-000000000141" });
+    const activation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:candidate.id, expectedRevision:candidate.revision, expectedDigest:candidate.digest, now:Date.parse("2026-03-06T18:00:00.000Z"), idempotencyKey:"0198f400-0000-7000-8000-000000000142" });
+    assert.deepEqual(
+      { timezone:activation.schedule.timezone, localTime:activation.schedule.localTime, utcOffsetMinutes:activation.schedule.utcOffsetMinutes, nextRunAt:activation.schedule.nextRunAt },
+      { timezone:"America/Los_Angeles", localTime:"06:00", utcOffsetMinutes:-420, nextRunAt:Date.parse("2026-03-09T13:00:00.000Z") },
+      "activation pins the same future local instant and DST offset as reconciliation",
+    );
+    const persisted = await fixture.database.prepare("SELECT schedule_key,timezone,intended_local_time,utc_offset_minutes,next_run_at FROM prospecting_schedules WHERE id=?").bind(activation.schedule.id).first();
+    assert.match(persisted.schedule_key, /^profile:.+:slot:2026-03-09T06:00:offset:-420:configuration:/);
+    assert.deepEqual(
+      { timezone:persisted.timezone, localTime:persisted.intended_local_time, utcOffsetMinutes:Number(persisted.utc_offset_minutes), nextRunAt:Number(persisted.next_run_at) },
+      { timezone:"America/Los_Angeles", localTime:"06:00", utcOffsetMinutes:-420, nextRunAt:Date.parse("2026-03-09T13:00:00.000Z") },
+    );
   } finally { await fixture.dispose(); }
 });
