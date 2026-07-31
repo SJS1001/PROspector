@@ -33,6 +33,8 @@ export type IdentitySnapshot = Readonly<{
 
 export type IdentitySuggestion = Readonly<{
   id: string;
+  digest: string;
+  ownerSubject: string;
   workspaceId: string;
   kind: IdentityResolutionKind;
   candidateIds: readonly string[];
@@ -41,6 +43,11 @@ export type IdentitySuggestion = Readonly<{
   sourceLineageIds: readonly string[];
   associationImpact: readonly Readonly<{ id: string; scope: IdentityAssociation["scope"]; relevanceId: string }> [];
   suppressionPreservationNotice: "preserve_all_existing_subject_references";
+  proposedPartition: Readonly<{
+    sourceId: string;
+    newIdentityId: string;
+    moveAssociationIds: readonly string[];
+  }> | null;
 }>;
 
 export type MergeDecision = Readonly<{
@@ -81,27 +88,47 @@ export interface IdentityResolutionTransaction {
 
 export interface IdentityResolutionRepository {
   readIdentitySnapshots(workspaceId: string, identityIds: readonly string[]): Promise<readonly IdentitySnapshot[]>;
+  /** Persist exactly the server-created immutable record; an equal digest/ID is replay-safe. */
+  saveIdentitySuggestion(suggestion: IdentitySuggestion): Promise<IdentitySuggestion>;
+  readIdentitySuggestion(workspaceId: string, ownerSubject: string, suggestionId: string): Promise<IdentitySuggestion | null>;
   transaction<T>(workspaceId: string, operation: (transaction: IdentityResolutionTransaction) => Promise<T>): Promise<T>;
 }
 
 export type IdentityResolutionPrincipal = Readonly<{ subject: string; admittedOwner: boolean }>;
+export type PlanIdentitySuggestionInput =
+  | Readonly<{ workspaceId: string; kind: "merge"; candidateIds: readonly string[] }>
+  | Readonly<{ workspaceId: string; kind: "split"; sourceId: string; newIdentityId: string; moveAssociationIds: readonly string[] }>;
 
 export async function planIdentitySuggestion(
   repository: IdentityResolutionRepository,
-  input: Readonly<{ workspaceId: string; kind: IdentityResolutionKind; candidateIds: readonly string[] }>,
+  principal: IdentityResolutionPrincipal,
+  input: PlanIdentitySuggestionInput,
 ): Promise<IdentitySuggestion> {
-  const candidateIds = uniqueIds(input.candidateIds, 2, 16);
+  if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
+  const candidateIds = input.kind === "merge"
+    ? uniqueIds(input.candidateIds, 2, 16)
+    : uniqueIds([input.sourceId], 1, 1);
   const snapshots = await repository.readIdentitySnapshots(input.workspaceId, candidateIds);
   assertExactWorkspaceSnapshots(input.workspaceId, candidateIds, snapshots);
   const candidates = [...snapshots].sort((left, right) => left.id.localeCompare(right.id));
   const candidateRevisions = Object.fromEntries(candidates.map((candidate) => [candidate.id, candidate.revision]));
   const sources = unique(candidates.flatMap((candidate) => candidate.sourceLineageIds)).sort();
-  const associationImpact = candidates.flatMap((candidate) => candidate.associations)
+  const proposedPartition = input.kind === "split"
+    ? freezePartition({
+      sourceId: input.sourceId,
+      newIdentityId: input.newIdentityId,
+      moveAssociationIds: uniqueIds(input.moveAssociationIds, 1, 128),
+    })
+    : null;
+  if (proposedPartition && (!validId(proposedPartition.newIdentityId) || candidateIds.includes(proposedPartition.newIdentityId))) throw rejected();
+  const impactedAssociations = proposedPartition
+    ? associationsForPartition(candidates[0], proposedPartition.moveAssociationIds)
+    : candidates.flatMap((candidate) => candidate.associations);
+  const associationImpact = impactedAssociations
     .map((association) => ({ id: association.id, scope: association.scope, relevanceId: association.relevanceId }))
     .sort((left, right) => left.id.localeCompare(right.id));
   const revision = totalRevision(candidates);
-  return Object.freeze({
-    id: await hash({ workspaceId: input.workspaceId, kind: input.kind, candidateIds, candidateRevisions }),
+  const evidence = {
     workspaceId: input.workspaceId,
     kind: input.kind,
     candidateIds,
@@ -110,7 +137,20 @@ export async function planIdentitySuggestion(
     sourceLineageIds: Object.freeze(sources),
     associationImpact: Object.freeze(associationImpact),
     suppressionPreservationNotice: "preserve_all_existing_subject_references",
+    proposedPartition,
+  } as const;
+  const digest = await hash({ schema: "identity-suggestion/v1", ...evidence });
+  const suggestion: IdentitySuggestion = Object.freeze({
+    id: await hash({ schema: "identity-suggestion-id/v1", workspaceId: input.workspaceId, ownerSubject: principal.subject, digest }),
+    digest,
+    ownerSubject: principal.subject,
+    ...evidence,
   });
+  await assertSuggestionIntegrity(suggestion);
+  const persisted = await repository.saveIdentitySuggestion(suggestion);
+  await assertSuggestionIntegrity(persisted);
+  if (stable(persisted) !== stable(suggestion)) throw rejected();
+  return persisted;
 }
 
 export async function applyIdentityResolution(
@@ -118,28 +158,31 @@ export async function applyIdentityResolution(
   principal: IdentityResolutionPrincipal,
   input: Readonly<{
     workspaceId: string;
-    suggestion: IdentitySuggestion;
+    suggestionId: string;
     decision: IdentityDecision;
     expectedRevision: number;
     idempotencyKey: string;
   }>,
 ): Promise<AppliedResolution> {
   if (!principal.admittedOwner || !validId(principal.subject) || !validId(input.workspaceId)) throw rejected();
-  validateSuggestion(input.suggestion);
-  if (input.suggestion.workspaceId !== input.workspaceId || input.expectedRevision !== input.suggestion.revision) throw rejected();
+  if (!validId(input.suggestionId)) throw rejected();
+  const suggestion = await repository.readIdentitySuggestion(input.workspaceId, principal.subject, input.suggestionId);
+  if (!suggestion) throw rejected();
+  await assertSuggestionIntegrity(suggestion);
+  if (suggestion.id !== input.suggestionId || suggestion.workspaceId !== input.workspaceId || suggestion.ownerSubject !== principal.subject || input.expectedRevision !== suggestion.revision) throw rejected();
   validateKey(input.idempotencyKey);
-  validateDecision(input.suggestion, input.decision);
-  const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: input.suggestion.id, suggestionRevision: input.suggestion.revision, decision: canonicalDecision(input.decision), actor: principal.subject });
+  validateDecision(suggestion, input.decision);
+  const operationDigest = await hash({ workspaceId: input.workspaceId, suggestionId: suggestion.id, suggestionDigest: suggestion.digest, suggestionRevision: suggestion.revision, decision: canonicalDecision(input.decision), actor: principal.subject });
   return repository.transaction(input.workspaceId, async (transaction) => {
     const existing = await transaction.findByIdempotencyKey(input.idempotencyKey);
     if (existing) {
       if (existing.operationDigest !== operationDigest) throw rejected();
       return existing;
     }
-    const current = await transaction.readIdentitySnapshots(input.suggestion.candidateIds);
-    assertExactWorkspaceSnapshots(input.workspaceId, input.suggestion.candidateIds, current);
-    const revision = totalRevision(current);
-    if (revision !== input.expectedRevision || !sameRevisions(input.suggestion.candidateRevisions, current)) throw rejected();
+    const current = await transaction.readIdentitySnapshots(suggestion.candidateIds);
+    assertExactWorkspaceSnapshots(input.workspaceId, suggestion.candidateIds, current);
+    assertSuggestionMatchesSnapshots(suggestion, current);
+    if (totalRevision(current) !== input.expectedRevision || !sameRevisions(suggestion.candidateRevisions, current)) throw rejected();
     const retainedSourceLineageIds = unique(current.flatMap((identity) => identity.sourceLineageIds)).sort();
     const retainedIdentityLineageIds = unique(current.flatMap((identity) => [identity.id, ...identity.identityLineageIds])).sort();
     const retainedAliases = unique(current.flatMap((identity) => identity.aliases)).sort();
@@ -168,6 +211,8 @@ export async function applyIdentityResolution(
 /** A production composition must explicitly replace this reject-only port. */
 export const unavailableIdentityResolutionRepository: IdentityResolutionRepository = Object.freeze({
   async readIdentitySnapshots() { throw rejected(); },
+  async saveIdentitySuggestion() { throw rejected(); },
+  async readIdentitySuggestion() { throw rejected(); },
   async transaction() { throw rejected(); },
 });
 
@@ -175,7 +220,11 @@ function associationsForDecision(snapshots: readonly IdentitySnapshot[], decisio
   if (decision.kind === "merge") return snapshots.flatMap((identity) => identity.associations);
   const source = snapshots.find((identity) => identity.id === decision.sourceId);
   if (!source) throw rejected();
-  const requested = new Set(decision.moveAssociationIds);
+  return associationsForPartition(source, decision.moveAssociationIds);
+}
+
+function associationsForPartition(source: IdentitySnapshot, moveAssociationIds: readonly string[]) {
+  const requested = new Set(moveAssociationIds);
   const moved = source.associations.filter((association) => requested.has(association.id));
   if (moved.length !== requested.size || new Set(moved.map((association) => association.id)).size !== moved.length) throw rejected();
   return moved;
@@ -185,13 +234,16 @@ function validateDecision(suggestion: IdentitySuggestion, decision: IdentityDeci
   const candidates = new Set(suggestion.candidateIds);
   if (decision.kind !== suggestion.kind) throw rejected();
   if (decision.kind === "merge") {
+    if (suggestion.proposedPartition !== null) throw rejected();
     const secondaries = uniqueIds(decision.secondaryIds, 1, 15);
     if (!candidates.has(decision.primaryId) || secondaries.includes(decision.primaryId) || secondaries.some((id) => !candidates.has(id))) throw rejected();
     if (secondaries.length !== suggestion.candidateIds.length - 1) throw rejected();
     return;
   }
-  if (!candidates.has(decision.sourceId) || !validId(decision.newIdentityId) || candidates.has(decision.newIdentityId)) throw rejected();
-  uniqueIds(decision.moveAssociationIds, 1, 128);
+  const partition = suggestion.proposedPartition;
+  if (!partition || suggestion.candidateIds.length !== 1 || decision.sourceId !== partition.sourceId || decision.newIdentityId !== partition.newIdentityId) throw rejected();
+  const moved = uniqueIds(decision.moveAssociationIds, 1, 128);
+  if (stable(moved) !== stable(partition.moveAssociationIds)) throw rejected();
 }
 
 function assertExactWorkspaceSnapshots(workspaceId: string, ids: readonly string[], snapshots: readonly IdentitySnapshot[]) {
@@ -217,19 +269,70 @@ function assertSnapshot(workspaceId: string, snapshot: IdentitySnapshot) {
   if (new Set(associationIds).size !== associationIds.length) throw rejected();
 }
 
-function validateSuggestion(suggestion: IdentitySuggestion) {
-  if (!suggestion || typeof suggestion !== "object" || !validId(suggestion.id) || !validId(suggestion.workspaceId) || (suggestion.kind !== "merge" && suggestion.kind !== "split")) throw rejected();
-  const candidates = uniqueIds(suggestion.candidateIds, 2, 16);
+function validateSuggestionShape(suggestion: IdentitySuggestion) {
+  if (!suggestion || typeof suggestion !== "object" || !validId(suggestion.id) || !validDigest(suggestion.digest) || !validId(suggestion.ownerSubject) || !validId(suggestion.workspaceId) || (suggestion.kind !== "merge" && suggestion.kind !== "split")) throw rejected();
+  const candidates = suggestion.kind === "merge"
+    ? uniqueIds(suggestion.candidateIds, 2, 16)
+    : uniqueIds(suggestion.candidateIds, 1, 1);
+  if (stable(candidates) !== stable(suggestion.candidateIds)) throw rejected();
   const revisions = suggestion.candidateRevisions;
   if (!revisions || typeof revisions !== "object" || Array.isArray(revisions) || Object.keys(revisions).length !== candidates.length || candidates.some((id) => !Number.isSafeInteger(revisions[id]) || revisions[id] < 1)) throw rejected();
   if (!Number.isSafeInteger(suggestion.revision) || suggestion.revision !== Object.values(revisions).reduce((total, revision) => total + revision, 0)) throw rejected();
   assertIdArray(suggestion.sourceLineageIds, 1, 2_048);
+  if (stable([...suggestion.sourceLineageIds].sort()) !== stable(suggestion.sourceLineageIds)) throw rejected();
   if (!Array.isArray(suggestion.associationImpact) || suggestion.associationImpact.length > 2_048) throw rejected();
   const associations = suggestion.associationImpact.map((association) => {
     if (!association || typeof association !== "object" || !validId(association.id) || !validId(association.relevanceId) || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
     return association.id;
   });
-  if (new Set(associations).size !== associations.length || suggestion.suppressionPreservationNotice !== "preserve_all_existing_subject_references") throw rejected();
+  if (new Set(associations).size !== associations.length || stable([...associations].sort()) !== stable(associations) || suggestion.suppressionPreservationNotice !== "preserve_all_existing_subject_references") throw rejected();
+  if (suggestion.kind === "merge") {
+    if (suggestion.proposedPartition !== null) throw rejected();
+  } else {
+    const partition = suggestion.proposedPartition;
+    if (!partition || typeof partition !== "object" || partition.sourceId !== candidates[0] || !validId(partition.newIdentityId) || candidates.includes(partition.newIdentityId)) throw rejected();
+    const moved = uniqueIds(partition.moveAssociationIds, 1, 128);
+    if (stable(moved) !== stable(partition.moveAssociationIds) || stable(moved) !== stable(associations)) throw rejected();
+  }
+}
+
+async function assertSuggestionIntegrity(suggestion: IdentitySuggestion) {
+  validateSuggestionShape(suggestion);
+  const evidence = suggestionEvidence(suggestion);
+  const digest = await hash({ schema: "identity-suggestion/v1", ...evidence });
+  const id = await hash({ schema: "identity-suggestion-id/v1", workspaceId: suggestion.workspaceId, ownerSubject: suggestion.ownerSubject, digest });
+  if (digest !== suggestion.digest || id !== suggestion.id) throw rejected();
+}
+
+function suggestionEvidence(suggestion: IdentitySuggestion) {
+  return {
+    workspaceId: suggestion.workspaceId,
+    kind: suggestion.kind,
+    candidateIds: [...suggestion.candidateIds],
+    candidateRevisions: { ...suggestion.candidateRevisions },
+    revision: suggestion.revision,
+    sourceLineageIds: [...suggestion.sourceLineageIds],
+    associationImpact: suggestion.associationImpact.map((association) => ({ ...association })),
+    suppressionPreservationNotice: suggestion.suppressionPreservationNotice,
+    proposedPartition: suggestion.proposedPartition ? {
+      sourceId: suggestion.proposedPartition.sourceId,
+      newIdentityId: suggestion.proposedPartition.newIdentityId,
+      moveAssociationIds: [...suggestion.proposedPartition.moveAssociationIds],
+    } : null,
+  };
+}
+
+function assertSuggestionMatchesSnapshots(suggestion: IdentitySuggestion, snapshots: readonly IdentitySnapshot[]) {
+  if (!sameRevisions(suggestion.candidateRevisions, snapshots) || totalRevision(snapshots) !== suggestion.revision) throw rejected();
+  const sources = unique(snapshots.flatMap((snapshot) => snapshot.sourceLineageIds)).sort();
+  if (stable(sources) !== stable(suggestion.sourceLineageIds)) throw rejected();
+  const associations = suggestion.proposedPartition
+    ? associationsForPartition(snapshots[0], suggestion.proposedPartition.moveAssociationIds)
+    : snapshots.flatMap((snapshot) => snapshot.associations);
+  const impact = associations
+    .map((association) => ({ id: association.id, scope: association.scope, relevanceId: association.relevanceId }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (stable(impact) !== stable(suggestion.associationImpact)) throw rejected();
 }
 
 function sameRevisions(expected: Readonly<Record<string, number>>, current: readonly IdentitySnapshot[]) {
@@ -255,6 +358,10 @@ function freezeDecision(decision: IdentityDecision): IdentityDecision {
     : Object.freeze({ ...canonical, moveAssociationIds: Object.freeze(canonical.moveAssociationIds) });
 }
 
+function freezePartition(partition: { sourceId: string; newIdentityId: string; moveAssociationIds: readonly string[] }) {
+  return Object.freeze({ ...partition, moveAssociationIds: Object.freeze([...partition.moveAssociationIds].sort()) });
+}
+
 function uniqueIds(values: readonly string[], min: number, max: number) {
   assertIdArray(values, min, max);
   return [...values].sort();
@@ -265,6 +372,7 @@ function assertIdArray(values: unknown, min: number, max: number): asserts value
 }
 function unique(values: readonly string[]) { return [...new Set(values)]; }
 function validId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{2,127}$/i.test(value); }
+function validDigest(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
 function validateKey(value: string) { if (!/^[a-z0-9][a-z0-9_-]{7,127}$/i.test(value)) throw rejected(); }
 function rejected() { return new IdentityResolutionError("identity_resolution_rejected"); }
 function stable(value: unknown): string { if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`; if (value && typeof value === "object") { const record = value as Record<string, unknown>; return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stable(record[key])}`).join(",")}}`; } return JSON.stringify(value); }
