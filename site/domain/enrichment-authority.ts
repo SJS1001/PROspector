@@ -1,22 +1,30 @@
 import { canonicalDigest, deriveOperationKey, type EnrichmentBlockedReason, type EnrichmentGrant, type IssuanceSnapshot, type ProviderQuote } from "./enrichment-grant-issuance";
+import type { ContactEvidenceAssignment, ContactObservation } from "./contact-evidence";
 
 export type BudgetAccount = { scope: string; currency: string; actualUnits: number; reservedUnits: number; maxUnits: number; actualCostMinor: number; reservedCostMinor: number; maxCostMinor: number };
+export type AssignedContactEvidence = Readonly<ContactEvidenceAssignment & { prospectId: string }>;
 export type ReservationAuthority = {
   admitted: boolean; principalSubject: string; workspaceId: string; sourceRevision: number; grant: EnrichmentGrant;
   configuration: { id: string; digest: string; revision: number; current: boolean };
   prospects: Array<{ id: string; state: string; configurationId: string; configurationDigest: string; revision: number }>;
-  quote: ProviderQuote; accounts: BudgetAccount[];
+  quote: ProviderQuote; accounts: BudgetAccount[]; evidenceAssignments: AssignedContactEvidence[];
 };
-export type AuthorizedEnrichmentAssignment = { reservationId: string; operationKey: string; providerId: string; providerVersion: string; catalogRef: string; quoteRevision: number; prospectIds: readonly string[]; operation: "business_contact_lookup/v1"; maxUnits: number; maxCostMinor: number; currency: string; expiresAt: number };
+export type AuthorizedEnrichmentAssignment = { reservationId: string; workspaceId: string; configurationId: string; configurationDigest: string; operationKey: string; providerId: string; providerVersion: string; catalogRef: string; quoteRevision: number; prospectIds: readonly string[]; evidenceAssignments: readonly AssignedContactEvidence[]; operation: "business_contact_lookup/v1"; maxUnits: number; maxCostMinor: number; currency: string; expiresAt: number };
 export type EnrichmentReservation = { id: string; grantId: string; workspaceId: string; operationKey: string; status: "reserved" | "invoking" | "settled" | "released" | "needs_reconciliation"; assignment: AuthorizedEnrichmentAssignment };
+export type InvocationClaim = { kind: "claimed"; assignment: AuthorizedEnrichmentAssignment; claimedAt: number } | { kind: "blocked"; reason: "unavailable" | "expired" };
+export type ReconciliationReason = "timeout" | "ambiguous" | "invalid_provider_outcome" | "invalid_assignment" | "invalid_evidence" | "provider_throw" | "settlement_failure";
+export type ReconciliationWriteResult = { kind: "recorded" } | { kind: "persistence_failure" };
+export type RecoverableInvocation = Readonly<{ reservationId: string; operationKey: string; claimedAt: number; expiresAt: number; status: "invoking" }>;
 export type EnrichmentAuthorityRepository = {
   loadReservationAuthority(grantId: string): Promise<ReservationAuthority | null>;
   /** Atomic transaction: consume the single-use grant and enforce every supplied account cap. */
   commitReservation(record: EnrichmentReservation, accounts: readonly BudgetAccount[]): Promise<{ kind: "created"; record: EnrichmentReservation } | { kind: "existing"; record: EnrichmentReservation } | { kind: "blocked" }>;
-  /** Atomically moves reserved -> invoking. Null means no committed, uninvoked reservation exists. */
-  claimCommittedInvocation(reservationId: string, now: number): Promise<AuthorizedEnrichmentAssignment | null>;
-  settleReservation(reservationId: string, settlement: { state: "settled" | "released"; documentedUnits: number; documentedCostMinor: number; reason: "completed" | "partial" | "rejected" }): Promise<void>;
-  markNeedsReconciliation(reservationId: string, reason: "timeout" | "ambiguous" | "invalid_provider_outcome" | "provider_throw"): Promise<void>;
+  /** Atomically rechecks expiresAt > now while moving reserved -> invoking; an expired row is made terminal without returning an assignment. */
+  claimCommittedInvocation(reservationId: string, now: number): Promise<InvocationClaim>;
+  settleReservation(reservationId: string, settlement: { state: "settled" | "released"; documentedUnits: number; documentedCostMinor: number; reason: "completed" | "partial" | "rejected"; observations: readonly ContactObservation[] }): Promise<void>;
+  markNeedsReconciliation(reservationId: string, reason: ReconciliationReason): Promise<ReconciliationWriteResult>;
+  /** Recovery workers may inspect stranded invoking rows; this never grants retry or provider-call authority. */
+  listInvocationsNeedingRecovery(input: Readonly<{ claimedBefore: number; limit: number }>): Promise<readonly RecoverableInvocation[]>;
 };
 export type ReserveEnrichmentInput = { grantId: string; principalSubject: string; operationKey: string; now: number };
 export type EnrichmentAuthorityBlockedReason = EnrichmentBlockedReason | "grant_unavailable" | "grant_consumed" | "operation_key_mismatch" | "budget_exceeded";
@@ -36,12 +44,13 @@ export async function validateEnrichmentAuthority(authority: ReservationAuthorit
   if (!configuration.current || configuration.id !== grant.tuple.configurationId || configuration.digest !== grant.tuple.configurationDigest || configuration.revision !== grant.tuple.configurationRevision) return { kind: "blocked", reason: "configuration_not_current" };
   if (!sameQuote(quote, grant)) return { kind: "blocked", reason: quote.currency !== grant.tuple.currency ? "currency_mismatch" : "quote_unavailable" };
   if (!sameProspects(authority.prospects, grant)) return { kind: "blocked", reason: "prospect_not_approved" };
+  if (!validEvidenceAssignments(authority.evidenceAssignments, authority.workspaceId, configuration.id, configuration.digest, grant.tuple.prospectIds)) return { kind: "blocked", reason: "prospect_not_approved" };
   const snapshot: IssuanceSnapshot = { admitted: authority.admitted, workspaceId: authority.workspaceId, ownerSubject: authority.principalSubject, revision: authority.sourceRevision, configuration, prospects: authority.prospects, quote };
   const derived = await deriveOperationKey({ snapshot, input: { operation: grant.tuple.operation, maxUnits: grant.tuple.maxUnits, maxCostMinor: grant.tuple.maxCostMinor, currency: grant.tuple.currency, expiresAt: grant.tuple.expiresAt }, prospectIds: grant.tuple.prospectIds });
   if (input.operationKey !== grant.tuple.operationKey || derived !== grant.tuple.operationKey) return { kind: "blocked", reason: "operation_key_mismatch" };
   if (!withinAccounts(authority.accounts, grant)) return { kind: "blocked", reason: "budget_exceeded" };
   const reservationId = `er_${grant.tuple.digest.slice(0, 24)}`;
-  return { kind: "valid", accounts: authority.accounts.map(copyAccount), assignment: { reservationId, operationKey: grant.tuple.operationKey, providerId: grant.tuple.providerId, providerVersion: grant.tuple.providerVersion, catalogRef: grant.tuple.catalogRef, quoteRevision: grant.tuple.quoteRevision, prospectIds: [...grant.tuple.prospectIds], operation: grant.tuple.operation, maxUnits: grant.tuple.maxUnits, maxCostMinor: grant.tuple.maxCostMinor, currency: grant.tuple.currency, expiresAt: grant.tuple.expiresAt } };
+  return { kind: "valid", accounts: authority.accounts.map(copyAccount), assignment: { reservationId, workspaceId: authority.workspaceId, configurationId: configuration.id, configurationDigest: configuration.digest, operationKey: grant.tuple.operationKey, providerId: grant.tuple.providerId, providerVersion: grant.tuple.providerVersion, catalogRef: grant.tuple.catalogRef, quoteRevision: grant.tuple.quoteRevision, prospectIds: [...grant.tuple.prospectIds], evidenceAssignments: authority.evidenceAssignments.map((item) => ({ ...item })), operation: grant.tuple.operation, maxUnits: grant.tuple.maxUnits, maxCostMinor: grant.tuple.maxCostMinor, currency: grant.tuple.currency, expiresAt: grant.tuple.expiresAt } };
 }
 
 export async function reserveEnrichmentOperation(repository: EnrichmentAuthorityRepository, input: ReserveEnrichmentInput): Promise<ReserveEnrichmentResult> {
@@ -63,5 +72,10 @@ function withinAccounts(accounts: readonly BudgetAccount[], grant: EnrichmentGra
   return accounts.every((account) => account.currency === grant.tuple.currency && nonNegative(account.actualUnits) && nonNegative(account.reservedUnits) && nonNegative(account.maxUnits) && nonNegative(account.actualCostMinor) && nonNegative(account.reservedCostMinor) && nonNegative(account.maxCostMinor) && account.actualUnits + account.reservedUnits + grant.tuple.maxUnits <= account.maxUnits && account.actualCostMinor + account.reservedCostMinor + grant.tuple.maxCostMinor <= account.maxCostMinor);
 }
 function copyAccount(account: BudgetAccount): BudgetAccount { return { ...account }; }
-function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now); }
+function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now) && value.now > 0; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[]): boolean {
+  if (!Array.isArray(assignments) || assignments.length !== prospectIds.length || new Set(assignments.map((item) => item.prospectId)).size !== prospectIds.length || new Set(assignments.map((item) => item.contactId)).size !== assignments.length) return false;
+  return assignments.every((item) => prospectIds.includes(item.prospectId) && bounded(item.prospectId, 256) && item.workspaceId === workspaceId && bounded(item.contactId, 256) && item.profileConfigurationId === configurationId && item.profileConfigurationDigest === configurationDigest);
+}
+function bounded(value: unknown, max: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
