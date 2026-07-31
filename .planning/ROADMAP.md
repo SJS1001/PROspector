@@ -91,7 +91,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] `03-01-PLAN.md` through `03-08-PLAN.md` — Local implementation, UI, tests, hardening, and fail-closed offline preflight are committed, but no completion summaries exist and Phase 2 acceptance remains outstanding.
+- [x] `03-01-PLAN.md` through `03-08-PLAN.md` — Local implementation, UI, tests, hardening, fail-closed offline preflight, and plan summaries are committed. This is local-plan credit only; Phase 2 and Phase 3 acceptance remain outstanding.
 - [ ] `03-09-PLAN.md` — Obtain exact owner authorization for the narrow private synthetic hosted proof.
 - [ ] `03-10-PLAN.md` — Perform the controlled private hosted no-effect proof.
 - [ ] `03-11-PLAN.md` — Accept the owner lifecycle and record the separate transport-capability disposition.
@@ -169,7 +169,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
 | 2. Consensus Knowledge and Commercial Model | 11/20 | Blocked at hosted evidence | - |
-| 3. Product Readiness and Market Discovery | 0/11 | Local 03-01..08 present without summaries; 03-09..11 external gates | - |
+| 3. Product Readiness and Market Discovery | 8/11 | Local plans complete; blocked on Phase 2 acceptance and 03-09..11 external gates | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |
 | 6. Governed Outreach and Suppression | 0/13 | Planned; dependency-gated | - |

@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: blocked
 stopped_at: Plan 02-12 hosted evidence prerequisites
-last_updated: "2026-07-31T10:32:27.000Z"
+last_updated: "2026-07-31T10:41:12.000Z"
 last_activity: 2026-07-31
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 70
-  completed_plans: 16
-  percent: 23
+  total_plans: 80
+  completed_plans: 24
+  percent: 30
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 12 of 20
 Status: Plans 02-01 through 02-11 implemented locally; Plan 02-12 requires non-substitutable hosted proof
 Last activity: 2026-07-31
 
-Progress: [██░░░░░░░░] 23% of currently planned plans
+Progress: [███░░░░░░░] 30% of currently planned plans
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [██░░░░░░░░] 23% of currently planned plans
 |-------|-------|-------|----------|
 | Phase 1 | 5 | recorded in plan summaries | - |
 | Phase 2 | 11 | recorded in plan summaries | - |
+| Phase 3 | 8 | recorded local-plan summaries; phase acceptance blocked | - |
 
 **Recent Trend:**
 
@@ -80,7 +81,8 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Knowledge intake remains immutable Proposed state; only Accept, Correct, or Rescope appends a Confirmed Version. — Prevents proposed evidence from gaining authority or operational effect.
 - [Phase 02]: Plan 02-12 cannot receive a completion summary until a real second signed-in principal and owner-side read-only hosted D1 baseline are both available.
 - [Phase 02]: Final independent code re-review after 2e879dc and 45bcdc1 is clean; security has zero open local implementation threats. External hosted evidence remains blocked.
-- [Phase 03]: Local implementation, UI, tests, race hardening, and fail-closed offline preflight exist through Plan 03-08, but no completion summaries exist and the Phase 2 dependency is not accepted.
+- [Phase 03]: Local Plans 03-01 through 03-08 have committed summaries and implementation, UI, tests, race hardening, and a fail-closed offline preflight. This is local-plan credit only: Phase 2 is not accepted and Plans 03-09 through 03-11 remain incomplete.
+- [Planning ledger]: Reconciled the checked repository to 80 plan files and 24 committed summaries (Phase 1: 5, Phase 2: 11, Phase 3: 8). Phase checkboxes, requirements, and external gates remain unchanged.
 - [Phase 03]: Plans 03-09 through 03-11 are explicit owner/hosted proof and lifecycle gates; local evidence cannot complete them.
 - [Phase 04]: Twelve checked plans exist. Wave 1 RED contracts and additive persistence are committed; no plan is recorded complete.
 - [Phase 05]: Nine checked plans exist; execution has not started.
