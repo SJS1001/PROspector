@@ -105,26 +105,27 @@ test("P5 preparation: only an exact committed reservation can invoke the injecte
       async markNeedsReconciliation(id) { mutations.push(["reconcile", id]); reservations.get(id).status = "needs_reconciliation"; return { kind: "recorded" }; },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const fake = { calls: 0, async enrich(assignment) { this.calls += 1; return { kind: "partial", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 11, evidence: [] }; } };
+    const fake = boundFakePort(portModule, async (assignment) => ({ kind: "partial", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 11, evidence: [contactEnvelope()] }));
     const denied = await authority.reserveEnrichmentOperation(reservationAuthority, { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: "op_client_selected", now: 1_100 });
     assert.equal(denied.kind, "blocked"); assert.equal(fake.calls, 0); assert.deepEqual(mutations, []);
     const reserved = await authority.reserveEnrichmentOperation(reservationAuthority, { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 });
     assert.equal(reserved.kind, "reserved"); assert.equal(fake.calls, 0); assert.deepEqual(mutations[0][0], "reserve");
-    const delivered = await operation.executeEnrichmentOperation(reservationAuthority, fake, { reservationId: reserved.reservation.id, now: 1_101 });
+    assert.equal(reserved.reservation.assignment.quoteUnitCostMinor, 11);
+    const delivered = await operation.executeEnrichmentOperation(reservationAuthority, fake.port, { reservationId: reserved.reservation.id, now: 1_101 });
     assert.equal(delivered.kind, "settled"); assert.equal(fake.calls, 1); assert.deepEqual(mutations.map((entry) => entry[0]), ["reserve", "claim", "settle"]);
     assert.equal(portModule.productionContactProviderPort.kind, "unconfigured");
     await assert.rejects(() => portModule.productionContactProviderPort.enrich({}), /contact_provider_unconfigured/);
-    const retry = await operation.executeEnrichmentOperation(reservationAuthority, fake, { reservationId: reserved.reservation.id, now: 1_102 });
+    const retry = await operation.executeEnrichmentOperation(reservationAuthority, fake.port, { reservationId: reserved.reservation.id, now: 1_102 });
     assert.equal(retry.kind, "blocked"); assert.equal(fake.calls, 1);
 
     const timedOutReservation = { ...reserved.reservation, id: "reservation-timeout", status: "reserved", assignment: { ...reserved.reservation.assignment, reservationId: "reservation-timeout" } }; reservations.set(timedOutReservation.id, timedOutReservation);
-    const timeoutPort = { calls: 0, async enrich(assignment) { this.calls += 1; return { kind: "ambiguous", reservationId: assignment.reservationId, operationKey: assignment.operationKey }; } };
-    const uncertain = await operation.executeEnrichmentOperation(reservationAuthority, timeoutPort, { reservationId: timedOutReservation.id, now: 1_103 });
+    const timeoutPort = boundFakePort(portModule, async (assignment) => ({ kind: "ambiguous", reservationId: assignment.reservationId, operationKey: assignment.operationKey }));
+    const uncertain = await operation.executeEnrichmentOperation(reservationAuthority, timeoutPort.port, { reservationId: timedOutReservation.id, now: 1_103 });
     assert.equal(uncertain.kind, "needs_reconciliation"); assert.equal(timeoutPort.calls, 1); assert.equal(timedOutReservation.status, "needs_reconciliation");
-    assert.equal((await operation.executeEnrichmentOperation(reservationAuthority, timeoutPort, { reservationId: timedOutReservation.id, now: 1_104 })).kind, "blocked");
+    assert.equal((await operation.executeEnrichmentOperation(reservationAuthority, timeoutPort.port, { reservationId: timedOutReservation.id, now: 1_104 })).kind, "blocked");
     assert.equal(timeoutPort.calls, 1, "ambiguous acceptance is never retried or switched");
 
-    const runnerAuthority = { grant: { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries: 0, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 }, admitted: true, principalSubject: "owner-synthetic", attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] }, perRun: budget("runner_per_run", 9), monthly: budget("runner_monthly", 9) };
+    const runnerAuthority = await configuredRunnerAuthority(runner, { maxRetries: 0, attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] } });
     const runnerResult = await runner.reserveRunnerSpend({ async loadRunnerAuthority() { return runnerAuthority; }, async commitRunnerReservation(record) { return { kind: "created", record }; } }, { grantId: "runner-grant", principalSubject: "owner-synthetic", operationKey: await runner.deriveRunnerOperationKey(runnerAuthority), now: 1_100 });
     assert.equal(runnerResult.kind, "reserved");
     assert.equal(await runner.reserveRunnerSpend({ async loadRunnerAuthority() { return null; }, async commitRunnerReservation() { throw new Error("must not mutate"); } }, { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }).then((value) => value.kind), "blocked", "an enrichment grant cannot be a runner grant");
@@ -210,19 +211,78 @@ test("P5 hardening: immutable grants and exact synthetic authority shapes fail c
 test("P5 hardening: malformed fake-port outcomes and settlement failures hold a claimed reservation without retry", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const operation = await module(vite, "enrichment-operation");
-    for (const [name, port, settlementThrows, reconciliationThrows] of [
-      ["null", null, false, false], ["unknown kind", { async enrich() { return { kind: "other" }; } }, false, false],
-      ["oversized evidence", { async enrich(assignment) { return { kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: Array.from({ length: 101 }, () => ({})) }; } }, false, false],
-      ["settlement failure", { async enrich(assignment) { return { kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [] }; } }, true, false],
-      ["reconciliation persistence failure", { async enrich() { return { kind: "other" }; } }, false, true],
+    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    for (const [name, fake, settlementThrows, reconciliationThrows] of [
+      ["null", { port: null, calls: 0 }, false, false],
+      ["unknown kind", boundFakePort(portModule, async () => ({ kind: "other" })), false, false],
+      ["oversized evidence", boundFakePort(portModule, async (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: Array.from({ length: 101 }, () => ({})) })), false, false],
+      ["settlement failure", boundFakePort(portModule, async (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] })), true, false],
+      ["reconciliation persistence failure", boundFakePort(portModule, async () => ({ kind: "other" })), false, true],
     ]) {
-      const state = { status: "reserved", calls: 0, reconciled: 0 };
+      const state = { status: "reserved", reconciled: 0 };
       const repository = { async claimCommittedInvocation(_id, now) { if (state.status !== "reserved") return { kind: "blocked", reason: "unavailable" }; state.status = "invoking"; return { kind: "claimed", assignment: authorizedAssignment(), claimedAt: now }; }, async settleReservation() { if (settlementThrows) throw new Error("settlement unavailable"); state.status = "settled"; }, async markNeedsReconciliation() { state.reconciled += 1; if (reconciliationThrows) throw new Error("reconciliation unavailable"); state.status = "needs_reconciliation"; return { kind: "recorded" }; }, async listInvocationsNeedingRecovery() { return state.status === "invoking" ? [{ reservationId: "reservation-hardened", operationKey: authorizedAssignment().operationKey, claimedAt: 1_100, expiresAt: 2_000, status: "invoking" }] : []; } };
-      if (port && typeof port.enrich === "function") { const original = port.enrich; port.enrich = async (...args) => { state.calls += 1; return original(...args); }; }
-      const result = await operation.executeEnrichmentOperation(repository, port, { reservationId: "reservation-hardened", now: 1_100 });
-      assert.equal(result.kind, reconciliationThrows ? "reconciliation_persistence_failure" : "needs_reconciliation", name); assert.equal(state.calls <= 1, true, name); assert.notEqual(state.status, "reserved", name);
-      assert.equal((await operation.executeEnrichmentOperation(repository, port, { reservationId: "reservation-hardened", now: 1_101 })).kind, "blocked", name);
+      const result = await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: "reservation-hardened", now: 1_100 });
+      assert.equal(result.kind, reconciliationThrows ? "reconciliation_persistence_failure" : "needs_reconciliation", name); assert.equal(fake.calls <= 1, true, name); assert.notEqual(state.status, "reserved", name);
+      assert.equal((await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: "reservation-hardened", now: 1_101 })).kind, "blocked", name);
+    }
+  } finally { await vite.close(); }
+});
+
+test("P5 hardening: exact provider binding and quote economics fail closed before call or settlement", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    for (const [name, descriptorPatch] of [
+      ["provider id", { providerId: "wrong-provider" }],
+      ["provider version", { providerVersion: "wrong-version" }],
+      ["catalog reference", { catalogRef: "wrong-catalog" }],
+    ]) {
+      const assignment = authorizedAssignment();
+      const fake = boundFakePort(portModule, async (value) => ({ kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }), descriptorPatch);
+      const state = { settled: 0, reconciled: 0, reason: null };
+      const repository = {
+        async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
+        async settleReservation() { state.settled += 1; },
+        async markNeedsReconciliation(_id, reason) { state.reconciled += 1; state.reason = reason; return { kind: "recorded" }; },
+        async listInvocationsNeedingRecovery() { return []; },
+      };
+      const result = await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: assignment.reservationId, now: 1_100 });
+      assert.equal(result.kind, "needs_reconciliation", name);
+      assert.equal(fake.calls, 0, `${name}: mismatched adapter must not be invoked`);
+      assert.equal(state.settled, 0, name);
+      assert.equal(state.reconciled, 1, name);
+      assert.equal(state.reason, "provider_port_mismatch", name);
+    }
+
+    const economicsAssignment = authorizedAssignment({
+      quoteUnitCostMinor: 3,
+      maxUnits: 2,
+      maxCostMinor: 6,
+      evidenceAssignments: [
+        evidenceBinding(),
+        evidenceBinding({ assignmentId: "assignment-prospect-a-economic-buyer", role: "economic_buyer", contactId: "contact-economic-buyer" }),
+      ],
+    });
+    for (const [name, outcome] of [
+      ["zero units at full cost", { kind: "completed", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 0, documentedCostMinor: 6, evidence: [] }],
+      ["cost differs from quote", { kind: "partial", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 1, documentedCostMinor: 2, evidence: [contactEnvelope()] }],
+      ["evidence count differs from units", { kind: "completed", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 2, documentedCostMinor: 6, evidence: [contactEnvelope()] }],
+      ["units and cost exceed caps", { kind: "completed", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 3, documentedCostMinor: 9, evidence: [contactEnvelope(), contactEnvelope(), contactEnvelope()] }],
+    ]) {
+      const fake = boundFakePort(portModule, async () => outcome);
+      const state = { settled: 0, reconciled: 0, reason: null };
+      const repository = {
+        async claimCommittedInvocation() { return { kind: "claimed", assignment: economicsAssignment, claimedAt: 1_100 }; },
+        async settleReservation() { state.settled += 1; },
+        async markNeedsReconciliation(_id, reason) { state.reconciled += 1; state.reason = reason; return { kind: "recorded" }; },
+        async listInvocationsNeedingRecovery() { return []; },
+      };
+      const result = await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: economicsAssignment.reservationId, now: 1_100 });
+      assert.equal(result.kind, "needs_reconciliation", name);
+      assert.equal(fake.calls, 1, name);
+      assert.equal(state.settled, 0, name);
+      assert.equal(state.reconciled, 1, name);
+      assert.equal(state.reason, "invalid_provider_outcome", name);
     }
   } finally { await vite.close(); }
 });
@@ -230,8 +290,8 @@ test("P5 hardening: malformed fake-port outcomes and settlement failures hold a 
 test("P5 hardening: invocation expiry is atomic and provider evidence must pass exact assignment-bound ingestion", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const operation = await module(vite, "enrichment-operation");
-    const port = { calls: 0, async enrich(assignment) { this.calls += 1; return { kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [] }; } };
+    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    const port = boundFakePort(portModule, async (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }));
     const expiryState = { status: "reserved" };
     const expiredRepository = {
       async claimCommittedInvocation(_id, now) { if (1_100 <= now) { expiryState.status = "expired"; return { kind: "blocked", reason: "expired" }; } throw new Error("unexpected clock"); },
@@ -239,7 +299,7 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       async markNeedsReconciliation() { throw new Error("unreachable"); },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const expired = await operation.executeEnrichmentOperation(expiredRepository, port, { reservationId: "reservation-expired", now: 1_100 });
+    const expired = await operation.executeEnrichmentOperation(expiredRepository, port.port, { reservationId: "reservation-expired", now: 1_100 });
     assert.equal(expired.kind, "blocked"); assert.equal(port.calls, 0); assert.equal(expiryState.status, "expired");
     const defensiveState = { status: "reserved", reconciled: 0 };
     const defensiveRepository = {
@@ -248,19 +308,19 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       async markNeedsReconciliation() { defensiveState.reconciled += 1; defensiveState.status = "needs_reconciliation"; return { kind: "recorded" }; },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const defensiveExpiry = await operation.executeEnrichmentOperation(defensiveRepository, port, { reservationId: "reservation-expired-claim", now: 1_100 });
+    const defensiveExpiry = await operation.executeEnrichmentOperation(defensiveRepository, port.port, { reservationId: "reservation-expired-claim", now: 1_100 });
     assert.equal(defensiveExpiry.kind, "needs_reconciliation"); assert.equal(port.calls, 0); assert.equal(defensiveState.reconciled, 1);
 
     const state = { status: "reserved", settled: 0, promoted: 0, reconciled: 0, reconciliationReason: null };
     const assignment = authorizedAssignment({ expiresAt: 2_000 });
-    const invalidEvidencePort = { calls: 0, async enrich(value) { this.calls += 1; return { kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope({ workspaceId: "other-workspace" })] }; } };
+    const invalidEvidencePort = boundFakePort(portModule, async (value) => ({ kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope({ workspaceId: "other-workspace" })] }));
     const evidenceRepository = {
       async claimCommittedInvocation() { if (state.status !== "reserved") return { kind: "blocked", reason: "unavailable" }; state.status = "invoking"; return { kind: "claimed", assignment, claimedAt: 1_100 }; },
       async settleReservation(_id, settlement) { state.settled += 1; state.promoted += settlement.observations.length; state.status = "settled"; },
       async markNeedsReconciliation(_id, reason) { state.reconciled += 1; state.reconciliationReason = reason; state.status = "needs_reconciliation"; return { kind: "recorded" }; },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const invalid = await operation.executeEnrichmentOperation(evidenceRepository, invalidEvidencePort, { reservationId: assignment.reservationId, now: 1_100 });
+    const invalid = await operation.executeEnrichmentOperation(evidenceRepository, invalidEvidencePort.port, { reservationId: assignment.reservationId, now: 1_100 });
     assert.equal(invalid.kind, "needs_reconciliation"); assert.equal(state.reconciliationReason, "invalid_evidence"); assert.equal(invalidEvidencePort.calls, 1); assert.equal(state.settled, 0); assert.equal(state.promoted, 0); assert.equal(state.reconciled, 1);
 
     const acceptedState = { status: "reserved", observations: [] };
@@ -270,8 +330,8 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       async markNeedsReconciliation() { throw new Error("unreachable"); },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const acceptedPort = { calls: 0, async enrich(value) { this.calls += 1; return { kind: "partial", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }; } };
-    const accepted = await operation.executeEnrichmentOperation(acceptedRepository, acceptedPort, { reservationId: assignment.reservationId, now: 1_100 });
+    const acceptedPort = boundFakePort(portModule, async (value) => ({ kind: "partial", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }));
+    const accepted = await operation.executeEnrichmentOperation(acceptedRepository, acceptedPort.port, { reservationId: assignment.reservationId, now: 1_100 });
     assert.equal(accepted.kind, "settled"); assert.equal(acceptedPort.calls, 1); assert.equal(acceptedState.observations.length, 1); assert.equal(acceptedState.observations[0].workspaceId, assignment.workspaceId); assert.equal(acceptedState.observations[0].contactId, evidenceBinding().contactId); assert.equal(Object.isFrozen(acceptedState.observations[0]), true);
     assert.equal(acceptedState.observations[0].verificationClass, "suggested", "adapter-only evidence cannot self-certify eligibility");
     assert.equal(acceptedState.observations[0].providerId, null);
@@ -284,7 +344,7 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       async listInvocationsNeedingRecovery() { return []; },
     };
     const trustedVerifier = { async verify({ envelope: raw }) { return contactVerification(raw); } };
-    const verified = await operation.executeEnrichmentOperation(verifiedRepository, acceptedPort, { reservationId: assignment.reservationId, now: 1_100 }, trustedVerifier);
+    const verified = await operation.executeEnrichmentOperation(verifiedRepository, acceptedPort.port, { reservationId: assignment.reservationId, now: 1_100 }, trustedVerifier);
     assert.equal(verified.kind, "settled"); assert.equal(verifiedState.reconciled, 0); assert.equal(verifiedState.observations.length, 1);
     assert.equal(verifiedState.observations[0].verificationClass, "mailbox_verified");
     assert.equal(verifiedState.observations[0].providerId, assignment.providerId);
@@ -306,15 +366,15 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       async markNeedsReconciliation() { multiState.reconciled += 1; return { kind: "recorded" }; },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const multiPort = { async enrich(value) { return {
+    const multiPort = boundFakePort(portModule, async (value) => ({
       kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey,
       documentedUnits: 2, documentedCostMinor: 2,
       evidence: [
         contactEnvelope(),
         contactEnvelope({ id: "observation-economic-buyer", assignmentId: "assignment-prospect-a-economic-buyer", contactId: "contact-economic-buyer", value: "economic-buyer@example.invalid" }),
       ],
-    }; } };
-    const multi = await operation.executeEnrichmentOperation(multiRepository, multiPort, { reservationId: multiAssignment.reservationId, now: 1_100 });
+    }));
+    const multi = await operation.executeEnrichmentOperation(multiRepository, multiPort.port, { reservationId: multiAssignment.reservationId, now: 1_100 });
     assert.equal(multi.kind, "settled");
     assert.equal(multiState.reconciled, 0);
     assert.deepEqual(multiState.observations.map((observation) => observation.contactId), ["contact-synthetic", "contact-economic-buyer"]);
@@ -328,7 +388,7 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
     };
     const forgedProvider = await operation.executeEnrichmentOperation(
       forgedProviderRepository,
-      acceptedPort,
+      acceptedPort.port,
       { reservationId: assignment.reservationId, now: 1_100 },
       { async verify({ envelope: raw }) { return contactVerification(raw, { providerId: "different-provider" }); } },
     );
@@ -342,14 +402,14 @@ test("P5 hardening: Runner retry attempts are immutable, bounded, duplicate-safe
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
     const runner = await module(vite, "runner-spend-authority");
-    const base = runnerAuthority({ maxRetries: 1, attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] } });
+    const base = await configuredRunnerAuthority(runner, { maxRetries: 1, attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] } });
     const firstKey = await runner.deriveRunnerOperationKey(base);
-    const duplicateSeed = runnerAuthority({ maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [firstKey] } });
+    const duplicateSeed = await configuredRunnerAuthority(runner, { maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [firstKey] } });
     const duplicateKey = await runner.deriveRunnerOperationKey(duplicateSeed);
     for (const [name, authority, operationKey] of [
-      ["exhausted", runnerAuthority({ maxRetries: 0, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [firstKey] } }), await runner.deriveRunnerOperationKey(runnerAuthority({ maxRetries: 0, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [firstKey] } }))],
-      ["uncertain", runnerAuthority({ maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "uncertain", previousOperationKeys: [firstKey] } }), await runner.deriveRunnerOperationKey(runnerAuthority({ maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "uncertain", previousOperationKeys: [firstKey] } }))],
-      ["duplicate", runnerAuthority({ maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [duplicateKey] } }), duplicateKey],
+      ["exhausted", await configuredRunnerAuthority(runner, { maxRetries: 0, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [firstKey] } }), await runner.deriveRunnerOperationKey(await configuredRunnerAuthority(runner, { maxRetries: 0, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [firstKey] } }))],
+      ["uncertain", await configuredRunnerAuthority(runner, { maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "uncertain", previousOperationKeys: [firstKey] } }), await runner.deriveRunnerOperationKey(await configuredRunnerAuthority(runner, { maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "uncertain", previousOperationKeys: [firstKey] } }))],
+      ["duplicate", await configuredRunnerAuthority(runner, { maxRetries: 1, attempt: { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [duplicateKey] } }), duplicateKey],
     ]) {
       const writes = [];
       const result = await runner.reserveRunnerSpend({ async loadRunnerAuthority() { return authority; }, async commitRunnerReservation(record) { writes.push(record); return { kind: "created", record }; } }, { grantId: authority.grant.id, principalSubject: authority.principalSubject, operationKey, now: 1_100 });
@@ -366,15 +426,6 @@ function currentSnapshot() {
 }
 function issueInput() { return { principalSubject: "owner-synthetic", prospectIds: ["prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 2, maxCostMinor: 22, currency: "USD", expiresAt: 1_500, expectedRevision: 7, idempotencyKey: "issue-synthetic-2", now: 1_000 }; }
 function budget(scope, maxCostMinor = 22, grantId = "runner-grant") {
-  if (scope === "runner_per_run" || scope === "runner_monthly") {
-    const principalSubject = "owner-synthetic", providerId = "synthetic-model-provider", scopeId = "run-synthetic";
-    return {
-      authorityType: "runner_spend",
-      accountId: `runner:${scope}:${principalSubject.length}:${principalSubject}:${grantId.length}:${grantId}:${providerId.length}:${providerId}:${scopeId.length}:${scopeId}`,
-      scope, principalSubject, grantId, providerId, scopeId, currency: "USD",
-      actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor,
-    };
-  }
   const workspaceId = "workspace-synthetic";
   const entityId = scope === "grant" ? grantId : scope === "profile" ? "config-synthetic" : scope === "workspace" ? workspaceId : "synthetic-provider";
   return {
@@ -386,7 +437,37 @@ function budget(scope, maxCostMinor = 22, grantId = "runner-grant") {
   };
 }
 function evidenceBinding(patch = {}) { return { assignmentId: "assignment-prospect-a-champion", prospectId: "prospect-a", role: "champion", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), ...patch }; }
-function authorizedAssignment(patch = {}) { return { reservationId: "reservation-hardened", workspaceId: "workspace-synthetic", configurationId: "config-synthetic", configurationDigest: "a".repeat(64), operationKey: `op_${"a".repeat(64)}`, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", quoteRevision: 1, prospectIds: ["prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 1, maxCostMinor: 1, currency: "USD", expiresAt: 2_000, evidenceAssignments: [evidenceBinding()], ...patch }; }
+function authorizedAssignment(patch = {}) { return { reservationId: "reservation-hardened", workspaceId: "workspace-synthetic", configurationId: "config-synthetic", configurationDigest: "a".repeat(64), operationKey: `op_${"a".repeat(64)}`, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", quoteRevision: 1, quoteUnitCostMinor: 1, prospectIds: ["prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 1, maxCostMinor: 1, currency: "USD", expiresAt: 2_000, evidenceAssignments: [evidenceBinding()], ...patch }; }
 function contactEnvelope(patch = {}) { return { id: "observation-synthetic", assignmentId: "assignment-prospect-a-champion", prospectId: "prospect-a", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), kind: "email", value: "synthetic-contact@example.invalid", confidence: 1, provenance: { sourceReference: "source-synthetic", excerpt: "synthetic excerpt", objectReference: "object-synthetic", contentHash: "b".repeat(64), retrievedAt: 1_090 }, observedAt: 1_100, ...patch }; }
 function contactVerification(raw = contactEnvelope(), patch = {}) { return { observationId: raw.id, workspaceId: raw.workspaceId, contactId: raw.contactId, profileConfigurationId: raw.profileConfigurationId, profileConfigurationDigest: raw.profileConfigurationDigest, kind: raw.kind, normalizedValue: String(raw.value).trim().toLowerCase(), contentHash: raw.provenance.contentHash, verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: 1_095, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", verifierId: "server-verifier", verifierVersion: "v1", verdictReference: "verdict-synthetic", verdictDigest: "d".repeat(64), ...patch }; }
-function runnerAuthority({ maxRetries, attempt }) { return { admitted: true, principalSubject: "owner-synthetic", grant: { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 }, attempt, perRun: budget("runner_per_run", 9), monthly: budget("runner_monthly", 9) }; }
+async function configuredRunnerAuthority(runner, { maxRetries, attempt }) {
+  const principalSubject = "owner-synthetic";
+  const grant = { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 };
+  const seed = { admitted: true, principalSubject, grant, attempt };
+  const operationKey = await runner.deriveRunnerOperationKey(seed);
+  const period = runner.deriveRunnerUtcMonthPeriod(1_100);
+  return {
+    ...seed,
+    perRun: {
+      authorityType: "runner_spend",
+      accountId: runner.deriveRunnerPerRunAccountId({ principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId, attemptNumber: attempt.attemptNumber, operationKey }),
+      scope: "runner_per_run", principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
+      attemptNumber: attempt.attemptNumber, operationKey, currency: "USD",
+      actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor: 9,
+    },
+    monthly: {
+      authorityType: "runner_spend",
+      accountId: runner.deriveRunnerMonthlyAccountId({ principalSubject, providerId: grant.providerId, scopeId: grant.scopeId, period }),
+      scope: "runner_monthly", principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
+      period, currency: "USD", actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor: 9,
+    },
+  };
+}
+function boundFakePort(portModule, enrich, descriptorPatch = {}) {
+  const tracker = { calls: 0, port: null };
+  tracker.port = portModule.bindContactProviderPort(
+    { providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", ...descriptorPatch },
+    async (assignment) => { tracker.calls += 1; return enrich(assignment); },
+  );
+  return tracker;
+}
