@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   applyMigrations,
+  applyPhase4Migrations,
   assertForbiddenOperationalRowsUnchanged,
   createD1Fixture,
   countRows,
@@ -65,7 +66,7 @@ test("04-02 full chain installs constrained Phase 4 persistence without Phase 5â
   const fixture = await createD1Fixture("phase4-schema-contract");
   try {
     const historian = await seedBoundHistorian(fixture.database);
-    await applyMigrations(fixture.database);
+    await applyPhase4Migrations(fixture.database);
     const expected = [
       "profile_configuration_candidates", "profile_configuration_activations", "prospecting_schedules", "prospecting_runs", "prospecting_run_events",
       "runner_assignments", "runner_assignment_revocations", "runner_submissions", "prospecting_source_lineage", "prospecting_signals",
