@@ -66,8 +66,8 @@ test("runner reserves one attempt against both ledgers and separately enforces t
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
     const runner = await load(vite, "runner-spend-authority");
-    const authority = runnerAuthority();
-    const operationKey = await runner.deriveRunnerOperationKey(authority);
+    const authority = await runnerAuthority(runner);
+    const operationKey = authority.perRun.operationKey;
     const commits = [];
     const accepted = await runner.reserveRunnerSpend({
       async loadRunnerAuthority() { return authority; },
@@ -83,7 +83,7 @@ test("runner reserves one attempt against both ledgers and separately enforces t
     assert.equal(commits[0].accounts.every(Object.isFrozen), true);
 
     const ceilingWrites = [];
-    const overGrantCeiling = runnerAuthority({ monthly: runnerAccount("runner_monthly", { actualCostMinor: 91, maxCostMinor: 1_000 }) });
+    const overGrantCeiling = await runnerAuthority(runner, { monthly: { actualCostMinor: 91, maxCostMinor: 1_000 } });
     const ceilingResult = await runner.reserveRunnerSpend(runnerRepository(overGrantCeiling, ceilingWrites), {
       grantId: overGrantCeiling.grant.id,
       principalSubject: overGrantCeiling.principalSubject,
@@ -101,7 +101,7 @@ test("runner rejects duplicate, mismatched, and cross-authority accounts with ze
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
     const runner = await load(vite, "runner-spend-authority");
-    const base = runnerAuthority();
+    const base = await runnerAuthority(runner);
     const cases = [
       ["duplicate account id", { monthly: { ...base.monthly, accountId: base.perRun.accountId } }],
       ["wrong owner", { monthly: { ...base.monthly, principalSubject: "owner-other" } }],
@@ -112,7 +112,7 @@ test("runner rejects duplicate, mismatched, and cross-authority accounts with ze
       ["forged account id", { monthly: { ...base.monthly, accountId: "runner:forged" } }],
     ];
     for (const [name, patch] of cases) {
-      const candidate = runnerAuthority(patch);
+      const candidate = await runnerAuthority(runner, patch);
       const writes = [];
       const result = await runner.reserveRunnerSpend(runnerRepository(candidate, writes), {
         grantId: candidate.grant.id,
@@ -200,7 +200,7 @@ function reservationInput(grant) {
   return { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 };
 }
 
-function runnerAuthority(patch = {}) {
+async function runnerAuthority(runner, patch = {}) {
   const grant = {
     authorityType: "runner_spend",
     id: "runner-grant",
@@ -215,35 +215,54 @@ function runnerAuthority(patch = {}) {
     expiresAt: 2_000,
     maxRetries: 0,
   };
-  return {
-    admitted: true,
-    principalSubject: "owner-synthetic",
-    grant,
-    attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] },
-    perRun: runnerAccount("runner_per_run"),
-    monthly: runnerAccount("runner_monthly", { actualCostMinor: 80 }),
-    ...patch,
-  };
-}
-
-function runnerAccount(scope, patch = {}) {
   const principalSubject = "owner-synthetic";
-  const grantId = "runner-grant";
-  const providerId = "runner-provider";
-  const scopeId = "run-synthetic";
-  return {
-    authorityType: "runner_spend",
-    accountId: `runner:${scope}:${component(principalSubject)}:${component(grantId)}:${component(providerId)}:${component(scopeId)}`,
-    scope,
+  const attempt = { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] };
+  const seed = { principalSubject, grant, attempt };
+  const operationKey = await runner.deriveRunnerOperationKey(seed);
+  const period = runner.deriveRunnerUtcMonthPeriod(1_100);
+  const base = {
+    admitted: true,
     principalSubject,
-    grantId,
-    providerId,
-    scopeId,
-    currency: "USD",
-    actualCostMinor: 0,
-    reservedCostMinor: 0,
-    maxCostMinor: 100,
+    grant,
+    attempt,
+    perRun: {
+      authorityType: "runner_spend",
+      accountId: runner.deriveRunnerPerRunAccountId({
+        principalSubject, grantId: grant.id, providerId: grant.providerId, scopeId: grant.scopeId,
+        attemptNumber: attempt.attemptNumber, operationKey,
+      }),
+      scope: "runner_per_run",
+      principalSubject,
+      grantId: grant.id,
+      providerId: grant.providerId,
+      scopeId: grant.scopeId,
+      attemptNumber: attempt.attemptNumber,
+      operationKey,
+      currency: grant.currency,
+      actualCostMinor: 0,
+      reservedCostMinor: 0,
+      maxCostMinor: 100,
+    },
+    monthly: {
+      authorityType: "runner_spend",
+      accountId: runner.deriveRunnerMonthlyAccountId({ principalSubject, providerId: grant.providerId, scopeId: grant.scopeId, period }),
+      scope: "runner_monthly",
+      principalSubject,
+      grantId: grant.id,
+      providerId: grant.providerId,
+      scopeId: grant.scopeId,
+      period,
+      currency: grant.currency,
+      actualCostMinor: 80,
+      reservedCostMinor: 0,
+      maxCostMinor: 100,
+    },
+  };
+  return {
+    ...base,
     ...patch,
+    perRun: { ...base.perRun, ...(patch.perRun ?? {}) },
+    monthly: { ...base.monthly, ...(patch.monthly ?? {}) },
   };
 }
 
