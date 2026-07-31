@@ -52,6 +52,8 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
   const loadedSnapshot = await repository.loadIssuanceSnapshot(input.principalSubject, prospectIds);
   const snapshot = snapshotIssuanceAuthority(loadedSnapshot);
   if (loadedSnapshot !== null && !snapshot) return { kind: "blocked", reason: "repository_result_invalid" };
+  const structureReason = validateIssuanceSnapshotStructure(snapshot);
+  if (structureReason) return { kind: "blocked", reason: structureReason };
   const admissionReason = validateAdmission(snapshot, input);
   if (admissionReason) return { kind: "blocked", reason: admissionReason };
   const current = snapshot!;
@@ -147,13 +149,48 @@ function replayInputMatches(grant: EnrichmentGrant, input: IssueEnrichmentGrantI
 }
 function validateAdmission(snapshot: IssuanceSnapshot | null, input: IssueEnrichmentGrantInput): EnrichmentBlockedReason | null {
   if (!snapshot || snapshot.admitted !== true || snapshot.ownerSubject !== input.principalSubject) return "owner_not_admitted";
-  if (!bounded(snapshot.workspaceId, 256) || !bounded(snapshot.ownerSubject, 256)) return "repository_result_invalid";
+  return null;
+}
+function validateIssuanceSnapshotStructure(snapshot: IssuanceSnapshot | null): EnrichmentBlockedReason | null {
+  if (!snapshot) return null;
+  if (
+    typeof snapshot.admitted !== "boolean"
+    || !bounded(snapshot.workspaceId, 256)
+    || !bounded(snapshot.ownerSubject, 256)
+  ) return "repository_result_invalid";
+  if (!positive(snapshot.revision)) return "stale_revision";
+  if (
+    !bounded(snapshot.configuration.id, 256)
+    || !digestLike(snapshot.configuration.digest)
+    || !positive(snapshot.configuration.revision)
+    || typeof snapshot.configuration.current !== "boolean"
+  ) return "configuration_not_current";
+  if (
+    !bounded(snapshot.quote.providerId, 128)
+    || !bounded(snapshot.quote.providerVersion, 128)
+    || !bounded(snapshot.quote.catalogRef, 256)
+    || !positive(snapshot.quote.revision)
+    || !canonicalCurrency(snapshot.quote.currency)
+    || !nonNegativeInteger(snapshot.quote.unitCostMinor)
+    || !positive(snapshot.quote.expiresAt)
+  ) return "quote_unavailable";
+  const prospectIds = new Set<string>();
+  for (const prospect of snapshot.prospects) {
+    if (
+      !bounded(prospect.id, 256)
+      || prospectIds.has(prospect.id)
+      || !bounded(prospect.state, 64)
+      || !bounded(prospect.configurationId, 256)
+      || !digestLike(prospect.configurationDigest)
+      || !positive(prospect.revision)
+    ) return "prospect_not_approved";
+    prospectIds.add(prospect.id);
+  }
   return null;
 }
 function validateCurrentAuthority(snapshot: IssuanceSnapshot, input: IssueEnrichmentGrantInput, ids: readonly string[]): EnrichmentBlockedReason | null {
-  if (!positive(snapshot.revision) || snapshot.revision !== input.expectedRevision) return "stale_revision";
-  if (!snapshot.configuration.current || !bounded(snapshot.configuration.id, 256) || !digestLike(snapshot.configuration.digest) || !positive(snapshot.configuration.revision)) return "configuration_not_current";
-  if (!bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !positive(snapshot.quote.revision) || !canonicalCurrency(snapshot.quote.currency) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0 || !positive(snapshot.quote.expiresAt)) return "quote_unavailable";
+  if (snapshot.revision !== input.expectedRevision) return "stale_revision";
+  if (snapshot.configuration.current !== true) return "configuration_not_current";
   if (snapshot.quote.expiresAt <= input.now) return "quote_expired";
   if (snapshot.quote.currency !== input.currency) return "currency_mismatch";
   if (!safeProduct(snapshot.quote.unitCostMinor, input.maxUnits) || input.maxCostMinor < snapshot.quote.unitCostMinor * input.maxUnits) return "cost_unbounded";
