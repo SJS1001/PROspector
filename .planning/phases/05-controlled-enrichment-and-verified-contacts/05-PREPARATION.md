@@ -35,3 +35,18 @@ This evidence authorizes only the safeguards below. It does not accept Phase 4, 
 ## Boundaries and stop condition
 
 The lane stops immediately if work departs from the recorded exact Phase 4 candidate contract, a safeguard cannot be proved locally, a real principal/hosted/control-plane/provider action is required, or the work would be represented as execution of an existing Phase 5 plan. Such evidence remains blocked until the existing plan checkpoints are genuinely accepted.
+
+## Verified preparation checkpoint
+
+The bounded local preparation lane produced immutable code checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` on `codex/generic-prospector-pilot`. It is pushed to `origin` and contains:
+
+- fail-closed contact-attestation and runtime key-ring composition;
+- durable contact receipt/settlement, identity, and runner spend-authority safeguards;
+- an additive forward migration from the byte-preserved deployed `0008` migration;
+- public contact and identity DTO boundaries that omit internal authority metadata;
+- synthetic-only tests for stale authority, forged identity association, activation denial, provenance, verification, freshness, reconciliation, and downstream containment; and
+- a macOS-only test-fixture socket drain that changes no production runtime behavior.
+
+Fresh independent exact-source and persistence/security re-reviews returned **PASS** with no blocker, high, or medium finding. An isolated non-CI checkout on `Stevens-Mac-Studio` verified the exact checkpoint with Node.js `v24.16.0`: `npm test`, `npm run lint`, and `npm run build` all exited successfully. The checkout was clean, and `Runner.Worker` was absent before and after verification.
+
+No Sites project, hosted D1 database, provider, credential, secret value, real contact data, paid request, deployment, scheduler, or CI runner was accessed or changed. Production contact-provider composition and Phase 5 activation remain reject-only. This checkpoint therefore strengthens local preparation evidence only: it does not satisfy Phase 4 Plans `04-11`/`04-12`, execute or complete a Phase 5 plan, authorize enrichment, or permit a Phase 5 summary.

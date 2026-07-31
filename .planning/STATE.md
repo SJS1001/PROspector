@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: blocked
 stopped_at: Plan 02-12 hosted evidence prerequisites
-last_updated: "2026-07-31T03:29:06.000Z"
-last_activity: 2026-07-30
+last_updated: "2026-07-31T10:32:27.000Z"
+last_activity: 2026-07-31
 progress:
   total_phases: 7
   completed_phases: 1
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 Phase: 2 (Consensus Knowledge and Commercial Model) — BLOCKED AT HOSTED EVIDENCE
 Plan: 12 of 20
 Status: Plans 02-01 through 02-11 implemented locally; Plan 02-12 requires non-substitutable hosted proof
-Last activity: 2026-07-30
+Last activity: 2026-07-31
 
 Progress: [██░░░░░░░░] 23% of currently planned plans
 
@@ -86,6 +86,7 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 05]: Nine checked plans exist; execution has not started.
 - [Phase 05]: Owner-authorized a temporary local-only preparation lane after an independent REVISE decision. It is not execution or completion of Plans 05-01 through 05-09, does not alter their `depends_on` contracts, and grants no runtime enrichment authority. Its exact precondition and safeguards are recorded in `phases/05-controlled-enrichment-and-verified-contacts/05-PREPARATION.md`.
 - [Phase 04/05]: Immutable local Phase 4 candidate `71b3a7b08d42af8edfa44ded7ecdba7426aebf2e` passed the isolated full test/lint/build gate and fresh independent source/security/UI audits with zero findings. This satisfies only the Phase 5 local-preparation precondition; Phase 4 hosted/human acceptance and every Phase 5 plan dependency remain incomplete.
+- [Phase 05]: Bounded local preparation checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` is pushed and passed a clean isolated Mac Studio full test/lint/build gate plus independent exact-source and persistence/security re-reviews with no blocker, high, or medium finding. Runtime provider composition and activation remain reject-only; this evidence completes no Phase 5 plan and grants no hosted/provider/spend authority.
 - [Phase 06]: Thirteen checked plans exist; execution has not started and remains dependency-gated.
 
 ### Pending Todos
@@ -100,6 +101,7 @@ None yet.
 - Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.
 - Phase 3 local work through Plan 03-08 is preparatory while Phase 2 is incomplete; Plans 03-09 through 03-11 remain non-substitutable owner/hosted checkpoints.
 - Phase 4 has a clean local candidate at `71b3a7b08d42af8edfa44ded7ecdba7426aebf2e`, but Plans 04-11/04-12 and upstream hosted/human dependencies remain incomplete. All Phase 5/6 plan execution remains dependency-gated. The sole exception is the synthetic, local-only Phase 5 preparation lane in `05-PREPARATION.md`; its exact clean-SHA precondition is satisfied, but it does not satisfy Phase 4 acceptance or any Phase 5 plan dependency.
+- Phase 5 has a verified local preparation checkpoint at `c3233abf4e752afb5ca4e9d0a588852a4aaae07f`; its full isolated gate and reviews do not replace the real-principal, hosted D1, owner, provider, spend, or activation evidence required by the checked plans.
 - Later capability gates need a controlled Google OAuth client/account, scheduled execution and runner callback proof or a compatible host, and an owner-supplied one-time export passphrase for the restore drill.
 - Do not upload the July 24 operational lead files or enable broader live effects under the current capability boundary.
 
@@ -112,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30
+Last session: 2026-07-31
 Stopped at: Plan 02-12 hosted evidence prerequisites
 Resume file: `docs/CODEX-CONTINUATION.md`
