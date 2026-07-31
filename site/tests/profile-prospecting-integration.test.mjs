@@ -60,7 +60,7 @@ test("owner handler consumes and rotates its HttpOnly CSRF cookie across exact p
     const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
     const principal = await access.admitPilotOwner(identity, identity.email, subjectPepper);
     const model = await commercial.initializeCommercialModel(fixture.database, principal, {
-      idempotencyKey: "phase4-handler-commercial-model",
+      idempotencyKey: "0198f400-0000-7000-8000-000000000301",
     });
     const profile = model.profiles.find((entry) => entry.name === "Operating");
     assert.ok(profile);
