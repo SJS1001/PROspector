@@ -1,6 +1,6 @@
 import { v7 } from "uuid";
 import { evaluateMiningQualification, type MiningQualification } from "./qualification";
-import { readCanonicalMaterialLineage } from "./source-policy";
+import { readCanonicalMaterialLineage, readValidatedSourcedDisproofSignalId } from "./source-policy";
 
 export class ProspectReviewError extends Error { readonly code = "prospect_review_rejected"; }
 type Principal = { subject: string; legacySubject?: string };
@@ -15,9 +15,20 @@ export async function persistQualificationAssessment(database:D1Database, princi
   const configuration=await database.prepare("SELECT id,digest,manifest_json FROM typed_configurations WHERE id=? AND workspace_id=? AND owner_type='profile' AND owner_id=? AND kind='profile_effective' LIMIT 1").bind(candidate.configuration_id,workspace.id,candidate.profile_id).first<{id:string;digest:string;manifest_json:string}>();
   if(!configuration) throw fail("Pinned Profile configuration is unavailable");
   const candidateValue=safeJson(candidate.candidate_json);
+  const priorInactive=await database.prepare("SELECT p.id,p.assessment_id,p.state,c.id cooldown_id,c.starts_at,c.ends_at,c.status,d.id decision_id,d.decision_digest,d.created_at decision_at FROM profile_prospects p LEFT JOIN prospect_cooldowns c ON c.prospect_id=p.id AND c.status='active' LEFT JOIN prospect_review_decisions d ON d.prospect_id=p.id AND d.workspace_id=p.workspace_id AND d.assessment_id=p.assessment_id WHERE p.workspace_id=? AND p.fingerprint=? AND p.active=0 ORDER BY p.updated_at DESC,p.id DESC,d.created_at DESC,d.id DESC LIMIT 1").bind(workspace.id,candidate.fingerprint).first<PriorInactive>();
   // Evidence is assignment-bound: same-profile observations from another run or
-  // submission cannot silently qualify this candidate.
+  // submission cannot silently qualify this candidate. The sole cross-submission
+  // exception is an application-owned sourced-disproof marker bound to the exact
+  // rejected prospect, candidate, signal, lineage, and post-decision timestamps.
   const signalRows=await database.prepare("SELECT ps.id,ps.source_lineage_id,ps.signal_digest,ps.material,pl.source_tier,pl.independence_group,pl.occurred_at,pl.retrieved_at,pl.lineage_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id WHERE ps.workspace_id=? AND ps.profile_id=? AND ps.run_id=? AND ps.submission_id=? AND pl.run_id=? AND pl.submission_id=? ORDER BY ps.id").bind(workspace.id,candidate.profile_id,candidate.run_id,candidate.submission_id,candidate.run_id,candidate.submission_id).all<SignalRow>();
+  let sourcedDisproof:SignalRow|undefined;
+  if(priorInactive?.state==="rejected"&&priorInactive.decision_at){
+    const signalId=await readValidatedSourcedDisproofSignalId(database,{workspaceId:workspace.id,profileId:candidate.profile_id,candidateId:candidate.id,candidateDigest:candidate.candidate_digest,fingerprint:candidate.fingerprint,priorProspectId:priorInactive.id,priorAssessmentId:priorInactive.assessment_id,decisionAt:Number(priorInactive.decision_at)});
+    if(signalId){
+      sourcedDisproof=await database.prepare("SELECT ps.id,ps.source_lineage_id,ps.signal_digest,ps.material,pl.source_tier,pl.independence_group,pl.occurred_at,pl.retrieved_at,pl.lineage_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id WHERE ps.id=? AND ps.workspace_id=? AND ps.profile_id=? LIMIT 1").bind(signalId,workspace.id,candidate.profile_id).first<SignalRow>()??undefined;
+      if(sourcedDisproof&&!signalRows.results.some(row=>row.id===sourcedDisproof!.id))signalRows.results.push(sourcedDisproof);
+    }
+  }
   const assessmentInput={
     configurationDigest:configuration.digest, rubricDigest:rubricDigest(configuration.manifest_json), evaluationVersion:"mining-rubric/v1",
     candidateId:candidate.id, accountId:text(candidateValue.accountId), targetId:text(candidateValue.targetId), offerId:candidate.offer_id,
@@ -33,16 +44,14 @@ export async function persistQualificationAssessment(database:D1Database, princi
   const inputDigest=await sha256(inputJson), assessmentDigest=await sha256(stable({configurationDigest:configuration.digest,inputDigest,anchors:evaluation.anchors,evidence:evaluation.citedSources,gates:evaluation.gateChecks,score:evaluation.score,outcome:evaluation.outcome,tieOrder:evaluation.tieOrder}));
   const existing=await database.prepare("SELECT id FROM qualification_assessments WHERE workspace_id=? AND assessment_digest=? LIMIT 1").bind(workspace.id,assessmentDigest).first<{id:string}>();
   if(existing) return assessmentProjection(existing.id,evaluation,duplicate?.id);
-  const priorInactive=await database.prepare("SELECT p.id,p.assessment_id,p.state,c.id cooldown_id,c.starts_at,c.ends_at,c.status,d.created_at decision_at FROM profile_prospects p LEFT JOIN prospect_cooldowns c ON c.prospect_id=p.id AND c.status='active' LEFT JOIN prospect_review_decisions d ON d.prospect_id=p.id WHERE p.workspace_id=? AND p.fingerprint=? AND p.active=0 ORDER BY p.updated_at DESC,p.id DESC,d.created_at DESC LIMIT 1").bind(workspace.id,candidate.fingerprint).first<{id:string;assessment_id:string;state:string;cooldown_id:string|null;starts_at:number|null;ends_at:number|null;status:string|null;decision_at:number|null}>();
   const materialSignal=signalRows.results.filter(x=>Boolean(x.material)).sort((a,b)=>Number(b.retrieved_at)-Number(a.retrieved_at)||a.id.localeCompare(b.id))[0];
-  const sourcedDisproof=priorInactive?.state==="disqualified"?await disproofSignal(signalRows.results,candidate,priorInactive):undefined;
   const cooldownActive=priorInactive?.cooldown_id&&Number(priorInactive.ends_at)>now;
-  const reentryKind=priorInactive?.state==="rejected"&&materialSignal?"material_signal":priorInactive?.state==="deferred"&&(materialSignal||Number(priorInactive.ends_at)<=now)?(materialSignal?"material_signal":"review_date_due"):sourcedDisproof?"sourced_disproof":null;
+  const reentryKind=priorInactive?.state==="rejected"&&sourcedDisproof?"sourced_disproof":priorInactive?.state==="deferred"&&(materialSignal||Number(priorInactive.ends_at)<=now)?(materialSignal?"material_signal":"review_date_due"):null;
   if(cooldownActive&&!reentryKind) throw fail("Prospect cooldown remains active; a Material Signal is required for re-entry");
-  if(priorInactive?.state==="disqualified"&&!reentryKind) throw fail("A sourced Material Signal is required to reopen a disqualified prospect");
+  if(priorInactive?.state==="rejected"&&!reentryKind) throw fail("Application-validated sourced disproof is required to reopen a rejected prospect");
   const assessmentId=v7(), commandId=v7(), auditId=v7(), prospectId=v7(), reentryId=v7(), reentryCommandId=v7(), reentryAuditId=v7();
   try { await database.batch([
-    database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(assessmentId,workspace.id,candidate.id,configuration.id,configuration.digest,inputJson,inputDigest,anchorJson,evidenceJson,gateJson,scoreJson,evaluation.score,evaluation.outcome,stable(evaluation.tieOrder),assessmentDigest,null,now),
+    database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(assessmentId,workspace.id,candidate.id,configuration.id,configuration.digest,inputJson,inputDigest,anchorJson,evidenceJson,gateJson,scoreJson,evaluation.score,evaluation.outcome,stable(evaluation.tieOrder),assessmentDigest,priorInactive?.assessment_id??null,now),
     database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'prospect.assessment',?,?,1,'prospecting_candidate',?,'accepted')").bind(commandId,workspace.id,now,now,`assessment:${assessmentDigest}`,assessmentDigest,candidate.id),
     database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES (?,?,'system','prospect-assessment-service','prospect.assessed','qualification_assessment',?,?,?)").bind(auditId,workspace.id,assessmentId,stable({assessmentDigest,configurationDigest:configuration.digest,evidenceIds:evaluation.citedSources.map(x=>x.id)}),now),
     database.prepare("INSERT INTO profile_prospects (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,candidate_id,assessment_id,fingerprint,state,active) SELECT ?,?,?,?,1,?,?,?,?,?,'qualified',1 WHERE ?='Passed' AND NOT EXISTS (SELECT 1 FROM profile_prospects WHERE workspace_id=? AND fingerprint=? AND active=1)").bind(prospectId,workspace.id,now,now,candidate.profile_id,candidate.offer_id,candidate.id,assessmentId,candidate.fingerprint,evaluation.outcome,workspace.id,candidate.fingerprint),
@@ -147,20 +156,7 @@ export async function readProspectingProjection(database:D1Database, principal:P
 }
 async function workspaceFor(database:D1Database,principal:Principal){const w=await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?,?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject,principal.legacySubject??principal.subject,principal.subject).first<{id:string}>();if(!w)throw fail("Private workspace unavailable");return w;}
 type SignalRow={id:string;source_lineage_id:string;signal_digest:string;material:number;source_tier:number;independence_group:string;occurred_at:number|null;retrieved_at:number;lineage_digest:string;signal_json:string};
-/** A disqualified prospect cannot use an ordinary Material Signal to re-enter.
- * The trusted service must bind a post-decision sourced disproof to this exact
- * candidate and immutable source lineage, then authenticate the marker digest. */
-async function disproofSignal(rows:SignalRow[],candidate:Candidate,prior:{decision_at:number|null;starts_at:number|null}){
-  const after=Math.max(Number(prior.decision_at??0),Number(prior.starts_at??0));
-  for(const row of rows){
-    if(!row.material||!Number.isSafeInteger(row.occurred_at)||Number(row.occurred_at)<=after||!Number.isSafeInteger(row.retrieved_at)||Number(row.retrieved_at)<=after)continue;
-    const validation=object(safeJson(row.signal_json).applicationValidation);
-    if(!validation||validation.schema!=="prospect-reentry-disproof/v1"||validation.verdict!=="sourced_disproof"||validation.validatedBy!=="application"||validation.candidateId!==candidate.id||validation.candidateDigest!==candidate.candidate_digest||validation.sourceLineageId!==row.source_lineage_id||validation.sourceLineageDigest!==row.lineage_digest||validation.provenanceDigest!==row.lineage_digest||validation.signalDigest!==row.signal_digest||validation.observedAt!==row.occurred_at||validation.retrievedAt!==row.retrieved_at||!validDigest(validation.validationDigest))continue;
-    const {validationDigest,...bound}=validation;
-    if(await sha256(stable(bound))===validationDigest)return row;
-  }
-  return undefined;
-}
+type PriorInactive={id:string;assessment_id:string;state:string;cooldown_id:string|null;starts_at:number|null;ends_at:number|null;status:string|null;decision_id:string|null;decision_digest:string|null;decision_at:number|null};
 function assessmentProjection(id:string,evaluation:MiningQualification,prospectId?:string){return{id,evaluation,prospectId:prospectId??null,queueState:evaluation.outcome==="Passed"&&prospectId?"qualified":"absent"};}
 /** A re-entry event is an immutable child-to-prior edge. Keep the walk local to
  * the admitted workspace; malformed, ambiguous, or cyclic edges cannot add
@@ -187,7 +183,7 @@ function byKey(rows:Record<string,unknown>[],key:string){return rows.reduce((res
 function object(x:unknown){return x&&typeof x==="object"&&!Array.isArray(x)?x as Record<string,unknown>:null;}
 function rubricDigest(manifest:string){const parsed=safeJson(manifest);if(typeof parsed.rubricDigest==="string"&&/^[a-f0-9]{64}$/.test(parsed.rubricDigest))return parsed.rubricDigest;const inputs=parsed.confirmedCategoryInputs;if(!inputs||typeof inputs!=="object"||Array.isArray(inputs))return"0".repeat(64);const rubric=(inputs as Record<string,unknown>).rubric;if(!Array.isArray(rubric)||rubric.length!==1)return"0".repeat(64);const digest=(rubric[0] as Record<string,unknown>|null)?.digest;return typeof digest==="string"&&/^[a-f0-9]{64}$/.test(digest)?digest:"0".repeat(64);}
 function recency(signal:string){return safeJson(signal).recency==="account_context_reconfirmation_required"?"account_context_reconfirmation_required":"current";}
-function text(x:unknown){return typeof x==="string"?x:"";} function number(x:unknown){return Number.isInteger(x)?x:0;} function validKey(x:string){return typeof x==="string"&&x.length>0&&x.length<=160;} function validDigest(x:unknown):x is string{return typeof x==="string"&&/^[0-9a-f]{64}$/.test(x);}
+function text(x:unknown){return typeof x==="string"?x:"";} function number(x:unknown){return Number.isInteger(x)?x:0;} function validKey(x:string){return typeof x==="string"&&x.length>0&&x.length<=160;}
 function stable(v:unknown):string{if(Array.isArray(v))return`[${v.map(stable).join(",")}]`;if(v&&typeof v==="object"){const x=v as Record<string,unknown>;return`{${Object.keys(x).sort().map(k=>`${JSON.stringify(k)}:${stable(x[k])}`).join(",")}}`;}return JSON.stringify(v);}
 async function sha256(v:string){const data=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return Array.from(new Uint8Array(data),x=>x.toString(16).padStart(2,"0")).join("");}
 function fail(message:string){return new ProspectReviewError(message);}

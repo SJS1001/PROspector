@@ -1,7 +1,7 @@
 import { v7 } from "uuid";
 import { persistQualificationAssessment } from "./prospect-review";
 import { completeProspectingRun } from "./prospecting-schedule";
-import { appendValidatedSignals, type ValidatedSignal } from "./source-policy";
+import { appendSourcedDisproofValidationMarker, appendValidatedSignals, type SourcedDisproofSelection, type ValidatedSignal } from "./source-policy";
 
 const INGESTION_LEASE_MS = 60_000;
 
@@ -15,6 +15,8 @@ export type CandidateDraft = Readonly<{
   targetId: string; accountFit: 0|1|2; painStrength: 0|1|2; timingUrgency: 0|1|2;
   dataReadiness: 0|1|2; commercialViability: 0|1|2;
   requiredEvidence?: readonly string[]; hardDisqualifiers?: readonly string[];
+  /** Trusted materializer output, never accepted from the runner payload. */
+  sourcedDisproof?: SourcedDisproofSelection;
 }>;
 
 export class ProspectingIngestionError extends Error { readonly code = "prospecting_ingestion_rejected"; }
@@ -86,7 +88,14 @@ export async function processAcceptedRunnerSubmission(
       submissionId: submission.id, configurationId: submission.configuration_id, signals,
     }));
     const candidateIds: string[] = [];
-    for (const draft of drafts) candidateIds.push(await materializeCandidate(database, submission, draft, input.now));
+    for (const draft of drafts) {
+      const candidateId=await materializeCandidate(database, submission, draft, input.now);
+      candidateIds.push(candidateId);
+      if(draft.sourcedDisproof)await appendSourcedDisproofValidationMarker(database,{
+        workspaceId:input.workspaceId,profileId:submission.profile_id,candidateId,runId:submission.run_id,
+        submissionId:submission.id,selection:draft.sourcedDisproof,now:input.now,
+      });
+    }
     const assessments = [];
     for (const candidateId of candidateIds) assessments.push(await persistQualificationAssessment(database, { subject: submission.owner_subject }, { candidateId, now: input.now }));
     await completeProspectingRun(database, input.workspaceId, {
@@ -262,11 +271,12 @@ async function materializeCandidate(database:D1Database, submission:Submission, 
 }
 function normalizeDrafts(value:readonly CandidateDraft[]) {
   if (!Array.isArray(value) || value.length > 25) throw fail();
-  const output=value.map(d=>{ if(!d||!validId(d.targetId)||![d.accountFit,d.painStrength,d.timingUrgency,d.dataReadiness,d.commercialViability].every(score=>Number.isInteger(score)&&score>=0&&score<=2))throw fail(); const requiredEvidence=boundedArray(d.requiredEvidence??[],160,128),hardDisqualifiers=boundedArray(d.hardDisqualifiers??[],32,128); return {...d,requiredEvidence,hardDisqualifiers}; });
+  const output=value.map(d=>{ if(!d||!validId(d.targetId)||![d.accountFit,d.painStrength,d.timingUrgency,d.dataReadiness,d.commercialViability].every(score=>Number.isInteger(score)&&score>=0&&score<=2))throw fail(); const requiredEvidence=boundedArray(d.requiredEvidence??[],160,128),hardDisqualifiers=boundedArray(d.hardDisqualifiers??[],32,128);let sourcedDisproof:SourcedDisproofSelection|undefined;if(d.sourcedDisproof!==undefined){if(!d.sourcedDisproof||Object.keys(d.sourcedDisproof).sort().join(",")!=="signalFingerprint,validationRule"||!validDigest(d.sourcedDisproof.signalFingerprint)||d.sourcedDisproof.validationRule!=="owner-rejection-material-evidence/v1")throw fail();sourcedDisproof={signalFingerprint:d.sourcedDisproof.signalFingerprint,validationRule:d.sourcedDisproof.validationRule};}return {...d,requiredEvidence,hardDisqualifiers,...(sourcedDisproof?{sourcedDisproof}:{})}; });
   if(new Set(output.map(d=>d.targetId)).size!==output.length)throw fail(); return output;
 }
 function boundedArray(values:readonly string[],max:number,width:number){if(!Array.isArray(values)||values.length>max)throw fail();const out=values.map(value=>{if(typeof value!=="string"||!(value=value.normalize("NFC").trim())||value.length>width)throw fail();return value;});if(new Set(out).size!==out.length)throw fail();return out.sort();}
 function validId(value:unknown):value is string{return typeof value==="string"&&value.length>0&&value.length<=160;}
+function validDigest(value:unknown):value is string{return typeof value==="string"&&/^[0-9a-f]{64}$/.test(value);}
 function fail():never{throw new ProspectingIngestionError("Prospecting ingestion is unavailable or invalid");}
 function stable(value:unknown):string{if(Array.isArray(value))return`[${value.map(stable).join(",")}]`;if(value&&typeof value==="object"){const record=value as Record<string,unknown>;return`{${Object.keys(record).sort().map(key=>`${JSON.stringify(key)}:${stable(record[key])}`).join(",")}}`;}return JSON.stringify(value);}
 async function sha256(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,"0")).join("");}
