@@ -44,13 +44,8 @@ export async function executeEnrichmentOperation(
   input: { reservationId: string; now: number },
   verifier?: ContactEvidenceVerifier | unknown,
 ): Promise<ExecuteEnrichmentResult> {
-  let inputSnapshot: { reservationId: string; now: number };
-  try {
-    if (!exactRecord(input, ["reservationId", "now"]) || !validInput(input)) return { kind: "blocked" };
-    inputSnapshot = { reservationId: input.reservationId, now: input.now };
-  } catch {
-    return { kind: "blocked" };
-  }
+  const inputSnapshot = snapshotExecuteEnrichmentInput(input);
+  if (!inputSnapshot) return { kind: "blocked" };
   const claim = await claimAdmittedCommittedInvocation(repository, inputSnapshot.reservationId, inputSnapshot.now);
   if (claim.kind === "blocked") return { kind: "blocked" };
   if (claim.kind === "invalid") return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
@@ -119,7 +114,21 @@ export async function executeEnrichmentOperation(
   return { kind: "settled", outcome: outcome.kind };
 }
 
-function validInput(input: { reservationId: string; now: number }): boolean { return bounded(input.reservationId, 256) && Number.isSafeInteger(input.now) && input.now > 0; }
+function snapshotExecuteEnrichmentInput(value: unknown): Readonly<{ reservationId: string; now: number }> | null {
+  const snapshot = exactDataRecord(value, ["reservationId", "now"]);
+  if (!snapshot || !bounded(snapshot.reservationId, 256) || !positive(snapshot.now)) return null;
+  try {
+    // Reject Proxy objects only after descriptor validation has ruled out
+    // accessors, so public-input getters are never evaluated.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return Object.freeze({
+    reservationId: snapshot.reservationId,
+    now: snapshot.now,
+  });
+}
 async function invokePort(port: unknown, assignment: Readonly<AuthorizedEnrichmentAssignment>): Promise<unknown> {
   return (port as { enrich(value: typeof assignment): Promise<unknown> }).enrich(assignment);
 }

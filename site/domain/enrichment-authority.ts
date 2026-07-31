@@ -79,12 +79,14 @@ const committedAdmissionReceipts = new WeakSet<object>();
 
 /** Validates all current predicates without mutating. The repository is solely responsible for the atomic cap/consume commit. */
 export async function validateEnrichmentAuthority(authorityValue: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
+  const inputSnapshot = snapshotReserveEnrichmentInput(input);
+  if (!inputSnapshot) return { kind: "blocked", reason: "grant_unavailable" };
   const authority = snapshotReservationAuthority(authorityValue);
-  return validateEnrichmentAuthoritySnapshot(authority, input);
+  return validateEnrichmentAuthoritySnapshot(authority, inputSnapshot);
 }
 
-async function validateEnrichmentAuthoritySnapshot(authority: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
-  if (!authority || !validInput(input)) return { kind: "blocked", reason: "grant_unavailable" };
+async function validateEnrichmentAuthoritySnapshot(authority: ReservationAuthority | null, input: Readonly<ReserveEnrichmentInput>): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
+  if (!authority) return { kind: "blocked", reason: "grant_unavailable" };
   const grant = await parseIssuedEnrichmentGrant(authority.grant);
   if (!grant) return { kind: "blocked", reason: "grant_unavailable" };
   const { configuration, quote } = authority;
@@ -105,11 +107,13 @@ async function validateEnrichmentAuthoritySnapshot(authority: ReservationAuthori
 }
 
 export async function reserveEnrichmentOperation(repository: EnrichmentAuthorityRepository, input: ReserveEnrichmentInput): Promise<ReserveEnrichmentResult> {
-  const loadedAuthority = await repository.loadReservationAuthority(input.grantId);
+  const inputSnapshot = snapshotReserveEnrichmentInput(input);
+  if (!inputSnapshot) return { kind: "blocked", reason: "grant_unavailable" };
+  const loadedAuthority = await repository.loadReservationAuthority(inputSnapshot.grantId);
   // Snapshot synchronously before validation or another await. Repository-owned
   // objects are never retained across the digest boundary or passed to commit.
   const authority = snapshotReservationAuthority(loadedAuthority);
-  const checked = await validateEnrichmentAuthoritySnapshot(authority, input);
+  const checked = await validateEnrichmentAuthoritySnapshot(authority, inputSnapshot);
   if (checked.kind === "blocked") return checked;
   const grant = authority!.grant;
   const record = freezeReservation({
@@ -246,7 +250,30 @@ function safeSumWithin(actual: number, reserved: number, addition: number, maxim
   return actual <= maximum && reserved <= maximum - actual && addition <= maximum - actual - reserved;
 }
 function component(value: string): string { return `${value.length}:${value}`; }
-function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now) && value.now > 0; }
+function snapshotReserveEnrichmentInput(value: unknown): Readonly<ReserveEnrichmentInput> | null {
+  const snapshot = exactDataRecord(value, ["grantId", "principalSubject", "operationKey", "now"]);
+  if (
+    !snapshot
+    || !bounded(snapshot.grantId, 256)
+    || !bounded(snapshot.principalSubject, 256)
+    || typeof snapshot.operationKey !== "string"
+    || !/^op_[a-f0-9]{64}$/.test(snapshot.operationKey)
+    || !positiveSafeInteger(snapshot.now)
+  ) return null;
+  try {
+    // `structuredClone` rejects Proxy objects. It runs only after descriptor
+    // validation, so accessor-backed inputs are rejected without evaluation.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return Object.freeze({
+    grantId: snapshot.grantId,
+    principalSubject: snapshot.principalSubject,
+    operationKey: snapshot.operationKey,
+    now: snapshot.now,
+  });
+}
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 function positiveSafeInteger(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
 function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[], maxUnits: number): boolean {
