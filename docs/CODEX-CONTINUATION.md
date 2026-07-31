@@ -28,6 +28,20 @@ Do not rely on a Codex conversation, local task IDs, or uncommitted work as auth
 
 GSD skills and `gsd-sdk` are account-level tools, not repository dependencies. If they are unavailable in the new account, follow the checked `*-PLAN.md` files directly, preserve their dependency order and human checkpoints, write the matching `*-SUMMARY.md` only when a plan is genuinely complete, and run the repository verification commands.
 
+## Multi-account baton protocol
+
+Use Codex accounts sequentially, with Git as the shared memory. Do not run two writing accounts against this branch at the same time.
+
+1. Start every account by fetching and fast-forwarding `codex/generic-prospector-pilot`; require a clean worktree and read the committed state before selecting work.
+2. Classify the account before acting. If it resolves the exact existing Sites project, it is the **hosted-gate account** and may perform only the currently authorized Sites/D1 evidence step. If it cannot resolve the project, it is a **local-work account** and must never create a substitute project or claim hosted evidence.
+3. The hosted-gate account must restore owner-only/private access if the site was temporarily made public before continuing Plan `02-12`. Public visitor access grants neither project administration nor valid private-boundary evidence.
+4. Take one bounded executable plan or maintenance unit per account. Use subagents only for independent implementation/review work with non-overlapping ownership.
+5. When roughly one quarter of that account's usable context remains, stop accepting new scope. Finish verification, update truthful state/evidence references, commit atomically, and push.
+6. End every baton turn with a clean worktree, the full pushed SHA, and the exact next executable or blocked plan. Never leave another account dependent on chat history, a local stash, an uncommitted diff, or a task ID.
+7. If a required real principal, hosted baseline, owner decision, credential, or control-plane capability is absent, record the exact blocker and switch accounts; do not spend tokens rebuilding local substitutes.
+
+The Sites-owning account should be reserved for short hosted checkpoints. Other accounts should handle authorized local implementation, tests, documentation, and independent review. All accounts use Terra medium by default, Terra low for routine inspection, and Sol only for a demonstrated hard security/reasoning gate.
+
 ## Paste-ready prompt for another Codex account
 
 > Continue the PROspector project from `https://github.com/SJS1001/PROspector.git` on branch `codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the Phase 2 activation/audit files before changing anything. Treat Git and committed repository artifacts as the source of truth, preserve all human/hosted evidence gates, keep the existing Sites project private, never create a replacement Sites project, and never reveal or alter secrets. Install with `cd site && npm ci`, run `npm test` and `npm run lint`, and preserve the clean local implementation. Plan 02-12 remains blocked until its real-principal and hosted D1 prerequisites genuinely exist. Phase 3 local Plans 03-01 through 03-08 and their summaries are committed; this is local-plan credit only, while Plans 03-09 through 03-11 remain human/hosted gates. Phase 4 has a clean local candidate but remains hosted/human-gated. Phase 5 has a verified, reject-only local preparation checkpoint at `c3233abf4e752afb5ca4e9d0a588852a4aaae07f`; it completes no Phase 5 plan. Continue only in dependency order and never fabricate completion evidence.
