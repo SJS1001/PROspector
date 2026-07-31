@@ -77,7 +77,7 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
   if (reason) return { kind: "blocked", reason };
   const operationKey = await deriveOperationKey({ snapshot: current, input, prospectIds });
   const requestMaterial = tupleMaterial(current, input, prospectIds, operationKey);
-  const requestDigest = await canonicalDigest(requestMaterial);
+  const requestDigest = await canonicalDigest(grantRequestMaterial(input.idempotencyKey, requestMaterial));
   const nonce = serverNonce(repository);
   const unsigned = { ...requestMaterial, nonce };
   const tuple: EnrichmentGrantTuple = { ...unsigned, digest: await canonicalDigest(unsigned) };
@@ -121,6 +121,10 @@ function tupleMaterial(snapshot: IssuanceSnapshot, input: Pick<IssueEnrichmentGr
     configurationRevision: snapshot.configuration.revision, sourceRevision: snapshot.revision,
     prospectRevisions: snapshot.prospects.map(({ id, revision }) => ({ id, revision })).sort((left, right) => left.id.localeCompare(right.id)),
   };
+}
+
+function grantRequestMaterial(idempotencyKey: string, requestMaterial: ReturnType<typeof tupleMaterial>) {
+  return { idempotencyKey, requestMaterial };
 }
 
 export function canonical(value: unknown): string {
@@ -235,9 +239,19 @@ type ExpectedRepositoryGrant = Readonly<{
   exactGrant?: EnrichmentGrant;
 }>;
 
-async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRepositoryGrant): Promise<{ grant: EnrichmentGrant; requestMatches: boolean } | null> {
+/**
+ * Parses one complete issued grant from an untrusted repository boundary.
+ * Exact plain/accessor-free shape, every canonical digest, all bounded tuple
+ * fields, and the derived grant/operation identifiers must agree.
+ */
+export async function parseIssuedEnrichmentGrant(candidate: unknown): Promise<EnrichmentGrant | null> {
+  return (await validateRepositoryGrant(candidate))?.grant ?? null;
+}
+
+async function validateRepositoryGrant(candidate: unknown, expected?: ExpectedRepositoryGrant): Promise<{ grant: EnrichmentGrant; requestMatches: boolean } | null> {
   try {
-    const grant = exactDataRecord(candidate, ["id", "workspaceId", "idempotencyKey", "requestDigest", "tuple", "status"]);
+    const snapshot = snapshotRepositoryValue(candidate);
+    const grant = exactDataRecord(snapshot, ["id", "workspaceId", "idempotencyKey", "requestDigest", "tuple", "status"]);
     const tuple = grant && exactDataRecord(grant.tuple, [
       "workspaceId", "providerId", "providerVersion", "catalogRef", "quoteRevision", "quoteUnitCostMinor",
       "quoteExpiresAt", "prospectIds", "operation", "operationKey", "maxUnits", "maxCostMinor", "currency",
@@ -288,11 +302,11 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
     };
     if (
       !bounded(grant.id, 256)
-      || grant.workspaceId !== expected.workspaceId
-      || grant.idempotencyKey !== expected.idempotencyKey
+      || !bounded(grant.workspaceId, 256)
+      || !bounded(grant.idempotencyKey, 256)
       || grant.status !== "issued"
       || !digestLike(grant.requestDigest)
-      || parsedTuple.workspaceId !== expected.workspaceId
+      || parsedTuple.workspaceId !== grant.workspaceId
       || !bounded(parsedTuple.providerId, 128)
       || !bounded(parsedTuple.providerVersion, 128)
       || !bounded(parsedTuple.catalogRef, 256)
@@ -309,7 +323,7 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
       || !canonicalCurrency(parsedTuple.currency)
       || !positive(parsedTuple.expiresAt)
       || parsedTuple.expiresAt > parsedTuple.quoteExpiresAt
-      || parsedTuple.ownerSubject !== expected.ownerSubject
+      || !bounded(parsedTuple.ownerSubject, 256)
       || !bounded(parsedTuple.nonce, 256)
       || !bounded(parsedTuple.configurationId, 256)
       || !digestLike(parsedTuple.configurationDigest)
@@ -340,7 +354,7 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
       prospectRevisions: parsedTuple.prospectRevisions.map((item) => ({ id: item.id, revision: item.revision })),
     };
     if (
-      await canonicalDigest(actualRequestMaterial) !== grant.requestDigest
+      await canonicalDigest(grantRequestMaterial(grant.idempotencyKey, actualRequestMaterial)) !== grant.requestDigest
     ) return null;
     const expectedOperationKey = `op_${await canonicalDigest({
       ...actualRequestMaterial,
@@ -360,10 +374,15 @@ async function validateRepositoryGrant(candidate: unknown, expected: ExpectedRep
       tuple: parsedTuple,
       status: "issued",
     });
-    if (expected.exactGrant && canonical(parsedGrant) !== canonical(expected.exactGrant)) return null;
-    const requestMatches = expected.requestDigest === undefined || expected.requestMaterial === undefined
+    if (expected && (
+      parsedGrant.workspaceId !== expected.workspaceId
+      || parsedGrant.tuple.ownerSubject !== expected.ownerSubject
+      || parsedGrant.idempotencyKey !== expected.idempotencyKey
+    )) return null;
+    if (expected?.exactGrant && canonical(parsedGrant) !== canonical(expected.exactGrant)) return null;
+    const requestMatches = expected?.requestDigest === undefined || expected.requestMaterial === undefined
       ? true
-      : grant.requestDigest === expected.requestDigest
+      : parsedGrant.requestDigest === expected.requestDigest
         && canonical(actualRequestMaterial) === canonical(expected.requestMaterial);
     return {
       grant: parsedGrant,

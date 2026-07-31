@@ -1,4 +1,4 @@
-import { canonicalDigest, deriveOperationKey, type EnrichmentBlockedReason, type EnrichmentGrant, type IssuanceSnapshot, type ProviderQuote } from "./enrichment-grant-issuance";
+import { deriveOperationKey, parseIssuedEnrichmentGrant, type EnrichmentBlockedReason, type EnrichmentGrant, type IssuanceSnapshot, type ProviderQuote } from "./enrichment-grant-issuance";
 import type { ContactEvidenceAssignment, ContactObservation } from "./contact-evidence";
 
 export type BudgetAccount = Readonly<{
@@ -85,12 +85,11 @@ export async function validateEnrichmentAuthority(authorityValue: ReservationAut
 
 async function validateEnrichmentAuthoritySnapshot(authority: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
   if (!authority || !validInput(input)) return { kind: "blocked", reason: "grant_unavailable" };
-  const { grant, configuration, quote } = authority;
+  const grant = await parseIssuedEnrichmentGrant(authority.grant);
+  if (!grant) return { kind: "blocked", reason: "grant_unavailable" };
+  const { configuration, quote } = authority;
   if (input.grantId !== grant.id) return { kind: "blocked", reason: "grant_unavailable" };
   if (authority.admitted !== true || authority.principalSubject !== input.principalSubject || grant.tuple.ownerSubject !== input.principalSubject) return { kind: "blocked", reason: "owner_not_admitted" };
-  if (grant.status !== "issued") return { kind: "blocked", reason: "grant_consumed" };
-  const { digest, ...unsignedTuple } = grant.tuple;
-  if (await canonicalDigest(unsignedTuple) !== digest) return { kind: "blocked", reason: "grant_unavailable" };
   if (authority.workspaceId !== grant.workspaceId || authority.workspaceId !== grant.tuple.workspaceId || authority.sourceRevision !== grant.tuple.sourceRevision) return { kind: "blocked", reason: "grant_unavailable" };
   if (grant.tuple.expiresAt <= input.now || quote.expiresAt <= input.now) return { kind: "blocked", reason: "quote_expired" };
   if (configuration.current !== true || configuration.id !== grant.tuple.configurationId || configuration.digest !== grant.tuple.configurationDigest || configuration.revision !== grant.tuple.configurationRevision) return { kind: "blocked", reason: "configuration_not_current" };
@@ -145,6 +144,9 @@ export async function claimAdmittedCommittedInvocation(
   reservationId: string,
   now: number,
 ): Promise<AdmittedInvocationClaim> {
+  if (!bounded(reservationId, 256) || !positiveSafeInteger(now)) {
+    return Object.freeze({ kind: "blocked", reason: "unavailable" });
+  }
   const admission = committedAdmissions.get(repository)?.get(reservationId);
   if (!admission || !committedAdmissionReceipts.has(admission.receipt)) {
     return Object.freeze({ kind: "blocked", reason: "unavailable" });
@@ -167,13 +169,17 @@ export async function claimAdmittedCommittedInvocation(
     claimed?.kind !== "claimed"
     || claimed.assignment !== admission.assignmentReference
     || !exactPlainData(claimed.assignment, admission.assignmentSnapshot)
+    || !positiveSafeInteger(claimed.claimedAt)
+    || claimed.claimedAt > now
+    || !positiveSafeInteger(admission.assignmentSnapshot.expiresAt)
+    || admission.assignmentSnapshot.expiresAt <= now
   ) {
     return Object.freeze({ kind: "invalid" });
   }
   return Object.freeze({
     kind: "claimed",
     assignment: admission.assignmentSnapshot,
-    claimedAt: claimed.claimedAt as number,
+    claimedAt: claimed.claimedAt,
   });
 }
 
@@ -242,6 +248,7 @@ function safeSumWithin(actual: number, reserved: number, addition: number, maxim
 function component(value: string): string { return `${value.length}:${value}`; }
 function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now) && value.now > 0; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+function positiveSafeInteger(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
 function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[], maxUnits: number): boolean {
   if (
     !Array.isArray(assignments) ||
