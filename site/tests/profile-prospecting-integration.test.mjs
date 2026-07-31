@@ -54,7 +54,7 @@ test("owner handler consumes and rotates its HttpOnly CSRF cookie across exact p
       email: "phase4-owner@example.com",
       displayName: "Phase 4 owner",
     };
-    const subjectPepper = "phase4-handler-test-pepper";
+    const subjectPepper = "phase4-handler-test-pepper-material-at-least-thirty-two-bytes";
     const access = await fixture.vite.ssrLoadModule(new URL("../domain/pilot-access.ts", import.meta.url).pathname);
     const handler = await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-handler.ts", import.meta.url).pathname);
     const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
