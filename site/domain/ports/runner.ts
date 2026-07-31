@@ -9,6 +9,8 @@ export type RunnerAssignmentEnvelope = Readonly<{
   profileId: string;
   configurationId: string;
   configurationDigest: string;
+  windowLowerExclusive: number | null;
+  windowUpperInclusive: number;
   audience: string;
   expiresAt: number;
   instructionVersion: string;
