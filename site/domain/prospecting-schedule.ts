@@ -93,10 +93,11 @@ export async function createMaterialChangeProspectingIntent(database: D1Database
 }
 
 export async function completeProspectingRun(database: D1Database, workspaceId: string, input: { runId: string; successfulWatermark: number; now: number }) {
-  const run = await database.prepare("SELECT id, schedule_id, execution_state FROM prospecting_runs WHERE id = ? AND workspace_id = ? LIMIT 1").bind(input.runId, workspaceId).first<{ id: string; schedule_id: string | null; execution_state: string }>();
+  const run = await database.prepare("SELECT id, schedule_id, execution_state, successful_watermark FROM prospecting_runs WHERE id = ? AND workspace_id = ? LIMIT 1").bind(input.runId, workspaceId).first<{ id: string; schedule_id: string | null; execution_state: string; successful_watermark:number|null }>();
   if (!run) throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
   if (!Number.isSafeInteger(input.successfulWatermark)) throw new ProspectingScheduleConflictError("Invalid successful watermark");
-  if(run.execution_state==="succeeded")return{replayed:true};
+  if(run.execution_state==="succeeded"&&Number(run.successful_watermark)===input.successfulWatermark)return{replayed:true};
+  if(run.execution_state==="succeeded")throw new ProspectingScheduleConflictError("Prospecting run completion watermark conflicts");
   if (run.execution_state !== "running") throw new ProspectingScheduleConflictError("Only a running prospecting run may succeed");
   const eventJson = stable({ state: "succeeded", successfulWatermark: input.successfulWatermark });
   try{const result=await database.batch([
