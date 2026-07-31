@@ -77,6 +77,38 @@ test("capability and ledger bind the immutable run window and reject out-of-wind
   } finally { await seed.fixture.dispose(); }
 });
 
+test("a submitted historical run may receive an explicit retry assignment but rejected work cannot reopen", async () => {
+  const seed = await setup();
+  try {
+    const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const first = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed));
+    await runner.submitRunnerObservations(seed.fixture.database, {
+      capability: first.capability,
+      idempotencyKey: "historical-first-submission",
+      now: NOW + 1,
+      capabilitySecret: secret,
+      payload: { ...validPayload(), status: "partial" },
+    });
+    await seed.fixture.database.batch([
+      seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='submitted' WHERE id='runner-run'"),
+      seed.fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id='runner-config'"),
+    ]);
+    const retry = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+      idempotencyKey: "historical-retry-assignment",
+      reason: "explicit retry of accepted historical partial submission",
+      now: NOW + 2,
+      expiresAt: NOW + 60_002,
+    }));
+    assert.match(retry.capability, /\./);
+    assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id='runner-run'").first()).execution_state, "assigned");
+    await seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='rejected' WHERE id='runner-run'").run();
+    await assert.rejects(
+      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "rejected-reopen", now: NOW + 3, expiresAt: NOW + 60_003 })),
+      /runner_assignment_rejected/i,
+    );
+  } finally { await seed.fixture.dispose(); }
+});
+
 test("capabilities fail neutrally on tamper, expiry, audience, exact provenance, and one-shot nonce races", async () => {
   const seed = await setup();
   try {
