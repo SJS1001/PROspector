@@ -5,7 +5,16 @@ import {
   type ContactObservation,
 } from "./contact-evidence";
 import { isContactProviderPortBoundTo } from "./contact-provider-port";
-import type { AssignedContactEvidence, AuthorizedEnrichmentAssignment, EnrichmentAuthorityRepository, ReconciliationReason } from "./enrichment-authority";
+import { canonicalDigest } from "./enrichment-grant-issuance";
+import {
+  claimAdmittedCommittedInvocation,
+  type AssignedContactEvidence,
+  type AuthorizedEnrichmentAssignment,
+  type DurableReservationAcknowledgement,
+  type EnrichmentAuthorityRepository,
+  type ReconciliationReason,
+  type SettlementWrite,
+} from "./enrichment-authority";
 
 export type ExecuteEnrichmentResult = { kind: "settled"; outcome: "completed" | "partial" | "rejected" } | { kind: "needs_reconciliation" } | { kind: "reconciliation_persistence_failure" } | { kind: "blocked" };
 type ValidProviderOutcome =
@@ -35,38 +44,78 @@ export async function executeEnrichmentOperation(
   input: { reservationId: string; now: number },
   verifier?: ContactEvidenceVerifier | unknown,
 ): Promise<ExecuteEnrichmentResult> {
-  if (!validInput(input)) return { kind: "blocked" };
-  const claim = await repository.claimCommittedInvocation(input.reservationId, input.now);
-  if (!plain(claim) || claim.kind !== "claimed") return { kind: "blocked" };
+  let inputSnapshot: { reservationId: string; now: number };
+  try {
+    if (!exactRecord(input, ["reservationId", "now"]) || !validInput(input)) return { kind: "blocked" };
+    inputSnapshot = { reservationId: input.reservationId, now: input.now };
+  } catch {
+    return { kind: "blocked" };
+  }
+  const claim = await claimAdmittedCommittedInvocation(repository, inputSnapshot.reservationId, inputSnapshot.now);
+  if (claim.kind === "blocked") return { kind: "blocked" };
+  if (claim.kind === "invalid") return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
   let assignment: Readonly<AuthorizedEnrichmentAssignment>;
   try {
-    if (!positive(claim.claimedAt) || claim.claimedAt > input.now) {
-      return reconcile(repository, input.reservationId, "invalid_assignment");
+    if (!positive(claim.claimedAt) || claim.claimedAt > inputSnapshot.now) {
+      return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
     }
     const assignmentSnapshot = snapshotAssignment(claim.assignment);
-    if (!validAssignment(assignmentSnapshot, input.reservationId, input.now)) {
-      return reconcile(repository, input.reservationId, "invalid_assignment");
+    if (!validAssignment(assignmentSnapshot, inputSnapshot.reservationId, inputSnapshot.now)) {
+      return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
     }
     assignment = freezeAssignment(assignmentSnapshot);
   } catch {
-    return reconcile(repository, input.reservationId, "invalid_assignment");
+    return reconcile(repository, inputSnapshot.reservationId, "invalid_assignment");
   }
-  if (!isContactProviderPortBoundTo(port, assignment)) return reconcile(repository, input.reservationId, "provider_port_mismatch");
+  if (!isContactProviderPortBoundTo(port, assignment)) return reconcile(repository, inputSnapshot.reservationId, "provider_port_mismatch");
   let providerOutcome: unknown;
   try { providerOutcome = await invokePort(port, assignment); }
-  catch { return reconcile(repository, input.reservationId, "provider_throw"); }
+  catch { return reconcile(repository, inputSnapshot.reservationId, "provider_throw"); }
   let outcome: ValidProviderOutcome | null;
   try { outcome = normalizeOutcome(providerOutcome, assignment); }
-  catch { return reconcile(repository, input.reservationId, "invalid_provider_outcome"); }
-  if (!outcome) return reconcile(repository, input.reservationId, "invalid_provider_outcome");
-  if (outcome.kind === "timeout" || outcome.kind === "ambiguous") return reconcile(repository, input.reservationId, outcome.kind);
+  catch { return reconcile(repository, inputSnapshot.reservationId, "invalid_provider_outcome"); }
+  if (!outcome) return reconcile(repository, inputSnapshot.reservationId, "invalid_provider_outcome");
+  if (outcome.kind === "timeout" || outcome.kind === "ambiguous") return reconcile(repository, inputSnapshot.reservationId, outcome.kind);
   const observations = outcome.kind === "rejected"
     ? []
     : await ingestEvidence(assignment, outcome.evidence, outcome.documentedUnits, verifier);
-  if (!observations) return reconcile(repository, input.reservationId, "invalid_evidence");
+  if (!observations) return reconcile(repository, inputSnapshot.reservationId, "invalid_evidence");
   const state = outcome.kind === "rejected" ? "released" : "settled";
-  try { await repository.settleReservation(input.reservationId, { state, documentedUnits: outcome.documentedUnits, documentedCostMinor: outcome.documentedCostMinor, reason: outcome.kind, observations }); }
-  catch { return reconcile(repository, input.reservationId, "settlement_failure"); }
+  const observationIds = Object.freeze(observations.map((observation) => observation.id));
+  let settlement: SettlementWrite;
+  try {
+    const settlementDigest = await canonicalDigest({
+      reservationId: inputSnapshot.reservationId,
+      terminalState: state,
+      terminalReason: outcome.kind,
+      documentedUnits: outcome.documentedUnits,
+      documentedCostMinor: outcome.documentedCostMinor,
+      observationIds,
+    });
+    settlement = Object.freeze({
+      state,
+      documentedUnits: outcome.documentedUnits,
+      documentedCostMinor: outcome.documentedCostMinor,
+      reason: outcome.kind,
+      observations: Object.freeze([...observations]),
+      settlementDigest,
+    });
+  } catch {
+    return reconcile(repository, inputSnapshot.reservationId, "settlement_failure");
+  }
+  let acknowledgement: unknown;
+  try {
+    acknowledgement = await repository.settleReservation(inputSnapshot.reservationId, settlement);
+  } catch {
+    return reconcile(repository, inputSnapshot.reservationId, "settlement_failure");
+  }
+  if (!validDurableAcknowledgement(acknowledgement, {
+    reservationId: inputSnapshot.reservationId,
+    terminalState: state,
+    terminalReason: outcome.kind,
+    settlementDigest: settlement.settlementDigest,
+    observationIds,
+  })) return reconcile(repository, inputSnapshot.reservationId, "settlement_failure");
   return { kind: "settled", outcome: outcome.kind };
 }
 
@@ -75,8 +124,91 @@ async function invokePort(port: unknown, assignment: Readonly<AuthorizedEnrichme
   return (port as { enrich(value: typeof assignment): Promise<unknown> }).enrich(assignment);
 }
 async function reconcile(repository: EnrichmentAuthorityRepository, reservationId: string, reason: ReconciliationReason): Promise<Extract<ExecuteEnrichmentResult, { kind: "needs_reconciliation" | "reconciliation_persistence_failure" }>> {
-  try { const result = await repository.markNeedsReconciliation(reservationId, reason); return result?.kind === "recorded" ? { kind: "needs_reconciliation" } : { kind: "reconciliation_persistence_failure" }; }
-  catch { return { kind: "reconciliation_persistence_failure" }; }
+  try {
+    const result = await repository.markNeedsReconciliation(reservationId, reason);
+    return validDurableAcknowledgement(result, {
+      reservationId,
+      terminalState: "needs_reconciliation",
+      terminalReason: reason,
+      settlementDigest: null,
+      observationIds: Object.freeze([]),
+    })
+      ? { kind: "needs_reconciliation" }
+      : { kind: "reconciliation_persistence_failure" };
+  } catch {
+    return { kind: "reconciliation_persistence_failure" };
+  }
+}
+function validDurableAcknowledgement(
+  value: unknown,
+  expected: Pick<DurableReservationAcknowledgement, "reservationId" | "terminalState" | "terminalReason" | "settlementDigest" | "observationIds">,
+): value is DurableReservationAcknowledgement {
+  const snapshot = exactDataRecord(value, [
+    "kind",
+    "reservationId",
+    "terminalState",
+    "terminalReason",
+    "settlementDigest",
+    "observationIds",
+    "durableRevision",
+  ]);
+  if (
+    !snapshot
+    || snapshot.kind !== "durably_recorded"
+    || snapshot.reservationId !== expected.reservationId
+    || snapshot.terminalState !== expected.terminalState
+    || snapshot.terminalReason !== expected.terminalReason
+    || snapshot.settlementDigest !== expected.settlementDigest
+    || !positive(snapshot.durableRevision)
+  ) return false;
+  const observationIds = exactStringArray(snapshot.observationIds);
+  return Boolean(
+    observationIds
+    && observationIds.length === expected.observationIds.length
+    && observationIds.every((id, index) => id === expected.observationIds[index]),
+  );
+}
+function exactStringArray(value: unknown): readonly string[] | null {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.some((key) => typeof key !== "string")
+      || keys.length !== value.length + 1
+      || !Object.prototype.hasOwnProperty.call(descriptors, "length")
+    ) return null;
+    const snapshot: string[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable || !bounded(descriptor.value, 256)) return null;
+      snapshot.push(descriptor.value);
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))
+    ) return null;
+    const snapshot: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
 }
 function validAssignment(value: unknown, reservationId: string, now: number): value is AuthorizedEnrichmentAssignment {
   if (

@@ -32,7 +32,23 @@ export type AuthorizedEnrichmentAssignment = { reservationId: string; workspaceI
 export type EnrichmentReservation = { id: string; grantId: string; workspaceId: string; operationKey: string; status: "reserved" | "invoking" | "settled" | "released" | "needs_reconciliation"; assignment: AuthorizedEnrichmentAssignment };
 export type InvocationClaim = { kind: "claimed"; assignment: AuthorizedEnrichmentAssignment; claimedAt: number } | { kind: "blocked"; reason: "unavailable" | "expired" };
 export type ReconciliationReason = "timeout" | "ambiguous" | "provider_port_mismatch" | "invalid_provider_outcome" | "invalid_assignment" | "invalid_evidence" | "provider_throw" | "settlement_failure";
-export type ReconciliationWriteResult = { kind: "recorded" } | { kind: "persistence_failure" };
+export type SettlementWrite = Readonly<{
+  state: "settled" | "released";
+  documentedUnits: number;
+  documentedCostMinor: number;
+  reason: "completed" | "partial" | "rejected";
+  observations: readonly ContactObservation[];
+  settlementDigest: string;
+}>;
+export type DurableReservationAcknowledgement = Readonly<{
+  kind: "durably_recorded";
+  reservationId: string;
+  terminalState: "settled" | "released" | "needs_reconciliation";
+  terminalReason: "completed" | "partial" | "rejected" | ReconciliationReason;
+  settlementDigest: string | null;
+  observationIds: readonly string[];
+  durableRevision: number;
+}>;
 export type RecoverableInvocation = Readonly<{ reservationId: string; operationKey: string; claimedAt: number; expiresAt: number; status: "invoking" }>;
 export type EnrichmentAuthorityRepository = {
   loadReservationAuthority(grantId: string): Promise<ReservationAuthority | null>;
@@ -40,14 +56,26 @@ export type EnrichmentAuthorityRepository = {
   commitReservation(record: EnrichmentReservation, accounts: readonly BudgetAccount[]): Promise<{ kind: "created"; record: EnrichmentReservation } | { kind: "existing"; record: EnrichmentReservation } | { kind: "blocked" }>;
   /** Atomically rechecks expiresAt > now while moving reserved -> invoking; an expired row is made terminal without returning an assignment. */
   claimCommittedInvocation(reservationId: string, now: number): Promise<InvocationClaim>;
-  settleReservation(reservationId: string, settlement: { state: "settled" | "released"; documentedUnits: number; documentedCostMinor: number; reason: "completed" | "partial" | "rejected"; observations: readonly ContactObservation[] }): Promise<void>;
-  markNeedsReconciliation(reservationId: string, reason: ReconciliationReason): Promise<ReconciliationWriteResult>;
+  settleReservation(reservationId: string, settlement: SettlementWrite): Promise<DurableReservationAcknowledgement>;
+  markNeedsReconciliation(reservationId: string, reason: ReconciliationReason): Promise<DurableReservationAcknowledgement>;
   /** Recovery workers may inspect stranded invoking rows; this never grants retry or provider-call authority. */
   listInvocationsNeedingRecovery(input: Readonly<{ claimedBefore: number; limit: number }>): Promise<readonly RecoverableInvocation[]>;
 };
 export type ReserveEnrichmentInput = { grantId: string; principalSubject: string; operationKey: string; now: number };
 export type EnrichmentAuthorityBlockedReason = EnrichmentBlockedReason | "grant_unavailable" | "grant_consumed" | "operation_key_mismatch" | "budget_exceeded";
 export type ReserveEnrichmentResult = { kind: "reserved"; reservation: EnrichmentReservation; replayed: boolean } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason };
+export type AdmittedInvocationClaim =
+  | Readonly<{ kind: "claimed"; assignment: Readonly<AuthorizedEnrichmentAssignment>; claimedAt: number }>
+  | Readonly<{ kind: "blocked"; reason: "unavailable" | "expired" }>
+  | Readonly<{ kind: "invalid" }>;
+
+type CommittedAdmission = Readonly<{
+  receipt: object;
+  assignmentReference: AuthorizedEnrichmentAssignment;
+  assignmentSnapshot: Readonly<AuthorizedEnrichmentAssignment>;
+}>;
+const committedAdmissions = new WeakMap<EnrichmentAuthorityRepository, Map<string, CommittedAdmission>>();
+const committedAdmissionReceipts = new WeakSet<object>();
 
 /** Validates all current predicates without mutating. The repository is solely responsible for the atomic cap/consume commit. */
 export async function validateEnrichmentAuthority(authority: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
@@ -94,7 +122,67 @@ export async function reserveEnrichmentOperation(repository: EnrichmentAuthority
     || (committed.kind !== "created" && committed.kind !== "existing")
     || !exactPlainData(committed.record, record)
   ) return { kind: "blocked", reason: "grant_unavailable" };
+  admitCommittedReservation(repository, committed.record as EnrichmentReservation);
   return { kind: "reserved", reservation: record, replayed: committed.kind === "existing" };
+}
+
+/**
+ * Claims only a reservation admitted by this module after an exact successful
+ * commit acknowledgement. The receipt is intentionally process-local and
+ * unforgeable. Persisted reservations therefore fail closed after rehydration
+ * until the authenticated D1 repository can restore equivalent authority.
+ */
+export async function claimAdmittedCommittedInvocation(
+  repository: EnrichmentAuthorityRepository,
+  reservationId: string,
+  now: number,
+): Promise<AdmittedInvocationClaim> {
+  const admission = committedAdmissions.get(repository)?.get(reservationId);
+  if (!admission || !committedAdmissionReceipts.has(admission.receipt)) {
+    return Object.freeze({ kind: "blocked", reason: "unavailable" });
+  }
+  let rawClaim: unknown;
+  try {
+    rawClaim = await repository.claimCommittedInvocation(reservationId, now);
+  } catch {
+    return Object.freeze({ kind: "invalid" });
+  }
+  const blocked = exactDataRecord(rawClaim, ["kind", "reason"]);
+  if (
+    blocked?.kind === "blocked"
+    && (blocked.reason === "unavailable" || blocked.reason === "expired")
+  ) {
+    return Object.freeze({ kind: "blocked", reason: blocked.reason });
+  }
+  const claimed = exactDataRecord(rawClaim, ["kind", "assignment", "claimedAt"]);
+  if (
+    claimed?.kind !== "claimed"
+    || claimed.assignment !== admission.assignmentReference
+    || !exactPlainData(claimed.assignment, admission.assignmentSnapshot)
+  ) {
+    return Object.freeze({ kind: "invalid" });
+  }
+  return Object.freeze({
+    kind: "claimed",
+    assignment: admission.assignmentSnapshot,
+    claimedAt: claimed.claimedAt as number,
+  });
+}
+
+function admitCommittedReservation(repository: EnrichmentAuthorityRepository, record: EnrichmentReservation): void {
+  const receipt = Object.freeze({});
+  committedAdmissionReceipts.add(receipt);
+  let admissions = committedAdmissions.get(repository);
+  if (!admissions) {
+    admissions = new Map();
+    committedAdmissions.set(repository, admissions);
+  }
+  const snapshot = freezeReservation(copyReservation(record)).assignment;
+  admissions.set(record.id, Object.freeze({
+    receipt,
+    assignmentReference: record.assignment,
+    assignmentSnapshot: snapshot,
+  }));
 }
 
 function sameQuote(quote: ProviderQuote, grant: EnrichmentGrant): boolean { const tuple = grant.tuple; return quote.providerId === tuple.providerId && quote.providerVersion === tuple.providerVersion && quote.catalogRef === tuple.catalogRef && quote.revision === tuple.quoteRevision && quote.unitCostMinor === tuple.quoteUnitCostMinor && quote.expiresAt === tuple.quoteExpiresAt && quote.currency === tuple.currency; }

@@ -101,8 +101,8 @@ test("P5 preparation: only an exact committed reservation can invoke the injecte
       },
       async commitReservation(record) { mutations.push(["reserve", record.id]); reservations.set(record.id, record); return { kind: "created", record }; },
       async claimCommittedInvocation(id, now) { const record = reservations.get(id); if (!record || record.status !== "reserved") return { kind: "blocked", reason: "unavailable" }; if (record.assignment.expiresAt <= now) { record.status = "released"; return { kind: "blocked", reason: "expired" }; } record.status = "invoking"; mutations.push(["claim", id]); return { kind: "claimed", assignment: record.assignment, claimedAt: now }; },
-      async settleReservation(id, settlement) { mutations.push(["settle", id, settlement.state]); reservations.get(id).status = settlement.state; },
-      async markNeedsReconciliation(id) { mutations.push(["reconcile", id]); reservations.get(id).status = "needs_reconciliation"; return { kind: "recorded" }; },
+      async settleReservation(id, settlement) { mutations.push(["settle", id, settlement.state]); reservations.get(id).status = settlement.state; return durableSettlementAck(id, settlement); },
+      async markNeedsReconciliation(id, reason) { mutations.push(["reconcile", id]); reservations.get(id).status = "needs_reconciliation"; return durableReconciliationAck(id, reason); },
       async listInvocationsNeedingRecovery() { return []; },
     };
     const fake = boundFakePort(portModule, async (assignment) => ({ kind: "partial", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 11, evidence: [contactEnvelope()] }));
@@ -118,11 +118,11 @@ test("P5 preparation: only an exact committed reservation can invoke the injecte
     const retry = await operation.executeEnrichmentOperation(reservationAuthority, fake.port, { reservationId: reserved.reservation.id, now: 1_102 });
     assert.equal(retry.kind, "blocked"); assert.equal(fake.calls, 1);
 
-    const timedOutReservation = { ...reserved.reservation, id: "reservation-timeout", status: "reserved", assignment: { ...reserved.reservation.assignment, reservationId: "reservation-timeout" } }; reservations.set(timedOutReservation.id, timedOutReservation);
+    const timed = await admittedExecutionRepository({ issuance, authority, maxUnits: 1, maxCostMinor: 11, quoteUnitCostMinor: 11 });
     const timeoutPort = boundFakePort(portModule, async (assignment) => ({ kind: "ambiguous", reservationId: assignment.reservationId, operationKey: assignment.operationKey }));
-    const uncertain = await operation.executeEnrichmentOperation(reservationAuthority, timeoutPort.port, { reservationId: timedOutReservation.id, now: 1_103 });
-    assert.equal(uncertain.kind, "needs_reconciliation"); assert.equal(timeoutPort.calls, 1); assert.equal(timedOutReservation.status, "needs_reconciliation");
-    assert.equal((await operation.executeEnrichmentOperation(reservationAuthority, timeoutPort.port, { reservationId: timedOutReservation.id, now: 1_104 })).kind, "blocked");
+    const uncertain = await operation.executeEnrichmentOperation(timed.repository, timeoutPort.port, { reservationId: timed.reservation.id, now: 1_103 });
+    assert.equal(uncertain.kind, "needs_reconciliation"); assert.equal(timeoutPort.calls, 1); assert.equal(timed.state.status, "needs_reconciliation");
+    assert.equal((await operation.executeEnrichmentOperation(timed.repository, timeoutPort.port, { reservationId: timed.reservation.id, now: 1_104 })).kind, "blocked");
     assert.equal(timeoutPort.calls, 1, "ambiguous acceptance is never retried or switched");
 
     const runnerAuthority = await configuredRunnerAuthority(runner, { maxRetries: 0, attempt: { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] } });
@@ -211,7 +211,12 @@ test("P5 hardening: immutable grants and exact synthetic authority shapes fail c
 test("P5 hardening: malformed fake-port outcomes and settlement failures hold a claimed reservation without retry", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    const [issuance, authority, operation, portModule] = await Promise.all([
+      module(vite, "enrichment-grant-issuance"),
+      module(vite, "enrichment-authority"),
+      module(vite, "enrichment-operation"),
+      module(vite, "contact-provider-port"),
+    ]);
     for (const [name, fake, settlementThrows, reconciliationThrows] of [
       ["null", { port: null, calls: 0 }, false, false],
       ["unknown kind", boundFakePort(portModule, async () => ({ kind: "other" })), false, false],
@@ -219,11 +224,25 @@ test("P5 hardening: malformed fake-port outcomes and settlement failures hold a 
       ["settlement failure", boundFakePort(portModule, async (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] })), true, false],
       ["reconciliation persistence failure", boundFakePort(portModule, async () => ({ kind: "other" })), false, true],
     ]) {
-      const state = { status: "reserved", reconciled: 0 };
-      const repository = { async claimCommittedInvocation(_id, now) { if (state.status !== "reserved") return { kind: "blocked", reason: "unavailable" }; state.status = "invoking"; return { kind: "claimed", assignment: authorizedAssignment(), claimedAt: now }; }, async settleReservation() { if (settlementThrows) throw new Error("settlement unavailable"); state.status = "settled"; }, async markNeedsReconciliation() { state.reconciled += 1; if (reconciliationThrows) throw new Error("reconciliation unavailable"); state.status = "needs_reconciliation"; return { kind: "recorded" }; }, async listInvocationsNeedingRecovery() { return state.status === "invoking" ? [{ reservationId: "reservation-hardened", operationKey: authorizedAssignment().operationKey, claimedAt: 1_100, expiresAt: 2_000, status: "invoking" }] : []; } };
-      const result = await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: "reservation-hardened", now: 1_100 });
-      assert.equal(result.kind, reconciliationThrows ? "reconciliation_persistence_failure" : "needs_reconciliation", name); assert.equal(fake.calls <= 1, true, name); assert.notEqual(state.status, "reserved", name);
-      assert.equal((await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: "reservation-hardened", now: 1_101 })).kind, "blocked", name);
+      let reconciled = 0;
+      const admitted = await admittedExecutionRepository({
+        issuance,
+        authority,
+        settle: settlementThrows
+          ? async () => { throw new Error("settlement unavailable"); }
+          : undefined,
+        reconcile: async ({ state }, id, reason) => {
+          reconciled += 1;
+          if (reconciliationThrows) throw new Error("reconciliation unavailable");
+          state.status = "needs_reconciliation";
+          state.durableRevision += 1;
+          return durableReconciliationAck(id, reason, state.durableRevision);
+        },
+      });
+      const result = await operation.executeEnrichmentOperation(admitted.repository, fake.port, { reservationId: admitted.reservation.id, now: 1_100 });
+      assert.equal(result.kind, reconciliationThrows ? "reconciliation_persistence_failure" : "needs_reconciliation", name); assert.equal(fake.calls <= 1, true, name); assert.notEqual(admitted.state.status, "reserved", name);
+      assert.equal(reconciled, 1, name);
+      assert.equal((await operation.executeEnrichmentOperation(admitted.repository, fake.port, { reservationId: admitted.reservation.id, now: 1_101 })).kind, "blocked", name);
     }
   } finally { await vite.close(); }
 });
@@ -231,22 +250,29 @@ test("P5 hardening: malformed fake-port outcomes and settlement failures hold a 
 test("P5 hardening: exact provider binding and quote economics fail closed before call or settlement", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    const [issuance, authority, operation, portModule] = await Promise.all([
+      module(vite, "enrichment-grant-issuance"),
+      module(vite, "enrichment-authority"),
+      module(vite, "enrichment-operation"),
+      module(vite, "contact-provider-port"),
+    ]);
     for (const [name, descriptorPatch] of [
       ["provider id", { providerId: "wrong-provider" }],
       ["provider version", { providerVersion: "wrong-version" }],
       ["catalog reference", { catalogRef: "wrong-catalog" }],
     ]) {
-      const assignment = authorizedAssignment();
       const fake = boundFakePort(portModule, async (value) => ({ kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }), descriptorPatch);
       const state = { settled: 0, reconciled: 0, reason: null };
-      const repository = {
-        async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
-        async settleReservation() { state.settled += 1; },
-        async markNeedsReconciliation(_id, reason) { state.reconciled += 1; state.reason = reason; return { kind: "recorded" }; },
-        async listInvocationsNeedingRecovery() { return []; },
-      };
-      const result = await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: assignment.reservationId, now: 1_100 });
+      const admitted = await admittedExecutionRepository({
+        issuance,
+        authority,
+        settle: async (_context, id, settlement) => { state.settled += 1; return durableSettlementAck(id, settlement); },
+        reconcile: async ({ state: durableState }, id, reason) => {
+          state.reconciled += 1; state.reason = reason; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+          return durableReconciliationAck(id, reason, durableState.durableRevision);
+        },
+      });
+      const result = await operation.executeEnrichmentOperation(admitted.repository, fake.port, { reservationId: admitted.reservation.id, now: 1_100 });
       assert.equal(result.kind, "needs_reconciliation", name);
       assert.equal(fake.calls, 0, `${name}: mismatched adapter must not be invoked`);
       assert.equal(state.settled, 0, name);
@@ -254,30 +280,31 @@ test("P5 hardening: exact provider binding and quote economics fail closed befor
       assert.equal(state.reason, "provider_port_mismatch", name);
     }
 
-    const economicsAssignment = authorizedAssignment({
-      quoteUnitCostMinor: 3,
-      maxUnits: 2,
-      maxCostMinor: 6,
-      evidenceAssignments: [
-        evidenceBinding(),
-        evidenceBinding({ assignmentId: "assignment-prospect-a-economic-buyer", role: "economic_buyer", contactId: "contact-economic-buyer" }),
-      ],
-    });
-    for (const [name, outcome] of [
-      ["zero units at full cost", { kind: "completed", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 0, documentedCostMinor: 6, evidence: [] }],
-      ["cost differs from quote", { kind: "partial", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 1, documentedCostMinor: 2, evidence: [contactEnvelope()] }],
-      ["evidence count differs from units", { kind: "completed", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 2, documentedCostMinor: 6, evidence: [contactEnvelope()] }],
-      ["units and cost exceed caps", { kind: "completed", reservationId: economicsAssignment.reservationId, operationKey: economicsAssignment.operationKey, documentedUnits: 3, documentedCostMinor: 9, evidence: [contactEnvelope(), contactEnvelope(), contactEnvelope()] }],
+    for (const [name, makeOutcome] of [
+      ["zero units at full cost", (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 0, documentedCostMinor: 6, evidence: [] })],
+      ["cost differs from quote", (assignment) => ({ kind: "partial", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 2, evidence: [contactEnvelope()] })],
+      ["evidence count differs from units", (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 2, documentedCostMinor: 6, evidence: [contactEnvelope()] })],
+      ["units and cost exceed caps", (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 3, documentedCostMinor: 9, evidence: [contactEnvelope(), contactEnvelope(), contactEnvelope()] })],
     ]) {
-      const fake = boundFakePort(portModule, async () => outcome);
       const state = { settled: 0, reconciled: 0, reason: null };
-      const repository = {
-        async claimCommittedInvocation() { return { kind: "claimed", assignment: economicsAssignment, claimedAt: 1_100 }; },
-        async settleReservation() { state.settled += 1; },
-        async markNeedsReconciliation(_id, reason) { state.reconciled += 1; state.reason = reason; return { kind: "recorded" }; },
-        async listInvocationsNeedingRecovery() { return []; },
-      };
-      const result = await operation.executeEnrichmentOperation(repository, fake.port, { reservationId: economicsAssignment.reservationId, now: 1_100 });
+      const admitted = await admittedExecutionRepository({
+        issuance,
+        authority,
+        maxUnits: 2,
+        maxCostMinor: 6,
+        quoteUnitCostMinor: 3,
+        evidenceAssignments: [
+          evidenceBinding(),
+          evidenceBinding({ assignmentId: "assignment-prospect-a-economic-buyer", role: "economic_buyer", contactId: "contact-economic-buyer" }),
+        ],
+        settle: async (_context, id, settlement) => { state.settled += 1; return durableSettlementAck(id, settlement); },
+        reconcile: async ({ state: durableState }, id, reason) => {
+          state.reconciled += 1; state.reason = reason; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+          return durableReconciliationAck(id, reason, durableState.durableRevision);
+        },
+      });
+      const fake = boundFakePort(portModule, async () => makeOutcome(admitted.assignment));
+      const result = await operation.executeEnrichmentOperation(admitted.repository, fake.port, { reservationId: admitted.reservation.id, now: 1_100 });
       assert.equal(result.kind, "needs_reconciliation", name);
       assert.equal(fake.calls, 1, name);
       assert.equal(state.settled, 0, name);
@@ -290,84 +317,100 @@ test("P5 hardening: exact provider binding and quote economics fail closed befor
 test("P5 hardening: invocation expiry is atomic and provider evidence must pass exact assignment-bound ingestion", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [operation, portModule, evidenceModule] = await Promise.all([
+    const [issuance, authority, operation, portModule, evidenceModule] = await Promise.all([
+      module(vite, "enrichment-grant-issuance"),
+      module(vite, "enrichment-authority"),
       module(vite, "enrichment-operation"),
       module(vite, "contact-provider-port"),
       module(vite, "contact-evidence"),
     ]);
     const port = boundFakePort(portModule, async (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }));
-    const expiryState = { status: "reserved" };
-    const expiredRepository = {
-      async claimCommittedInvocation(_id, now) { if (1_100 <= now) { expiryState.status = "expired"; return { kind: "blocked", reason: "expired" }; } throw new Error("unexpected clock"); },
-      async settleReservation() { throw new Error("unreachable"); },
-      async markNeedsReconciliation() { throw new Error("unreachable"); },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
-    const expired = await operation.executeEnrichmentOperation(expiredRepository, port.port, { reservationId: "reservation-expired", now: 1_100 });
-    assert.equal(expired.kind, "blocked"); assert.equal(port.calls, 0); assert.equal(expiryState.status, "expired");
-    const defensiveState = { status: "reserved", reconciled: 0 };
-    const defensiveRepository = {
-      async claimCommittedInvocation(_id, now) { defensiveState.status = "invoking"; return { kind: "claimed", assignment: authorizedAssignment({ reservationId: "reservation-expired-claim", expiresAt: now }), claimedAt: now }; },
-      async settleReservation() { throw new Error("unreachable"); },
-      async markNeedsReconciliation() { defensiveState.reconciled += 1; defensiveState.status = "needs_reconciliation"; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
-    const defensiveExpiry = await operation.executeEnrichmentOperation(defensiveRepository, port.port, { reservationId: "reservation-expired-claim", now: 1_100 });
-    assert.equal(defensiveExpiry.kind, "needs_reconciliation"); assert.equal(port.calls, 0); assert.equal(defensiveState.reconciled, 1);
+    const expiredAdmission = await admittedExecutionRepository({ issuance, authority, expiresAt: 1_101 });
+    const expired = await operation.executeEnrichmentOperation(expiredAdmission.repository, port.port, { reservationId: expiredAdmission.reservation.id, now: 1_101 });
+    assert.equal(expired.kind, "blocked"); assert.equal(port.calls, 0); assert.equal(expiredAdmission.state.status, "released");
+    let defensiveReconciled = 0;
+    const defensiveAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      claim: ({ state, record }, _id, now) => {
+        state.status = "invoking";
+        record.assignment.expiresAt = now;
+        return { kind: "claimed", assignment: record.assignment, claimedAt: now };
+      },
+      reconcile: async ({ state }, id, reason) => {
+        defensiveReconciled += 1; state.status = "needs_reconciliation"; state.durableRevision += 1;
+        return durableReconciliationAck(id, reason, state.durableRevision);
+      },
+    });
+    const defensiveExpiry = await operation.executeEnrichmentOperation(defensiveAdmission.repository, port.port, { reservationId: defensiveAdmission.reservation.id, now: 1_100 });
+    assert.equal(defensiveExpiry.kind, "needs_reconciliation"); assert.equal(port.calls, 0); assert.equal(defensiveReconciled, 1);
 
     const state = { status: "reserved", settled: 0, promoted: 0, reconciled: 0, reconciliationReason: null };
-    const assignment = authorizedAssignment({ expiresAt: 2_000 });
     const invalidEvidencePort = boundFakePort(portModule, async (value) => ({ kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope({ workspaceId: "other-workspace" })] }));
-    const evidenceRepository = {
-      async claimCommittedInvocation() { if (state.status !== "reserved") return { kind: "blocked", reason: "unavailable" }; state.status = "invoking"; return { kind: "claimed", assignment, claimedAt: 1_100 }; },
-      async settleReservation(_id, settlement) { state.settled += 1; state.promoted += settlement.observations.length; state.status = "settled"; },
-      async markNeedsReconciliation(_id, reason) { state.reconciled += 1; state.reconciliationReason = reason; state.status = "needs_reconciliation"; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
-    const invalid = await operation.executeEnrichmentOperation(evidenceRepository, invalidEvidencePort.port, { reservationId: assignment.reservationId, now: 1_100 });
+    const evidenceAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async (_context, id, settlement) => { state.settled += 1; state.promoted += settlement.observations.length; state.status = "settled"; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state: durableState }, id, reason) => {
+        state.reconciled += 1; state.reconciliationReason = reason; state.status = "needs_reconciliation"; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+        return durableReconciliationAck(id, reason, durableState.durableRevision);
+      },
+    });
+    const invalid = await operation.executeEnrichmentOperation(evidenceAdmission.repository, invalidEvidencePort.port, { reservationId: evidenceAdmission.reservation.id, now: 1_100 });
     assert.equal(invalid.kind, "needs_reconciliation"); assert.equal(state.reconciliationReason, "invalid_evidence"); assert.equal(invalidEvidencePort.calls, 1); assert.equal(state.settled, 0); assert.equal(state.promoted, 0); assert.equal(state.reconciled, 1);
 
     const acceptedState = { status: "reserved", observations: [] };
-    const acceptedRepository = {
-      async claimCommittedInvocation() { acceptedState.status = "invoking"; return { kind: "claimed", assignment, claimedAt: 1_100 }; },
-      async settleReservation(_id, settlement) { acceptedState.observations = settlement.observations; acceptedState.status = "settled"; },
-      async markNeedsReconciliation() { throw new Error("unreachable"); },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
+    const acceptedAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async ({ state: durableState }, id, settlement) => {
+        acceptedState.observations = settlement.observations; acceptedState.status = "settled"; durableState.status = "settled"; durableState.durableRevision += 1;
+        return durableSettlementAck(id, settlement, durableState.durableRevision);
+      },
+    });
     const acceptedPort = boundFakePort(portModule, async (value) => ({ kind: "partial", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }));
-    const accepted = await operation.executeEnrichmentOperation(acceptedRepository, acceptedPort.port, { reservationId: assignment.reservationId, now: 1_100 });
-    assert.equal(accepted.kind, "settled"); assert.equal(acceptedPort.calls, 1); assert.equal(acceptedState.observations.length, 1); assert.equal(acceptedState.observations[0].workspaceId, assignment.workspaceId); assert.equal(acceptedState.observations[0].contactId, evidenceBinding().contactId); assert.equal(Object.isFrozen(acceptedState.observations[0]), true);
+    const accepted = await operation.executeEnrichmentOperation(acceptedAdmission.repository, acceptedPort.port, { reservationId: acceptedAdmission.reservation.id, now: 1_100 });
+    assert.equal(accepted.kind, "settled"); assert.equal(acceptedPort.calls, 1); assert.equal(acceptedState.observations.length, 1); assert.equal(acceptedState.observations[0].workspaceId, acceptedAdmission.assignment.workspaceId); assert.equal(acceptedState.observations[0].contactId, evidenceBinding().contactId); assert.equal(Object.isFrozen(acceptedState.observations[0]), true);
     assert.equal(acceptedState.observations[0].verificationClass, "suggested", "adapter-only evidence cannot self-certify eligibility");
     assert.equal(acceptedState.observations[0].providerId, null);
 
     const verifiedState = { status: "reserved", observations: [], reconciled: 0 };
-    const verifiedRepository = {
-      async claimCommittedInvocation() { verifiedState.status = "invoking"; return { kind: "claimed", assignment, claimedAt: 1_100 }; },
-      async settleReservation(_id, settlement) { verifiedState.observations = settlement.observations; verifiedState.status = "settled"; },
-      async markNeedsReconciliation() { verifiedState.reconciled += 1; verifiedState.status = "needs_reconciliation"; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
+    const verifiedAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async ({ state: durableState }, id, settlement) => {
+        verifiedState.observations = settlement.observations; verifiedState.status = "settled"; durableState.status = "settled"; durableState.durableRevision += 1;
+        return durableSettlementAck(id, settlement, durableState.durableRevision);
+      },
+      reconcile: async ({ state: durableState }, id, reason) => {
+        verifiedState.reconciled += 1; verifiedState.status = "needs_reconciliation"; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+        return durableReconciliationAck(id, reason, durableState.durableRevision);
+      },
+    });
     const trustedVerifier = evidenceModule.bindContactEvidenceVerifier(
       { verifierId: "server-verifier", verifierVersion: "v1" },
       async ({ envelope: raw }) => contactVerification(raw),
     );
-    const verified = await operation.executeEnrichmentOperation(verifiedRepository, acceptedPort.port, { reservationId: assignment.reservationId, now: 1_100 }, trustedVerifier);
+    const verified = await operation.executeEnrichmentOperation(verifiedAdmission.repository, acceptedPort.port, { reservationId: verifiedAdmission.reservation.id, now: 1_100 }, trustedVerifier);
     assert.equal(verified.kind, "settled"); assert.equal(verifiedState.reconciled, 0); assert.equal(verifiedState.observations.length, 1);
     assert.equal(verifiedState.observations[0].verificationClass, "mailbox_verified");
-    assert.equal(verifiedState.observations[0].providerId, assignment.providerId);
-    assert.equal(verifiedState.observations[0].providerVersion, assignment.providerVersion);
-    assert.equal(verifiedState.observations[0].catalogRef, assignment.catalogRef);
+    assert.equal(verifiedState.observations[0].providerId, verifiedAdmission.assignment.providerId);
+    assert.equal(verifiedState.observations[0].providerVersion, verifiedAdmission.assignment.providerVersion);
+    assert.equal(verifiedState.observations[0].catalogRef, verifiedAdmission.assignment.catalogRef);
     assert.equal(verifiedState.observations[0].verificationAuthority.verifierId, "server-verifier");
     assert.equal(verifiedState.observations[0].verificationAuthority.verifierVersion, "v1");
     assert.equal(Object.isFrozen(trustedVerifier.descriptor), true);
 
     const rawVerifierState = { settled: 0, reconciled: 0 };
-    const rawVerifierRepository = {
-      async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
-      async settleReservation() { rawVerifierState.settled += 1; },
-      async markNeedsReconciliation() { rawVerifierState.reconciled += 1; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
+    const rawVerifierAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async (_context, id, settlement) => { rawVerifierState.settled += 1; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state: durableState }, id, reason) => {
+        rawVerifierState.reconciled += 1; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+        return durableReconciliationAck(id, reason, durableState.durableRevision);
+      },
+    });
     const rawVerifier = {
       kind: "bound",
       descriptor: { verifierId: "client-selected", verifierVersion: "v999" },
@@ -376,30 +419,34 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       },
     };
     const rawVerifierResult = await operation.executeEnrichmentOperation(
-      rawVerifierRepository,
+      rawVerifierAdmission.repository,
       acceptedPort.port,
-      { reservationId: assignment.reservationId, now: 1_100 },
+      { reservationId: rawVerifierAdmission.reservation.id, now: 1_100 },
       rawVerifier,
     );
     assert.equal(rawVerifierResult.kind, "needs_reconciliation");
     assert.equal(rawVerifierState.settled, 0);
     assert.equal(rawVerifierState.reconciled, 1, "a structural verifier cannot mint a receipt");
 
-    const multiAssignment = authorizedAssignment({
+    const multiState = { observations: [], reconciled: 0 };
+    const multiAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
       maxUnits: 2,
       maxCostMinor: 2,
       evidenceAssignments: [
         evidenceBinding(),
         evidenceBinding({ assignmentId: "assignment-prospect-a-economic-buyer", role: "economic_buyer", contactId: "contact-economic-buyer" }),
       ],
+      settle: async ({ state: durableState }, id, settlement) => {
+        multiState.observations = settlement.observations; durableState.status = settlement.state; durableState.durableRevision += 1;
+        return durableSettlementAck(id, settlement, durableState.durableRevision);
+      },
+      reconcile: async ({ state: durableState }, id, reason) => {
+        multiState.reconciled += 1; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+        return durableReconciliationAck(id, reason, durableState.durableRevision);
+      },
     });
-    const multiState = { observations: [], reconciled: 0 };
-    const multiRepository = {
-      async claimCommittedInvocation() { return { kind: "claimed", assignment: multiAssignment, claimedAt: 1_100 }; },
-      async settleReservation(_id, settlement) { multiState.observations = settlement.observations; },
-      async markNeedsReconciliation() { multiState.reconciled += 1; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
     const multiPort = boundFakePort(portModule, async (value) => ({
       kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey,
       documentedUnits: 2, documentedCostMinor: 2,
@@ -408,18 +455,27 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
         contactEnvelope({ id: "observation-economic-buyer", assignmentId: "assignment-prospect-a-economic-buyer", contactId: "contact-economic-buyer", value: "economic-buyer@example.invalid" }),
       ],
     }));
-    const multi = await operation.executeEnrichmentOperation(multiRepository, multiPort.port, { reservationId: multiAssignment.reservationId, now: 1_100 });
+    const multi = await operation.executeEnrichmentOperation(multiAdmission.repository, multiPort.port, { reservationId: multiAdmission.reservation.id, now: 1_100 });
     assert.equal(multi.kind, "settled");
     assert.equal(multiState.reconciled, 0);
     assert.deepEqual(multiState.observations.map((observation) => observation.contactId), ["contact-synthetic", "contact-economic-buyer"]);
 
     const duplicateState = { settled: 0, reconciled: 0, reason: null };
-    const duplicateRepository = {
-      async claimCommittedInvocation() { return { kind: "claimed", assignment: multiAssignment, claimedAt: 1_100 }; },
-      async settleReservation() { duplicateState.settled += 1; },
-      async markNeedsReconciliation(_id, reason) { duplicateState.reconciled += 1; duplicateState.reason = reason; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
+    const duplicateAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      maxUnits: 2,
+      maxCostMinor: 2,
+      evidenceAssignments: [
+        evidenceBinding(),
+        evidenceBinding({ assignmentId: "assignment-prospect-a-economic-buyer", role: "economic_buyer", contactId: "contact-economic-buyer" }),
+      ],
+      settle: async (_context, id, settlement) => { duplicateState.settled += 1; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state: durableState }, id, reason) => {
+        duplicateState.reconciled += 1; duplicateState.reason = reason; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+        return durableReconciliationAck(id, reason, durableState.durableRevision);
+      },
+    });
     const duplicatePort = boundFakePort(portModule, async (value) => ({
       kind: "completed",
       reservationId: value.reservationId,
@@ -432,9 +488,9 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       ],
     }));
     const duplicate = await operation.executeEnrichmentOperation(
-      duplicateRepository,
+      duplicateAdmission.repository,
       duplicatePort.port,
-      { reservationId: multiAssignment.reservationId, now: 1_100 },
+      { reservationId: duplicateAdmission.reservation.id, now: 1_100 },
     );
     assert.equal(duplicate.kind, "needs_reconciliation");
     assert.equal(duplicateState.reason, "invalid_evidence");
@@ -442,16 +498,19 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
     assert.equal(duplicateState.reconciled, 1, "one assignment/contact cannot be billed twice");
 
     const forgedProviderState = { settled: 0, reconciled: 0 };
-    const forgedProviderRepository = {
-      async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
-      async settleReservation() { forgedProviderState.settled += 1; },
-      async markNeedsReconciliation() { forgedProviderState.reconciled += 1; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    };
+    const forgedProviderAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async (_context, id, settlement) => { forgedProviderState.settled += 1; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state: durableState }, id, reason) => {
+        forgedProviderState.reconciled += 1; durableState.status = "needs_reconciliation"; durableState.durableRevision += 1;
+        return durableReconciliationAck(id, reason, durableState.durableRevision);
+      },
+    });
     const forgedProvider = await operation.executeEnrichmentOperation(
-      forgedProviderRepository,
+      forgedProviderAdmission.repository,
       acceptedPort.port,
-      { reservationId: assignment.reservationId, now: 1_100 },
+      { reservationId: forgedProviderAdmission.reservation.id, now: 1_100 },
       evidenceModule.bindContactEvidenceVerifier(
         { verifierId: "server-verifier", verifierVersion: "v1" },
         async ({ envelope: raw }) => contactVerification(raw, { providerId: "different-provider" }),
@@ -466,65 +525,213 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
 test("P5 hardening: claimed assignments and hostile provider outcomes cannot leak extra fields or escape reconciliation", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    const [issuance, authority, operation, portModule] = await Promise.all([
+      module(vite, "enrichment-grant-issuance"),
+      module(vite, "enrichment-authority"),
+      module(vite, "enrichment-operation"),
+      module(vite, "contact-provider-port"),
+    ]);
     let extraGetterReads = 0;
-    const assignmentWithExtra = authorizedAssignment();
-    Object.defineProperty(assignmentWithExtra, "secretLike", {
+    const assignmentState = { settled: 0, reconciled: 0, reason: null };
+    const assignmentAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async (_context, id, settlement) => { assignmentState.settled += 1; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state }, id, reason) => {
+        assignmentState.reconciled += 1; assignmentState.reason = reason; state.status = "needs_reconciliation"; state.durableRevision += 1;
+        return durableReconciliationAck(id, reason, state.durableRevision);
+      },
+    });
+    Object.defineProperty(assignmentAdmission.assignment, "secretLike", {
       enumerable: true,
       get() { extraGetterReads += 1; return "must-not-leak"; },
     });
-    const assignmentState = { settled: 0, reconciled: 0, reason: null };
     const assignmentPort = boundFakePort(portModule, async () => { throw new Error("must not call"); });
-    const assignmentResult = await operation.executeEnrichmentOperation({
-      async claimCommittedInvocation() { return { kind: "claimed", assignment: assignmentWithExtra, claimedAt: 1_100 }; },
-      async settleReservation() { assignmentState.settled += 1; },
-      async markNeedsReconciliation(_id, reason) { assignmentState.reconciled += 1; assignmentState.reason = reason; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    }, assignmentPort.port, { reservationId: assignmentWithExtra.reservationId, now: 1_100 });
+    const assignmentResult = await operation.executeEnrichmentOperation(
+      assignmentAdmission.repository,
+      assignmentPort.port,
+      { reservationId: assignmentAdmission.reservation.id, now: 1_100 },
+    );
     assert.equal(assignmentResult.kind, "needs_reconciliation");
     assert.equal(assignmentState.reason, "invalid_assignment");
     assert.equal(assignmentPort.calls, 0);
     assert.equal(assignmentState.settled, 0);
     assert.equal(extraGetterReads, 0, "unknown claimed fields are rejected before access");
 
-    const bindingWithExtra = { ...evidenceBinding(), secretLike: "must-not-leak" };
-    const bindingAssignment = authorizedAssignment({ evidenceAssignments: [bindingWithExtra] });
     const bindingPort = boundFakePort(portModule, async () => { throw new Error("must not call"); });
     const bindingState = { settled: 0, reconciled: 0 };
-    const bindingResult = await operation.executeEnrichmentOperation({
-      async claimCommittedInvocation() { return { kind: "claimed", assignment: bindingAssignment, claimedAt: 1_100 }; },
-      async settleReservation() { bindingState.settled += 1; },
-      async markNeedsReconciliation() { bindingState.reconciled += 1; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    }, bindingPort.port, { reservationId: bindingAssignment.reservationId, now: 1_100 });
+    const bindingAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async (_context, id, settlement) => { bindingState.settled += 1; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state }, id, reason) => {
+        bindingState.reconciled += 1; state.status = "needs_reconciliation"; state.durableRevision += 1;
+        return durableReconciliationAck(id, reason, state.durableRevision);
+      },
+    });
+    bindingAdmission.assignment.evidenceAssignments[0].secretLike = "must-not-leak";
+    const bindingResult = await operation.executeEnrichmentOperation(
+      bindingAdmission.repository,
+      bindingPort.port,
+      { reservationId: bindingAdmission.reservation.id, now: 1_100 },
+    );
     assert.equal(bindingResult.kind, "needs_reconciliation");
     assert.equal(bindingPort.calls, 0);
     assert.equal(bindingState.settled, 0);
     assert.equal(bindingState.reconciled, 1);
 
     let hostileGetterReads = 0;
+    const hostileState = { settled: 0, reconciled: 0, reason: null };
+    const hostileAdmission = await admittedExecutionRepository({
+      issuance,
+      authority,
+      settle: async (_context, id, settlement) => { hostileState.settled += 1; return durableSettlementAck(id, settlement); },
+      reconcile: async ({ state }, id, reason) => {
+        hostileState.reconciled += 1; hostileState.reason = reason; state.status = "needs_reconciliation"; state.durableRevision += 1;
+        return durableReconciliationAck(id, reason, state.durableRevision);
+      },
+    });
     const hostileOutcome = {
       kind: "completed",
-      reservationId: "reservation-hardened",
-      operationKey: `op_${"a".repeat(64)}`,
+      reservationId: hostileAdmission.assignment.reservationId,
+      operationKey: hostileAdmission.assignment.operationKey,
       documentedUnits: 1,
       documentedCostMinor: 1,
       get evidence() { hostileGetterReads += 1; throw new Error("hostile getter"); },
     };
     const hostilePort = boundFakePort(portModule, async () => hostileOutcome);
-    const hostileState = { settled: 0, reconciled: 0, reason: null };
-    const hostileResult = await operation.executeEnrichmentOperation({
-      async claimCommittedInvocation() { return { kind: "claimed", assignment: authorizedAssignment(), claimedAt: 1_100 }; },
-      async settleReservation() { hostileState.settled += 1; },
-      async markNeedsReconciliation(_id, reason) { hostileState.reconciled += 1; hostileState.reason = reason; return { kind: "recorded" }; },
-      async listInvocationsNeedingRecovery() { return []; },
-    }, hostilePort.port, { reservationId: "reservation-hardened", now: 1_100 });
+    const hostileResult = await operation.executeEnrichmentOperation(
+      hostileAdmission.repository,
+      hostilePort.port,
+      { reservationId: hostileAdmission.reservation.id, now: 1_100 },
+    );
     assert.equal(hostileResult.kind, "needs_reconciliation");
     assert.equal(hostileState.reason, "invalid_provider_outcome");
     assert.equal(hostilePort.calls, 1);
     assert.equal(hostileGetterReads, 1);
     assert.equal(hostileState.settled, 0);
     assert.equal(hostileState.reconciled, 1);
+  } finally { await vite.close(); }
+});
+
+test("P5 hardening: committed admission and durable acknowledgements reject clones, no-ops, and forged receipts", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const [issuance, authority, operation, portModule] = await Promise.all([
+      module(vite, "enrichment-grant-issuance"),
+      module(vite, "enrichment-authority"),
+      module(vite, "enrichment-operation"),
+      module(vite, "contact-provider-port"),
+    ]);
+    const neverCalled = boundFakePort(portModule, async () => { throw new Error("must not call"); });
+    const rehydratedRepository = {
+      async claimCommittedInvocation() { return { kind: "claimed", assignment: authorizedAssignment(), claimedAt: 1_100 }; },
+      async settleReservation() { throw new Error("unreachable"); },
+      async markNeedsReconciliation() { throw new Error("unreachable"); },
+      async listInvocationsNeedingRecovery() { return []; },
+    };
+    assert.equal(
+      (await operation.executeEnrichmentOperation(rehydratedRepository, neverCalled.port, { reservationId: "reservation-hardened", now: 1_100 })).kind,
+      "blocked",
+      "persisted rehydration has no process-local admission receipt",
+    );
+    assert.equal(neverCalled.calls, 0);
+
+    for (const [name, mutate] of [
+      ["exact clone", (assignment) => ({ ...assignment, prospectIds: [...assignment.prospectIds], evidenceAssignments: assignment.evidenceAssignments.map((item) => ({ ...item })) })],
+      ["alternate provider", (assignment) => ({ ...assignment, providerId: "alternate-provider" })],
+      ["alternate scope", (assignment) => ({ ...assignment, workspaceId: "alternate-workspace" })],
+    ]) {
+      const admitted = await admittedExecutionRepository({
+        issuance,
+        authority,
+        claim: ({ state, record }, _id, now) => {
+          state.status = "invoking";
+          return { kind: "claimed", assignment: mutate(record.assignment), claimedAt: now };
+        },
+      });
+      const result = await operation.executeEnrichmentOperation(admitted.repository, neverCalled.port, { reservationId: admitted.reservation.id, now: 1_100 });
+      assert.equal(result.kind, "needs_reconciliation", name);
+      assert.equal(admitted.state.status, "needs_reconciliation", name);
+      assert.equal(neverCalled.calls, 0, name);
+    }
+
+    const uncertainClaim = await admittedExecutionRepository({
+      issuance,
+      authority,
+      claim: () => { throw new Error("claim acknowledgement lost"); },
+    });
+    assert.equal(
+      (await operation.executeEnrichmentOperation(uncertainClaim.repository, neverCalled.port, { reservationId: uncertainClaim.reservation.id, now: 1_100 })).kind,
+      "needs_reconciliation",
+      "a claim error is contained as uncertainty rather than made retryable",
+    );
+    assert.equal(uncertainClaim.state.status, "needs_reconciliation");
+    assert.equal(neverCalled.calls, 0);
+
+    let claimGetterReads = 0;
+    const accessorClaim = await admittedExecutionRepository({
+      issuance,
+      authority,
+      claim: ({ state, record }, _id, now) => {
+        state.status = "invoking";
+        return {
+          kind: "claimed",
+          get assignment() { claimGetterReads += 1; return record.assignment; },
+          claimedAt: now,
+        };
+      },
+    });
+    assert.equal(
+      (await operation.executeEnrichmentOperation(accessorClaim.repository, neverCalled.port, { reservationId: accessorClaim.reservation.id, now: 1_100 })).kind,
+      "needs_reconciliation",
+    );
+    assert.equal(claimGetterReads, 0, "claim accessors are rejected without evaluation");
+    assert.equal(neverCalled.calls, 0);
+
+    for (const [name, settle] of [
+      ["no-op settlement", async () => undefined],
+      ["forged settlement acknowledgement", async (_context, id, settlement) => ({ ...durableSettlementAck(id, settlement), durableRevision: 0 })],
+      ["wrong settlement digest", async (_context, id, settlement) => ({ ...durableSettlementAck(id, settlement), settlementDigest: "f".repeat(64) })],
+      ["wrong settlement observations", async (_context, id, settlement) => ({ ...durableSettlementAck(id, settlement), observationIds: ["other-observation"] })],
+      ["extra settlement acknowledgement field", async (_context, id, settlement) => ({ ...durableSettlementAck(id, settlement), forged: true })],
+    ]) {
+      let reconciliationReason = null;
+      const admitted = await admittedExecutionRepository({
+        issuance,
+        authority,
+        settle,
+        reconcile: async ({ state }, id, reason) => {
+          reconciliationReason = reason; state.status = "needs_reconciliation"; state.durableRevision += 1;
+          return durableReconciliationAck(id, reason, state.durableRevision);
+        },
+      });
+      const fake = boundFakePort(portModule, async (assignment) => ({
+        kind: "completed",
+        reservationId: assignment.reservationId,
+        operationKey: assignment.operationKey,
+        documentedUnits: 1,
+        documentedCostMinor: 1,
+        evidence: [contactEnvelope()],
+      }));
+      const result = await operation.executeEnrichmentOperation(admitted.repository, fake.port, { reservationId: admitted.reservation.id, now: 1_100 });
+      assert.equal(result.kind, "needs_reconciliation", name);
+      assert.equal(reconciliationReason, "settlement_failure", name);
+      assert.equal(fake.calls, 1, name);
+    }
+
+    for (const [name, reconcile] of [
+      ["no-op reconciliation", async () => undefined],
+      ["forged reconciliation acknowledgement", async (_context, id, reason) => ({ ...durableReconciliationAck(id, reason), reservationId: "other-reservation" })],
+      ["wrong reconciliation reason", async (_context, id) => durableReconciliationAck(id, "ambiguous")],
+      ["extra reconciliation acknowledgement field", async (_context, id, reason) => ({ ...durableReconciliationAck(id, reason), forged: true })],
+    ]) {
+      const admitted = await admittedExecutionRepository({ issuance, authority, reconcile });
+      const fake = boundFakePort(portModule, async () => ({ kind: "other" }));
+      const result = await operation.executeEnrichmentOperation(admitted.repository, fake.port, { reservationId: admitted.reservation.id, now: 1_100 });
+      assert.equal(result.kind, "reconciliation_persistence_failure", name);
+      assert.equal(fake.calls, 1, name);
+    }
   } finally { await vite.close(); }
 });
 
@@ -600,4 +807,128 @@ function boundFakePort(portModule, enrich, descriptorPatch = {}) {
     async (assignment) => { tracker.calls += 1; return enrich(assignment); },
   );
   return tracker;
+}
+
+let admissionSequence = 0;
+async function admittedExecutionRepository({
+  issuance,
+  authority,
+  maxUnits = 1,
+  maxCostMinor = maxUnits,
+  quoteUnitCostMinor = 1,
+  expiresAt = 2_000,
+  evidenceAssignments = [evidenceBinding()],
+  claim,
+  settle,
+  reconcile,
+}) {
+  admissionSequence += 1;
+  const snapshot = {
+    ...currentSnapshot(),
+    quote: {
+      ...currentSnapshot().quote,
+      unitCostMinor: quoteUnitCostMinor,
+      expiresAt: Math.max(expiresAt, 2_000),
+    },
+  };
+  const issueRepository = {
+    async loadIssuanceSnapshot() { return snapshot; },
+    async findGrantByIdempotency() { return null; },
+    async commitGrant(record) { return { kind: "created", record }; },
+    nextNonce: () => `server-nonce-admission-${admissionSequence}`,
+  };
+  const issued = await issuance.issueEnrichmentGrant(issueRepository, {
+    ...issueInput(),
+    maxUnits,
+    maxCostMinor,
+    expiresAt,
+    idempotencyKey: `issue-admission-${admissionSequence}`,
+  });
+  assert.equal(issued.kind, "issued");
+  const state = { status: "unreserved", record: null, durableRevision: 0 };
+  const repository = {
+    async loadReservationAuthority() {
+      return {
+        admitted: true,
+        principalSubject: snapshot.ownerSubject,
+        workspaceId: snapshot.workspaceId,
+        sourceRevision: snapshot.revision,
+        grant: issued.grant,
+        configuration: snapshot.configuration,
+        prospects: snapshot.prospects,
+        quote: snapshot.quote,
+        accounts: [
+          budget("grant", maxCostMinor, issued.grant.id),
+          budget("profile", maxCostMinor, issued.grant.id),
+          budget("workspace", maxCostMinor, issued.grant.id),
+          budget("provider", maxCostMinor, issued.grant.id),
+        ],
+        evidenceAssignments,
+      };
+    },
+    async commitReservation(record) {
+      state.record = record;
+      state.status = "reserved";
+      return { kind: "created", record };
+    },
+    async claimCommittedInvocation(id, now) {
+      if (claim) return claim({ state, record: state.record }, id, now);
+      if (!state.record || state.status !== "reserved") return { kind: "blocked", reason: "unavailable" };
+      if (state.record.assignment.expiresAt <= now) {
+        state.status = "released";
+        return { kind: "blocked", reason: "expired" };
+      }
+      state.status = "invoking";
+      return { kind: "claimed", assignment: state.record.assignment, claimedAt: now };
+    },
+    async settleReservation(id, settlementWrite) {
+      if (settle) return settle({ state, record: state.record }, id, settlementWrite);
+      state.status = settlementWrite.state;
+      state.durableRevision += 1;
+      return durableSettlementAck(id, settlementWrite, state.durableRevision);
+    },
+    async markNeedsReconciliation(id, reason) {
+      if (reconcile) return reconcile({ state, record: state.record }, id, reason);
+      state.status = "needs_reconciliation";
+      state.durableRevision += 1;
+      return durableReconciliationAck(id, reason, state.durableRevision);
+    },
+    async listInvocationsNeedingRecovery() {
+      return state.status === "invoking" && state.record
+        ? [{ reservationId: state.record.id, operationKey: state.record.operationKey, claimedAt: 1_100, expiresAt: state.record.assignment.expiresAt, status: "invoking" }]
+        : [];
+    },
+  };
+  const reserved = await authority.reserveEnrichmentOperation(repository, {
+    grantId: issued.grant.id,
+    principalSubject: snapshot.ownerSubject,
+    operationKey: issued.grant.tuple.operationKey,
+    now: 1_100,
+  });
+  assert.equal(reserved.kind, "reserved");
+  return { repository, state, reservation: reserved.reservation, assignment: state.record.assignment };
+}
+
+function durableSettlementAck(reservationId, settlement, durableRevision = 1) {
+  return {
+    kind: "durably_recorded",
+    reservationId,
+    terminalState: settlement.state,
+    terminalReason: settlement.reason,
+    settlementDigest: settlement.settlementDigest,
+    observationIds: settlement.observations.map((observation) => observation.id),
+    durableRevision,
+  };
+}
+
+function durableReconciliationAck(reservationId, reason, durableRevision = 1) {
+  return {
+    kind: "durably_recorded",
+    reservationId,
+    terminalState: "needs_reconciliation",
+    terminalReason: reason,
+    settlementDigest: null,
+    observationIds: [],
+    durableRevision,
+  };
 }
