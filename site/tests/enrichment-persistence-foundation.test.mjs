@@ -165,6 +165,65 @@ test("repository replays exact grants and atomically admits only one bounded res
       /invalid contact eligibility snapshot/,
       "eligibility snapshots require the exact current prospect and configuration lineage",
     );
+    await insertContactObservation(fixture.database, first.grant, {
+      id: "verified-observation",
+      assignmentId: "p5-contact-assignment",
+      contactId: "p5-contact",
+      digestChar: "1",
+      verificationClass: "mailbox_verified",
+      method: "mailbox_verification",
+      retrievedAt: NOW - 2_000,
+      observedAt: NOW - 500,
+      verifiedAt: NOW - 1_000,
+    });
+    await insertContactObservation(fixture.database, first.grant, {
+      id: "suggested-observation",
+      assignmentId: "p5-contact-assignment",
+      contactId: "p5-contact",
+      digestChar: "3",
+      verificationClass: "suggested",
+      method: "pattern_inference",
+      retrievedAt: NOW - 2_000,
+      observedAt: NOW - 500,
+      verifiedAt: null,
+    });
+    await insertContactObservation(fixture.database, first.grant, {
+      id: "stale-observation",
+      assignmentId: "p5-contact-assignment",
+      contactId: "p5-contact",
+      digestChar: "4",
+      verificationClass: "source_verified",
+      method: "authoritative_source_reconfirmed",
+      retrievedAt: NOW - 7_776_002_000,
+      observedAt: NOW - 7_776_000_500,
+      verifiedAt: NOW - 7_776_001_000,
+    });
+    await insertContactEligibilitySnapshot(fixture.database, seeded, eligibilityLineage, {
+      id: "eligibility-proven",
+      digest: "7".repeat(64),
+      observationIdsJson: '["verified-observation"]',
+    });
+    for (const invalid of [
+      { id: "eligibility-empty", digest: "8".repeat(64), observationIdsJson: "[]", message: "empty evidence" },
+      { id: "eligibility-weak", digest: "a".repeat(64), observationIdsJson: '["suggested-observation"]', message: "suggested evidence" },
+      { id: "eligibility-stale-evidence", digest: "b".repeat(64), observationIdsJson: '["stale-observation"]', message: "stale evidence" },
+    ]) {
+      await assert.rejects(
+        insertContactEligibilitySnapshot(fixture.database, seeded, eligibilityLineage, invalid),
+        /invalid contact eligibility snapshot/,
+        `ContactReady rejects ${invalid.message}`,
+      );
+    }
+    await assert.rejects(
+      insertContactEligibilitySnapshot(fixture.database, seeded, eligibilityLineage, {
+        id: "eligibility-noncanonical",
+        digest: "c".repeat(64),
+        observationIdsJson: '["verified-observation"]',
+        reasonCodesJson: '["z","a"]',
+      }),
+      /invalid contact eligibility json/,
+      "eligibility arrays must be canonical, sorted, dense string sets",
+    );
     await fixture.database.prepare(
       `INSERT INTO enrichment_budget_accounts
         (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,
@@ -215,6 +274,39 @@ test("repository replays exact grants and atomically admits only one bounded res
       JSON.stringify((await fixture.database.prepare(
         "SELECT durable_revision,state,terminal_reason,settlement_digest,documented_units,documented_cost_minor,observation_ids_json,acknowledgement_digest,claimed_at,created_at FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision",
       ).bind(reserved.reservation.id).all()).results),
+    );
+    await fixture.database.prepare(
+      "INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'p5-other-contact',workspace_id,?,?,1,company_id,?,'Other Contact' FROM contacts WHERE id='p5-contact' AND workspace_id=?",
+    ).bind(NOW, NOW, "f".repeat(64), seeded.workspaceId).run();
+    await fixture.database.prepare(
+      `INSERT INTO contact_evidence_assignments
+        (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,
+         provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
+       VALUES ('p5-other-assignment',?,?,?,'p5-prospect','p5-other-contact','general',?,?,?,?,?,1,?,?)`,
+    ).bind(
+      seeded.workspaceId, reserved.reservation.id, first.grant.id, first.grant.tuple.configurationId,
+      first.grant.tuple.configurationDigest, first.grant.tuple.providerId, first.grant.tuple.providerVersion,
+      first.grant.tuple.catalogRef, "f".repeat(64), NOW + 4,
+    ).run();
+    await insertContactObservation(fixture.database, first.grant, {
+      id: "cross-contact-observation",
+      assignmentId: "p5-other-assignment",
+      contactId: "p5-other-contact",
+      digestChar: "2",
+      verificationClass: "mailbox_verified",
+      method: "mailbox_verification",
+      retrievedAt: NOW - 2_000,
+      observedAt: NOW - 500,
+      verifiedAt: NOW - 1_000,
+    });
+    await assert.rejects(
+      insertContactEligibilitySnapshot(fixture.database, seeded, eligibilityLineage, {
+        id: "eligibility-cross",
+        digest: "9".repeat(64),
+        observationIdsJson: '["cross-contact-observation"]',
+      }),
+      /invalid contact eligibility snapshot/,
+      "ContactReady rejects cross-contact evidence",
     );
     await fixture.database.prepare(
       `INSERT INTO contact_evidence_assignments
@@ -331,7 +423,67 @@ test("repository replays exact grants and atomically admits only one bounded res
   }
 });
 
-test("expired invocation claims durably release every reserved enrichment account", async () => {
+test("a fresh repository rehydrates durable reservation authority before expiry", async () => {
+  const fixture = await createD1Fixture("phase5-persistence-restart-claim");
+  try {
+    await applyMigrations(fixture.database);
+    const seeded = await seedApprovedProspect(fixture);
+    const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+    const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+    const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+    const repositoryA = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+      workspaceId: seeded.workspaceId,
+      ownerSubject: OWNER.subject,
+      now: () => NOW,
+    });
+    await fixture.database.prepare(
+      `INSERT INTO provider_quotes
+        (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+       VALUES ('quote-restart',?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
+    ).bind(seeded.workspaceId, "6".repeat(64), NOW + 10_000, NOW).run();
+    const snapshot = await repositoryA.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+    const issued = await issuance.issueEnrichmentGrant(repositoryA, {
+      principalSubject: OWNER.subject,
+      prospectIds: [seeded.prospectId],
+      operation: "business_contact_lookup/v1",
+      maxUnits: 1,
+      maxCostMinor: 10,
+      currency: "CAD",
+      expiresAt: NOW + 5_000,
+      expectedRevision: snapshot.revision,
+      idempotencyKey: "phase5-restart-grant-key",
+      now: NOW + 1,
+    });
+    assert.equal(issued.kind, "issued");
+    await seedReservationInputs(fixture.database, seeded, issued.grant);
+    const reserved = await authority.reserveEnrichmentOperation(repositoryA, {
+      grantId: issued.grant.id,
+      principalSubject: OWNER.subject,
+      operationKey: issued.grant.tuple.operationKey,
+      now: NOW + 2,
+    });
+    assert.equal(reserved.kind, "reserved");
+    const repositoryB = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+      workspaceId: seeded.workspaceId,
+      ownerSubject: OWNER.subject,
+      now: () => NOW + 3,
+    });
+    const claim = await authority.claimAdmittedCommittedInvocation(repositoryB, reserved.reservation.id, NOW + 3);
+    assert.equal(claim.kind, "claimed");
+    assert.deepEqual(claim.assignment, reserved.reservation.assignment);
+    const latest = await fixture.database.prepare(
+      "SELECT durable_revision,state,claimed_at FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1",
+    ).bind(reserved.reservation.id).first();
+    assert.deepEqual(
+      { durableRevision: Number(latest.durable_revision), state: latest.state, claimedAt: Number(latest.claimed_at) },
+      { durableRevision: 2, state: "invoking", claimedAt: NOW + 3 },
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a fresh repository sweeps expired reservations and unwinds every reserved account", async () => {
   const fixture = await createD1Fixture("phase5-persistence-expired-claim");
   try {
     await applyMigrations(fixture.database);
@@ -339,7 +491,7 @@ test("expired invocation claims durably release every reserved enrichment accoun
     const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
     const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
     const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
-    const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+    const repositoryA = repositoryModule.createD1EnrichmentRepository(fixture.database, {
       workspaceId: seeded.workspaceId,
       ownerSubject: OWNER.subject,
       now: () => NOW,
@@ -349,8 +501,8 @@ test("expired invocation claims durably release every reserved enrichment accoun
         (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
        VALUES ('quote-expiry',?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
     ).bind(seeded.workspaceId, "7".repeat(64), NOW + 10_000, NOW).run();
-    const snapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
-    const issued = await issuance.issueEnrichmentGrant(repository, {
+    const snapshot = await repositoryA.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+    const issued = await issuance.issueEnrichmentGrant(repositoryA, {
       principalSubject: OWNER.subject,
       prospectIds: [seeded.prospectId],
       operation: "business_contact_lookup/v1",
@@ -364,15 +516,23 @@ test("expired invocation claims durably release every reserved enrichment accoun
     });
     assert.equal(issued.kind, "issued");
     await seedReservationInputs(fixture.database, seeded, issued.grant);
-    const reserved = await authority.reserveEnrichmentOperation(repository, {
+    const reserved = await authority.reserveEnrichmentOperation(repositoryA, {
       grantId: issued.grant.id,
       principalSubject: OWNER.subject,
       operationKey: issued.grant.tuple.operationKey,
       now: NOW + 2,
     });
     assert.equal(reserved.kind, "reserved");
-    const blocked = await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, NOW + 5_000);
-    assert.deepEqual(blocked, { kind: "blocked", reason: "expired" });
+    const repositoryC = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+      workspaceId: seeded.workspaceId,
+      ownerSubject: OWNER.subject,
+      now: () => NOW + 5_000,
+    });
+    assert.deepEqual(
+      await repositoryC.releaseExpiredReservations({ now: NOW + 5_000, limit: 10 }),
+      [reserved.reservation.id],
+    );
+    assert.deepEqual(await repositoryC.releaseExpiredReservations({ now: NOW + 5_001, limit: 10 }), []);
     const latest = await fixture.database.prepare(
       "SELECT durable_revision,state,terminal_reason,documented_units,documented_cost_minor FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1",
     ).bind(reserved.reservation.id).first();
@@ -395,7 +555,7 @@ test("expired invocation claims durably release every reserved enrichment accoun
       && Number(row.revision) === 3
     ));
     assert.deepEqual(
-      await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, NOW + 5_001),
+      await authority.claimAdmittedCommittedInvocation(repositoryC, reserved.reservation.id, NOW + 5_001),
       { kind: "blocked", reason: "expired" },
       "an exact durable expiry acknowledgement is replay-safe",
     );
@@ -919,6 +1079,80 @@ test("runner reservations enforce retry lineage and atomically settle both accou
   }
 });
 
+test("runner admission atomically enforces each grant monthly ceiling on a shared account", async () => {
+  const fixture = await createD1Fixture("phase5-persistence-runner-grant-monthly-ceiling");
+  try {
+    await applyMigrations(fixture.database);
+    const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+    const runner = await fixture.vite.ssrLoadModule(new URL("../domain/runner-spend-authority.ts", import.meta.url).pathname);
+    const workspaceId = "runner-grant-ceiling-workspace";
+    const ownerSubject = "runner-grant-ceiling-owner";
+    await fixture.database.prepare(
+      "INSERT INTO workspaces (id,company_name,owner_subject,created_at,updated_at,revision) VALUES (?,?,?,?,?,1)",
+    ).bind(workspaceId, "Runner Grant Ceiling Company", ownerSubject, NOW, NOW).run();
+    const firstSeed = await seedRunnerAuthority(fixture.database, runner, {
+      workspaceId,
+      ownerSubject,
+      grantId: "runner-grant-ceiling-first",
+      grantDigest: "1".repeat(64),
+      scopeId: "runner-grant-ceiling-scope",
+      maxRetries: 0,
+      monthlyCostMinor: 100,
+    });
+    const secondSeed = await seedRunnerAuthority(fixture.database, runner, {
+      workspaceId,
+      ownerSubject,
+      grantId: "runner-grant-ceiling-second",
+      grantDigest: "2".repeat(64),
+      scopeId: "runner-grant-ceiling-scope",
+      maxRetries: 0,
+      monthlyCostMinor: 15,
+      reuseMonthly: true,
+    });
+    assert.equal(firstSeed.monthlyId, secondSeed.monthlyId);
+    const repository = repositoryModule.createD1RunnerSpendRepository(fixture.database, {
+      workspaceId,
+      ownerSubject,
+      now: () => NOW,
+    });
+    const firstAuthority = await repository.loadRunnerAuthority(firstSeed.grant.id);
+    const staleSecondAuthority = await repository.loadRunnerAuthority(secondSeed.grant.id);
+    const firstKey = await runner.deriveRunnerOperationKey(firstAuthority);
+    const secondKey = await runner.deriveRunnerOperationKey(staleSecondAuthority);
+    const first = await runner.reserveRunnerSpend(repository, {
+      grantId: firstSeed.grant.id,
+      principalSubject: ownerSubject,
+      operationKey: firstKey,
+      now: NOW,
+    });
+    assert.equal(first.kind, "reserved");
+    const staleRepository = {
+      async loadRunnerAuthority(grantId) {
+        return grantId === secondSeed.grant.id ? staleSecondAuthority : null;
+      },
+      commitRunnerReservation(record, accounts, attempt) {
+        return repository.commitRunnerReservation(record, accounts, attempt);
+      },
+    };
+    const blocked = await runner.reserveRunnerSpend(staleRepository, {
+      grantId: secondSeed.grant.id,
+      principalSubject: ownerSubject,
+      operationKey: secondKey,
+      now: NOW,
+    });
+    assert.deepEqual(blocked, { kind: "blocked", reason: "runner_budget_exceeded" });
+    const monthly = (await readRunnerAccounts(fixture.database, workspaceId))
+      .find((row) => row.id === firstSeed.monthlyId);
+    assert.deepEqual(
+      { actual: Number(monthly.actual_cost_minor), reserved: Number(monthly.reserved_cost_minor), revision: Number(monthly.revision) },
+      { actual: 0, reserved: 10, revision: 2 },
+    );
+    assert.equal(await countRows(fixture.database, "runner_spend_reservations"), 1);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("overlapping runner reservations settle and release one shared monthly account in either order", async () => {
   for (const settledFirst of [true, false]) {
     const fixture = await createD1Fixture(`phase5-persistence-overlap-runner-${settledFirst}`);
@@ -1078,6 +1312,72 @@ async function seedApprovedProspect(fixture) {
   return { ...seeded, configurationId: activation.configuration.id, configurationDigest: activation.configuration.digest, prospectId: "p5-prospect" };
 }
 
+async function insertContactObservation(database, grant, input) {
+  const verified = input.verifiedAt !== null;
+  await database.prepare(
+    `INSERT INTO contact_point_observations
+      (id,workspace_id,assignment_id,contact_id,configuration_id,configuration_digest,kind,
+       contact_point_digest,contact_point_reference,verification_class,confidence_basis_points,method,
+       source_reference,excerpt_digest,object_reference,content_hash,retrieved_at,observed_at,verified_at,
+       provider_id,provider_version,catalog_ref,verifier_id,verifier_version,verdict_reference,verdict_digest,
+       parent_observation_id,observation_digest,created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'email',
+       ?, ?, ?, 9000, ?,
+       ?, ?, ?, ?, ?, ?, ?,
+       ?, ?, ?, ?, ?, ?, ?,
+       NULL, ?, ?)`,
+  ).bind(
+    input.id,
+    grant.workspaceId,
+    input.assignmentId,
+    input.contactId,
+    grant.tuple.configurationId,
+    grant.tuple.configurationDigest,
+    input.digestChar.repeat(64),
+    `contact-point:${input.id}`,
+    input.verificationClass,
+    input.method,
+    `source:${input.id}`,
+    input.digestChar.repeat(64),
+    `object:${input.id}`,
+    input.digestChar.repeat(64),
+    input.retrievedAt,
+    input.observedAt,
+    input.verifiedAt,
+    grant.tuple.providerId,
+    grant.tuple.providerVersion,
+    grant.tuple.catalogRef,
+    verified ? "test-verifier" : null,
+    verified ? "v1" : null,
+    verified ? `verdict:${input.id}` : null,
+    verified ? input.digestChar.repeat(64) : null,
+    input.digestChar.repeat(64),
+    NOW,
+  ).run();
+}
+
+async function insertContactEligibilitySnapshot(database, seeded, lineage, input) {
+  return database.prepare(
+    `INSERT INTO contact_eligibility_snapshots
+      (id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
+       prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,
+       snapshot_digest,projected_at)
+     VALUES (?,?,'p5-contact','p5-prospect',?,?,?,?,'ContactReady',1,?,?,?,?,?)`,
+  ).bind(
+    input.id,
+    seeded.workspaceId,
+    seeded.configurationId,
+    lineage.configuration_digest,
+    lineage.configuration_revision,
+    lineage.prospect_revision,
+    input.observationIdsJson,
+    input.reasonCodesJson ?? "[]",
+    input.suppressionRefsJson ?? "[]",
+    input.digest,
+    NOW,
+  ).run();
+}
+
 async function seedReservationInputs(database, seeded, grant) {
   const company = await database.prepare("SELECT id FROM companies WHERE workspace_id=? LIMIT 1").bind(seeded.workspaceId).first();
   await database.prepare(
@@ -1160,8 +1460,8 @@ async function seedRunnerAuthority(database, runner, input) {
     catalogRef: "runner-catalog",
     runType: "prospecting",
     scopeId: input.scopeId,
-    perRunCostMinor: 10,
-    monthlyCostMinor: 100,
+    perRunCostMinor: input.perRunCostMinor ?? 10,
+    monthlyCostMinor: input.monthlyCostMinor ?? 100,
     currency: "CAD",
     expiresAt: NOW + 10_000,
     maxRetries: input.maxRetries,
@@ -1190,8 +1490,11 @@ async function seedRunnerAuthority(database, runner, input) {
       `INSERT INTO runner_budget_accounts
         (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,currency,
          actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
-       VALUES (?,?,'runner_monthly',?,?,?,?,NULL,NULL,?,0,0,100,1,?,?)`,
-    ).bind(monthlyId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, period, grant.currency, NOW, NOW).run();
+       VALUES (?,?,'runner_monthly',?,?,?,?,NULL,NULL,?,0,0,?,1,?,?)`,
+    ).bind(
+      monthlyId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, period, grant.currency,
+      input.accountMaxCostMinor ?? 100, NOW, NOW,
+    ).run();
   }
   const perRunIds = [];
   const previousOperationKeys = [];
@@ -1217,10 +1520,10 @@ async function seedRunnerAuthority(database, runner, input) {
       `INSERT INTO runner_budget_accounts
         (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,currency,
          actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
-       VALUES (?,?,'runner_per_run',?,?,?,?,?,?,?,0,0,10,1,?,?)`,
+       VALUES (?,?,'runner_per_run',?,?,?,?,?,?,?,0,0,?,1,?,?)`,
     ).bind(
       perRunId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, null,
-      attemptNumber, operationKey, grant.currency, NOW, NOW,
+      attemptNumber, operationKey, grant.currency, grant.perRunCostMinor, NOW, NOW,
     ).run();
   }
   return { grant, monthlyId, perRunIds };

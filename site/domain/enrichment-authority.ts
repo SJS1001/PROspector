@@ -60,6 +60,8 @@ export type EnrichmentAuthorityRepository = {
   markNeedsReconciliation(reservationId: string, reason: ReconciliationReason): Promise<DurableReservationAcknowledgement>;
   /** Recovery workers may inspect stranded invoking rows; this never grants retry or provider-call authority. */
   listInvocationsNeedingRecovery(input: Readonly<{ claimedBefore: number; limit: number }>): Promise<readonly RecoverableInvocation[]>;
+  /** Releases expired reservations from durable authority without granting provider-call authority. */
+  releaseExpiredReservations(input: Readonly<{ now: number; limit: number }>): Promise<readonly string[]>;
 };
 export type ReserveEnrichmentInput = { grantId: string; principalSubject: string; operationKey: string; now: number };
 export type EnrichmentAuthorityBlockedReason = EnrichmentBlockedReason | "grant_unavailable" | "grant_consumed" | "operation_key_mismatch" | "budget_exceeded";
@@ -75,8 +77,59 @@ type CommittedAdmission = Readonly<{
   assignmentSnapshot: Readonly<AuthorizedEnrichmentAssignment>;
   allowEquivalentClaim: boolean;
 }>;
-const committedAdmissions = new WeakMap<EnrichmentAuthorityRepository, Map<string, CommittedAdmission>>();
-const committedAdmissionReceipts = new WeakSet<object>();
+type EnrichmentAuthorityRuntimeState = Readonly<{
+  committedAdmissions: WeakMap<EnrichmentAuthorityRepository, Map<string, CommittedAdmission>>;
+  committedAdmissionReceipts: WeakSet<object>;
+  durableAuthorityRepositories: WeakSet<EnrichmentAuthorityRepository>;
+  durableInvocationAdmissions: WeakMap<object, Readonly<AuthorizedEnrichmentAssignment>>;
+}>;
+const runtimeStateKey = Symbol.for("prospector.enrichment-authority.runtime-state.v1");
+const runtimeStateHost = globalThis as unknown as { [key: symbol]: EnrichmentAuthorityRuntimeState | undefined };
+const runtimeState = runtimeStateHost[runtimeStateKey] ?? Object.freeze({
+  committedAdmissions: new WeakMap<EnrichmentAuthorityRepository, Map<string, CommittedAdmission>>(),
+  committedAdmissionReceipts: new WeakSet<object>(),
+  durableAuthorityRepositories: new WeakSet<EnrichmentAuthorityRepository>(),
+  durableInvocationAdmissions: new WeakMap<object, Readonly<AuthorizedEnrichmentAssignment>>(),
+});
+runtimeStateHost[runtimeStateKey] = runtimeState;
+const {
+  committedAdmissions,
+  committedAdmissionReceipts,
+  durableAuthorityRepositories,
+  durableInvocationAdmissions,
+} = runtimeState;
+
+/** Registers the trusted D1 adapter so restart recovery never probes an arbitrary repository. */
+export function registerDurableEnrichmentAuthorityRepository(repository: EnrichmentAuthorityRepository): void {
+  if (!repository || typeof repository !== "object") throw new TypeError("invalid_durable_enrichment_repository");
+  durableAuthorityRepositories.add(repository);
+}
+
+/** D1 persistence brands a claim only after revalidating its immutable durable admission chain. */
+export function brandDurablyVerifiedInvocationClaim(
+  repository: EnrichmentAuthorityRepository,
+  assignmentValue: AuthorizedEnrichmentAssignment,
+  claimedAt: number,
+): InvocationClaim {
+  const snapshot = freezeReservation({
+    id: assignmentValue.reservationId,
+    grantId: "durable-admission",
+    workspaceId: assignmentValue.workspaceId,
+    operationKey: assignmentValue.operationKey,
+    status: "invoking",
+    assignment: assignmentValue,
+  }).assignment;
+  if (
+    !durableAuthorityRepositories.has(repository)
+    || !exactPlainData(assignmentValue, snapshot)
+    || !positiveSafeInteger(claimedAt)
+  ) {
+    throw new TypeError("invalid_durable_invocation_admission");
+  }
+  const claim = Object.freeze({ kind: "claimed" as const, assignment: snapshot, claimedAt });
+  durableInvocationAdmissions.set(claim, snapshot);
+  return claim;
+}
 
 /** Validates all current predicates without mutating. The repository is solely responsible for the atomic cap/consume commit. */
 export async function validateEnrichmentAuthority(authorityValue: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: readonly BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
@@ -144,9 +197,8 @@ export async function reserveEnrichmentOperation(repository: EnrichmentAuthority
 
 /**
  * Claims only a reservation admitted by this module after an exact successful
- * commit acknowledgement. The receipt is intentionally process-local and
- * unforgeable. Persisted reservations therefore fail closed after rehydration
- * until the authenticated D1 repository can restore equivalent authority.
+ * commit acknowledgement, or freshly rehydrated and branded from the complete
+ * immutable D1 admission chain.
  */
 export async function claimAdmittedCommittedInvocation(
   repository: EnrichmentAuthorityRepository,
@@ -157,7 +209,8 @@ export async function claimAdmittedCommittedInvocation(
     return Object.freeze({ kind: "blocked", reason: "unavailable" });
   }
   const admission = committedAdmissions.get(repository)?.get(reservationId);
-  if (!admission || !committedAdmissionReceipts.has(admission.receipt)) {
+  const localAdmissionValid = !!admission && committedAdmissionReceipts.has(admission.receipt);
+  if (!localAdmissionValid && !durableAuthorityRepositories.has(repository)) {
     return Object.freeze({ kind: "blocked", reason: "unavailable" });
   }
   let rawClaim: unknown;
@@ -167,7 +220,9 @@ export async function claimAdmittedCommittedInvocation(
     return Object.freeze({ kind: "invalid" });
   }
   const rawClaimEnvelope = exactDataRecord(rawClaim, ["kind", "assignment", "claimedAt"]);
-  const claimedInputIdentity = rawClaimEnvelope?.assignment === admission.assignmentIdentity;
+  const durableAdmission = rawClaim && typeof rawClaim === "object"
+    ? durableInvocationAdmissions.get(rawClaim as object)
+    : undefined;
   const claimSnapshot = snapshotRepositoryValue(rawClaim);
   const blocked = exactDataRecord(claimSnapshot, ["kind", "reason"]);
   if (
@@ -176,21 +231,26 @@ export async function claimAdmittedCommittedInvocation(
   ) {
     return Object.freeze({ kind: "blocked", reason: blocked.reason });
   }
+  if (!localAdmissionValid && !durableAdmission) {
+    return Object.freeze({ kind: "blocked", reason: "unavailable" });
+  }
+  const claimedInputIdentity = localAdmissionValid && rawClaimEnvelope?.assignment === admission!.assignmentIdentity;
   const claimed = exactDataRecord(claimSnapshot, ["kind", "assignment", "claimedAt"]);
+  const expectedAssignment = durableAdmission ?? admission!.assignmentSnapshot;
   if (
     claimed?.kind !== "claimed"
-    || (!admission.allowEquivalentClaim && !claimedInputIdentity)
-    || !exactPlainData(claimed.assignment, admission.assignmentSnapshot)
+    || (localAdmissionValid && !durableAdmission && !admission!.allowEquivalentClaim && !claimedInputIdentity)
+    || !exactPlainData(claimed.assignment, expectedAssignment)
     || !positiveSafeInteger(claimed.claimedAt)
     || claimed.claimedAt > now
-    || !positiveSafeInteger(admission.assignmentSnapshot.expiresAt)
-    || admission.assignmentSnapshot.expiresAt <= now
+    || !positiveSafeInteger(expectedAssignment.expiresAt)
+    || expectedAssignment.expiresAt <= now
   ) {
     return Object.freeze({ kind: "invalid" });
   }
   return Object.freeze({
     kind: "claimed",
-    assignment: admission.assignmentSnapshot,
+    assignment: expectedAssignment,
     claimedAt: claimed.claimedAt,
   });
 }

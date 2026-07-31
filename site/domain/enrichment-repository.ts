@@ -5,16 +5,17 @@ import {
   type IssuanceRepository,
   type IssuanceSnapshot,
 } from "./enrichment-grant-issuance";
-import type {
-  BudgetAccount,
-  DurableReservationAcknowledgement,
-  EnrichmentAuthorityRepository,
-  EnrichmentReservation,
-  InvocationClaim,
-  ReconciliationReason,
-  RecoverableInvocation,
-  ReservationAuthority,
-  SettlementWrite,
+import {
+  brandDurablyVerifiedInvocationClaim,
+  registerDurableEnrichmentAuthorityRepository,
+  type BudgetAccount,
+  type DurableReservationAcknowledgement,
+  type EnrichmentAuthorityRepository,
+  type EnrichmentReservation,
+  type ReconciliationReason,
+  type RecoverableInvocation,
+  type ReservationAuthority,
+  type SettlementWrite,
 } from "./enrichment-authority";
 import { isDefensivelyValidContactObservation, type ContactObservation } from "./contact-evidence";
 import {
@@ -68,7 +69,6 @@ const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
 export function createD1EnrichmentRepository(database: D1Database, scope: RepositoryScope): D1EnrichmentRepository {
   if (!validId(scope.workspaceId) || !validId(scope.ownerSubject)) throw new TypeError("invalid_enrichment_repository_scope");
   const clock = scope.now ?? Date.now;
-  const committedReservations = new Map<string, EnrichmentReservation>();
 
   const repository: D1EnrichmentRepository = {
     async loadIssuanceSnapshot(principalSubject, prospectIds) {
@@ -258,7 +258,6 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
       const existing = await readReservation(database, scope.workspaceId, record.id);
       if (existing) {
         if (!sameCanonical(existing, record)) return { kind: "blocked" };
-        committedReservations.set(existing.id, existing);
         return { kind: "existing", record: existing };
       }
       if (!validReservation(record, scope.workspaceId) || !validAccountSet(accounts, scope.workspaceId)) return { kind: "blocked" };
@@ -309,7 +308,6 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
       } catch {
         const winner = await readReservation(database, scope.workspaceId, record.id);
         if (winner && sameCanonical(winner, record)) {
-          committedReservations.set(winner.id, winner);
           return { kind: "existing", record: winner };
         }
         return { kind: "blocked" };
@@ -320,7 +318,6 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
         !committed || !sameCanonical(committed, record) || !initialEvent
         || !await validateEnrichmentEventAcknowledgement(record.id, initialEvent)
       ) return { kind: "blocked" };
-      committedReservations.set(committed.id, committed);
       return { kind: "created", record: committed };
     },
 
@@ -328,8 +325,6 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
       if (!validId(reservationId) || !Number.isSafeInteger(now) || now <= 0) return { kind: "blocked", reason: "unavailable" };
       const record = await readReservation(database, scope.workspaceId, reservationId);
       if (!record) return { kind: "blocked", reason: "unavailable" };
-      const admittedRecord = committedReservations.get(reservationId);
-      if (!admittedRecord || !sameCanonical(admittedRecord, record)) return { kind: "blocked", reason: "unavailable" };
       if (record.assignment.expiresAt <= now) {
         return await releaseExpiredReservation(database, scope.workspaceId, reservationId, now)
           ? { kind: "blocked", reason: "expired" }
@@ -354,7 +349,7 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
         !committedClaim || committedClaim.durable_revision !== revision || committedClaim.state !== "invoking"
         || !await validateEnrichmentEventAcknowledgement(reservationId, committedClaim)
       ) return { kind: "blocked", reason: "unavailable" };
-      return freeze({ kind: "claimed", assignment: admittedRecord.assignment, claimedAt: now }) as InvocationClaim;
+      return brandDurablyVerifiedInvocationClaim(repository, record.assignment, now);
     },
 
     async settleReservation(reservationId, settlement) {
@@ -376,7 +371,25 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
       ).bind(scope.workspaceId, input.claimedBefore, input.limit).all<{ reservation_id: string; operation_key: string; expires_at: number; claimed_at: number }>()).results;
       return rows.map((row) => freeze({ reservationId: row.reservation_id, operationKey: row.operation_key, claimedAt: Number(row.claimed_at), expiresAt: Number(row.expires_at), status: "invoking" })) as readonly RecoverableInvocation[];
     },
+
+    async releaseExpiredReservations(input) {
+      if (!Number.isSafeInteger(input.now) || input.now <= 0 || !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) return [];
+      const rows = (await database.prepare(
+        `SELECT r.id FROM enrichment_reservations r
+         JOIN enrichment_reservation_events e ON e.reservation_id=r.id
+          AND e.durable_revision=(SELECT max(e2.durable_revision) FROM enrichment_reservation_events e2 WHERE e2.reservation_id=r.id)
+         WHERE r.workspace_id=? AND r.expires_at<=? AND e.state='reserved'
+         ORDER BY r.expires_at,r.id LIMIT ?`,
+      ).bind(scope.workspaceId, input.now, input.limit).all<{ id: string }>()).results;
+      const released: string[] = [];
+      for (const row of rows) {
+        const record = await readReservation(database, scope.workspaceId, row.id);
+        if (record && await releaseExpiredReservation(database, scope.workspaceId, row.id, input.now)) released.push(row.id);
+      }
+      return Object.freeze(released);
+    },
   };
+  registerDurableEnrichmentAuthorityRepository(repository);
   return Object.freeze(repository);
 }
 
@@ -743,16 +756,71 @@ function derivedEnrichmentAccountId(workspaceId: string, scope: BudgetAccount["s
 
 async function readReservation(database: D1Database, workspaceId: string, id: string): Promise<EnrichmentReservation | null> {
   const row = await database.prepare(
-    `SELECT id, grant_id, workspace_id, operation_key, assignment_json, assignment_digest, created_at
+    `SELECT id, grant_id, workspace_id, operation_key, assignment_json, assignment_digest,
+      reserved_units,reserved_cost_minor,currency,expires_at,created_at
      FROM enrichment_reservations WHERE id = ? AND workspace_id = ? LIMIT 1`,
   ).bind(id, workspaceId).first<{
     id: string; grant_id: string; workspace_id: string; operation_key: string;
-    assignment_json: string; assignment_digest: string; created_at: number;
+    assignment_json: string; assignment_digest: string; reserved_units: number; reserved_cost_minor: number;
+    currency: string; expires_at: number; created_at: number;
   }>();
   if (!row) return null;
   try {
     const assignment = JSON.parse(row.assignment_json) as EnrichmentReservation["assignment"];
     if (canonical(assignment) !== row.assignment_json || row.assignment_digest !== await digest(assignment)) return null;
+    const grant = await readGrantBy(database, workspaceId, "id", row.grant_id);
+    if (
+      !grant || row.operation_key !== grant.tuple.operationKey
+      || Number(row.reserved_units) !== grant.tuple.maxUnits
+      || Number(row.reserved_cost_minor) !== grant.tuple.maxCostMinor
+      || row.currency !== grant.tuple.currency || Number(row.expires_at) !== grant.tuple.expiresAt
+    ) return null;
+    if (
+      !Array.isArray(assignment.evidenceAssignments)
+      || assignment.evidenceAssignments.length < 1
+      || assignment.evidenceAssignments.length > 100
+    ) return null;
+    const assignmentIds = assignment.evidenceAssignments.map((item) =>
+      item && typeof item === "object" && validId((item as { assignmentId?: unknown }).assignmentId)
+        ? String((item as { assignmentId: string }).assignmentId)
+        : "",
+    );
+    if (assignmentIds.some((assignmentId) => !assignmentId) || new Set(assignmentIds).size !== assignmentIds.length) return null;
+    const placeholders = assignmentIds.map(() => "?").join(",");
+    const evidenceAssignments = (await database.prepare(
+      `SELECT id assignment_id,prospect_id,role,workspace_id,contact_id,configuration_id,configuration_digest
+       FROM contact_evidence_assignments
+       WHERE workspace_id=? AND grant_id=? AND id IN (${placeholders}) ORDER BY id`,
+    ).bind(workspaceId, grant.id, ...assignmentIds).all<Record<string, unknown>>()).results.map((item) => ({
+      assignmentId: String(item.assignment_id),
+      prospectId: String(item.prospect_id),
+      role: item.role as "champion" | "economic_buyer" | "general",
+      workspaceId: String(item.workspace_id),
+      contactId: String(item.contact_id),
+      profileConfigurationId: String(item.configuration_id),
+      profileConfigurationDigest: String(item.configuration_digest),
+    }));
+    if (evidenceAssignments.length !== assignmentIds.length) return null;
+    const expectedAssignment: EnrichmentReservation["assignment"] = {
+      reservationId: row.id,
+      workspaceId,
+      configurationId: grant.tuple.configurationId,
+      configurationDigest: grant.tuple.configurationDigest,
+      operationKey: grant.tuple.operationKey,
+      providerId: grant.tuple.providerId,
+      providerVersion: grant.tuple.providerVersion,
+      catalogRef: grant.tuple.catalogRef,
+      quoteRevision: grant.tuple.quoteRevision,
+      quoteUnitCostMinor: grant.tuple.quoteUnitCostMinor,
+      prospectIds: [...grant.tuple.prospectIds],
+      evidenceAssignments,
+      operation: grant.tuple.operation,
+      maxUnits: grant.tuple.maxUnits,
+      maxCostMinor: grant.tuple.maxCostMinor,
+      currency: grant.tuple.currency,
+      expiresAt: grant.tuple.expiresAt,
+    };
+    if (!sameCanonical(assignment, expectedAssignment)) return null;
     const initial = await reservationEventAtRevision(database, workspaceId, id, 1);
     if (
       !initial || initial.state !== "reserved" || Number(initial.durable_revision) !== 1

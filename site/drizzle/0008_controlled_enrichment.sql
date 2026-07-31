@@ -772,6 +772,7 @@ END;
 CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibility_snapshots BEGIN
   SELECT CASE WHEN NEW.state NOT IN ('ContactReady','ContactSuggestion','NeedsReview','NonContactable')
     OR NEW.eligible NOT IN (0,1) OR (NEW.eligible = 1 AND NEW.state <> 'ContactReady')
+    OR (NEW.state = 'ContactReady' AND NEW.eligible <> 1)
     OR NOT EXISTS (SELECT 1 FROM contacts c JOIN profile_prospects p ON p.id = NEW.prospect_id AND p.workspace_id = c.workspace_id
       JOIN typed_configurations cfg ON cfg.id = NEW.configuration_id AND cfg.workspace_id = c.workspace_id
       JOIN prospecting_candidates pc ON pc.id = p.candidate_id AND pc.workspace_id = p.workspace_id
@@ -783,7 +784,75 @@ CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibil
         AND pc.profile_id = p.profile_id AND pc.configuration_id = cfg.id AND pc.status = 'qualified'
         AND qa.candidate_id = pc.id AND qa.configuration_id = cfg.id
         AND qa.configuration_digest = cfg.digest AND qa.outcome = 'Passed')
+    OR (NEW.eligible = 1 AND (
+      json_array_length(NEW.observation_ids_json) = 0
+      OR json_array_length(NEW.observation_ids_json) <> (
+        SELECT count(*) FROM json_each(NEW.observation_ids_json) ids
+        JOIN contact_point_observations o
+          ON o.id = ids.value AND o.workspace_id = NEW.workspace_id
+         AND o.contact_id = NEW.contact_id AND o.configuration_id = NEW.configuration_id
+         AND o.configuration_digest = NEW.configuration_digest
+        JOIN contact_evidence_assignments a
+          ON a.id = o.assignment_id AND a.workspace_id = o.workspace_id
+         AND a.contact_id = NEW.contact_id AND a.prospect_id = NEW.prospect_id
+         AND a.configuration_id = NEW.configuration_id AND a.configuration_digest = NEW.configuration_digest
+        WHERE (
+          (o.kind = 'email' AND o.verification_class = 'mailbox_verified'
+            AND o.method = 'mailbox_verification' AND o.verified_at IS NOT NULL
+            AND NEW.projected_at >= o.verified_at AND NEW.projected_at - o.verified_at <= 2592000000)
+          OR
+          (o.kind IN ('email','phone') AND o.verification_class = 'source_verified'
+            AND o.method = 'authoritative_source_reconfirmed' AND o.verified_at IS NOT NULL
+            AND NEW.projected_at >= o.verified_at AND NEW.projected_at - o.verified_at <= 7776000000)
+        )
+        AND (o.parent_observation_id IS NULL OR EXISTS (
+          SELECT 1 FROM contact_point_observations parent
+          WHERE parent.id = o.parent_observation_id AND parent.workspace_id = o.workspace_id
+            AND parent.contact_id = o.contact_id AND parent.configuration_id = o.configuration_id
+            AND parent.configuration_digest = o.configuration_digest
+            AND parent.observed_at <= o.observed_at
+        ))
+      )
+    ))
     THEN RAISE(ABORT, 'invalid contact eligibility snapshot') END;
+END;
+--> statement-breakpoint
+CREATE TRIGGER contact_eligibility_json_guard BEFORE INSERT ON contact_eligibility_snapshots BEGIN
+  SELECT CASE WHEN
+    json_valid(NEW.observation_ids_json) <> 1 OR json_type(NEW.observation_ids_json) <> 'array'
+    OR json(NEW.observation_ids_json) <> NEW.observation_ids_json
+    OR json_valid(NEW.reason_codes_json) <> 1 OR json_type(NEW.reason_codes_json) <> 'array'
+    OR json(NEW.reason_codes_json) <> NEW.reason_codes_json
+    OR json_valid(NEW.preserved_suppression_refs_json) <> 1 OR json_type(NEW.preserved_suppression_refs_json) <> 'array'
+    OR json(NEW.preserved_suppression_refs_json) <> NEW.preserved_suppression_refs_json
+    OR EXISTS (SELECT 1 FROM json_each(NEW.observation_ids_json) WHERE type <> 'text' OR value = '')
+    OR EXISTS (SELECT 1 FROM json_each(NEW.reason_codes_json) WHERE type <> 'text' OR value = '')
+    OR EXISTS (SELECT 1 FROM json_each(NEW.preserved_suppression_refs_json) WHERE type <> 'text' OR value = '')
+    OR json_array_length(NEW.observation_ids_json) <> (
+      SELECT count(DISTINCT value) FROM json_each(NEW.observation_ids_json)
+    )
+    OR json_array_length(NEW.reason_codes_json) <> (
+      SELECT count(DISTINCT value) FROM json_each(NEW.reason_codes_json)
+    )
+    OR json_array_length(NEW.preserved_suppression_refs_json) <> (
+      SELECT count(DISTINCT value) FROM json_each(NEW.preserved_suppression_refs_json)
+    )
+    OR EXISTS (
+      SELECT 1 FROM json_each(NEW.observation_ids_json) current
+      JOIN json_each(NEW.observation_ids_json) next ON next.key = current.key + 1
+      WHERE current.value >= next.value
+    )
+    OR EXISTS (
+      SELECT 1 FROM json_each(NEW.reason_codes_json) current
+      JOIN json_each(NEW.reason_codes_json) next ON next.key = current.key + 1
+      WHERE current.value >= next.value
+    )
+    OR EXISTS (
+      SELECT 1 FROM json_each(NEW.preserved_suppression_refs_json) current
+      JOIN json_each(NEW.preserved_suppression_refs_json) next ON next.key = current.key + 1
+      WHERE current.value >= next.value
+    )
+    THEN RAISE(ABORT, 'invalid contact eligibility json') END;
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_suggestion_scope_guard BEFORE INSERT ON identity_suggestions BEGIN
@@ -931,6 +1000,7 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
       AND pr.revision = NEW.per_run_account_expected_revision
       AND mo.revision = NEW.monthly_account_expected_revision
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= mo.max_cost_minor
+      AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= g.monthly_cost_minor
   ) THEN RAISE(ABORT, 'invalid runner reservation accounts') END;
   SELECT CASE WHEN EXISTS (
     SELECT 1 FROM json_each(NEW.previous_operation_keys_json) history
