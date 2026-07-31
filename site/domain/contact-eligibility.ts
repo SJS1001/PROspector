@@ -75,6 +75,7 @@ export function projectContactEligibility(value: {
   const now = validTimestamp(input?.now) ?? Date.now();
   const authority = normalizeAuthority(input?.authority);
   const reasonCodes = authorityReasons(authority);
+  const authorityBlocked = reasonCodes.length > 0;
   const target = normalizeTarget(input?.target);
   if (!target) reasonCodes.push("invalid_contact_target");
   const strategy = normalizeStrategy(input?.strategy);
@@ -98,7 +99,12 @@ export function projectContactEligibility(value: {
 
   const hasEligible = projected.some((point) => point.state === "eligible");
   const suppressed = authority.suppressed;
-  const blockedForReview = reasonCodes.length > 0;
+  const hasBlockingEvidence = hasInvalidEvidence || projected.some((point) =>
+    point.state === "invalid"
+    || point.state === "scope_mismatch"
+    || point.state === "configuration_mismatch"
+  );
+  const blockedForReview = authorityBlocked || !target || !strategy || hasBlockingEvidence;
   const state: ContactEligibilityState = suppressed
     ? "NonContactable"
     : hasEligible && !blockedForReview ? "ContactReady"

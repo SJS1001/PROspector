@@ -250,7 +250,7 @@ export function ingestContactEvidence(
   const normalizedValue = normalizeContactValue(kind, envelope.value);
   const provenance = normalizeProvenance(envelope.provenance);
   const observedAt = timestamp(envelope.observedAt);
-  if (!normalizedValue || !provenance || observedAt === null) {
+  if (!normalizedValue || !provenance || observedAt === null || provenance.retrievedAt > observedAt) {
     return blocked("invalid_contact_provenance");
   }
   const trusted = trustedVerificationValue === undefined
@@ -355,13 +355,14 @@ export function isDefensivelyValidContactObservation(value: unknown): value is C
   const lineage = record(observation.lineage);
   const parentObservationId = lineage && Object.hasOwn(lineage, "parentObservationId")
     ? lineage.parentObservationId === null ? null : opaque(lineage.parentObservationId, 160) : undefined;
+  const chronologyValid = observedAt !== null && provenance !== null && provenance.retrievedAt <= observedAt;
   const verifiedTimeValid = verifiedAt === null
     ? observation.verifiedAt === null && methodMatchesClaim(kind as ContactPointKind, verificationClass as ContactVerificationClass, method as ContactMethod, null)
-    : observedAt !== null && provenance !== null && verifiedAt <= observedAt && verifiedAt >= provenance.retrievedAt && methodMatchesClaim(kind as ContactPointKind, verificationClass as ContactVerificationClass, method as ContactMethod, verifiedAt);
+    : chronologyValid && verifiedAt <= observedAt && verifiedAt >= provenance.retrievedAt && methodMatchesClaim(kind as ContactPointKind, verificationClass as ContactVerificationClass, method as ContactMethod, verifiedAt);
   return Boolean(
     id && workspaceId && contactId && profileConfigurationId && profileConfigurationDigest && kind && verificationClass && method &&
     typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 &&
-    normalizedValue === observation.normalizedValue && provenance && observedAt !== null &&
+    normalizedValue === observation.normalizedValue && provenance && chronologyValid &&
     (observation.verifiedAt === null || verifiedAt !== null) && verifiedTimeValid &&
     providerTupleValid &&
     (observation.verificationAuthority === null || verificationAuthority !== null) &&

@@ -127,6 +127,24 @@ test("P5 prep accepts only bounded assignment-bound evidence and canonicalizes s
     const unverified = evidence.ingestContactEvidence(assignment, envelope());
     assert.equal(unverified.accepted, true);
     assert.equal(unverified.observation.verificationClass, "suggested", "absence of a trusted verifier can only create a suggestion");
+    const impossibleRaw = envelope({
+      provenance: { ...envelope().provenance, retrievedAt: NOW },
+      observedAt: NOW - 1,
+    });
+    for (const impossible of [
+      evidence.ingestContactEvidence(assignment, impossibleRaw),
+      await ingest(evidence, impossibleRaw, {
+        verificationClass: "domain_valid",
+        method: "domain_validation",
+        verifiedAt: null,
+      }),
+    ]) {
+      assert.deepEqual(
+        impossible,
+        { accepted: false, reason: "invalid_contact_provenance" },
+        "suggested and domain-valid evidence cannot claim retrieval after observation",
+      );
+    }
   } finally { await vite.close(); }
 });
 
@@ -217,6 +235,64 @@ test("P5 prep applies default 30/90/90 day freshness and current invalidations",
       assert.notEqual(result.state, "ContactReady", JSON.stringify(patch));
     }
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [mailbox.observation], strategy: strategy(), now: NOW }).state, "NeedsReview", "production default is fail closed");
+  } finally { await vite.close(); }
+});
+
+test("P5 prep keeps stale history visible without letting it veto a separate fresh verified point", async () => {
+  const { vite, evidence, eligibility } = await modules();
+  try {
+    const staleVerifiedAt = NOW - (30 * 24 * 60 * 60 * 1000);
+    const staleRaw = envelope({
+      id: "observation-stale",
+      observedAt: NOW,
+      provenance: { ...envelope().provenance, retrievedAt: staleVerifiedAt - 1 },
+    });
+    const stale = await ingest(evidence, staleRaw, { verifiedAt: staleVerifiedAt });
+    const freshRaw = envelope({ id: "observation-fresh" });
+    const fresh = await ingest(evidence, freshRaw);
+    assert.equal(stale.accepted, true);
+    assert.equal(fresh.accepted, true);
+
+    const combined = eligibility.projectContactEligibility({
+      target: target(),
+      points: [stale.observation, fresh.observation],
+      strategy: strategy(),
+      authority: authority(),
+      now: NOW,
+    });
+    assert.equal(combined.state, "ContactReady");
+    assert.equal(combined.eligible, true);
+    assert.deepEqual(combined.points.map((point) => point.state).sort(), ["eligible", "stale"]);
+    assert.ok(combined.reasonCodes.includes("contact_evidence_stale"), "historical staleness remains visible");
+
+    const staleOnly = eligibility.projectContactEligibility({
+      target: target(),
+      points: [stale.observation],
+      strategy: strategy(),
+      authority: authority(),
+      now: NOW,
+    });
+    assert.equal(staleOnly.state, "NeedsReview");
+    assert.equal(staleOnly.eligible, false);
+    assert.ok(staleOnly.reasonCodes.includes("contact_evidence_stale"));
+
+    const invalidRaw = envelope({ id: "observation-invalid" });
+    const invalid = await ingest(evidence, invalidRaw, {
+      verificationClass: "invalid",
+      method: "mailbox_verification",
+      verifiedAt: NOW - 1_500,
+    });
+    assert.equal(invalid.accepted, true);
+    const invalidMixed = eligibility.projectContactEligibility({
+      target: target(),
+      points: [fresh.observation, invalid.observation],
+      strategy: strategy(),
+      authority: authority(),
+      now: NOW,
+    });
+    assert.equal(invalidMixed.state, "NeedsReview", "invalid evidence remains a fail-closed veto");
+    assert.equal(invalidMixed.eligible, false);
+    assert.ok(invalidMixed.reasonCodes.includes("contact_evidence_invalid"));
   } finally { await vite.close(); }
 });
 

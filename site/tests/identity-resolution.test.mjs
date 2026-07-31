@@ -108,6 +108,13 @@ function digest(value) {
   return createHash("sha256").update(stable(value)).digest("hex");
 }
 
+function assertDeepFrozen(value, seen = new Set()) {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  assert.equal(Object.isFrozen(value), true, "every returned suggestion object, row, array, and revision map is immutable");
+  for (const nested of Object.values(value)) assertDeepFrozen(nested, seen);
+}
+
 function resignResolution(record) {
   const appliedMaterial = {
     workspaceId: record.workspaceId,
@@ -155,6 +162,8 @@ test("ambiguity is a non-authoritative proposal with bounded impact and no autom
     assert.deepEqual(suggestion.retainedSuppressionSubjectRefs, ["suppression-identity-alpha", "suppression-identity-beta"]);
     assert.equal(suggestion.suppressionPreservationNotice, "preserve_all_existing_subject_references");
     assert.equal(suggestion.associationImpact.length, 2);
+    assertDeepFrozen(suggestion);
+    assertDeepFrozen(replay);
     assert.deepEqual(repository.identitySnapshot(), before, "suggestion persistence cannot merge identities, alter relevance, or mutate suppression references");
     assert.equal(repository.suggestionWrites, 1);
   } finally { await loaded.vite.close(); }
@@ -188,6 +197,7 @@ test("split is owner-only, preserves retained references, and projects moved ass
     assert.equal(acceptedProposal.proposedPartition.sourceId, "identity-alpha");
     assert.deepEqual(acceptedProposal.proposedPartition.moveAssociationIds, ["association-identity-alpha"]);
     assert.match(acceptedProposal.proposedPartition.newIdentityId, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assertDeepFrozen(acceptedProposal);
     const result = await apply(loaded.domain, repository, acceptedProposal, { kind: "split", sourceId: "identity-alpha", moveAssociationIds: ["association-identity-alpha"] });
     assert.deepEqual(result.invalidations, [{ associationId: "association-identity-alpha", projection: "NonContactable" }]);
     assert.deepEqual(result.retainedSuppressionSubjectRefs, ["suppression-identity-alpha"]);
