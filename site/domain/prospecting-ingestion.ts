@@ -32,19 +32,11 @@ export async function processAcceptedRunnerSubmission(
 ) {
   if (!validId(input.workspaceId) || !validId(input.submissionId) || !Number.isSafeInteger(input.now) || input.now <= 0) throw fail();
   const submission = await database.prepare(
-    "SELECT s.id,s.workspace_id,s.run_id,s.configuration_id,s.status,r.profile_id,r.configuration_digest,r.execution_state,w.owner_subject FROM runner_submissions s JOIN prospecting_runs r ON r.id=s.run_id AND r.workspace_id=s.workspace_id JOIN workspaces w ON w.id=s.workspace_id WHERE s.id=? AND s.workspace_id=? LIMIT 1",
+    "SELECT s.id,s.workspace_id,s.run_id,s.configuration_id,r.profile_id,r.configuration_digest,r.execution_state,w.owner_subject FROM runner_submissions s JOIN prospecting_runs r ON r.id=s.run_id AND r.workspace_id=s.workspace_id JOIN workspaces w ON w.id=s.workspace_id WHERE s.id=? AND s.workspace_id=? LIMIT 1",
   ).bind(input.submissionId, input.workspaceId).first<Submission>();
   if (!submission) throw fail();
-  if (submission.execution_state === "succeeded" || submission.status === "processed") return completedProjection(database, submission);
+  if (submission.execution_state === "succeeded") return completedProjection(database, submission);
   if (!["assigned", "running"].includes(submission.execution_state)) throw fail();
-  const claim = await database.prepare("UPDATE runner_submissions SET status='processing' WHERE id=? AND workspace_id=? AND status='received'").bind(submission.id, input.workspaceId).run();
-  if (!claim.meta.changes) {
-    const current = await database.prepare("SELECT status FROM runner_submissions WHERE id=? AND workspace_id=? LIMIT 1").bind(submission.id, input.workspaceId).first<{status:string}>();
-    if (current?.status === "processing") return Object.freeze({ runId: submission.run_id, submissionId: submission.id, signalCount: 0, candidateIds: Object.freeze([]), assessments: Object.freeze([]), replayed: true, processing: true });
-    if (current?.status === "processed") return completedProjection(database, submission);
-    throw fail();
-  }
-  try {
   if (submission.execution_state === "assigned") {
     const started = await database.prepare(
       "UPDATE prospecting_runs SET execution_state='running',updated_at=?,revision=revision+1 WHERE id=? AND workspace_id=? AND execution_state='assigned'",
@@ -64,12 +56,7 @@ export async function processAcceptedRunnerSubmission(
   const assessments = [];
   for (const candidateId of candidateIds) assessments.push(await persistQualificationAssessment(database, { subject: submission.owner_subject }, { candidateId, now: input.now }));
   await completeProspectingRun(database, input.workspaceId, { runId: submission.run_id, successfulWatermark: input.now, now: input.now });
-  await database.prepare("UPDATE runner_submissions SET status='processed' WHERE id=? AND workspace_id=? AND status='processing'").bind(submission.id, input.workspaceId).run();
   return Object.freeze({ runId: submission.run_id, submissionId: submission.id, signalCount: signals.length, candidateIds: Object.freeze(candidateIds), assessments: Object.freeze(assessments) });
-  } catch (error) {
-    await database.prepare("UPDATE runner_submissions SET status='received' WHERE id=? AND workspace_id=? AND status='processing'").bind(submission.id, input.workspaceId).run();
-    throw error;
-  }
 }
 
 async function completedProjection(database:D1Database, submission:Submission) {
@@ -81,7 +68,7 @@ async function completedProjection(database:D1Database, submission:Submission) {
   return Object.freeze({ runId:submission.run_id, submissionId:submission.id, signalCount:Number(signals?.count ?? 0), candidateIds:Object.freeze(candidates.results.map(row=>row.id)), assessments:Object.freeze(assessments.results), replayed:true });
 }
 
-type Submission = { id:string; workspace_id:string; run_id:string; configuration_id:string; profile_id:string; configuration_digest:string; execution_state:string; owner_subject:string; status:string };
+type Submission = { id:string; workspace_id:string; run_id:string; configuration_id:string; profile_id:string; configuration_digest:string; execution_state:string; owner_subject:string };
 async function materializeCandidate(database:D1Database, submission:Submission, draft:CandidateDraft, now:number) {
   const target = await database.prepare(
     "SELECT t.id,t.account_id,o.id offer_id FROM targets t JOIN accounts a ON a.id=t.account_id AND a.workspace_id=t.workspace_id JOIN typed_configurations c ON c.id=? AND c.workspace_id=t.workspace_id AND c.owner_type='profile' AND c.owner_id=t.profile_id AND c.kind='profile_effective' JOIN offers o ON o.id=json_extract(c.manifest_json,'$.authority.offer.id') AND o.workspace_id=t.workspace_id AND o.profile_id=t.profile_id WHERE t.id=? AND t.workspace_id=? AND t.profile_id=? LIMIT 1",
