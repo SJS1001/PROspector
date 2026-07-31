@@ -39,3 +39,49 @@ test("Review Queue renders authoritative Account/Target and completed decision l
     for (const value of ["Exact Account", "account-1", "Exact Target", "target-1", "Decision: defer", "owner owner-1", "audit audit-2", "sourced_disproof", "material_signal", "prospect-p1", "prospect-p2", "Prior review history", "Prior cooldown history", "Decision, cooldown, and re-entry lineage"]) assert.match(html, new RegExp(value));
   } finally { await vite.close(); }
 });
+
+test("Review Queue keeps each prospect draft and exact command isolated", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const view = await vite.ssrLoadModule(new URL("../app/prospecting/review-queue.tsx", import.meta.url).pathname);
+    const first = { id: "prospect-1", assessment_id: "assessment-1", revision: 2 };
+    const second = { id: "prospect-2", assessment_id: "assessment-2", revision: 7 };
+    let drafts = view.updateReviewDraft({}, first.id, { reason: "Approve exact first prospect" });
+    drafts = view.updateReviewDraft(drafts, second.id, {
+      reason: "Defer only second prospect",
+      reviewAt: "2026-08-15T09:30",
+    });
+
+    assert.deepEqual(drafts[first.id], {
+      reason: "Approve exact first prospect",
+      reviewAt: "",
+    });
+    assert.deepEqual(drafts[second.id], {
+      reason: "Defer only second prospect",
+      reviewAt: "2026-08-15T09:30",
+    });
+    assert.deepEqual(view.buildReviewCommand(first, "approve", drafts[first.id]), {
+      action: "review",
+      prospectId: "prospect-1",
+      assessmentId: "assessment-1",
+      expectedRevision: 2,
+      decision: "approve",
+      reason: "Approve exact first prospect",
+    });
+    const deferred = view.buildReviewCommand(second, "defer", drafts[second.id]);
+    assert.equal(deferred.prospectId, "prospect-2");
+    assert.equal(deferred.assessmentId, "assessment-2");
+    assert.equal(deferred.expectedRevision, 7);
+    assert.equal(deferred.reason, "Defer only second prospect");
+    assert.equal(deferred.reviewAt, new Date("2026-08-15T09:30").getTime());
+    assert.equal(
+      view.buildReviewCommand(second, "defer", {
+        reason: "Missing date",
+        reviewAt: "",
+      }),
+      null,
+    );
+  } finally {
+    await vite.close();
+  }
+});

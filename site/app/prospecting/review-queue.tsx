@@ -29,6 +29,41 @@ type Queue = {
   cooldownHistory?: History[];
   reentryHistory?: History[];
 };
+type ReviewDraft = { reason: string; reviewAt: string };
+type ReviewDrafts = Record<string, ReviewDraft>;
+const EMPTY_DRAFT: ReviewDraft = { reason: "", reviewAt: "" };
+
+export function updateReviewDraft(
+  drafts: ReviewDrafts,
+  prospectId: string,
+  patch: Partial<ReviewDraft>,
+): ReviewDrafts {
+  return {
+    ...drafts,
+    [prospectId]: { ...(drafts[prospectId] ?? EMPTY_DRAFT), ...patch },
+  };
+}
+
+export function buildReviewCommand(
+  item: Queue,
+  decision: "approve" | "reject" | "defer",
+  draft: ReviewDraft,
+): Record<string, unknown> | null {
+  const reason = draft.reason.normalize("NFC").trim();
+  if (!reason) return null;
+  const reviewAt =
+    decision === "defer" ? new Date(draft.reviewAt).getTime() : undefined;
+  if (decision === "defer" && !Number.isFinite(reviewAt)) return null;
+  return {
+    action: "review",
+    prospectId: item.id,
+    assessmentId: item.assessment_id,
+    expectedRevision: item.revision,
+    decision,
+    reason,
+    ...(reviewAt === undefined ? {} : { reviewAt }),
+  };
+}
 
 export function ReviewQueue({
   queue,
@@ -39,22 +74,15 @@ export function ReviewQueue({
   onCommand: (body: Record<string, unknown>) => void;
   busy: boolean;
 }) {
-  const [reason, setReason] = useState(""),
-    [reviewAt, setReviewAt] = useState(""),
+  const [drafts, setDrafts] = useState<ReviewDrafts>({}),
     [confirming, setConfirming] = useState<string | null>(null);
   const submit = (item: Queue, decision: "approve" | "reject" | "defer") => {
-    if (!reason.trim() || (decision === "defer" && !reviewAt)) return;
-    onCommand({
-      action: "review",
-      prospectId: item.id,
-      assessmentId: item.assessment_id,
-      expectedRevision: item.revision,
+    const command = buildReviewCommand(
+      item,
       decision,
-      reason,
-      ...(decision === "defer"
-        ? { reviewAt: new Date(reviewAt).getTime() }
-        : {}),
-    });
+      drafts[item.id] ?? EMPTY_DRAFT,
+    );
+    if (command) onCommand(command);
   };
   return (
     <section
@@ -66,7 +94,8 @@ export function ReviewQueue({
         queue.map((item) => {
           const lastDecision = item.decisionHistory?.at(-1),
             lastCooldown = item.cooldownHistory?.at(-1),
-            lastReentry = item.reentryHistory?.at(-1);
+            lastReentry = item.reentryHistory?.at(-1),
+            draft = drafts[item.id] ?? EMPTY_DRAFT;
           return (
             <article key={item.id}>
               <p>
@@ -105,8 +134,14 @@ export function ReviewQueue({
               <label>
                 Owner reason{" "}
                 <input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
+                  value={draft.reason}
+                  onChange={(e) =>
+                    setDrafts((current) =>
+                      updateReviewDraft(current, item.id, {
+                        reason: e.target.value,
+                      }),
+                    )
+                  }
                   disabled={busy}
                 />
               </label>
@@ -114,15 +149,21 @@ export function ReviewQueue({
                 Defer review date{" "}
                 <input
                   type="datetime-local"
-                  value={reviewAt}
-                  onChange={(e) => setReviewAt(e.target.value)}
+                  value={draft.reviewAt}
+                  onChange={(e) =>
+                    setDrafts((current) =>
+                      updateReviewDraft(current, item.id, {
+                        reviewAt: e.target.value,
+                      }),
+                    )
+                  }
                   disabled={busy}
                 />
               </label>
               <div>
                 <button
                   type="button"
-                  disabled={busy || !reason.trim()}
+                  disabled={busy || !draft.reason.trim()}
                   onClick={() => submit(item, "approve")}
                 >
                   Approve prospect
@@ -130,14 +171,16 @@ export function ReviewQueue({
                 <button
                   type="button"
                   className="destructive"
-                  disabled={busy || !reason.trim()}
+                  disabled={busy || !draft.reason.trim()}
                   onClick={() => setConfirming(item.id)}
                 >
                   Reject prospect
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !reason.trim() || !reviewAt}
+                  disabled={
+                    busy || !draft.reason.trim() || !draft.reviewAt
+                  }
                   onClick={() => submit(item, "defer")}
                 >
                   Defer prospect
