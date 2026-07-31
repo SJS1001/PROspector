@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { applyMigrations, createD1Fixture } from "./helpers/d1.mjs";
 
 const NOW = 1_780_000_000_000;
@@ -276,6 +277,14 @@ test("lower timestamp winning first keeps one exact canonical chain across retry
     await policy.appendValidatedSignals(seed.fixture.database, { workspaceId: seed.workspaceId, submissionId: higherSubmission.submissionId, now: NOW + 31 });
     assert.deepEqual(await lineageCounts(seed), counts); assert.equal((await canonicalRelation(seed, await policy.readCanonicalMaterialLineage(seed.fixture.database, { workspaceId: seed.workspaceId, profileId: seed.profileId, kind: "operating-signal", underlyingOriginIdentity: "example.invalid" }))).chainDigest, before.chainDigest);
   } finally { await seed.fixture.dispose(); }
+});
+
+test("macOS releases the first runner fixture window before final reader fixtures", async () => {
+  // This file creates more Miniflare instances than its single literal
+  // createD1Fixture() call suggests because setup() is reused and one test
+  // exercises three independent trigger scenarios. macOS retains the closed
+  // loopback sockets for 2× its 15-second TCP MSL.
+  if (process.platform === "darwin") await delay(30_000);
 });
 
 test("canonical material reader ignores forged snapshots and fails closed when the current facts have no exact snapshot", async () => {
