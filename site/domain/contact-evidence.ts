@@ -157,6 +157,47 @@ export function normalizeBusinessPhone(value: unknown): string | null {
   return E164.test(normalized) ? normalized : null;
 }
 
+/**
+ * Re-validates a stored/read-model observation before it is used as eligibility
+ * input.  Type assertions, provider-shaped JSON, and partial projections must not
+ * be able to manufacture a verified contact point outside the ingestion boundary.
+ */
+export function isDefensivelyValidContactObservation(value: unknown): value is ContactObservation {
+  const observation = record(value);
+  if (!observation) return false;
+  const id = opaque(observation.id, 160);
+  const workspaceId = opaque(observation.workspaceId, 160);
+  const contactId = opaque(observation.contactId, 160);
+  const profileConfigurationId = opaque(observation.profileConfigurationId, 160);
+  const profileConfigurationDigest = typeof observation.profileConfigurationDigest === "string" && HASH.test(observation.profileConfigurationDigest);
+  const kind: ContactPointKind | null = observation.kind === "email" || observation.kind === "phone" ? observation.kind : null;
+  const verificationClass = typeof observation.verificationClass === "string" && CLASSES.has(observation.verificationClass)
+    ? observation.verificationClass as ContactVerificationClass : null;
+  const method = typeof observation.method === "string" && METHODS.has(observation.method as ContactMethod)
+    ? observation.method as ContactMethod : null;
+  const confidence = observation.confidence;
+  const normalizedValue = kind ? normalizeContactValue(kind, observation.normalizedValue) : null;
+  const provenance = normalizeProvenance(observation.provenance);
+  const observedAt = timestamp(observation.observedAt);
+  const verifiedAt = observation.verifiedAt === null ? null : timestamp(observation.verifiedAt);
+  const provider = observation.provider === null ? null : optionalText(observation.provider, 120);
+  const catalogVersion = observation.catalogVersion === null ? null : optionalText(observation.catalogVersion, 120);
+  const lineage = record(observation.lineage);
+  const parentObservationId = lineage && Object.hasOwn(lineage, "parentObservationId")
+    ? lineage.parentObservationId === null ? null : opaque(lineage.parentObservationId, 160) : undefined;
+  const verifiedTimeValid = verifiedAt === null
+    ? observation.verifiedAt === null && methodMatchesClaim(kind as ContactPointKind, verificationClass as ContactVerificationClass, method as ContactMethod, null)
+    : observedAt !== null && provenance !== null && verifiedAt <= observedAt && verifiedAt >= provenance.retrievedAt && methodMatchesClaim(kind as ContactPointKind, verificationClass as ContactVerificationClass, method as ContactMethod, verifiedAt);
+  return Boolean(
+    id && workspaceId && contactId && profileConfigurationId && profileConfigurationDigest && kind && verificationClass && method &&
+    typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 &&
+    normalizedValue === observation.normalizedValue && provenance && observedAt !== null &&
+    (observation.verifiedAt === null || verifiedAt !== null) && verifiedTimeValid &&
+    (observation.provider === null || provider !== null) && (observation.catalogVersion === null || catalogVersion !== null) &&
+    lineage && parentObservationId !== undefined,
+  );
+}
+
 function assignmentRecord(value: unknown): ContactEvidenceAssignment | null {
   const input = record(value);
   if (!input) return null;

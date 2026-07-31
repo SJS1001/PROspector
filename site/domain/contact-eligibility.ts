@@ -1,4 +1,4 @@
-import type { ContactObservation } from "./contact-evidence";
+import { isDefensivelyValidContactObservation, type ContactObservation } from "./contact-evidence";
 
 export const DEFAULT_CONTACT_FRESHNESS_MS = Object.freeze({
   mailboxVerifiedEmail: 30 * 24 * 60 * 60 * 1000,
@@ -73,7 +73,7 @@ export function projectContactEligibility(value: {
   const strategy = normalizeStrategy(input?.strategy);
   if (!strategy) reasonCodes.push("invalid_contact_strategy");
 
-  const points = Array.isArray(input?.points) ? input.points.filter(isObservation) : [];
+  const points = Array.isArray(input?.points) ? input.points.filter(isDefensivelyValidContactObservation) : [];
   const projected = points.map((point) => projectPoint(point, strategy, now));
   if (!points.length) reasonCodes.push("no_contact_evidence");
   if (projected.some((point) => point.state === "stale")) reasonCodes.push("contact_evidence_stale");
@@ -159,7 +159,6 @@ function authorityReasons(authority: ContactEligibilityAuthority) {
   if (authority.suppressed) reasons.push("suppressed");
   return reasons;
 }
-function isObservation(value: unknown): value is ContactObservation { return Boolean(value && typeof value === "object" && typeof (value as ContactObservation).id === "string" && typeof (value as ContactObservation).verificationClass === "string"); }
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function opaque(value: unknown) { return typeof value === "string" && /^[A-Za-z0-9_.:-]+$/u.test(value) && value.length > 0 && value.length <= 160; }
 function validTimestamp(value: unknown) { return Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null; }

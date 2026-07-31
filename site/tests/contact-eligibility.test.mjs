@@ -59,6 +59,23 @@ test("P5 prep verification class, not adapter confidence, controls eligibility",
   } finally { await vite.close(); }
 });
 
+test("P5 prep refuses direct forged or partial verified observation shapes", async () => {
+  const { vite, evidence, eligibility } = await modules();
+  try {
+    const forged = { id: "forged-observation", kind: "email", normalizedValue: "contact@example.test", verificationClass: "mailbox_verified", confidence: 1, method: "mailbox_verification", verifiedAt: NOW - 1, observedAt: NOW };
+    assert.equal(evidence.isDefensivelyValidContactObservation(forged), false);
+    const result = eligibility.projectContactEligibility({ points: [forged], strategy: strategy(), authority: authority(), now: NOW });
+    assert.equal(result.state, "ContactSuggestion");
+    assert.equal(result.eligible, false);
+    assert.ok(result.reasonCodes.includes("no_contact_evidence"));
+    const accepted = evidence.ingestContactEvidence(assignment, envelope());
+    assert.equal(accepted.accepted, true);
+    const mismatchedVerifiedPhone = { ...accepted.observation, kind: "phone", normalizedValue: "+14165550199" };
+    assert.equal(evidence.isDefensivelyValidContactObservation(mismatchedVerifiedPhone), false, "mailbox verification is never a phone verification");
+    assert.notEqual(eligibility.projectContactEligibility({ points: [mismatchedVerifiedPhone], strategy: strategy(), authority: authority(), now: NOW }).state, "ContactReady");
+  } finally { await vite.close(); }
+});
+
 test("P5 prep applies default 30/90/90 day freshness and current invalidations", async () => {
   const { vite, evidence, eligibility } = await modules();
   try {
