@@ -170,7 +170,7 @@ function enrichmentAccount(scope, entityId) {
   const workspaceId = "workspace-synthetic";
   return {
     authorityType: "enrichment",
-    accountId: `enrichment:${workspaceId}:${scope}:${entityId}`,
+    accountId: `enrichment:${component(workspaceId)}:${scope}:${component(entityId)}`,
     scope,
     workspaceId,
     entityId,
@@ -231,7 +231,7 @@ function runnerAccount(scope, patch = {}) {
   const scopeId = "run-synthetic";
   return {
     authorityType: "runner_spend",
-    accountId: `runner:${scope}:${principalSubject}:${grantId}:${providerId}:${scopeId}`,
+    accountId: `runner:${scope}:${component(principalSubject)}:${component(grantId)}:${component(providerId)}:${component(scopeId)}`,
     scope,
     principalSubject,
     grantId,
@@ -253,4 +253,8 @@ function runnerRepository(authority, writes) {
       return { kind: "created", record };
     },
   };
+}
+
+function component(value) {
+  return `${value.length}:${value}`;
 }

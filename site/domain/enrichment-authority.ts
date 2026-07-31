@@ -111,7 +111,9 @@ function withinAccounts(accounts: readonly BudgetAccount[], grant: EnrichmentGra
   });
 }
 function copyAccount(account: BudgetAccount): BudgetAccount { return Object.freeze({ ...account }); }
-function enrichmentAccountId(workspaceId: string, scope: BudgetAccount["scope"], entityId: string): string { return `enrichment:${workspaceId}:${scope}:${entityId}`; }
+function enrichmentAccountId(workspaceId: string, scope: BudgetAccount["scope"], entityId: string): string {
+  return `enrichment:${component(workspaceId)}:${scope}:${component(entityId)}`;
+}
 function exactBudgetAccount(account: BudgetAccount): boolean {
   if (!account || typeof account !== "object") return false;
   return Object.keys(account).sort().join(",") === "accountId,actualCostMinor,actualUnits,authorityType,currency,entityId,maxCostMinor,maxUnits,reservedCostMinor,reservedUnits,scope,workspaceId"
@@ -122,6 +124,7 @@ function exactBudgetAccount(account: BudgetAccount): boolean {
 function safeSumWithin(actual: number, reserved: number, addition: number, maximum: number): boolean {
   return actual <= maximum && reserved <= maximum - actual && addition <= maximum - actual - reserved;
 }
+function component(value: string): string { return `${value.length}:${value}`; }
 function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now) && value.now > 0; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[]): boolean {

@@ -86,7 +86,7 @@ function validAccount(account: RunnerBudgetAccount, scope: RunnerBudgetAccount["
     && bounded(account.scopeId, 256);
 }
 function runnerAccountId(scope: RunnerBudgetAccount["scope"], principalSubject: string, grantId: string, providerId: string, scopeId: string): string {
-  return `runner:${scope}:${principalSubject}:${grantId}:${providerId}:${scopeId}`;
+  return `runner:${scope}:${component(principalSubject)}:${component(grantId)}:${component(providerId)}:${component(scopeId)}`;
 }
 function within(account: RunnerBudgetAccount, amount: number): boolean {
   return [account.actualCostMinor, account.reservedCostMinor, account.maxCostMinor, amount].every(nonNegative)
@@ -99,6 +99,7 @@ function safeSumWithin(actual: number, reserved: number, addition: number, maxim
   return actual <= maximum && reserved <= maximum - actual && addition <= maximum - actual - reserved;
 }
 function bounded(value: unknown, max: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
+function component(value: string): string { return `${value.length}:${value}`; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 function positive(value: unknown): value is number { return nonNegative(value) && value > 0; }
 function stable(value: unknown): string { if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`; if (value && typeof value === "object") { const record = value as Record<string, unknown>; return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stable(record[key])}`).join(",")}}`; } return JSON.stringify(value); }
