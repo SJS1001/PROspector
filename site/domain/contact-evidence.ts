@@ -28,6 +28,36 @@ export type ContactEvidenceAssignment = Readonly<{
   contactId: string;
   profileConfigurationId: string;
   profileConfigurationDigest: string;
+  providerAuthority: Readonly<{
+    providerId: string;
+    providerVersion: string;
+    catalogRef: string;
+  }> | null;
+}>;
+
+/**
+ * Output from a trusted server-side verifier. Provider adapters must never
+ * manufacture this value or place any of its authority fields in their envelope.
+ */
+export type TrustedContactVerification = Readonly<{
+  observationId: string;
+  workspaceId: string;
+  contactId: string;
+  profileConfigurationId: string;
+  profileConfigurationDigest: string;
+  kind: ContactPointKind;
+  normalizedValue: string;
+  contentHash: string;
+  verificationClass: ContactVerificationClass;
+  method: ContactMethod;
+  verifiedAt: number | null;
+  providerId: string | null;
+  providerVersion: string | null;
+  catalogRef: string | null;
+  verifierId: string;
+  verifierVersion: string;
+  verdictReference: string;
+  verdictDigest: string;
 }>;
 
 export type ContactObservation = Readonly<{
@@ -50,8 +80,15 @@ export type ContactObservation = Readonly<{
   }>;
   observedAt: number;
   verifiedAt: number | null;
-  provider: string | null;
-  catalogVersion: string | null;
+  providerId: string | null;
+  providerVersion: string | null;
+  catalogRef: string | null;
+  verificationAuthority: Readonly<{
+    verifierId: string;
+    verifierVersion: string;
+    verdictReference: string;
+    verdictDigest: string;
+  }> | null;
   lineage: Readonly<{ parentObservationId: string | null }>;
 }>;
 
@@ -79,6 +116,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 export function ingestContactEvidence(
   assignmentValue: ContactEvidenceAssignment | unknown,
   envelopeValue: unknown,
+  trustedVerificationValue?: TrustedContactVerification | unknown,
 ): ContactEvidenceResult {
   const assignment = assignmentRecord(assignmentValue);
   const envelope = record(envelopeValue);
@@ -91,32 +129,39 @@ export function ingestContactEvidence(
     envelope.profileConfigurationDigest !== assignment.profileConfigurationDigest
   ) return blocked("assignment_scope_mismatch");
 
+  if ([
+    "verificationClass", "method", "verifiedAt", "provider", "providerId",
+    "providerVersion", "catalogVersion", "catalogRef", "verificationAuthority",
+  ].some((key) => Object.hasOwn(envelope, key))) {
+    return blocked("untrusted_verification_authority");
+  }
+
   const id = opaque(envelope.id, 160);
   const kind: ContactPointKind | null = envelope.kind === "email" || envelope.kind === "phone" ? envelope.kind : null;
-  const verificationClass = typeof envelope.verificationClass === "string" && CLASSES.has(envelope.verificationClass)
-    ? envelope.verificationClass as ContactVerificationClass : null;
-  const method = typeof envelope.method === "string" && METHODS.has(envelope.method as ContactMethod)
-    ? envelope.method as ContactMethod : null;
   const confidence = typeof envelope.confidence === "number" ? envelope.confidence : Number.NaN;
-  if (!id || !kind || !verificationClass || !method || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+  if (!id || !kind || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
     return blocked("invalid_contact_claim");
   }
 
   const normalizedValue = normalizeContactValue(kind, envelope.value);
   const provenance = normalizeProvenance(envelope.provenance);
   const observedAt = timestamp(envelope.observedAt);
-  const verifiedAt = envelope.verifiedAt === null ? null : timestamp(envelope.verifiedAt);
-  if (!normalizedValue || !provenance || observedAt === null || (envelope.verifiedAt !== null && verifiedAt === null)) {
+  if (!normalizedValue || !provenance || observedAt === null) {
     return blocked("invalid_contact_provenance");
   }
+  const trusted = trustedVerificationValue === undefined
+    ? null
+    : normalizeTrustedVerification(trustedVerificationValue, assignment, {
+        id, kind, normalizedValue, contentHash: provenance.contentHash,
+      });
+  if (trustedVerificationValue !== undefined && !trusted) return blocked("invalid_verification_authority");
+
+  const verificationClass = trusted?.verificationClass ?? "suggested";
+  const method = trusted?.method ?? "pattern_inference";
+  const verifiedAt = trusted?.verifiedAt ?? null;
   if (verifiedAt !== null && (verifiedAt > observedAt || verifiedAt < provenance.retrievedAt)) return blocked("invalid_verification_time");
   if (!methodMatchesClaim(kind, verificationClass, method, verifiedAt)) return blocked("unrecognized_verification_method");
 
-  const provider = optionalText(envelope.provider, 120);
-  const catalogVersion = optionalText(envelope.catalogVersion, 120);
-  if ((envelope.provider !== undefined && provider === null) || (envelope.catalogVersion !== undefined && catalogVersion === null)) {
-    return blocked("invalid_provider_metadata");
-  }
   const parentObservationId = envelope.lineage === undefined ? null : optionalLineage(envelope.lineage);
   if (envelope.lineage !== undefined && parentObservationId === undefined) return blocked("invalid_evidence_lineage");
 
@@ -136,8 +181,15 @@ export function ingestContactEvidence(
       provenance,
       observedAt,
       verifiedAt,
-      provider,
-      catalogVersion,
+      providerId: trusted?.providerId ?? null,
+      providerVersion: trusted?.providerVersion ?? null,
+      catalogRef: trusted?.catalogRef ?? null,
+      verificationAuthority: trusted ? {
+        verifierId: trusted.verifierId,
+        verifierVersion: trusted.verifierVersion,
+        verdictReference: trusted.verdictReference,
+        verdictDigest: trusted.verdictDigest,
+      } : null,
       lineage: { parentObservationId: parentObservationId ?? null },
     }),
   });
@@ -180,8 +232,17 @@ export function isDefensivelyValidContactObservation(value: unknown): value is C
   const provenance = normalizeProvenance(observation.provenance);
   const observedAt = timestamp(observation.observedAt);
   const verifiedAt = observation.verifiedAt === null ? null : timestamp(observation.verifiedAt);
-  const provider = observation.provider === null ? null : optionalText(observation.provider, 120);
-  const catalogVersion = observation.catalogVersion === null ? null : optionalText(observation.catalogVersion, 120);
+  const providerId = observation.providerId === null ? null : optionalText(observation.providerId, 120);
+  const providerVersion = observation.providerVersion === null ? null : optionalText(observation.providerVersion, 120);
+  const catalogRef = observation.catalogRef === null ? null : optionalText(observation.catalogRef, 256);
+  const providerTupleValid = (
+    observation.providerId === null && observation.providerVersion === null && observation.catalogRef === null
+  ) || (
+    providerId !== null && providerVersion !== null && catalogRef !== null
+  );
+  const verificationAuthority = observation.verificationAuthority === null
+    ? null
+    : normalizeStoredVerificationAuthority(observation.verificationAuthority);
   const lineage = record(observation.lineage);
   const parentObservationId = lineage && Object.hasOwn(lineage, "parentObservationId")
     ? lineage.parentObservationId === null ? null : opaque(lineage.parentObservationId, 160) : undefined;
@@ -193,9 +254,91 @@ export function isDefensivelyValidContactObservation(value: unknown): value is C
     typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 &&
     normalizedValue === observation.normalizedValue && provenance && observedAt !== null &&
     (observation.verifiedAt === null || verifiedAt !== null) && verifiedTimeValid &&
-    (observation.provider === null || provider !== null) && (observation.catalogVersion === null || catalogVersion !== null) &&
+    providerTupleValid &&
+    (observation.verificationAuthority === null || verificationAuthority !== null) &&
+    (!(verificationClass === "mailbox_verified" || verificationClass === "source_verified") || verificationAuthority !== null) &&
     lineage && parentObservationId !== undefined,
   );
+}
+
+function normalizeTrustedVerification(
+  value: unknown,
+  assignment: ContactEvidenceAssignment,
+  evidence: Readonly<{ id: string; kind: ContactPointKind; normalizedValue: string; contentHash: string }>,
+): TrustedContactVerification | null {
+  const input = record(value);
+  if (!input) return null;
+  const verificationClass = typeof input.verificationClass === "string" && CLASSES.has(input.verificationClass)
+    ? input.verificationClass as ContactVerificationClass : null;
+  const method = typeof input.method === "string" && METHODS.has(input.method as ContactMethod)
+    ? input.method as ContactMethod : null;
+  const verifiedAt = input.verifiedAt === null ? null : timestamp(input.verifiedAt);
+  const providerId = input.providerId === null ? null : optionalText(input.providerId, 120);
+  const providerVersion = input.providerVersion === null ? null : optionalText(input.providerVersion, 120);
+  const catalogRef = input.catalogRef === null ? null : optionalText(input.catalogRef, 256);
+  const providerTupleValid = (
+    input.providerId === null && input.providerVersion === null && input.catalogRef === null
+  ) || (
+    providerId !== null && providerVersion !== null && catalogRef !== null
+  );
+  const verifierId = opaque(input.verifierId, 160);
+  const verifierVersion = opaque(input.verifierVersion, 160);
+  const verdictReference = opaque(input.verdictReference, 256);
+  const verdictDigest = typeof input.verdictDigest === "string" && HASH.test(input.verdictDigest)
+    ? input.verdictDigest : null;
+  if (
+    input.observationId !== evidence.id ||
+    input.workspaceId !== assignment.workspaceId ||
+    input.contactId !== assignment.contactId ||
+    input.profileConfigurationId !== assignment.profileConfigurationId ||
+    input.profileConfigurationDigest !== assignment.profileConfigurationDigest ||
+    input.kind !== evidence.kind ||
+    input.normalizedValue !== evidence.normalizedValue ||
+    input.contentHash !== evidence.contentHash ||
+    !verificationClass ||
+    !method ||
+    (input.verifiedAt !== null && verifiedAt === null) ||
+    !providerTupleValid ||
+    !providerMatchesAssignment(assignment, providerId, providerVersion, catalogRef) ||
+    !verifierId ||
+    !verifierVersion ||
+    !verdictReference ||
+    !verdictDigest ||
+    !methodMatchesClaim(evidence.kind, verificationClass, method, verifiedAt)
+  ) return null;
+  return deepFreeze({
+    observationId: evidence.id,
+    workspaceId: assignment.workspaceId,
+    contactId: assignment.contactId,
+    profileConfigurationId: assignment.profileConfigurationId,
+    profileConfigurationDigest: assignment.profileConfigurationDigest,
+    kind: evidence.kind,
+    normalizedValue: evidence.normalizedValue,
+    contentHash: evidence.contentHash,
+    verificationClass,
+    method,
+    verifiedAt,
+    providerId,
+    providerVersion,
+    catalogRef,
+    verifierId,
+    verifierVersion,
+    verdictReference,
+    verdictDigest,
+  });
+}
+
+function normalizeStoredVerificationAuthority(value: unknown) {
+  const input = record(value);
+  if (!input) return null;
+  const verifierId = opaque(input.verifierId, 160);
+  const verifierVersion = opaque(input.verifierVersion, 160);
+  const verdictReference = opaque(input.verdictReference, 256);
+  const verdictDigest = typeof input.verdictDigest === "string" && HASH.test(input.verdictDigest)
+    ? input.verdictDigest : null;
+  return verifierId && verifierVersion && verdictReference && verdictDigest
+    ? Object.freeze({ verifierId, verifierVersion, verdictReference, verdictDigest })
+    : null;
 }
 
 function assignmentRecord(value: unknown): ContactEvidenceAssignment | null {
@@ -206,8 +349,33 @@ function assignmentRecord(value: unknown): ContactEvidenceAssignment | null {
   const profileConfigurationId = opaque(input.profileConfigurationId, 160);
   const profileConfigurationDigest = typeof input.profileConfigurationDigest === "string" && HASH.test(input.profileConfigurationDigest)
     ? input.profileConfigurationDigest : null;
-  return workspaceId && contactId && profileConfigurationId && profileConfigurationDigest
-    ? Object.freeze({ workspaceId, contactId, profileConfigurationId, profileConfigurationDigest }) : null;
+  const providerAuthority = input.providerAuthority === null ? null : normalizeProviderAuthority(input.providerAuthority);
+  return workspaceId && contactId && profileConfigurationId && profileConfigurationDigest &&
+    (input.providerAuthority === null || providerAuthority !== null)
+    ? Object.freeze({ workspaceId, contactId, profileConfigurationId, profileConfigurationDigest, providerAuthority }) : null;
+}
+
+function normalizeProviderAuthority(value: unknown) {
+  const input = record(value);
+  if (!input) return null;
+  const providerId = safeText(input.providerId, 120);
+  const providerVersion = safeText(input.providerVersion, 120);
+  const catalogRef = safeText(input.catalogRef, 256);
+  return providerId && providerVersion && catalogRef
+    ? Object.freeze({ providerId, providerVersion, catalogRef })
+    : null;
+}
+
+function providerMatchesAssignment(
+  assignment: ContactEvidenceAssignment,
+  providerId: string | null,
+  providerVersion: string | null,
+  catalogRef: string | null,
+) {
+  const expected = assignment.providerAuthority;
+  return expected === null
+    ? providerId === null && providerVersion === null && catalogRef === null
+    : providerId === expected.providerId && providerVersion === expected.providerVersion && catalogRef === expected.catalogRef;
 }
 
 function normalizeContactValue(kind: ContactPointKind, value: unknown) {

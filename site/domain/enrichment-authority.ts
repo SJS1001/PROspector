@@ -15,7 +15,13 @@ export type BudgetAccount = Readonly<{
   reservedCostMinor: number;
   maxCostMinor: number;
 }>;
-export type AssignedContactEvidence = Readonly<ContactEvidenceAssignment & { prospectId: string }>;
+export type AssignedContactEvidence = Readonly<
+  Omit<ContactEvidenceAssignment, "providerAuthority"> & {
+    assignmentId: string;
+    prospectId: string;
+    role: "champion" | "economic_buyer" | "general";
+  }
+>;
 export type ReservationAuthority = {
   admitted: boolean; principalSubject: string; workspaceId: string; sourceRevision: number; grant: EnrichmentGrant;
   configuration: { id: string; digest: string; revision: number; current: boolean };
@@ -57,7 +63,7 @@ export async function validateEnrichmentAuthority(authority: ReservationAuthorit
   if (!configuration.current || configuration.id !== grant.tuple.configurationId || configuration.digest !== grant.tuple.configurationDigest || configuration.revision !== grant.tuple.configurationRevision) return { kind: "blocked", reason: "configuration_not_current" };
   if (!sameQuote(quote, grant)) return { kind: "blocked", reason: quote.currency !== grant.tuple.currency ? "currency_mismatch" : "quote_unavailable" };
   if (!sameProspects(authority.prospects, grant)) return { kind: "blocked", reason: "prospect_not_approved" };
-  if (!validEvidenceAssignments(authority.evidenceAssignments, authority.workspaceId, configuration.id, configuration.digest, grant.tuple.prospectIds)) return { kind: "blocked", reason: "prospect_not_approved" };
+  if (!validEvidenceAssignments(authority.evidenceAssignments, authority.workspaceId, configuration.id, configuration.digest, grant.tuple.prospectIds, grant.tuple.maxUnits)) return { kind: "blocked", reason: "prospect_not_approved" };
   const snapshot: IssuanceSnapshot = { admitted: authority.admitted, workspaceId: authority.workspaceId, ownerSubject: authority.principalSubject, revision: authority.sourceRevision, configuration, prospects: authority.prospects, quote };
   const derived = await deriveOperationKey({ snapshot, input: { operation: grant.tuple.operation, maxUnits: grant.tuple.maxUnits, maxCostMinor: grant.tuple.maxCostMinor, currency: grant.tuple.currency, expiresAt: grant.tuple.expiresAt }, prospectIds: grant.tuple.prospectIds });
   if (input.operationKey !== grant.tuple.operationKey || derived !== grant.tuple.operationKey) return { kind: "blocked", reason: "operation_key_mismatch" };
@@ -127,8 +133,25 @@ function safeSumWithin(actual: number, reserved: number, addition: number, maxim
 function component(value: string): string { return `${value.length}:${value}`; }
 function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now) && value.now > 0; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
-function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[]): boolean {
-  if (!Array.isArray(assignments) || assignments.length !== prospectIds.length || new Set(assignments.map((item) => item.prospectId)).size !== prospectIds.length || new Set(assignments.map((item) => item.contactId)).size !== assignments.length) return false;
-  return assignments.every((item) => prospectIds.includes(item.prospectId) && bounded(item.prospectId, 256) && item.workspaceId === workspaceId && bounded(item.contactId, 256) && item.profileConfigurationId === configurationId && item.profileConfigurationDigest === configurationDigest);
+function validEvidenceAssignments(assignments: readonly AssignedContactEvidence[], workspaceId: string, configurationId: string, configurationDigest: string, prospectIds: readonly string[], maxUnits: number): boolean {
+  if (
+    !Array.isArray(assignments) ||
+    assignments.length < prospectIds.length ||
+    assignments.length > maxUnits ||
+    assignments.length > 100 ||
+    new Set(assignments.map((item) => item.assignmentId)).size !== assignments.length ||
+    new Set(assignments.map((item) => item.contactId)).size !== assignments.length ||
+    prospectIds.some((prospectId) => !assignments.some((item) => item.prospectId === prospectId))
+  ) return false;
+  return assignments.every((item) =>
+    bounded(item.assignmentId, 256) &&
+    prospectIds.includes(item.prospectId) &&
+    bounded(item.prospectId, 256) &&
+    (item.role === "champion" || item.role === "economic_buyer" || item.role === "general") &&
+    item.workspaceId === workspaceId &&
+    bounded(item.contactId, 256) &&
+    item.profileConfigurationId === configurationId &&
+    item.profileConfigurationDigest === configurationDigest
+  );
 }
 function bounded(value: unknown, max: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }

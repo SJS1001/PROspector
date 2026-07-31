@@ -96,7 +96,7 @@ test("P5 preparation: only an exact committed reservation can invoke the injecte
         return grantId === grant.id ? {
           admitted: true, principalSubject: "owner-synthetic", workspaceId: "workspace-synthetic", sourceRevision: 7, grant,
           configuration: snapshot.configuration, prospects: snapshot.prospects, quote: snapshot.quote,
-          accounts: [budget("grant"), budget("profile"), budget("workspace"), budget("provider")], evidenceAssignments: [evidenceBinding()],
+          accounts: [budget("grant", 22, grant.id), budget("profile", 22, grant.id), budget("workspace", 22, grant.id), budget("provider", 22, grant.id)], evidenceAssignments: [evidenceBinding()],
         } : null;
       },
       async commitReservation(record) { mutations.push(["reserve", record.id]); reservations.set(record.id, record); return { kind: "created", record }; },
@@ -151,12 +151,12 @@ test("P5 preparation: stale, mismatched, expired, capped, and consumed reservati
       ["prospect revision changed", (value) => ({ ...value, prospects: [{ ...value.prospects[0], revision: 5 }] })],
       ["tampered immutable tuple", (value) => ({ ...value, grant: { ...value.grant, tuple: { ...value.grant.tuple, workspaceId: "other-workspace" } } })],
       ["stale prospect", (value) => ({ ...value, prospects: [{ ...value.prospects[0], state: "deferred" }] })],
-      ["over cap", (value) => ({ ...value, accounts: [budget("grant", 21)] })],
+      ["over cap", (value) => ({ ...value, accounts: [budget("grant", 21, grant.id)] })],
       ["consumed", (value) => ({ ...value, grant: { ...value.grant, status: "consumed" } })],
     ];
     for (const [name, mutate] of cases) {
       const writes = [];
-      const base = { admitted: true, principalSubject: "owner-synthetic", workspaceId: "workspace-synthetic", sourceRevision: 7, grant, configuration: currentSnapshot().configuration, prospects: currentSnapshot().prospects, quote: currentSnapshot().quote, accounts: [budget("grant"), budget("profile"), budget("workspace"), budget("provider")], evidenceAssignments: [evidenceBinding()] };
+      const base = { admitted: true, principalSubject: "owner-synthetic", workspaceId: "workspace-synthetic", sourceRevision: 7, grant, configuration: currentSnapshot().configuration, prospects: currentSnapshot().prospects, quote: currentSnapshot().quote, accounts: [budget("grant", 22, grant.id), budget("profile", 22, grant.id), budget("workspace", 22, grant.id), budget("provider", 22, grant.id)], evidenceAssignments: [evidenceBinding()] };
       const denied = await authority.reserveEnrichmentOperation({ async loadReservationAuthority() { return mutate(base); }, async commitReservation(record) { writes.push(record); return { kind: "created", record }; }, async claimCommittedInvocation() { return null; }, async settleReservation() {}, async markNeedsReconciliation() {} }, { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 });
       assert.equal(denied.kind, "blocked", name); assert.deepEqual(writes, [], name); assert.equal(fakePort.calls, 0, name);
     }
@@ -188,10 +188,10 @@ test("P5 hardening: immutable grants and exact synthetic authority shapes fail c
       assert.equal(result.kind, "blocked", name); assert.deepEqual(writes, [], name);
     }
     for (const [name, input, accounts] of [
-      ["wrong input grant id", { grantId: "grant-other", principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }, [budget("grant"), budget("profile"), budget("workspace"), budget("provider")] ],
-      ["nonpositive reservation clock", { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 0 }, [budget("grant"), budget("profile"), budget("workspace"), budget("provider")] ],
-      ["duplicate budget scope", { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }, [budget("grant"), budget("profile"), budget("profile"), budget("provider")] ],
-      ["missing budget scope", { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }, [budget("grant"), budget("profile"), budget("workspace")] ],
+      ["wrong input grant id", { grantId: "grant-other", principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }, [budget("grant", 22, grant.id), budget("profile", 22, grant.id), budget("workspace", 22, grant.id), budget("provider", 22, grant.id)] ],
+      ["nonpositive reservation clock", { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 0 }, [budget("grant", 22, grant.id), budget("profile", 22, grant.id), budget("workspace", 22, grant.id), budget("provider", 22, grant.id)] ],
+      ["duplicate budget scope", { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }, [budget("grant", 22, grant.id), budget("profile", 22, grant.id), budget("profile", 22, grant.id), budget("provider", 22, grant.id)] ],
+      ["missing budget scope", { grantId: grant.id, principalSubject: "owner-synthetic", operationKey: grant.tuple.operationKey, now: 1_100 }, [budget("grant", 22, grant.id), budget("profile", 22, grant.id), budget("workspace", 22, grant.id)] ],
     ]) {
       const writes = [];
       const result = await authority.reserveEnrichmentOperation({ async loadReservationAuthority() { return { admitted: true, principalSubject: "owner-synthetic", workspaceId: "workspace-synthetic", sourceRevision: 7, grant, configuration: currentSnapshot().configuration, prospects: currentSnapshot().prospects, quote: currentSnapshot().quote, accounts, evidenceAssignments: [evidenceBinding()] }; }, async commitReservation(record) { writes.push(record); return { kind: "created", record }; }, async claimCommittedInvocation() { return { kind: "blocked", reason: "unavailable" }; }, async settleReservation() {}, async markNeedsReconciliation() { return { kind: "recorded" }; }, async listInvocationsNeedingRecovery() { return []; } }, input);
@@ -273,6 +273,68 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
     const acceptedPort = { calls: 0, async enrich(value) { this.calls += 1; return { kind: "partial", reservationId: value.reservationId, operationKey: value.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }; } };
     const accepted = await operation.executeEnrichmentOperation(acceptedRepository, acceptedPort, { reservationId: assignment.reservationId, now: 1_100 });
     assert.equal(accepted.kind, "settled"); assert.equal(acceptedPort.calls, 1); assert.equal(acceptedState.observations.length, 1); assert.equal(acceptedState.observations[0].workspaceId, assignment.workspaceId); assert.equal(acceptedState.observations[0].contactId, evidenceBinding().contactId); assert.equal(Object.isFrozen(acceptedState.observations[0]), true);
+    assert.equal(acceptedState.observations[0].verificationClass, "suggested", "adapter-only evidence cannot self-certify eligibility");
+    assert.equal(acceptedState.observations[0].providerId, null);
+
+    const verifiedState = { status: "reserved", observations: [], reconciled: 0 };
+    const verifiedRepository = {
+      async claimCommittedInvocation() { verifiedState.status = "invoking"; return { kind: "claimed", assignment, claimedAt: 1_100 }; },
+      async settleReservation(_id, settlement) { verifiedState.observations = settlement.observations; verifiedState.status = "settled"; },
+      async markNeedsReconciliation() { verifiedState.reconciled += 1; verifiedState.status = "needs_reconciliation"; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    };
+    const trustedVerifier = { async verify({ envelope: raw }) { return contactVerification(raw); } };
+    const verified = await operation.executeEnrichmentOperation(verifiedRepository, acceptedPort, { reservationId: assignment.reservationId, now: 1_100 }, trustedVerifier);
+    assert.equal(verified.kind, "settled"); assert.equal(verifiedState.reconciled, 0); assert.equal(verifiedState.observations.length, 1);
+    assert.equal(verifiedState.observations[0].verificationClass, "mailbox_verified");
+    assert.equal(verifiedState.observations[0].providerId, assignment.providerId);
+    assert.equal(verifiedState.observations[0].providerVersion, assignment.providerVersion);
+    assert.equal(verifiedState.observations[0].catalogRef, assignment.catalogRef);
+
+    const multiAssignment = authorizedAssignment({
+      maxUnits: 2,
+      maxCostMinor: 2,
+      evidenceAssignments: [
+        evidenceBinding(),
+        evidenceBinding({ assignmentId: "assignment-prospect-a-economic-buyer", role: "economic_buyer", contactId: "contact-economic-buyer" }),
+      ],
+    });
+    const multiState = { observations: [], reconciled: 0 };
+    const multiRepository = {
+      async claimCommittedInvocation() { return { kind: "claimed", assignment: multiAssignment, claimedAt: 1_100 }; },
+      async settleReservation(_id, settlement) { multiState.observations = settlement.observations; },
+      async markNeedsReconciliation() { multiState.reconciled += 1; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    };
+    const multiPort = { async enrich(value) { return {
+      kind: "completed", reservationId: value.reservationId, operationKey: value.operationKey,
+      documentedUnits: 2, documentedCostMinor: 2,
+      evidence: [
+        contactEnvelope(),
+        contactEnvelope({ id: "observation-economic-buyer", assignmentId: "assignment-prospect-a-economic-buyer", contactId: "contact-economic-buyer", value: "economic-buyer@example.invalid" }),
+      ],
+    }; } };
+    const multi = await operation.executeEnrichmentOperation(multiRepository, multiPort, { reservationId: multiAssignment.reservationId, now: 1_100 });
+    assert.equal(multi.kind, "settled");
+    assert.equal(multiState.reconciled, 0);
+    assert.deepEqual(multiState.observations.map((observation) => observation.contactId), ["contact-synthetic", "contact-economic-buyer"]);
+
+    const forgedProviderState = { settled: 0, reconciled: 0 };
+    const forgedProviderRepository = {
+      async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
+      async settleReservation() { forgedProviderState.settled += 1; },
+      async markNeedsReconciliation() { forgedProviderState.reconciled += 1; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    };
+    const forgedProvider = await operation.executeEnrichmentOperation(
+      forgedProviderRepository,
+      acceptedPort,
+      { reservationId: assignment.reservationId, now: 1_100 },
+      { async verify({ envelope: raw }) { return contactVerification(raw, { providerId: "different-provider" }); } },
+    );
+    assert.equal(forgedProvider.kind, "needs_reconciliation");
+    assert.equal(forgedProviderState.settled, 0);
+    assert.equal(forgedProviderState.reconciled, 1);
   } finally { await vite.close(); }
 });
 
@@ -303,8 +365,28 @@ function currentSnapshot() {
   return { admitted: true, workspaceId: "workspace-synthetic", ownerSubject: "owner-synthetic", revision: 7, configuration: { id: "config-synthetic", digest: "a".repeat(64), revision: 3, current: true }, prospects: [{ id: "prospect-a", state: "approved", configurationId: "config-synthetic", configurationDigest: "a".repeat(64), revision: 4 }], quote: { providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", revision: 2, currency: "USD", unitCostMinor: 11, expiresAt: 2_000 } };
 }
 function issueInput() { return { principalSubject: "owner-synthetic", prospectIds: ["prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 2, maxCostMinor: 22, currency: "USD", expiresAt: 1_500, expectedRevision: 7, idempotencyKey: "issue-synthetic-2", now: 1_000 }; }
-function budget(scope, maxCostMinor = 22) { return { scope, currency: "USD", actualUnits: 0, reservedUnits: 0, maxUnits: 2, actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor }; }
-function evidenceBinding() { return { prospectId: "prospect-a", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64) }; }
+function budget(scope, maxCostMinor = 22, grantId = "runner-grant") {
+  if (scope === "runner_per_run" || scope === "runner_monthly") {
+    const principalSubject = "owner-synthetic", providerId = "synthetic-model-provider", scopeId = "run-synthetic";
+    return {
+      authorityType: "runner_spend",
+      accountId: `runner:${scope}:${principalSubject.length}:${principalSubject}:${grantId.length}:${grantId}:${providerId.length}:${providerId}:${scopeId.length}:${scopeId}`,
+      scope, principalSubject, grantId, providerId, scopeId, currency: "USD",
+      actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor,
+    };
+  }
+  const workspaceId = "workspace-synthetic";
+  const entityId = scope === "grant" ? grantId : scope === "profile" ? "config-synthetic" : scope === "workspace" ? workspaceId : "synthetic-provider";
+  return {
+    authorityType: "enrichment",
+    accountId: `enrichment:${workspaceId.length}:${workspaceId}:${scope}:${entityId.length}:${entityId}`,
+    scope, workspaceId, entityId, currency: "USD",
+    actualUnits: 0, reservedUnits: 0, maxUnits: 2,
+    actualCostMinor: 0, reservedCostMinor: 0, maxCostMinor,
+  };
+}
+function evidenceBinding(patch = {}) { return { assignmentId: "assignment-prospect-a-champion", prospectId: "prospect-a", role: "champion", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), ...patch }; }
 function authorizedAssignment(patch = {}) { return { reservationId: "reservation-hardened", workspaceId: "workspace-synthetic", configurationId: "config-synthetic", configurationDigest: "a".repeat(64), operationKey: `op_${"a".repeat(64)}`, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", quoteRevision: 1, prospectIds: ["prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 1, maxCostMinor: 1, currency: "USD", expiresAt: 2_000, evidenceAssignments: [evidenceBinding()], ...patch }; }
-function contactEnvelope(patch = {}) { return { id: "observation-synthetic", prospectId: "prospect-a", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), kind: "email", value: "synthetic-contact@example.invalid", verificationClass: "mailbox_verified", confidence: 1, method: "mailbox_verification", provenance: { sourceReference: "source-synthetic", excerpt: "synthetic excerpt", objectReference: "object-synthetic", contentHash: "b".repeat(64), retrievedAt: 1_090 }, observedAt: 1_100, verifiedAt: 1_095, provider: "synthetic-provider", catalogVersion: "v1", ...patch }; }
+function contactEnvelope(patch = {}) { return { id: "observation-synthetic", assignmentId: "assignment-prospect-a-champion", prospectId: "prospect-a", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), kind: "email", value: "synthetic-contact@example.invalid", confidence: 1, provenance: { sourceReference: "source-synthetic", excerpt: "synthetic excerpt", objectReference: "object-synthetic", contentHash: "b".repeat(64), retrievedAt: 1_090 }, observedAt: 1_100, ...patch }; }
+function contactVerification(raw = contactEnvelope(), patch = {}) { return { observationId: raw.id, workspaceId: raw.workspaceId, contactId: raw.contactId, profileConfigurationId: raw.profileConfigurationId, profileConfigurationDigest: raw.profileConfigurationDigest, kind: raw.kind, normalizedValue: String(raw.value).trim().toLowerCase(), contentHash: raw.provenance.contentHash, verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: 1_095, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", verifierId: "server-verifier", verifierVersion: "v1", verdictReference: "verdict-synthetic", verdictDigest: "d".repeat(64), ...patch }; }
 function runnerAuthority({ maxRetries, attempt }) { return { admitted: true, principalSubject: "owner-synthetic", grant: { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 }, attempt, perRun: budget("runner_per_run", 9), monthly: budget("runner_monthly", 9) }; }

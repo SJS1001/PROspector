@@ -23,6 +23,10 @@ export type ContactEligibilityAuthority = Readonly<{
   phase4Approved: boolean;
   contactCapabilityEnabled: boolean;
 }>;
+export type ContactEligibilityTarget = Readonly<{
+  workspaceId: string;
+  contactId: string;
+}>;
 export type DownstreamBoundary = "package_approval" | "crm_export" | "click_to_call" | "final_send";
 export type DownstreamEffectSnapshot = Readonly<{
   packageMutations: 0;
@@ -38,7 +42,7 @@ export type ContactEligibility = Readonly<{
   reasonCodes: readonly string[];
   points: readonly Readonly<{
     observationId: string;
-    state: "eligible" | "suggestion" | "invalid" | "stale" | "configuration_mismatch";
+    state: "eligible" | "suggestion" | "invalid" | "stale" | "scope_mismatch" | "configuration_mismatch";
     freshnessExpiresAt: number | null;
     verificationClass: ContactObservation["verificationClass"];
   }> [];
@@ -61,6 +65,7 @@ const MAX_FRESHNESS_MS = 366 * 24 * 60 * 60 * 1000;
  * enabled Phase 5 capability before a fresh verified point can become ContactReady.
  */
 export function projectContactEligibility(value: {
+  target?: ContactEligibilityTarget;
   points?: readonly ContactObservation[];
   strategy?: ContactStrategy;
   authority?: Partial<ContactEligibilityAuthority>;
@@ -70,14 +75,17 @@ export function projectContactEligibility(value: {
   const now = validTimestamp(input?.now) ?? Date.now();
   const authority = normalizeAuthority(input?.authority);
   const reasonCodes = authorityReasons(authority);
+  const target = normalizeTarget(input?.target);
+  if (!target) reasonCodes.push("invalid_contact_target");
   const strategy = normalizeStrategy(input?.strategy);
   if (!strategy) reasonCodes.push("invalid_contact_strategy");
 
   const points = Array.isArray(input?.points) ? input.points.filter(isDefensivelyValidContactObservation) : [];
-  const projected = points.map((point) => projectPoint(point, strategy, now));
+  const projected = points.map((point) => projectPoint(point, target, strategy, now));
   if (!points.length) reasonCodes.push("no_contact_evidence");
   if (projected.some((point) => point.state === "stale")) reasonCodes.push("contact_evidence_stale");
   if (projected.some((point) => point.state === "invalid")) reasonCodes.push("contact_evidence_invalid");
+  if (projected.some((point) => point.state === "scope_mismatch")) reasonCodes.push("contact_scope_mismatch");
   if (projected.some((point) => point.state === "configuration_mismatch")) reasonCodes.push("contact_configuration_mismatch");
   if (projected.length > 0 && projected.every((point) => point.state === "suggestion")) reasonCodes.push("verification_class_ineligible");
 
@@ -87,7 +95,7 @@ export function projectContactEligibility(value: {
   const state: ContactEligibilityState = suppressed
     ? "NonContactable"
     : hasEligible && !blockedForReview ? "ContactReady"
-    : hasEligible || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
+    : hasEligible || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
       ? "NeedsReview"
       : "ContactSuggestion";
   return freeze({ state, eligible: state === "ContactReady", reasonCodes: uniqueSorted(reasonCodes), points: projected });
@@ -112,9 +120,12 @@ function blockedRecheck(boundary: DownstreamBoundary, input: unknown): Downstrea
   return freeze({ boundary, blocked: true as const, eligibility, effectsBefore, effectsAfter });
 }
 
-function projectPoint(point: ContactObservation, strategy: Freshness | null, now: number) {
+function projectPoint(point: ContactObservation, target: ContactEligibilityTarget | null, strategy: Freshness | null, now: number) {
   const eligibleClass = point.verificationClass === "mailbox_verified" || point.verificationClass === "source_verified";
   if (!eligibleClass) return freeze({ observationId: point.id, state: point.verificationClass === "invalid" ? "invalid" as const : "suggestion" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
+  if (!target || point.workspaceId !== target.workspaceId || point.contactId !== target.contactId) {
+    return freeze({ observationId: point.id, state: "scope_mismatch" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
+  }
   if (strategy && (point.profileConfigurationId !== strategy.configurationId || point.profileConfigurationDigest !== strategy.configurationDigest)) {
     return freeze({ observationId: point.id, state: "configuration_mismatch" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
   }
@@ -125,6 +136,12 @@ function projectPoint(point: ContactObservation, strategy: Freshness | null, now
 }
 
 type Freshness = Readonly<Pick<ContactStrategy, "configurationId" | "configurationDigest"> & Required<Pick<ContactStrategy, "mailboxVerifiedEmailFreshnessMs" | "sourceVerifiedEmailFreshnessMs" | "verifiedBusinessPhoneFreshnessMs">>>;
+function normalizeTarget(value: unknown): ContactEligibilityTarget | null {
+  const target = record(value);
+  return target && opaque(target.workspaceId) && opaque(target.contactId)
+    ? Object.freeze({ workspaceId: target.workspaceId as string, contactId: target.contactId as string })
+    : null;
+}
 function normalizeStrategy(value: unknown): Freshness | null {
   const strategy = record(value);
   if (!strategy || !opaque(strategy.configurationId) || typeof strategy.configurationDigest !== "string" || !DIGEST.test(strategy.configurationDigest)) return null;

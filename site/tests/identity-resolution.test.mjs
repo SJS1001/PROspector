@@ -50,10 +50,33 @@ class FakeIdentityRepository {
       applyResolution: async (resolution) => {
         this.mutations += 1;
         this.applied.push({ workspaceId: scope, idempotencyKey: resolution.idempotencyKey, resolution: structuredClone(resolution) });
-        const affected = resolution.decision.kind === "merge"
-          ? [resolution.decision.primaryId, ...resolution.decision.secondaryIds]
-          : [resolution.decision.sourceId];
-        for (const id of affected) this.rows.get(id).revision += 1;
+        if (resolution.decision.kind === "merge") {
+          const ids = [resolution.decision.primaryId, ...resolution.decision.secondaryIds];
+          const primary = this.rows.get(resolution.decision.primaryId);
+          const rows = ids.map((id) => this.rows.get(id));
+          primary.aliases = [...new Set(rows.flatMap((row) => row.aliases))].sort();
+          primary.sourceLineageIds = [...new Set(rows.flatMap((row) => row.sourceLineageIds))].sort();
+          primary.identityLineageIds = [...new Set(rows.flatMap((row) => [row.id, ...row.identityLineageIds]))].sort();
+          primary.suppressionSubjectRefs = [...new Set(rows.flatMap((row) => row.suppressionSubjectRefs))].sort();
+          primary.associations = rows.flatMap((row) => row.associations).map((association) => ({ ...association, subjectId: primary.id }));
+          primary.revision += 1;
+        } else {
+          const source = this.rows.get(resolution.decision.sourceId);
+          const movedIds = new Set(resolution.decision.moveAssociationIds);
+          const moved = source.associations.filter((association) => movedIds.has(association.id));
+          source.associations = source.associations.filter((association) => !movedIds.has(association.id));
+          source.revision += 1;
+          this.rows.set(resolution.decision.newIdentityId, {
+            id: resolution.decision.newIdentityId,
+            workspaceId: scope,
+            revision: 1,
+            aliases: [],
+            sourceLineageIds: [...source.sourceLineageIds],
+            identityLineageIds: [...new Set([source.id, ...source.identityLineageIds])].sort(),
+            suppressionSubjectRefs: [...source.suppressionSubjectRefs],
+            associations: moved.map((association) => ({ ...association, subjectId: resolution.decision.newIdentityId })),
+          });
+        }
         return structuredClone(resolution);
       },
     };
@@ -114,13 +137,20 @@ test("split is owner-only, preserves retained references, and projects moved ass
   const loaded = await load();
   try {
     const repository = new FakeIdentityRepository([identity("identity-alpha", 4)]);
-    const acceptedProposal = await plan(loaded.domain, repository, { workspaceId, kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha"] });
+    const acceptedProposal = await plan(loaded.domain, repository, { workspaceId, kind: "split", sourceId: "identity-alpha", moveAssociationIds: ["association-identity-alpha"] });
     assert.deepEqual(acceptedProposal.candidateIds, ["identity-alpha"], "a split partitions one existing identity");
-    assert.deepEqual(acceptedProposal.proposedPartition, { sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha"] });
-    const result = await apply(loaded.domain, repository, acceptedProposal, { kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha"] });
+    assert.equal(acceptedProposal.proposedPartition.sourceId, "identity-alpha");
+    assert.deepEqual(acceptedProposal.proposedPartition.moveAssociationIds, ["association-identity-alpha"]);
+    assert.match(acceptedProposal.proposedPartition.newIdentityId, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const result = await apply(loaded.domain, repository, acceptedProposal, { kind: "split", sourceId: "identity-alpha", moveAssociationIds: ["association-identity-alpha"] });
     assert.deepEqual(result.invalidations, [{ associationId: "association-identity-alpha", projection: "NonContactable" }]);
     assert.deepEqual(result.retainedSuppressionSubjectRefs, ["suppression-identity-alpha"]);
+    assert.equal(result.decision.newIdentityId, acceptedProposal.proposedPartition.newIdentityId);
     assert.equal(repository.rows.has("identity-alpha"), true, "the historical source identity remains available to the later persistence seam");
+    assert.equal(repository.rows.has(result.decision.newIdentityId), true, "the server-created destination is persisted");
+    assert.deepEqual(repository.rows.get("identity-alpha").associations, []);
+    assert.deepEqual(repository.rows.get(result.decision.newIdentityId).associations.map((association) => association.subjectId), [result.decision.newIdentityId]);
+    assert.deepEqual(repository.rows.get(result.decision.newIdentityId).suppressionSubjectRefs, ["suppression-identity-alpha"]);
   } finally { await loaded.vite.close(); }
 });
 
@@ -128,11 +158,12 @@ test("split rejects duplicate or nonexistent moved associations with zero durabl
   const loaded = await load();
   try {
     const repository = new FakeIdentityRepository([identity("identity-alpha", 4)]);
-    const suggestion = await plan(loaded.domain, repository, { workspaceId, kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha"] });
+    const suggestion = await plan(loaded.domain, repository, { workspaceId, kind: "split", sourceId: "identity-alpha", moveAssociationIds: ["association-identity-alpha"] });
     const before = repository.snapshot();
     await assert.rejects(() => plan(loaded.domain, repository, { workspaceId, kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-other", moveAssociationIds: ["association-missing"] }), /identity_resolution_rejected/);
-    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha", "association-identity-alpha"] }, "identity-resolution-key-0006"), /identity_resolution_rejected/);
-    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-missing"] }, "identity-resolution-key-0007"), /identity_resolution_rejected/);
+    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", newIdentityId: "identity-child", moveAssociationIds: ["association-identity-alpha"] }, "identity-resolution-key-0005"), /identity_resolution_rejected/);
+    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", moveAssociationIds: ["association-identity-alpha", "association-identity-alpha"] }, "identity-resolution-key-0006"), /identity_resolution_rejected/);
+    await assert.rejects(() => apply(loaded.domain, repository, suggestion, { kind: "split", sourceId: "identity-alpha", moveAssociationIds: ["association-missing"] }, "identity-resolution-key-0007"), /identity_resolution_rejected/);
     assert.deepEqual(repository.snapshot(), before, "a split may not silently drop an unknown association or mutate a partial graph");
   } finally { await loaded.vite.close(); }
 });

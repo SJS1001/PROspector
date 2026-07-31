@@ -157,7 +157,9 @@ function enrichmentAuthority(grant, snapshot) {
       enrichmentAccount("provider", snapshot.quote.providerId),
     ],
     evidenceAssignments: [{
+      assignmentId: "assignment-synthetic",
       prospectId: "prospect-synthetic",
+      role: "general",
       workspaceId: snapshot.workspaceId,
       contactId: "contact-synthetic",
       profileConfigurationId: snapshot.configuration.id,
