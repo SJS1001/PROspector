@@ -68,7 +68,7 @@ export function projectContactEligibility(value: {
   target?: ContactEligibilityTarget;
   points?: readonly ContactObservation[];
   strategy?: ContactStrategy;
-  authority?: Partial<ContactEligibilityAuthority>;
+  authority?: ContactEligibilityAuthority;
   now?: number;
 } | unknown): ContactEligibility {
   const input = snapshotEligibilityInput(value);
@@ -76,7 +76,9 @@ export function projectContactEligibility(value: {
   const clockInvalid = !input?.hasNow || now === null;
   const evaluationTime = now ?? 0;
   const authority = normalizeAuthority(input?.authority);
-  const reasonCodes = authorityReasons(authority);
+  const effectiveAuthority = authority ?? FAIL_CLOSED_AUTHORITY;
+  const reasonCodes = authority ? authorityReasons(authority) : ["invalid_contact_authority"];
+  if (!input) reasonCodes.push("invalid_contact_input");
   if (clockInvalid) reasonCodes.push("invalid_evaluation_time");
   const authorityBlocked = reasonCodes.length > 0;
   const target = normalizeTarget(input?.target);
@@ -84,7 +86,7 @@ export function projectContactEligibility(value: {
   const strategy = normalizeStrategy(input?.strategy);
   if (!strategy) reasonCodes.push("invalid_contact_strategy");
 
-  const suppliedPoints = Array.isArray(input?.points) ? input.points : [];
+  const suppliedPoints = input?.points ?? [];
   const points: ContactObservation[] = [];
   let hasInvalidEvidence = false;
   for (const point of suppliedPoints) {
@@ -101,7 +103,7 @@ export function projectContactEligibility(value: {
   if (projected.length > 0 && projected.every((point) => point.state === "suggestion")) reasonCodes.push("verification_class_ineligible");
 
   const hasEligible = projected.some((point) => point.state === "eligible");
-  const suppressed = authority.suppressed;
+  const suppressed = effectiveAuthority.suppressed;
   const hasBlockingEvidence = hasInvalidEvidence || projected.some((point) =>
     point.state === "invalid"
     || point.state === "scope_mismatch"
@@ -111,7 +113,7 @@ export function projectContactEligibility(value: {
   const state: ContactEligibilityState = suppressed
     ? "NonContactable"
     : hasEligible && !blockedForReview ? "ContactReady"
-    : clockInvalid || hasEligible || hasInvalidEvidence || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
+    : clockInvalid || hasEligible || hasInvalidEvidence || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || effectiveAuthority.drifted || effectiveAuthority.disqualified
       ? "NeedsReview"
       : "ContactSuggestion";
   return freeze({ state, eligible: state === "ContactReady", reasonCodes: uniqueSorted(reasonCodes), points: projected });
@@ -173,16 +175,30 @@ function freshnessFor(point: ContactObservation, strategy: Freshness) {
   if (point.verificationClass === "source_verified" && point.kind === "phone") return strategy.verifiedBusinessPhoneFreshnessMs;
   return null;
 }
-function normalizeAuthority(value: unknown): ContactEligibilityAuthority {
-  const input = record(value) ?? {};
+const AUTHORITY_KEYS = Object.freeze([
+  "profileAvailable", "configurationCurrent", "drifted", "disqualified",
+  "suppressed", "phase4Approved", "contactCapabilityEnabled",
+]);
+const FAIL_CLOSED_AUTHORITY: ContactEligibilityAuthority = Object.freeze({
+  profileAvailable: false,
+  configurationCurrent: false,
+  drifted: false,
+  disqualified: false,
+  suppressed: false,
+  phase4Approved: false,
+  contactCapabilityEnabled: false,
+});
+function normalizeAuthority(value: unknown): ContactEligibilityAuthority | null {
+  const input = exactPlainRecord(value, AUTHORITY_KEYS);
+  if (!input || AUTHORITY_KEYS.some((key) => typeof input[key] !== "boolean")) return null;
   return Object.freeze({
-    profileAvailable: input.profileAvailable === true,
-    configurationCurrent: input.configurationCurrent === true,
-    drifted: input.drifted === true,
-    disqualified: input.disqualified === true,
-    suppressed: input.suppressed === true,
-    phase4Approved: input.phase4Approved === true,
-    contactCapabilityEnabled: input.contactCapabilityEnabled === true,
+    profileAvailable: input.profileAvailable as boolean,
+    configurationCurrent: input.configurationCurrent as boolean,
+    drifted: input.drifted as boolean,
+    disqualified: input.disqualified as boolean,
+    suppressed: input.suppressed as boolean,
+    phase4Approved: input.phase4Approved as boolean,
+    contactCapabilityEnabled: input.contactCapabilityEnabled as boolean,
   });
 }
 function authorityReasons(authority: ContactEligibilityAuthority) {
@@ -197,32 +213,145 @@ function authorityReasons(authority: ContactEligibilityAuthority) {
   return reasons;
 }
 type EligibilityInputSnapshot = Readonly<{
-  target: unknown;
-  points: unknown;
-  strategy: unknown;
-  authority: unknown;
+  target: Readonly<Record<string, unknown>> | undefined;
+  points: readonly unknown[];
+  strategy: Readonly<Record<string, unknown>> | undefined;
+  authority: Readonly<Record<string, unknown>> | undefined;
   now: unknown;
   hasNow: boolean;
 }>;
 function snapshotEligibilityInput(value: unknown): EligibilityInputSnapshot | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   try {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
     const descriptors = Object.getOwnPropertyDescriptors(value);
-    for (const key of ["target", "points", "strategy", "authority", "now"] as const) {
+    const keys = Reflect.ownKeys(descriptors);
+    const allowed = ["target", "points", "strategy", "authority", "now"] as const;
+    if (
+      keys.some((key) => typeof key !== "string" || !allowed.includes(key as typeof allowed[number]))
+    ) return null;
+    for (const key of allowed) {
       const descriptor = descriptors[key];
-      if (descriptor && !Object.hasOwn(descriptor, "value")) return null;
+      if (descriptor && (!Object.hasOwn(descriptor, "value") || !descriptor.enumerable)) return null;
     }
+    const target = descriptors.target
+      ? snapshotKnownRecord(descriptors.target.value, ["workspaceId", "contactId"])
+      : undefined;
+    const strategy = descriptors.strategy
+      ? snapshotKnownRecord(descriptors.strategy.value, [
+          "configurationId", "configurationDigest", "mailboxVerifiedEmailFreshnessMs",
+          "sourceVerifiedEmailFreshnessMs", "verifiedBusinessPhoneFreshnessMs",
+        ])
+      : undefined;
+    const authority = descriptors.authority
+      ? snapshotKnownRecord(descriptors.authority.value, AUTHORITY_KEYS)
+      : undefined;
+    const points = descriptors.points ? snapshotPointArray(descriptors.points.value) : Object.freeze([]);
+    if (
+      (descriptors.target && !target)
+      || (descriptors.strategy && !strategy)
+      || (descriptors.authority && !authority)
+      || !points
+    ) return null;
+    // Every nested accessor has already failed above. This final cloneability
+    // check rejects transparent and hostile Proxy objects anywhere in the input.
+    structuredClone(value);
     return Object.freeze({
-      target: descriptors.target?.value,
-      points: descriptors.points?.value,
-      strategy: descriptors.strategy?.value,
-      authority: descriptors.authority?.value,
+      target,
+      points,
+      strategy,
+      authority,
       now: descriptors.now?.value,
       hasNow: descriptors.now !== undefined,
     });
   } catch {
     return null;
   }
+}
+function snapshotKnownRecord(value: unknown, allowedKeys: readonly string[]): Readonly<Record<string, unknown>> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.some((key) => typeof key !== "string" || !allowedKeys.includes(key))) return null;
+  const snapshot: Record<string, unknown> = {};
+  for (const key of keys as string[]) {
+    const descriptor = descriptors[key];
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+    const child = snapshotEligibilityNode(descriptor.value, 0, new Set<object>());
+    if (child === invalidEligibilitySnapshot) return null;
+    snapshot[key] = child;
+  }
+  return Object.freeze(snapshot);
+}
+function snapshotPointArray(value: unknown): readonly unknown[] | null {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > 100) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
+  if (
+    keys.some((key) => typeof key !== "string")
+    || keys.length !== value.length + 1
+    || !Object.hasOwn(descriptors, "length")
+  ) return null;
+  const points: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+    const safeSnapshot = snapshotEligibilityNode(descriptor.value, 0, new Set<object>());
+    if (safeSnapshot === invalidEligibilitySnapshot) return null;
+    points.push(isDefensivelyValidContactObservation(descriptor.value) ? descriptor.value : safeSnapshot);
+  }
+  return Object.freeze(points);
+}
+const invalidEligibilitySnapshot = Symbol("invalid_contact_eligibility_snapshot");
+function snapshotEligibilityNode(
+  value: unknown,
+  depth: number,
+  seen: Set<object>,
+): unknown | typeof invalidEligibilitySnapshot {
+  if (depth > 5) return invalidEligibilitySnapshot;
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : invalidEligibilitySnapshot;
+  if (typeof value === "string") return value.length <= 4_096 ? value : invalidEligibilitySnapshot;
+  if (typeof value !== "object" || seen.has(value)) return invalidEligibilitySnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.some((key) => typeof key !== "string")) return invalidEligibilitySnapshot;
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype || value.length > 100 || keys.length !== value.length + 1) return invalidEligibilitySnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidEligibilitySnapshot;
+        const child = snapshotEligibilityNode(descriptor.value, depth + 1, seen);
+        if (child === invalidEligibilitySnapshot) return invalidEligibilitySnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if (prototype !== Object.prototype || keys.length > 32) return invalidEligibilitySnapshot;
+    const copy: Record<string, unknown> = {};
+    for (const key of keys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidEligibilitySnapshot;
+      const child = snapshotEligibilityNode(descriptor.value, depth + 1, seen);
+      if (child === invalidEligibilitySnapshot) return invalidEligibilitySnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidEligibilitySnapshot;
+  } finally {
+    seen.delete(value);
+  }
+}
+function exactPlainRecord(value: unknown, expectedKeys: readonly string[]): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
+  const keys = Object.keys(value);
+  return keys.length === expectedKeys.length && expectedKeys.every((key) => Object.hasOwn(value, key))
+    ? value as Record<string, unknown>
+    : null;
 }
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function opaque(value: unknown) { return typeof value === "string" && /^[A-Za-z0-9_.:-]+$/u.test(value) && value.length > 0 && value.length <= 160; }

@@ -439,7 +439,16 @@ function normalizeTrustedVerification(
 }
 
 function normalizeVerificationRequest(value: unknown): ContactVerificationRequest | null {
-  const input = exactRecord(value, ["assignmentId", "prospectId", "role", "assignment", "envelope"]);
+  const snapshot = snapshotBoundedPlainData(value);
+  if (!snapshot) return null;
+  try {
+    // Deep descriptor validation above rejects accessors before this check.
+    // structuredClone then rejects a Proxy at any depth without retaining it.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  const input = exactRecord(snapshot, ["assignmentId", "prospectId", "role", "assignment", "envelope"]);
   if (!input) return null;
   const assignment = exactRecord(input.assignment, [
     "workspaceId", "contactId", "profileConfigurationId", "profileConfigurationDigest",
@@ -449,11 +458,13 @@ function normalizeVerificationRequest(value: unknown): ContactVerificationReques
   const prospectId = opaque(input.prospectId, 256);
   const role = input.role === "champion" || input.role === "economic_buyer" || input.role === "general"
     ? input.role : null;
+  const envelope = normalizeVerificationEnvelope(input.envelope, assignmentId, prospectId);
   if (
     !assignment ||
     !assignmentId ||
     !prospectId ||
     !role ||
+    !envelope ||
     !opaque(assignment.workspaceId, 160) ||
     !opaque(assignment.contactId, 160) ||
     !opaque(assignment.profileConfigurationId, 160) ||
@@ -479,8 +490,65 @@ function normalizeVerificationRequest(value: unknown): ContactVerificationReques
       catalogRef: assignment.catalogRef as string,
       quoteRevision: assignment.quoteRevision as number,
     }),
-    envelope: input.envelope,
+    envelope,
   });
+}
+
+function normalizeVerificationEnvelope(
+  value: unknown,
+  assignmentId: string | null,
+  prospectId: string | null,
+): Readonly<Record<string, unknown>> | null {
+  if (!assignmentId || !prospectId) return null;
+  const envelope = record(value);
+  if (!envelope || Object.getPrototypeOf(envelope) !== Object.prototype) return null;
+  const requiredKeys = [
+    "id", "workspaceId", "contactId", "profileConfigurationId",
+    "profileConfigurationDigest", "kind", "value", "confidence",
+    "provenance", "observedAt",
+  ];
+  const optionalKeys = ["assignmentId", "prospectId", "lineage"];
+  const keys = Object.keys(envelope);
+  if (
+    requiredKeys.some((key) => !Object.hasOwn(envelope, key))
+    || keys.some((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key))
+    || (Object.hasOwn(envelope, "assignmentId") !== Object.hasOwn(envelope, "prospectId"))
+  ) return null;
+  const provenance = exactRecord(envelope.provenance, [
+    "sourceReference", "excerpt", "objectReference", "contentHash", "retrievedAt",
+  ]);
+  const observedAt = timestamp(envelope.observedAt);
+  const normalizedProvenance = normalizeProvenance(provenance);
+  if (
+    !opaque(envelope.id, 160)
+    || !opaque(envelope.workspaceId, 160)
+    || !opaque(envelope.contactId, 160)
+    || !opaque(envelope.profileConfigurationId, 160)
+    || typeof envelope.profileConfigurationDigest !== "string"
+    || !HASH.test(envelope.profileConfigurationDigest)
+    || (envelope.kind !== "email" && envelope.kind !== "phone")
+    || typeof envelope.value !== "string"
+    || envelope.value.length === 0
+    || envelope.value.length > 512
+    || !Number.isFinite(envelope.confidence)
+    || (envelope.confidence as number) < 0
+    || (envelope.confidence as number) > 1
+    || !normalizedProvenance
+    || observedAt === null
+    || normalizedProvenance.retrievedAt > observedAt
+  ) return null;
+  if (
+    Object.hasOwn(envelope, "assignmentId")
+    && (envelope.assignmentId !== assignmentId || envelope.prospectId !== prospectId)
+  ) return null;
+  if (Object.hasOwn(envelope, "lineage")) {
+    const lineage = exactRecord(envelope.lineage, ["parentObservationId"]);
+    if (
+      !lineage
+      || (lineage.parentObservationId !== null && !opaque(lineage.parentObservationId, 160))
+    ) return null;
+  }
+  return envelope;
 }
 
 function normalizeVerifierVerdict(
@@ -644,13 +712,89 @@ function methodMatchesClaim(kind: ContactPointKind, verificationClass: ContactVe
 function blocked(reason: string): ContactEvidenceResult { return Object.freeze({ accepted: false as const, reason }); }
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function exactRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
-  const input = record(value);
-  if (!input) return null;
-  const prototype = Object.getPrototypeOf(input);
-  return (prototype === null || prototype === Object.prototype)
-    && Object.keys(input).sort().join(",") === [...keys].sort().join(",")
-    ? input
-    : null;
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== keys.length
+      || keys.some((key) => !Object.hasOwn(descriptors, key))
+    ) return null;
+    const snapshot: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+const invalidDataSnapshot = Symbol("invalid_contact_data_snapshot");
+function snapshotBoundedPlainData(value: unknown): unknown | null {
+  const budget = { nodes: 0, text: 0 };
+  const snapshot = snapshotBoundedNode(value, 0, new Set<object>(), budget);
+  return snapshot === invalidDataSnapshot ? null : snapshot;
+}
+function snapshotBoundedNode(
+  value: unknown,
+  depth: number,
+  seen: Set<object>,
+  budget: { nodes: number; text: number },
+): unknown | typeof invalidDataSnapshot {
+  if (depth > 5 || budget.nodes > 256) return invalidDataSnapshot;
+  budget.nodes += 1;
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : invalidDataSnapshot;
+  if (typeof value === "string") {
+    budget.text += value.length;
+    return value.length <= 4_096 && budget.text <= 32_768 ? value : invalidDataSnapshot;
+  }
+  if (typeof value !== "object" || seen.has(value)) return invalidDataSnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string")) return invalidDataSnapshot;
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return invalidDataSnapshot;
+      const lengthDescriptor = descriptors.length;
+      if (
+        !lengthDescriptor
+        || !("value" in lengthDescriptor)
+        || !Number.isSafeInteger(lengthDescriptor.value)
+        || lengthDescriptor.value < 0
+        || lengthDescriptor.value > 100
+        || ownKeys.length !== lengthDescriptor.value + 1
+      ) return invalidDataSnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < lengthDescriptor.value; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidDataSnapshot;
+        const child = snapshotBoundedNode(descriptor.value, depth + 1, seen, budget);
+        if (child === invalidDataSnapshot) return invalidDataSnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if (prototype !== Object.prototype || ownKeys.length > 24) return invalidDataSnapshot;
+    const copy: Record<string, unknown> = {};
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidDataSnapshot;
+      const child = snapshotBoundedNode(descriptor.value, depth + 1, seen, budget);
+      if (child === invalidDataSnapshot) return invalidDataSnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidDataSnapshot;
+  } finally {
+    seen.delete(value);
+  }
 }
 function opaque(value: unknown, max: number): string | null { return typeof value === "string" && /^[A-Za-z0-9_.:-]+$/u.test(value) && value.length <= max ? value : null; }
 function safeText(value: unknown, max: number): string | null { if (typeof value !== "string") return null; const text = value.normalize("NFC").trim(); return text && text.length <= max && !/[<>\u0000-\u001f]/u.test(text) ? text : null; }
