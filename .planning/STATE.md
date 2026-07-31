@@ -84,6 +84,7 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 03]: Plans 03-09 through 03-11 are explicit owner/hosted proof and lifecycle gates; local evidence cannot complete them.
 - [Phase 04]: Twelve checked plans exist. Wave 1 RED contracts and additive persistence are committed; no plan is recorded complete.
 - [Phase 05]: Nine checked plans exist; execution has not started.
+- [Phase 05]: Owner-authorized a temporary local-only preparation lane after an independent REVISE decision. It is not execution or completion of Plans 05-01 through 05-09, does not alter their `depends_on` contracts, and grants no runtime enrichment authority. Its exact precondition and safeguards are recorded in `phases/05-controlled-enrichment-and-verified-contacts/05-PREPARATION.md`.
 - [Phase 06]: Ten checked plans exist; execution has not started.
 
 ### Pending Todos
@@ -97,7 +98,7 @@ None yet.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
 - Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.
 - Phase 3 local work through Plan 03-08 is preparatory while Phase 2 is incomplete; Plans 03-09 through 03-11 remain non-substitutable owner/hosted checkpoints.
-- Phase 4 Wave 1 is underway; later Phase 4 work and all Phase 5/6 execution remain dependency-gated.
+- Phase 4 Wave 1 is underway; later Phase 4 work and all Phase 5/6 plan execution remain dependency-gated. The sole exception is the conditional, local-only Phase 5 preparation lane in `05-PREPARATION.md`; it may not begin code until its exact clean Phase 4 candidate SHA is recorded and its local code/tests/audits precondition is satisfied. It does not satisfy Phase 4 hosted/human acceptance or any Phase 5 plan dependency.
 - Later capability gates need a controlled Google OAuth client/account, scheduled execution and runner callback proof or a compatible host, and an owner-supplied one-time export passphrase for the restore drill.
 - Do not upload the July 24 operational lead files or enable broader live effects under the current capability boundary.
 
