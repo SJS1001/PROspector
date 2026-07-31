@@ -25,7 +25,7 @@ test("P5 preparation: owner issuance derives a replay-safe immutable operation-k
       async findGrantByIdempotency(_workspaceId, key) { return records.get(key) ?? null; },
       async commitGrant(record) { records.set(record.idempotencyKey, record); return { kind: "created", record }; }, nextNonce: () => "server-nonce-synthetic",
     };
-    const input = { principalSubject: "owner-synthetic", prospectIds: ["prospect-b", "prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 2, maxCostMinor: 22, currency: "USD", expiresAt: 1_500, expectedRevision: 7, idempotencyKey: "issue-synthetic-1", now: 1_000, nonce: "nonce-synthetic" };
+    const input = { principalSubject: "owner-synthetic", prospectIds: ["prospect-b", "prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 2, maxCostMinor: 22, currency: "USD", expiresAt: 1_500, expectedRevision: 7, idempotencyKey: "issue-synthetic-1", now: 1_000 };
     const first = await issuance.issueEnrichmentGrant(repository, input);
     assert.equal(first.kind, "issued");
     assert.deepEqual(first.grant.tuple.prospectIds, ["prospect-a", "prospect-b"]);
