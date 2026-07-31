@@ -16,7 +16,19 @@ const PROFILE_KNOWLEDGE: Record<Category, string[]> = {
 };
 export class ProfileReadinessConflictError extends Error { readonly code = "profile_readiness_conflict"; }
 type Workspace = { id: string; companyId: string };
-type Profile = { id: string; play_id: string; product_id: string; lifecycle: string; revision: number; play_lifecycle: string };
+type Profile = {
+  id: string;
+  name: string;
+  play_id: string;
+  play_name: string;
+  product_id: string;
+  product_name: string;
+  company_id: string;
+  company_name: string;
+  lifecycle: string;
+  revision: number;
+  play_lifecycle: string;
+};
 type Version = { id: string; digest: string; kind: string; scope_type: string; scope_id: string; status: string; value_json?: string };
 type PinnedReference = { id:string; digest:string; versionId?:string; value?:unknown };
 type Authority = { productConfiguration: { id: string; digest: string; manifest: unknown }; acceptedPlay: { id: string; revision: number }; offer: { id: string; knowledgeVersionId: string; digest: string; questionId:string; answerId:string; proposalId:string; decisionId:string; authorityCommandId:string; auditEventId:string }; sourcePolicy:PinnedReference; runnerPolicy:PinnedReference; scheduleSemantics:PinnedReference; replacementDirectives:PinnedReference; versions: Version[]; categoryInputs: Record<Category,readonly PinnedReference[]>; timezone: string; replacementPolicy: { mode: "immutable_replacement" } };
@@ -40,10 +52,56 @@ export async function readProfileReadiness(database: D1Database, principal: Inte
   const workspace = await ownedWorkspace(database, principal); const profile = await ownedProfile(database, workspace.id, profileId);
   const resolved = await resolveAuthority(database, workspace.id, profile, false);
   const [candidate, active] = await Promise.all([
-    database.prepare("SELECT id,revision,candidate_digest,status,created_at FROM profile_configuration_candidates WHERE workspace_id=? AND profile_id=? ORDER BY created_at DESC,id DESC LIMIT 1").bind(workspace.id,profile.id).first<any>(),
-    database.prepare("SELECT c.id candidate_id,c.candidate_digest,a.configuration_id,a.audit_event_id,r.id run_id,r.execution_state run_state,s.id schedule_id,s.timezone,s.cadence,s.execution_state schedule_state FROM profile_configuration_activations a JOIN profile_configuration_candidates c ON c.id=a.candidate_id JOIN prospecting_runs r ON r.configuration_id=a.configuration_id AND r.trigger_kind='initial' JOIN prospecting_schedules s ON s.configuration_id=a.configuration_id AND s.active=1 WHERE a.workspace_id=? AND a.profile_id=? ORDER BY a.created_at DESC LIMIT 1").bind(workspace.id,profile.id).first<any>(),
+    database.prepare("SELECT pc.id,pc.revision,pc.candidate_digest,pc.status,pc.created_at,pc.audit_event_id,pc.predecessor_configuration_id,tc.manifest_json FROM profile_configuration_candidates pc JOIN typed_configurations tc ON tc.id=pc.configuration_id AND tc.workspace_id=pc.workspace_id WHERE pc.workspace_id=? AND pc.profile_id=? ORDER BY pc.created_at DESC,pc.id DESC LIMIT 1").bind(workspace.id,profile.id).first<any>(),
+    database.prepare("SELECT c.id candidate_id,c.candidate_digest,a.configuration_id,a.audit_event_id,tc.manifest_json,r.id run_id,r.execution_state run_state,r.successful_watermark,s.id schedule_id,s.timezone,s.intended_local_time,s.utc_offset_minutes,s.cadence,s.next_run_at,s.last_successful_watermark schedule_watermark,s.execution_state schedule_state FROM profile_configuration_activations a JOIN profile_configuration_candidates c ON c.id=a.candidate_id JOIN typed_configurations tc ON tc.id=a.configuration_id AND tc.workspace_id=a.workspace_id JOIN prospecting_runs r ON r.configuration_id=a.configuration_id AND r.trigger_kind='initial' JOIN prospecting_schedules s ON s.configuration_id=a.configuration_id AND s.active=1 WHERE a.workspace_id=? AND a.profile_id=? ORDER BY a.created_at DESC LIMIT 1").bind(workspace.id,profile.id).first<any>(),
   ]);
-  return { profile: { id: profile.id, revision: profile.revision, lifecycle: profile.lifecycle }, ...evaluateProfileReadiness({ profile, authority: resolved ?? undefined, versions: resolved?.versions }), candidate:candidate?{id:candidate.id,revision:Number(candidate.revision),digest:candidate.candidate_digest,status:candidate.status,createdAt:Number(candidate.created_at)}:null, activation:active?{candidateId:active.candidate_id,configuration:{id:active.configuration_id,digest:active.candidate_digest,active:true},initialRun:{id:active.run_id,executionState:active.run_state},schedule:{id:active.schedule_id,timezone:active.timezone,cadence:active.cadence,executionState:active.schedule_state},auditEventId:active.audit_event_id}:null };
+  const path = {
+    company: { id: profile.company_id, name: profile.company_name },
+    product: { id: profile.product_id, name: profile.product_name },
+    marketPlay: { id: profile.play_id, name: profile.play_name },
+    profile: { id: profile.id, name: profile.name },
+  };
+  return {
+    profile: { id: profile.id, revision: profile.revision, lifecycle: profile.lifecycle, path },
+    ...evaluateProfileReadiness({ profile, authority: resolved ?? undefined, versions: resolved?.versions }),
+    candidate: candidate ? {
+      id: candidate.id,
+      revision: Number(candidate.revision),
+      digest: candidate.candidate_digest,
+      status: candidate.status,
+      createdAt: Number(candidate.created_at),
+      auditEventId: candidate.audit_event_id,
+      predecessorConfigurationId: candidate.predecessor_configuration_id,
+      frozenAuthority: parseManifest(candidate.manifest_json),
+    } : null,
+    activation: active ? {
+      candidateId: active.candidate_id,
+      configuration: {
+        id: active.configuration_id,
+        digest: active.candidate_digest,
+        active: true,
+        immutable: true,
+        frozenAuthority: parseManifest(active.manifest_json),
+      },
+      initialRun: {
+        id: active.run_id,
+        executionState: active.run_state,
+        successfulWatermark: active.successful_watermark === null ? null : Number(active.successful_watermark),
+      },
+      schedule: {
+        id: active.schedule_id,
+        timezone: active.timezone,
+        localTime: active.intended_local_time,
+        utcOffsetMinutes: Number(active.utc_offset_minutes),
+        cadence: active.cadence,
+        nextRunAt: Number(active.next_run_at),
+        lastSuccessfulWatermark: active.schedule_watermark === null ? null : Number(active.schedule_watermark),
+        executionState: active.schedule_state,
+      },
+      auditEventId: active.audit_event_id,
+      profilePath: path,
+    } : null,
+  };
 }
 
 export async function createProfileConfigurationCandidate(database: D1Database, principal: InterviewPrincipal, input: { profileId: string; expectedProfileRevision: number; idempotencyKey: string; now?: number; [key: string]: unknown }) {
@@ -73,12 +131,12 @@ export async function createProfileConfigurationCandidate(database: D1Database, 
 export async function activateProfileConfiguration(database: D1Database, principal: InterviewPrincipal, input: { candidateId: string; expectedRevision: number; expectedDigest: string; idempotencyKey: string; now?: number }) {
   key(input.idempotencyKey); revision(input.expectedRevision); if (!validDigest(input.expectedDigest)) throw new ProfileReadinessConflictError("Invalid candidate digest");
   const workspace = await ownedWorkspace(database, principal);
-  const candidate = await database.prepare("SELECT c.*, tc.digest configuration_digest,tc.manifest_json configuration_manifest_json,p.revision profile_revision,p.lifecycle,p.play_id,mp.product_id,mp.lifecycle play_lifecycle FROM profile_configuration_candidates c JOIN typed_configurations tc ON tc.id=c.configuration_id AND tc.workspace_id=c.workspace_id JOIN customer_profiles p ON p.id=c.profile_id AND p.workspace_id=c.workspace_id JOIN market_plays mp ON mp.id=p.play_id AND mp.workspace_id=p.workspace_id WHERE c.id=? AND c.workspace_id=? LIMIT 1").bind(input.candidateId,workspace.id).first<any>();
+  const candidate = await database.prepare("SELECT c.*,tc.digest configuration_digest,tc.manifest_json configuration_manifest_json,p.name profile_name,p.revision profile_revision,p.lifecycle,p.play_id,mp.name play_name,mp.product_id,mp.lifecycle play_lifecycle,product.name product_name,company.id company_id,company.name company_name FROM profile_configuration_candidates c JOIN typed_configurations tc ON tc.id=c.configuration_id AND tc.workspace_id=c.workspace_id JOIN customer_profiles p ON p.id=c.profile_id AND p.workspace_id=c.workspace_id JOIN market_plays mp ON mp.id=p.play_id AND mp.workspace_id=p.workspace_id JOIN products product ON product.id=mp.product_id AND product.workspace_id=p.workspace_id JOIN companies company ON company.workspace_id=p.workspace_id WHERE c.id=? AND c.workspace_id=? LIMIT 1").bind(input.candidateId,workspace.id).first<any>();
   if (!candidate) throw new ProfileReadinessConflictError("Profile configuration candidate is unavailable");
   const winner = await activationWinner(database, workspace.id, candidate, input);
   if (winner) return activationProjection(candidate,winner.configuration_id,winner.run_id,winner.schedule_id);
   if (candidate.status !== "candidate" || Number(candidate.revision) !== input.expectedRevision || candidate.candidate_digest !== input.expectedDigest) throw new ProfileReadinessConflictError("Stale Profile configuration candidate; reload readiness");
-  const profile: Profile = { id:candidate.profile_id,play_id:candidate.play_id,product_id:candidate.product_id,lifecycle:candidate.lifecycle,revision:Number(candidate.profile_revision),play_lifecycle:candidate.play_lifecycle };
+  const profile: Profile = { id:candidate.profile_id,name:candidate.profile_name,play_id:candidate.play_id,play_name:candidate.play_name,product_id:candidate.product_id,product_name:candidate.product_name,company_id:candidate.company_id,company_name:candidate.company_name,lifecycle:candidate.lifecycle,revision:Number(candidate.profile_revision),play_lifecycle:candidate.play_lifecycle };
   const authority = await resolveAuthority(database,workspace.id,profile,true); const readiness=evaluateProfileReadiness({profile,authority,versions:authority.versions}); if (!readiness.complete) throw new ProfileReadinessConflictError("Profile readiness changed; replacement candidate required");
   const currentManifest = stable(effectiveConfigurationManifest(profile, authority, readiness));
   const currentDigest = await sha256(currentManifest);
@@ -133,12 +191,13 @@ async function resolveAuthority(database:D1Database, workspaceId:string, profile
   return authority;
 }
 async function ownedWorkspace(database:D1Database, principal:InterviewPrincipal):Promise<Workspace>{const legacy=principal.legacySubject??principal.subject;const r=await database.prepare("SELECT w.id,c.id company_id FROM workspaces w JOIN companies c ON c.workspace_id=w.id WHERE w.owner_subject IN (?,?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject,legacy,principal.subject).first<any>();if(!r)throw new ProfileReadinessConflictError("Commercial workspace authority is unavailable");return{id:r.id,companyId:r.company_id}}
-async function ownedProfile(database:D1Database,w:string,id:string):Promise<Profile>{const r=await database.prepare("SELECT cp.id,cp.play_id,cp.lifecycle,cp.revision,mp.product_id,mp.lifecycle play_lifecycle FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=? LIMIT 1").bind(id,w).first<any>();if(!r)throw new ProfileReadinessConflictError("Profile authority is unavailable");return{...r,revision:Number(r.revision)}}
+async function ownedProfile(database:D1Database,w:string,id:string):Promise<Profile>{const r=await database.prepare("SELECT cp.id,cp.name,cp.play_id,cp.lifecycle,cp.revision,mp.name play_name,mp.product_id,mp.lifecycle play_lifecycle,p.name product_name,c.id company_id,c.name company_name FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id JOIN products p ON p.id=mp.product_id AND p.workspace_id=cp.workspace_id JOIN companies c ON c.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=? LIMIT 1").bind(id,w).first<any>();if(!r)throw new ProfileReadinessConflictError("Profile authority is unavailable");return{...r,revision:Number(r.revision)}}
 async function command(d:D1Database,w:string,k:string){return d.prepare("SELECT id FROM authority_commands WHERE workspace_id=? AND idempotency_key=? LIMIT 1").bind(w,k).first()}
 function candidateProjection(r:{id:string;revision:number;candidate_digest:string}){return{id:r.id,revision:Number(r.revision),digest:r.candidate_digest,status:"candidate_not_active" as const,immutable:true}}
 function activationProjection(c:any,configurationId:string,runId:string,scheduleId:string){return{configuration:{id:configurationId,digest:c.candidate_digest,active:true,immutable:true},initialRun:{id:runId,trigger:"initial",executionState:"blocked_missing_capability"},schedule:{id:scheduleId,timezone:"America/Toronto",cadence:"weekdays",executionState:"blocked_missing_capability"}}}
 function effectiveConfigurationManifest(profile:Profile,authority:Authority,readiness:ReturnType<typeof evaluateProfileReadiness>){const sourcePolicy={...authority.sourcePolicy,rules:authority.sourcePolicy.value};const runnerPolicy={...authority.runnerPolicy,rules:authority.runnerPolicy.value};return {schema:"profile-effective-configuration/v2",profile:{id:profile.id,revision:profile.revision,playId:profile.play_id,productId:profile.product_id},authority:{productConfiguration:authority.productConfiguration,acceptedPlay:authority.acceptedPlay,offer:authority.offer,sourcePolicy,runnerPolicy,scheduleSemantics:authority.scheduleSemantics,replacementDirectives:authority.replacementDirectives},confirmedCategoryInputs:authority.categoryInputs,readiness:readiness.items,policy:{sourcePolicy,runnerPolicy,scheduleSemantics:authority.scheduleSemantics,timezone:authority.timezone,cadence:"weekdays",localTime:"06:00",transport:"reject_only",replacement:authority.replacementPolicy}}}
 function reference(v:unknown):PinnedReference|null{if(!v||typeof v!=="object"||Array.isArray(v))return null;const x=v as Record<string,unknown>;const id=typeof x.id==="string"?x.id:typeof x.versionId==="string"?x.versionId:null;const digest=typeof x.digest==="string"?x.digest:null;if(!id||!digest||!validDigest(digest))return null;const out:PinnedReference={id,digest};if(typeof x.versionId==="string")out.versionId=x.versionId;if("value" in x)out.value=x.value;return out}function parseValue(v:string|undefined){try{return v?JSON.parse(v):null}catch{return null}}
+function parseManifest(v:string|undefined):Record<string,unknown>{try{const parsed=v?JSON.parse(v):null;return parsed&&typeof parsed==="object"&&!Array.isArray(parsed)?parsed as Record<string,unknown>:{};}catch{return{}}}
 function key(v:string){if(!/^[a-f0-9-]{20,100}$/i.test(v))throw new ProfileReadinessConflictError("Invalid idempotency key")};function revision(v:number){if(!Number.isInteger(v)||v<1)throw new ProfileReadinessConflictError("Invalid expected revision")};function validDigest(v:unknown):v is string{return typeof v==="string"&&/^[a-f0-9]{64}$/.test(v)};function race(e:unknown,label:string){return new ProfileReadinessConflictError(`${label} failed atomically: ${e instanceof Error?e.message:"conflict"}`)}
 function localDate(a:number){return new Intl.DateTimeFormat("en-CA",{timeZone:"America/Toronto",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(a))};function torontoOffset(a:number){const z=new Intl.DateTimeFormat("en-US",{timeZone:"America/Toronto",timeZoneName:"longOffset"}).formatToParts(new Date(a)).find(x=>x.type==="timeZoneName")?.value??"GMT-05:00";const m=/GMT([+-])(\d{2}):(\d{2})/.exec(z);return m?(m[1]==="+"?1:-1)*(+m[2]*60 + +m[3]):-300};function nextTorontoWeekday0600(n:number){for(let a=n+60_000,i=0;i<12_000;i++,a+=60_000){const p=new Intl.DateTimeFormat("en-US",{timeZone:"America/Toronto",weekday:"short",hour:"2-digit",hourCycle:"h23",minute:"2-digit"}).formatToParts(new Date(a)),v=(t:string)=>p.find(x=>x.type===t)?.value;if(!["Sat","Sun"].includes(v("weekday")??"")&&v("hour")==="06"&&v("minute")==="00")return a}throw new ProfileReadinessConflictError("Unable to resolve Toronto schedule intent")}
 function stable(v:unknown):string{if(Array.isArray(v))return`[${v.map(stable).join(",")}]`;if(v&&typeof v==="object"){const r=v as Record<string,unknown>;return`{${Object.keys(r).sort().map(k=>`${JSON.stringify(k)}:${stable(r[k])}`).join(",")}}`}return JSON.stringify(v)};async function sha256(v:string){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,"0")).join("")}
