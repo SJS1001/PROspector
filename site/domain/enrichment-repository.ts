@@ -407,7 +407,7 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
         previousOperationKeys: history.map((item) => item.operation_key),
       });
       if (attempt.attemptNumber > grant.maxRetries) return null;
-      const operationKey = await deriveRunnerOperationKey({ principalSubject: scope.ownerSubject, grant, attempt });
+      const operationKey = await deriveRunnerOperationKey({ workspaceId: scope.workspaceId, principalSubject: scope.ownerSubject, grant, attempt });
       const period = deriveRunnerUtcMonthPeriod(positiveTime(clock()));
       if (!period) return null;
       const perRunId = deriveRunnerPerRunAccountId({
@@ -452,13 +452,14 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
       ).bind(record.grantId, scope.workspaceId, scope.ownerSubject).first<Record<string, unknown>>();
       if (!grantRow || accounts.length !== 2) return { kind: "blocked" };
       const grant = runnerGrantFromRow(grantRow);
-      const expectedOperationKey = await deriveRunnerOperationKey({ principalSubject: scope.ownerSubject, grant, attempt });
+      const expectedOperationKey = await deriveRunnerOperationKey({ workspaceId: scope.workspaceId, principalSubject: scope.ownerSubject, grant, attempt });
       const expectedAttemptDigest = await digestStable(attempt);
-      const expectedId = `rr_${await digestLengthPrefixed(record.grantId, record.operationKey, String(record.attemptNumber))}`;
+      const expectedId = `rr_${await digestLengthPrefixed(record.workspaceId, record.grantId, record.operationKey, String(record.attemptNumber))}`;
       const now = positiveTime(clock());
       const period = deriveRunnerUtcMonthPeriod(now);
       if (
-        !period || record.operationKey !== expectedOperationKey || record.attemptDigest !== expectedAttemptDigest || record.id !== expectedId
+        !period || record.workspaceId !== scope.workspaceId
+        || record.operationKey !== expectedOperationKey || record.attemptDigest !== expectedAttemptDigest || record.id !== expectedId
         || record.providerId !== grant.providerId || record.model !== grant.model || record.catalogRef !== grant.catalogRef
         || record.scopeId !== grant.scopeId || record.runType !== grant.runType || record.currency !== grant.currency
         || record.reservedCostMinor !== grant.perRunCostMinor || record.maxRetries !== grant.maxRetries
@@ -490,7 +491,7 @@ export function createD1RunnerSpendRepository(database: D1Database, scope: Repos
               provider_id,model,catalog_ref,scope_id,run_type,currency,reserved_cost_minor,max_retries,attempt_digest,created_at
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).bind(
-            record.id, scope.workspaceId, record.grantId, perRun.accountId, monthly.accountId, record.operationKey,
+            record.id, record.workspaceId, record.grantId, perRun.accountId, monthly.accountId, record.operationKey,
             record.attemptNumber, period, attempt.previousOutcome, canonical(attempt.previousOperationKeys),
             perRunExpectedRevision, monthlyExpectedRevision,
             record.providerId, record.model, record.catalogRef, record.scopeId, record.runType, record.currency,
@@ -644,13 +645,13 @@ async function readExactRunnerHistory(database: D1Database, workspaceId: string,
 
 async function readRunnerReservation(database: D1Database, workspaceId: string, id: string): Promise<RunnerSpendReservation | null> {
   const row = await database.prepare(
-    `SELECT id,grant_id,operation_key,provider_id,model,catalog_ref,scope_id,run_type,currency,
+    `SELECT id,workspace_id,grant_id,operation_key,provider_id,model,catalog_ref,scope_id,run_type,currency,
       reserved_cost_minor,attempt_number,max_retries,attempt_digest
      FROM runner_spend_reservations WHERE id=? AND workspace_id=? LIMIT 1`,
   ).bind(id, workspaceId).first<Record<string, unknown>>();
   if (!row) return null;
   return freeze({
-    id: String(row.id), grantId: String(row.grant_id), operationKey: String(row.operation_key),
+    id: String(row.id), workspaceId: String(row.workspace_id), grantId: String(row.grant_id), operationKey: String(row.operation_key),
     providerId: String(row.provider_id), model: String(row.model), catalogRef: String(row.catalog_ref),
     scopeId: String(row.scope_id), runType: String(row.run_type), currency: String(row.currency),
     reservedCostMinor: Number(row.reserved_cost_minor), attemptNumber: Number(row.attempt_number),
@@ -742,15 +743,22 @@ function derivedEnrichmentAccountId(workspaceId: string, scope: BudgetAccount["s
 
 async function readReservation(database: D1Database, workspaceId: string, id: string): Promise<EnrichmentReservation | null> {
   const row = await database.prepare(
-    "SELECT id, grant_id, workspace_id, operation_key, assignment_json FROM enrichment_reservations WHERE id = ? AND workspace_id = ? LIMIT 1",
-  ).bind(id, workspaceId).first<{ id: string; grant_id: string; workspace_id: string; operation_key: string; assignment_json: string }>();
+    `SELECT id, grant_id, workspace_id, operation_key, assignment_json, assignment_digest, created_at
+     FROM enrichment_reservations WHERE id = ? AND workspace_id = ? LIMIT 1`,
+  ).bind(id, workspaceId).first<{
+    id: string; grant_id: string; workspace_id: string; operation_key: string;
+    assignment_json: string; assignment_digest: string; created_at: number;
+  }>();
   if (!row) return null;
   try {
     const assignment = JSON.parse(row.assignment_json) as EnrichmentReservation["assignment"];
-    const initial = await database.prepare(
-      "SELECT 1 present FROM enrichment_reservation_events WHERE workspace_id = ? AND reservation_id = ? AND durable_revision = 1 AND state = 'reserved' LIMIT 1",
-    ).bind(workspaceId, id).first<{ present: number }>();
-    if (!initial) return null;
+    if (canonical(assignment) !== row.assignment_json || row.assignment_digest !== await digest(assignment)) return null;
+    const initial = await reservationEventAtRevision(database, workspaceId, id, 1);
+    if (
+      !initial || initial.state !== "reserved" || Number(initial.durable_revision) !== 1
+      || Number(initial.created_at) !== Number(row.created_at)
+      || !await validateEnrichmentEventAcknowledgement(id, initial)
+    ) return null;
     return freeze({ id: row.id, grantId: row.grant_id, workspaceId: row.workspace_id, operationKey: row.operation_key, status: "reserved", assignment }) as EnrichmentReservation;
   } catch {
     return null;

@@ -404,6 +404,215 @@ test("expired invocation claims durably release every reserved enrichment accoun
   }
 });
 
+test("overlapping enrichment reservations settle and release shared accounts in either order", async () => {
+  for (const settledFirst of [true, false]) {
+    const fixture = await createD1Fixture(`phase5-persistence-overlap-enrichment-${settledFirst}`);
+    try {
+      await applyMigrations(fixture.database);
+      const seeded = await seedApprovedProspect(fixture);
+      const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+      const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+      const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+      let clock = NOW;
+      const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+        workspaceId: seeded.workspaceId,
+        ownerSubject: OWNER.subject,
+        now: () => clock,
+      });
+      await fixture.database.prepare(
+        `INSERT INTO provider_quotes
+          (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+         VALUES ('quote-overlap',?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
+      ).bind(seeded.workspaceId, "3".repeat(64), NOW + 20_000, NOW).run();
+      const snapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+      const issue = (suffix, expiresAt) => issuance.issueEnrichmentGrant(repository, {
+        principalSubject: OWNER.subject,
+        prospectIds: [seeded.prospectId],
+        operation: "business_contact_lookup/v1",
+        maxUnits: 1,
+        maxCostMinor: 10,
+        currency: "CAD",
+        expiresAt,
+        expectedRevision: snapshot.revision,
+        idempotencyKey: `phase5-overlap-${suffix}`,
+        now: NOW + 1,
+      });
+      const firstGrant = await issue("first", NOW + 8_000);
+      const secondGrant = await issue("second", NOW + 9_000);
+      assert.equal(firstGrant.kind, "issued");
+      assert.equal(secondGrant.kind, "issued");
+      await seedOverlappingEnrichmentInputs(fixture.database, seeded, [firstGrant.grant, secondGrant.grant]);
+      const first = await authority.reserveEnrichmentOperation(repository, {
+        grantId: firstGrant.grant.id,
+        principalSubject: OWNER.subject,
+        operationKey: firstGrant.grant.tuple.operationKey,
+        now: NOW + 2,
+      });
+      const second = await authority.reserveEnrichmentOperation(repository, {
+        grantId: secondGrant.grant.id,
+        principalSubject: OWNER.subject,
+        operationKey: secondGrant.grant.tuple.operationKey,
+        now: NOW + 2,
+      });
+      assert.equal(first.kind, "reserved");
+      assert.equal(second.kind, "reserved");
+      assert.equal((await readSharedEnrichmentAccounts(fixture.database, seeded.workspaceId)).every((row) =>
+        Number(row.reserved_units) === 2 && Number(row.revision) === 3
+      ), true);
+      assert.equal((await authority.claimAdmittedCommittedInvocation(repository, first.reservation.id, NOW + 3)).kind, "claimed");
+      assert.equal((await authority.claimAdmittedCommittedInvocation(repository, second.reservation.id, NOW + 3)).kind, "claimed");
+      clock = NOW + 4;
+      const settledWrite = {
+        state: "settled",
+        documentedUnits: 1,
+        documentedCostMinor: 10,
+        reason: "completed",
+        observations: [],
+        settlementDigest: "4".repeat(64),
+      };
+      const releasedWrite = {
+        state: "released",
+        documentedUnits: 0,
+        documentedCostMinor: 0,
+        reason: "rejected",
+        observations: [],
+        settlementDigest: "5".repeat(64),
+      };
+      const operations = settledFirst
+        ? [[first.reservation.id, settledWrite], [second.reservation.id, releasedWrite]]
+        : [[second.reservation.id, releasedWrite], [first.reservation.id, settledWrite]];
+      const acknowledgements = [];
+      for (const [reservationId, settlement] of operations) {
+        const acknowledgement = await repository.settleReservation(reservationId, settlement);
+        acknowledgements.push(acknowledgement);
+        assert.deepEqual(await repository.settleReservation(reservationId, settlement), acknowledgement);
+        clock += 1;
+      }
+      assert.deepEqual(acknowledgements.map((item) => item.terminalState).sort(), ["released", "settled"]);
+      const shared = await readSharedEnrichmentAccounts(fixture.database, seeded.workspaceId);
+      assert.equal(shared.every((row) =>
+        Number(row.actual_units) === 1 && Number(row.reserved_units) === 0
+        && Number(row.actual_cost_minor) === 10 && Number(row.reserved_cost_minor) === 0
+        && Number(row.revision) === 5
+      ), true);
+      assert.equal(Number((await fixture.database.prepare(
+        "SELECT count(*) count FROM enrichment_reservation_events WHERE reservation_id IN (?,?) AND state IN ('settled','released')",
+      ).bind(first.reservation.id, second.reservation.id).first()).count), 2);
+      await assert.rejects(
+        fixture.database.prepare(
+          `UPDATE enrichment_budget_accounts SET actual_units=actual_units+1,revision=revision+1,updated_at=?
+           WHERE workspace_id=? AND scope='workspace'`,
+        ).bind(clock, seeded.workspaceId).run(),
+        /invalid enrichment budget mutation/,
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("forged enrichment assignment digests and initial acknowledgements cannot replay or claim invocation", async () => {
+  for (const corruption of ["assignment_digest", "initial_ack"]) {
+    const fixture = await createD1Fixture(`phase5-persistence-forged-reservation-${corruption}`);
+    try {
+      await applyMigrations(fixture.database);
+      const seeded = await seedApprovedProspect(fixture);
+      const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+      const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+      const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+      const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+        workspaceId: seeded.workspaceId,
+        ownerSubject: OWNER.subject,
+        now: () => NOW,
+      });
+      await fixture.database.prepare(
+        `INSERT INTO provider_quotes
+          (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+         VALUES (?,?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
+      ).bind(`quote-forged-${corruption}`, seeded.workspaceId, corruption === "assignment_digest" ? "6".repeat(64) : "7".repeat(64), NOW + 10_000, NOW).run();
+      const snapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+      const issued = await issuance.issueEnrichmentGrant(repository, {
+        principalSubject: OWNER.subject,
+        prospectIds: [seeded.prospectId],
+        operation: "business_contact_lookup/v1",
+        maxUnits: 1,
+        maxCostMinor: 10,
+        currency: "CAD",
+        expiresAt: NOW + 5_000,
+        expectedRevision: snapshot.revision,
+        idempotencyKey: `phase5-forged-${corruption}`,
+        now: NOW + 1,
+      });
+      assert.equal(issued.kind, "issued");
+      await seedReservationInputs(fixture.database, seeded, issued.grant);
+      let capturedRecord;
+      let capturedAccounts;
+      const planned = await authority.reserveEnrichmentOperation({
+        loadReservationAuthority: (...args) => repository.loadReservationAuthority(...args),
+        async commitReservation(record, accounts) {
+          capturedRecord = record;
+          capturedAccounts = accounts;
+          return { kind: "blocked" };
+        },
+      }, {
+        grantId: issued.grant.id,
+        principalSubject: OWNER.subject,
+        operationKey: issued.grant.tuple.operationKey,
+        now: NOW + 2,
+      });
+      assert.equal(planned.kind, "blocked");
+      assert.ok(capturedRecord);
+      assert.equal(capturedAccounts.length, 4);
+      const assignmentJson = issuance.canonical(capturedRecord.assignment);
+      const validAssignmentDigest = await sha256Text(assignmentJson);
+      await fixture.database.prepare(
+        `INSERT INTO enrichment_reservations
+          (id,workspace_id,grant_id,operation_key,assignment_json,assignment_digest,reserved_units,reserved_cost_minor,currency,expires_at,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        capturedRecord.id, seeded.workspaceId, capturedRecord.grantId, capturedRecord.operationKey, assignmentJson,
+        corruption === "assignment_digest" ? "8".repeat(64) : validAssignmentDigest,
+        1, 10, "CAD", capturedRecord.assignment.expiresAt, NOW,
+      ).run();
+      for (const [index, account] of capturedAccounts.entries()) {
+        await fixture.database.prepare(
+          `INSERT INTO enrichment_reservation_budget_entries
+            (id,workspace_id,reservation_id,account_id,reserved_units,reserved_cost_minor,account_expected_revision,entry_digest,created_at)
+           VALUES (?,?,?,?,1,10,1,?,?)`,
+        ).bind(
+          `forged-entry-${corruption}-${index}`, seeded.workspaceId, capturedRecord.id, account.accountId,
+          `${index + 1}`.repeat(64), NOW,
+        ).run();
+      }
+      const validInitialAck = await sha256Text(issuance.canonical({
+        schema: "enrichment-reservation-event/v1",
+        reservationId: capturedRecord.id,
+        durableRevision: 1,
+        state: "reserved",
+      }));
+      await fixture.database.prepare(
+        `INSERT INTO enrichment_reservation_events
+          (id,workspace_id,reservation_id,durable_revision,state,terminal_reason,settlement_digest,documented_units,
+           documented_cost_minor,observation_ids_json,acknowledgement_digest,claimed_at,created_at)
+         VALUES (?,?,?,1,'reserved',NULL,NULL,NULL,NULL,'[]',?,NULL,?)`,
+      ).bind(
+        `forged-event-${corruption}`, seeded.workspaceId, capturedRecord.id,
+        corruption === "initial_ack" ? "9".repeat(64) : validInitialAck, NOW,
+      ).run();
+      assert.deepEqual(await repository.commitReservation(capturedRecord, capturedAccounts), { kind: "blocked" });
+      assert.deepEqual(
+        await repository.claimCommittedInvocation(capturedRecord.id, NOW + 3),
+        { kind: "blocked", reason: "unavailable" },
+      );
+      assert.equal(Number((await fixture.database.prepare(
+        "SELECT count(*) count FROM enrichment_reservation_events WHERE reservation_id=?",
+      ).bind(capturedRecord.id).first()).count), 1);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
 test("replacement configuration and prospect races cannot reuse stale enrichment authority", async () => {
   const fixture = await createD1Fixture("phase5-persistence-stale-prospect-authority");
   try {
@@ -710,6 +919,110 @@ test("runner reservations enforce retry lineage and atomically settle both accou
   }
 });
 
+test("overlapping runner reservations settle and release one shared monthly account in either order", async () => {
+  for (const settledFirst of [true, false]) {
+    const fixture = await createD1Fixture(`phase5-persistence-overlap-runner-${settledFirst}`);
+    try {
+      await applyMigrations(fixture.database);
+      const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+      const runner = await fixture.vite.ssrLoadModule(new URL("../domain/runner-spend-authority.ts", import.meta.url).pathname);
+      const workspaceId = `runner-overlap-workspace-${settledFirst}`;
+      const ownerSubject = "runner-overlap-owner";
+      await fixture.database.prepare(
+        "INSERT INTO workspaces (id,company_name,owner_subject,created_at,updated_at,revision) VALUES (?,?,?,?,?,1)",
+      ).bind(workspaceId, "Runner Overlap Company", ownerSubject, NOW, NOW).run();
+      const firstSeed = await seedRunnerAuthority(fixture.database, runner, {
+        workspaceId,
+        ownerSubject,
+        grantId: `runner-overlap-first-${settledFirst}`,
+        grantDigest: "a".repeat(64),
+        scopeId: "runner-overlap-scope",
+        maxRetries: 0,
+      });
+      const secondSeed = await seedRunnerAuthority(fixture.database, runner, {
+        workspaceId,
+        ownerSubject,
+        grantId: `runner-overlap-second-${settledFirst}`,
+        grantDigest: "b".repeat(64),
+        scopeId: "runner-overlap-scope",
+        maxRetries: 0,
+        reuseMonthly: true,
+      });
+      assert.equal(firstSeed.monthlyId, secondSeed.monthlyId);
+      const repository = repositoryModule.createD1RunnerSpendRepository(fixture.database, {
+        workspaceId,
+        ownerSubject,
+        now: () => NOW,
+      });
+      const reserve = async (seed) => {
+        const authority = await repository.loadRunnerAuthority(seed.grant.id);
+        return runner.reserveRunnerSpend(repository, {
+          grantId: seed.grant.id,
+          principalSubject: ownerSubject,
+          operationKey: await runner.deriveRunnerOperationKey(authority),
+          now: NOW,
+        });
+      };
+      const first = await reserve(firstSeed);
+      const second = await reserve(secondSeed);
+      assert.equal(first.kind, "reserved");
+      assert.equal(second.kind, "reserved");
+      let monthly = (await readRunnerAccounts(fixture.database, workspaceId)).find((row) => row.id === firstSeed.monthlyId);
+      assert.deepEqual(
+        { actual: Number(monthly.actual_cost_minor), reserved: Number(monthly.reserved_cost_minor), revision: Number(monthly.revision) },
+        { actual: 0, reserved: 20, revision: 3 },
+      );
+      assert.equal(await repository.markRunnerAssigned(first.reservation.id, NOW + 1), true);
+      assert.equal(await repository.markRunnerAssigned(second.reservation.id, NOW + 1), true);
+      const settledWrite = {
+        reservationId: first.reservation.id,
+        state: "settled",
+        terminalReason: "completed",
+        documentedCostMinor: 10,
+        settlementDigest: "6".repeat(64),
+        now: NOW + 2,
+      };
+      const releasedWrite = {
+        reservationId: second.reservation.id,
+        state: "released",
+        terminalReason: "rejected",
+        documentedCostMinor: 0,
+        settlementDigest: "7".repeat(64),
+        now: NOW + 3,
+      };
+      const operations = settledFirst ? [settledWrite, releasedWrite] : [releasedWrite, settledWrite];
+      for (const outcome of operations) {
+        const acknowledgement = await repository.recordRunnerOutcome(outcome);
+        assert.deepEqual(await repository.recordRunnerOutcome(outcome), acknowledgement);
+      }
+      monthly = (await readRunnerAccounts(fixture.database, workspaceId)).find((row) => row.id === firstSeed.monthlyId);
+      assert.deepEqual(
+        { actual: Number(monthly.actual_cost_minor), reserved: Number(monthly.reserved_cost_minor), revision: Number(monthly.revision) },
+        { actual: 10, reserved: 0, revision: 5 },
+      );
+      const perRun = (await readRunnerAccounts(fixture.database, workspaceId))
+        .filter((row) => row.id === firstSeed.perRunIds[0] || row.id === secondSeed.perRunIds[0])
+        .map((row) => ({ actual: Number(row.actual_cost_minor), reserved: Number(row.reserved_cost_minor), revision: Number(row.revision) }))
+        .sort((left, right) => left.actual - right.actual);
+      assert.deepEqual(perRun, [
+        { actual: 0, reserved: 0, revision: 3 },
+        { actual: 10, reserved: 0, revision: 3 },
+      ]);
+      assert.equal(Number((await fixture.database.prepare(
+        "SELECT count(*) count FROM runner_spend_reservation_events WHERE reservation_id IN (?,?) AND state IN ('failed_retryable','settled','released')",
+      ).bind(first.reservation.id, second.reservation.id).first()).count), 2);
+      await assert.rejects(
+        fixture.database.prepare(
+          "UPDATE runner_budget_accounts SET actual_cost_minor=actual_cost_minor+1,revision=revision+1,updated_at=? WHERE id=?",
+        ).bind(NOW + 4, firstSeed.monthlyId).run(),
+        /invalid runner budget mutation/,
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
 test("identity kind and runner monthly scope are guarded below application code", async () => {
   const fixture = await createD1Fixture("phase5-persistence-scope-guards");
   try {
@@ -791,6 +1104,53 @@ async function seedReservationInputs(database, seeded, grant) {
   }
 }
 
+async function seedOverlappingEnrichmentInputs(database, seeded, grants) {
+  const company = await database.prepare("SELECT id FROM companies WHERE workspace_id=? LIMIT 1").bind(seeded.workspaceId).first();
+  await database.prepare(
+    "INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) VALUES ('p5-contact',?,?,?,1,?,?,'Synthetic Contact')",
+  ).bind(seeded.workspaceId, NOW, NOW, company.id, "e".repeat(64)).run();
+  for (const [index, grant] of grants.entries()) {
+    await database.prepare(
+      `INSERT INTO contact_evidence_assignments
+        (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,
+         provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
+       VALUES (?,?,NULL,?,'p5-prospect','p5-contact','champion',?,?,?,?,?,1,?,?)`,
+    ).bind(
+      `p5-overlap-assignment-${index}`, seeded.workspaceId, grant.id, grant.tuple.configurationId,
+      grant.tuple.configurationDigest, grant.tuple.providerId, grant.tuple.providerVersion, grant.tuple.catalogRef,
+      String(index + 1).repeat(64), NOW,
+    ).run();
+    const grantAccountId = `enrichment:${seeded.workspaceId.length}:${seeded.workspaceId}:grant:${grant.id.length}:${grant.id}`;
+    await database.prepare(
+      `INSERT INTO enrichment_budget_accounts
+        (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,
+         actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
+       VALUES (?,?,'enrichment','grant',?,'CAD',0,0,1,0,0,10,1,?,?)`,
+    ).bind(grantAccountId, seeded.workspaceId, grant.id, NOW, NOW).run();
+  }
+  const sharedEntities = {
+    profile: grants[0].tuple.configurationId,
+    workspace: seeded.workspaceId,
+    provider: grants[0].tuple.providerId,
+  };
+  for (const [scope, entityId] of Object.entries(sharedEntities)) {
+    const accountId = `enrichment:${seeded.workspaceId.length}:${seeded.workspaceId}:${scope}:${entityId.length}:${entityId}`;
+    await database.prepare(
+      `INSERT INTO enrichment_budget_accounts
+        (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,
+         actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
+       VALUES (?,?,'enrichment',?,?,'CAD',0,0,2,0,0,20,1,?,?)`,
+    ).bind(accountId, seeded.workspaceId, scope, entityId, NOW, NOW).run();
+  }
+}
+
+async function readSharedEnrichmentAccounts(database, workspaceId) {
+  return (await database.prepare(
+    `SELECT actual_units,reserved_units,actual_cost_minor,reserved_cost_minor,revision
+     FROM enrichment_budget_accounts WHERE workspace_id=? AND scope IN ('profile','workspace','provider') ORDER BY scope`,
+  ).bind(workspaceId).all()).results;
+}
+
 async function seedRunnerAuthority(database, runner, input) {
   const grant = {
     authorityType: "runner_spend",
@@ -814,7 +1174,7 @@ async function seedRunnerAuthority(database, runner, input) {
   ).bind(
     grant.id, input.workspaceId, input.ownerSubject, grant.providerId, grant.model, grant.catalogRef, grant.runType,
     grant.scopeId, grant.perRunCostMinor, grant.monthlyCostMinor, grant.currency, grant.maxRetries,
-    input.grantId === "runner-grant-a" ? "a".repeat(64) : "b".repeat(64),
+    input.grantDigest ?? (input.grantId === "runner-grant-a" ? "a".repeat(64) : "b".repeat(64)),
     `${input.grantId}-nonce`, grant.expiresAt, NOW - 1,
   ).run();
   const period = runner.deriveRunnerUtcMonthPeriod(NOW);
@@ -825,12 +1185,14 @@ async function seedRunnerAuthority(database, runner, input) {
     scopeId: grant.scopeId,
     period,
   });
-  await database.prepare(
-    `INSERT INTO runner_budget_accounts
-      (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,currency,
-       actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
-     VALUES (?,?,'runner_monthly',?,?,?,?,NULL,NULL,?,0,0,100,1,?,?)`,
-  ).bind(monthlyId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, period, grant.currency, NOW, NOW).run();
+  if (input.reuseMonthly !== true) {
+    await database.prepare(
+      `INSERT INTO runner_budget_accounts
+        (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,currency,
+         actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
+       VALUES (?,?,'runner_monthly',?,?,?,?,NULL,NULL,?,0,0,100,1,?,?)`,
+    ).bind(monthlyId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, period, grant.currency, NOW, NOW).run();
+  }
   const perRunIds = [];
   const previousOperationKeys = [];
   for (let attemptNumber = 0; attemptNumber <= input.maxRetries; attemptNumber += 1) {
@@ -839,7 +1201,7 @@ async function seedRunnerAuthority(database, runner, input) {
       previousOutcome: attemptNumber === 0 ? "none" : "failed_retryable",
       previousOperationKeys: [...previousOperationKeys],
     };
-    const operationKey = await runner.deriveRunnerOperationKey({ principalSubject: input.ownerSubject, grant, attempt });
+    const operationKey = await runner.deriveRunnerOperationKey({ workspaceId: input.workspaceId, principalSubject: input.ownerSubject, grant, attempt });
     previousOperationKeys.push(operationKey);
     const perRunId = runner.deriveRunnerPerRunAccountId({
       workspaceId: input.workspaceId,
@@ -868,4 +1230,9 @@ async function readRunnerAccounts(database, workspaceId) {
   return (await database.prepare(
     "SELECT id,actual_cost_minor,reserved_cost_minor,revision FROM runner_budget_accounts WHERE workspace_id=? ORDER BY id",
   ).bind(workspaceId).all()).results;
+}
+
+async function sha256Text(value) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

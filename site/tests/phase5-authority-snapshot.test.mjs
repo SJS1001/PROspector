@@ -268,7 +268,7 @@ async function runnerAuthority(runner) {
     maxRetries: 0,
   };
   const attempt = { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] };
-  const seed = { principalSubject, grant, attempt };
+  const seed = { workspaceId: "workspace-snapshot", principalSubject, grant, attempt };
   const operationKey = await runner.deriveRunnerOperationKey(seed);
   const period = runner.deriveRunnerUtcMonthPeriod(1_100);
   return {

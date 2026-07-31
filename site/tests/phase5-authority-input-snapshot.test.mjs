@@ -267,6 +267,7 @@ async function runnerAuthority(runner) {
     previousOperationKeys: [],
   };
   const operationKey = await runner.deriveRunnerOperationKey({
+    workspaceId: "workspace-input-snapshot",
     principalSubject: OWNER,
     grant,
     attempt,

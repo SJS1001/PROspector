@@ -533,7 +533,10 @@ CREATE TRIGGER enrichment_issuance_scope_guard BEFORE INSERT ON enrichment_grant
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_insert_guard BEFORE INSERT ON enrichment_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.authority_type <> 'enrichment' OR NEW.scope NOT IN ('grant','profile','workspace','provider') THEN RAISE(ABORT, 'invalid enrichment budget account') END;
+  SELECT CASE WHEN NEW.authority_type <> 'enrichment' OR NEW.scope NOT IN ('grant','profile','workspace','provider')
+    OR NEW.actual_units <> 0 OR NEW.reserved_units <> 0 OR NEW.actual_cost_minor <> 0 OR NEW.reserved_cost_minor <> 0
+    OR NEW.revision <> 1
+    THEN RAISE(ABORT, 'invalid enrichment budget account') END;
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_update_guard BEFORE UPDATE ON enrichment_budget_accounts BEGIN
@@ -549,18 +552,52 @@ CREATE TRIGGER enrichment_budget_update_guard BEFORE UPDATE ON enrichment_budget
           AND NEW.actual_units = OLD.actual_units AND NEW.actual_cost_minor = OLD.actual_cost_minor
           AND NEW.reserved_units = OLD.reserved_units + be.reserved_units
           AND NEW.reserved_cost_minor = OLD.reserved_cost_minor + be.reserved_cost_minor
+          AND NEW.revision = 1
+            + (SELECT count(*) FROM enrichment_reservation_budget_entries all_be
+               WHERE all_be.account_id = OLD.id AND all_be.workspace_id = OLD.workspace_id)
+            + (SELECT count(*) FROM enrichment_reservation_budget_entries terminal_be
+               JOIN enrichment_reservation_events terminal_e ON terminal_e.reservation_id = terminal_be.reservation_id
+               WHERE terminal_be.account_id = OLD.id AND terminal_be.workspace_id = OLD.workspace_id
+                 AND terminal_e.state IN ('settled','released'))
       )
       OR EXISTS (
         SELECT 1 FROM enrichment_reservation_budget_entries be
         JOIN enrichment_reservation_events e ON e.reservation_id = be.reservation_id
         WHERE be.account_id = OLD.id AND be.workspace_id = OLD.workspace_id
-          AND be.account_expected_revision + 1 = OLD.revision AND e.created_at = NEW.updated_at
+          AND e.created_at = NEW.updated_at
           AND e.durable_revision = (SELECT max(e2.durable_revision) FROM enrichment_reservation_events e2 WHERE e2.reservation_id = be.reservation_id)
           AND e.state IN ('settled','released') AND e.documented_units IS NOT NULL AND e.documented_cost_minor IS NOT NULL
+          AND OLD.reserved_units = be.reserved_units + coalesce((
+            SELECT sum(outstanding_be.reserved_units) FROM enrichment_reservation_budget_entries outstanding_be
+            WHERE outstanding_be.account_id = OLD.id AND outstanding_be.workspace_id = OLD.workspace_id
+              AND outstanding_be.reservation_id <> be.reservation_id
+              AND NOT EXISTS (
+                SELECT 1 FROM enrichment_reservation_events outstanding_terminal
+                WHERE outstanding_terminal.reservation_id = outstanding_be.reservation_id
+                  AND outstanding_terminal.state IN ('settled','released')
+              )
+          ), 0)
+          AND OLD.reserved_cost_minor = be.reserved_cost_minor + coalesce((
+            SELECT sum(outstanding_be.reserved_cost_minor) FROM enrichment_reservation_budget_entries outstanding_be
+            WHERE outstanding_be.account_id = OLD.id AND outstanding_be.workspace_id = OLD.workspace_id
+              AND outstanding_be.reservation_id <> be.reservation_id
+              AND NOT EXISTS (
+                SELECT 1 FROM enrichment_reservation_events outstanding_terminal
+                WHERE outstanding_terminal.reservation_id = outstanding_be.reservation_id
+                  AND outstanding_terminal.state IN ('settled','released')
+              )
+          ), 0)
           AND NEW.reserved_units = OLD.reserved_units - be.reserved_units
           AND NEW.reserved_cost_minor = OLD.reserved_cost_minor - be.reserved_cost_minor
           AND NEW.actual_units = OLD.actual_units + e.documented_units
           AND NEW.actual_cost_minor = OLD.actual_cost_minor + e.documented_cost_minor
+          AND NEW.revision = 1
+            + (SELECT count(*) FROM enrichment_reservation_budget_entries all_be
+               WHERE all_be.account_id = OLD.id AND all_be.workspace_id = OLD.workspace_id)
+            + (SELECT count(*) FROM enrichment_reservation_budget_entries terminal_be
+               JOIN enrichment_reservation_events terminal_e ON terminal_e.reservation_id = terminal_be.reservation_id
+               WHERE terminal_be.account_id = OLD.id AND terminal_be.workspace_id = OLD.workspace_id
+                 AND terminal_e.state IN ('settled','released'))
       )
     )
     THEN RAISE(ABORT, 'invalid enrichment budget mutation') END;
@@ -788,7 +825,8 @@ CREATE TRIGGER identity_lineage_scope_guard BEFORE INSERT ON identity_lineage BE
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_budget_account_scope_guard BEFORE INSERT ON runner_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.scope NOT IN ('runner_per_run','runner_monthly') OR
+  SELECT CASE WHEN NEW.scope NOT IN ('runner_per_run','runner_monthly')
+    OR NEW.actual_cost_minor <> 0 OR NEW.reserved_cost_minor <> 0 OR NEW.revision <> 1 OR
     (NEW.scope = 'runner_monthly' AND EXISTS (
       SELECT 1 FROM runner_budget_accounts a WHERE a.workspace_id = NEW.workspace_id AND a.scope = 'runner_monthly'
         AND a.owner_subject = NEW.owner_subject AND a.provider_id = NEW.provider_id AND a.scope_id = NEW.scope_id
@@ -821,6 +859,15 @@ CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget
             OR (r.monthly_account_id = OLD.id AND r.monthly_account_expected_revision = OLD.revision))
           AND NEW.actual_cost_minor = OLD.actual_cost_minor
           AND NEW.reserved_cost_minor = OLD.reserved_cost_minor + r.reserved_cost_minor
+          AND NEW.revision = 1
+            + (SELECT count(*) FROM runner_spend_reservations all_r
+               WHERE all_r.workspace_id = OLD.workspace_id
+                 AND (all_r.per_run_account_id = OLD.id OR all_r.monthly_account_id = OLD.id))
+            + (SELECT count(*) FROM runner_spend_reservations terminal_r
+               JOIN runner_spend_reservation_events terminal_e ON terminal_e.reservation_id = terminal_r.id
+               WHERE terminal_r.workspace_id = OLD.workspace_id
+                 AND (terminal_r.per_run_account_id = OLD.id OR terminal_r.monthly_account_id = OLD.id)
+                 AND terminal_e.state IN ('failed_retryable','settled','released'))
       )
       OR EXISTS (
         SELECT 1 FROM runner_spend_reservations r
@@ -829,10 +876,28 @@ CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget
           AND e.created_at = NEW.updated_at
           AND e.durable_revision = (SELECT max(e2.durable_revision) FROM runner_spend_reservation_events e2 WHERE e2.reservation_id = r.id)
           AND e.state IN ('failed_retryable','settled','released') AND e.documented_cost_minor IS NOT NULL
-          AND ((r.per_run_account_id = OLD.id AND r.per_run_account_expected_revision + 1 = OLD.revision)
-            OR (r.monthly_account_id = OLD.id AND r.monthly_account_expected_revision + 1 = OLD.revision))
+          AND OLD.reserved_cost_minor = r.reserved_cost_minor + coalesce((
+            SELECT sum(outstanding_r.reserved_cost_minor) FROM runner_spend_reservations outstanding_r
+            WHERE outstanding_r.workspace_id = OLD.workspace_id
+              AND (outstanding_r.per_run_account_id = OLD.id OR outstanding_r.monthly_account_id = OLD.id)
+              AND outstanding_r.id <> r.id
+              AND NOT EXISTS (
+                SELECT 1 FROM runner_spend_reservation_events outstanding_terminal
+                WHERE outstanding_terminal.reservation_id = outstanding_r.id
+                  AND outstanding_terminal.state IN ('failed_retryable','settled','released')
+              )
+          ), 0)
           AND NEW.reserved_cost_minor = OLD.reserved_cost_minor - r.reserved_cost_minor
           AND NEW.actual_cost_minor = OLD.actual_cost_minor + e.documented_cost_minor
+          AND NEW.revision = 1
+            + (SELECT count(*) FROM runner_spend_reservations all_r
+               WHERE all_r.workspace_id = OLD.workspace_id
+                 AND (all_r.per_run_account_id = OLD.id OR all_r.monthly_account_id = OLD.id))
+            + (SELECT count(*) FROM runner_spend_reservations terminal_r
+               JOIN runner_spend_reservation_events terminal_e ON terminal_e.reservation_id = terminal_r.id
+               WHERE terminal_r.workspace_id = OLD.workspace_id
+                 AND (terminal_r.per_run_account_id = OLD.id OR terminal_r.monthly_account_id = OLD.id)
+                 AND terminal_e.state IN ('failed_retryable','settled','released'))
       )
     )
     THEN RAISE(ABORT, 'invalid runner budget mutation') END;

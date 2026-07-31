@@ -61,6 +61,7 @@ export type RunnerSpendAuthority = {
 };
 export type RunnerSpendReservation = {
   id: string;
+  workspaceId: string;
   grantId: string;
   operationKey: string;
   providerId: string;
@@ -148,7 +149,8 @@ export async function reserveRunnerSpend(
   }
   const attemptDigest = await digest(stable(authority.attempt));
   const record = freezeRunnerReservation({
-    id: `rr_${await digest(lengthPrefixed(authority.grant.id, request.operationKey, String(authority.attempt.attemptNumber)))}`,
+    id: `rr_${await digest(lengthPrefixed(authority.workspaceId, authority.grant.id, request.operationKey, String(authority.attempt.attemptNumber)))}`,
+    workspaceId: authority.workspaceId,
     grantId: authority.grant.id,
     operationKey: request.operationKey,
     providerId: authority.grant.providerId,
@@ -183,17 +185,18 @@ export async function reserveRunnerSpend(
 
 /** Binds the only reservable operation to the admitted owner and immutable runner grant facts. */
 export async function deriveRunnerOperationKey(
-  authority: Pick<RunnerSpendAuthority, "principalSubject" | "grant" | "attempt">,
+  authority: Pick<RunnerSpendAuthority, "workspaceId" | "principalSubject" | "grant" | "attempt">,
 ): Promise<string> {
   return deriveRunnerOperationKeyForAttempt(authority, authority.attempt.attemptNumber);
 }
 
 async function deriveRunnerOperationKeyForAttempt(
-  authority: Pick<RunnerSpendAuthority, "principalSubject" | "grant">,
+  authority: Pick<RunnerSpendAuthority, "workspaceId" | "principalSubject" | "grant">,
   attemptNumber: number,
 ): Promise<string> {
   const { grant } = authority;
   return `ro_${await digest(stable({
+    workspaceId: authority.workspaceId,
     ownerSubject: authority.principalSubject,
     grantId: grant.id,
     providerId: grant.providerId,
@@ -328,7 +331,7 @@ function validAttempt(value: unknown, maxRetries: number): value is RunnerAttemp
 }
 
 async function hasExactRetryHistory(
-  authority: Pick<RunnerSpendAuthority, "principalSubject" | "grant" | "attempt">,
+  authority: Pick<RunnerSpendAuthority, "workspaceId" | "principalSubject" | "grant" | "attempt">,
 ): Promise<boolean> {
   const expected = await Promise.all(
     Array.from(
@@ -480,6 +483,7 @@ function freezeMonthlyAccount(account: RunnerMonthlyBudgetAccount): RunnerMonthl
 function freezeRunnerReservation(record: RunnerSpendReservation): RunnerSpendReservation {
   return Object.freeze({
     id: record.id,
+    workspaceId: record.workspaceId,
     grantId: record.grantId,
     operationKey: record.operationKey,
     providerId: record.providerId,

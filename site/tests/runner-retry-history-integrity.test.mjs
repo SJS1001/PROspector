@@ -31,6 +31,7 @@ function grant(maxRetries = 2) {
 
 async function operationKeyFor(runner, immutableGrant, attemptNumber) {
   return runner.deriveRunnerOperationKey({
+    workspaceId: WORKSPACE,
     principalSubject: PRINCIPAL,
     grant: immutableGrant,
     attempt: {

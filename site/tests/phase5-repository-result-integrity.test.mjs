@@ -129,6 +129,7 @@ test("runner commit results cannot change provider, scope, cost, operation, dige
       now,
     };
     const mutations = [
+      ["workspace", (record) => ({ ...clone(record), workspaceId: "workspace-other" })],
       ["provider", (record) => ({ ...clone(record), providerId: "provider-other" })],
       ["scope", (record) => ({ ...clone(record), scopeId: "scope-other" })],
       ["cost", (record) => ({ ...clone(record), reservedCostMinor: record.reservedCostMinor + 1 })],
@@ -343,7 +344,7 @@ async function makeRunnerAuthority(runner) {
     maxRetries: 0,
   };
   const attempt = { attemptNumber: 0, previousOutcome: "none", previousOperationKeys: [] };
-  const operationKey = await runner.deriveRunnerOperationKey({ principalSubject: ownerSubject, grant, attempt });
+  const operationKey = await runner.deriveRunnerOperationKey({ workspaceId, principalSubject: ownerSubject, grant, attempt });
   const period = runner.deriveRunnerUtcMonthPeriod(now);
   return {
     admitted: true,

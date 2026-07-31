@@ -9,33 +9,28 @@ async function loadRunner(vite) {
   return vite.ssrLoadModule(new URL("../domain/runner-spend-authority.ts", import.meta.url).pathname);
 }
 
-test("runner ledger identities are isolated by workspace", async () => {
+test("identical runner authority in two workspaces derives distinct operations, reservations, ledgers, and charges", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
     const runner = await loadRunner(vite);
-    const authority = await authorityFor(runner, { now: JULY });
-    const commonPerRun = {
-      principalSubject: authority.principalSubject,
-      grantId: authority.grant.id,
-      providerId: authority.grant.providerId,
-      scopeId: authority.grant.scopeId,
-      attemptNumber: authority.attempt.attemptNumber,
-      operationKey: authority.perRun.operationKey,
-    };
-    const commonMonthly = {
-      principalSubject: authority.principalSubject,
-      providerId: authority.grant.providerId,
-      scopeId: authority.grant.scopeId,
-      period: authority.monthly.period,
-    };
-    assert.notEqual(
-      runner.deriveRunnerPerRunAccountId({ workspaceId: authority.workspaceId, ...commonPerRun }),
-      runner.deriveRunnerPerRunAccountId({ workspaceId: "workspace-other", ...commonPerRun }),
-    );
-    assert.notEqual(
-      runner.deriveRunnerMonthlyAccountId({ workspaceId: authority.workspaceId, ...commonMonthly }),
-      runner.deriveRunnerMonthlyAccountId({ workspaceId: "workspace-other", ...commonMonthly }),
-    );
+    const first = await authorityFor(runner, { now: JULY, workspaceId: "workspace-first" });
+    const second = await authorityFor(runner, { now: JULY, workspaceId: "workspace-second" });
+    assert.notEqual(first.perRun.operationKey, second.perRun.operationKey);
+    assert.notEqual(first.perRun.accountId, second.perRun.accountId);
+    assert.notEqual(first.monthly.accountId, second.monthly.accountId);
+    const firstWrites = [];
+    const secondWrites = [];
+    const firstResult = await runner.reserveRunnerSpend(repository(first, firstWrites), input(first, JULY));
+    const secondResult = await runner.reserveRunnerSpend(repository(second, secondWrites), input(second, JULY));
+    assert.equal(firstResult.kind, "reserved");
+    assert.equal(secondResult.kind, "reserved");
+    assert.notEqual(firstResult.reservation.id, secondResult.reservation.id);
+    assert.equal(firstResult.reservation.workspaceId, first.workspaceId);
+    assert.equal(secondResult.reservation.workspaceId, second.workspaceId);
+    assert.equal(firstWrites.length, 1);
+    assert.equal(secondWrites.length, 1);
+    assert.equal(firstWrites[0].record.reservedCostMinor, 10);
+    assert.equal(secondWrites[0].record.reservedCostMinor, 10);
   } finally {
     await vite.close();
   }
@@ -204,7 +199,7 @@ async function authorityFor(runner, options = {}) {
   };
   const authority = {
     admitted: true,
-    workspaceId: "workspace-synthetic",
+    workspaceId: options.workspaceId ?? "workspace-synthetic",
     principalSubject: "owner-synthetic",
     grant,
     attempt,
