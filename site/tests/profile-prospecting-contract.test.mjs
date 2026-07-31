@@ -10,11 +10,12 @@ import {
   seedBoundHistorian,
   snapshotForbiddenOperationalRows,
 } from "./helpers/d1.mjs";
+import { seedProfileAuthority } from "./helpers/phase4.mjs";
 
 const NOW = 1_780_000_000_000;
 const OWNER = { subject: "phase4-contract-owner", legacySubject: "phase4-contract-owner-legacy", displayName: "Phase 4 contract owner" };
 
-async function seedProfileAuthority(fixture) {
+/*async function seedProfileAuthority(fixture) {
   const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
   const model = await commercial.initializeCommercialModel(fixture.database, OWNER, { idempotencyKey: "0198f400-0000-7000-8000-000000000001" });
   const product = model.products.find((entry) => entry.name === "ONE");
@@ -58,7 +59,7 @@ async function seedProfileAuthority(fixture) {
     fixture.database.prepare("INSERT INTO offers (id,workspace_id,created_at,updated_at,revision,profile_id,name,value_json,question_id,answer_id,proposal_id,decision_id,knowledge_version_id,authority_command_id,audit_event_id) VALUES ('phase4-offer',?,?,?,1,?,'Offer','{}',?,?,?,?,?,?,?)").bind(workspaceId,now,now,profile.id,questionId,answerId,proposalId,decisionId,offerVersion,commandId,auditId),
   ]);
   return { profileId: profile.id, revision: Number(row.revision) };
-}
+}*/
 
 test("04-02 full chain installs constrained Phase 4 persistence without Phase 5–7 effect tables", async () => {
   const fixture = await createD1Fixture("phase4-schema-contract");
@@ -132,7 +133,7 @@ test("D-05 projects complete bounded P1→P2→P3 review lineage without duplica
   const fixture = await createD1Fixture("phase4-transitive-review-lineage");
   try {
     await applyMigrations(fixture.database);
-    const seeded = await seedProfileAuthority(fixture), readiness = await loadProfileReadiness(fixture), candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000201" }), activation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000202" }), workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first(), profile = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=?").bind(seeded.profileId).first(), company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW), readiness = await loadProfileReadiness(fixture), candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000201" }), activation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000202" }), workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first(), profile = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=?").bind(seeded.profileId).first(), company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
     const review = await fixture.vite.ssrLoadModule(new URL("../domain/prospect-review.ts", import.meta.url).pathname), digest = "a".repeat(64), candidateJson = JSON.stringify({ accountId: "lineage-account", targetId: "lineage-target", targetValue: "Lineage target" });
     const statements = [
       fixture.database.prepare("INSERT INTO organizations (id,workspace_id,created_at,updated_at,revision,company_id,canonical_name,identity_digest) VALUES ('lineage-org',?,?,?,1,?,'Lineage organization',?)").bind(workspace.id,NOW,NOW,company.id,digest),
@@ -201,7 +202,7 @@ test("D-01 Phase 4 rejects every missing, stale, or wrong-scoped immutable Phase
     await applyMigrations(fixture.database);
     const profile = await loadProfileReadiness(fixture);
     const before = await snapshotForbiddenOperationalRows(fixture.database);
-    const seeded = await seedProfileAuthority(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
     await fixture.database.prepare("DELETE FROM typed_configurations WHERE id = 'phase4-product-config'").run();
     await assert.rejects(
       () => profile.createProfileConfigurationCandidate(fixture.database, OWNER, {
@@ -223,7 +224,7 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
     await applyMigrations(fixture.database);
     const profile = await loadProfileReadiness(fixture);
     const before = await snapshotForbiddenOperationalRows(fixture.database);
-    const seeded = await seedProfileAuthority(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
     const candidate = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, {
       profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW,
       idempotencyKey: "0198f400-0000-7000-8000-000000000101",
@@ -254,7 +255,7 @@ test("distinct concurrent activation keys return only the persisted winner", asy
   try {
     await applyMigrations(fixture.database);
     const profile = await loadProfileReadiness(fixture);
-    const seeded = await seedProfileAuthority(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
     const candidate = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000151" });
     const before = await Promise.all(["authority_commands", "audit_events", "profile_configuration_activations", "prospecting_runs", "prospecting_schedules"].map(async (table) => [table, await countRows(fixture.database, table)]));
     const attempts = await Promise.allSettled(["152", "153"].map((suffix) => profile.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW + 1, idempotencyKey: `0198f400-0000-7000-8000-000000000${suffix}` })));
@@ -273,7 +274,7 @@ test("D-01 stale candidates cannot overwrite a replacement authority or mutate t
   try {
     await applyMigrations(fixture.database);
     const profile = await loadProfileReadiness(fixture);
-    const seeded = await seedProfileAuthority(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
     const candidateA = await profile.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000111" });
     const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first();
     const productConfiguration = await fixture.database.prepare("SELECT owner_id FROM typed_configurations WHERE id='phase4-product-config' AND workspace_id=?").bind(workspace.id).first();
