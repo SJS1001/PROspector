@@ -1,4 +1,10 @@
 import React, { useState } from "react";
+import {
+  buildReviewCommand,
+  EMPTY_REVIEW_DRAFT,
+  updateReviewDraft,
+  type ReviewDrafts,
+} from "./review-command";
 
 type History = {
   id?: string;
@@ -29,42 +35,6 @@ type Queue = {
   cooldownHistory?: History[];
   reentryHistory?: History[];
 };
-type ReviewDraft = { reason: string; reviewAt: string };
-type ReviewDrafts = Record<string, ReviewDraft>;
-const EMPTY_DRAFT: ReviewDraft = { reason: "", reviewAt: "" };
-
-export function updateReviewDraft(
-  drafts: ReviewDrafts,
-  prospectId: string,
-  patch: Partial<ReviewDraft>,
-): ReviewDrafts {
-  return {
-    ...drafts,
-    [prospectId]: { ...(drafts[prospectId] ?? EMPTY_DRAFT), ...patch },
-  };
-}
-
-export function buildReviewCommand(
-  item: Queue,
-  decision: "approve" | "reject" | "defer",
-  draft: ReviewDraft,
-): Record<string, unknown> | null {
-  const reason = draft.reason.normalize("NFC").trim();
-  if (!reason) return null;
-  const reviewAt =
-    decision === "defer" ? new Date(draft.reviewAt).getTime() : undefined;
-  if (decision === "defer" && !Number.isFinite(reviewAt)) return null;
-  return {
-    action: "review",
-    prospectId: item.id,
-    assessmentId: item.assessment_id,
-    expectedRevision: item.revision,
-    decision,
-    reason,
-    ...(reviewAt === undefined ? {} : { reviewAt }),
-  };
-}
-
 export function ReviewQueue({
   queue,
   onCommand,
@@ -80,7 +50,7 @@ export function ReviewQueue({
     const command = buildReviewCommand(
       item,
       decision,
-      drafts[item.id] ?? EMPTY_DRAFT,
+      drafts[item.id] ?? EMPTY_REVIEW_DRAFT,
     );
     if (command) onCommand(command);
   };
@@ -95,7 +65,7 @@ export function ReviewQueue({
           const lastDecision = item.decisionHistory?.at(-1),
             lastCooldown = item.cooldownHistory?.at(-1),
             lastReentry = item.reentryHistory?.at(-1),
-            draft = drafts[item.id] ?? EMPTY_DRAFT;
+            draft = drafts[item.id] ?? EMPTY_REVIEW_DRAFT;
           return (
             <article key={item.id}>
               <p>

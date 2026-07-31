@@ -43,11 +43,11 @@ test("Review Queue renders authoritative Account/Target and completed decision l
 test("Review Queue keeps each prospect draft and exact command isolated", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const view = await vite.ssrLoadModule(new URL("../app/prospecting/review-queue.tsx", import.meta.url).pathname);
+    const review = await vite.ssrLoadModule(new URL("../app/prospecting/review-command.ts", import.meta.url).pathname);
     const first = { id: "prospect-1", assessment_id: "assessment-1", revision: 2 };
     const second = { id: "prospect-2", assessment_id: "assessment-2", revision: 7 };
-    let drafts = view.updateReviewDraft({}, first.id, { reason: "Approve exact first prospect" });
-    drafts = view.updateReviewDraft(drafts, second.id, {
+    let drafts = review.updateReviewDraft({}, first.id, { reason: "Approve exact first prospect" });
+    drafts = review.updateReviewDraft(drafts, second.id, {
       reason: "Defer only second prospect",
       reviewAt: "2026-08-15T09:30",
     });
@@ -60,7 +60,7 @@ test("Review Queue keeps each prospect draft and exact command isolated", async 
       reason: "Defer only second prospect",
       reviewAt: "2026-08-15T09:30",
     });
-    assert.deepEqual(view.buildReviewCommand(first, "approve", drafts[first.id]), {
+    assert.deepEqual(review.buildReviewCommand(first, "approve", drafts[first.id]), {
       action: "review",
       prospectId: "prospect-1",
       assessmentId: "assessment-1",
@@ -68,14 +68,14 @@ test("Review Queue keeps each prospect draft and exact command isolated", async 
       decision: "approve",
       reason: "Approve exact first prospect",
     });
-    const deferred = view.buildReviewCommand(second, "defer", drafts[second.id]);
+    const deferred = review.buildReviewCommand(second, "defer", drafts[second.id]);
     assert.equal(deferred.prospectId, "prospect-2");
     assert.equal(deferred.assessmentId, "assessment-2");
     assert.equal(deferred.expectedRevision, 7);
     assert.equal(deferred.reason, "Defer only second prospect");
     assert.equal(deferred.reviewAt, new Date("2026-08-15T09:30").getTime());
     assert.equal(
-      view.buildReviewCommand(second, "defer", {
+      review.buildReviewCommand(second, "defer", {
         reason: "Missing date",
         reviewAt: "",
       }),
