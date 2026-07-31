@@ -71,10 +71,13 @@ export function projectContactEligibility(value: {
   authority?: Partial<ContactEligibilityAuthority>;
   now?: number;
 } | unknown): ContactEligibility {
-  const input = record(value);
-  const now = validTimestamp(input?.now) ?? Date.now();
+  const input = snapshotEligibilityInput(value);
+  const now = validEvaluationTimestamp(input?.now);
+  const clockInvalid = !input?.hasNow || now === null;
+  const evaluationTime = now ?? 0;
   const authority = normalizeAuthority(input?.authority);
   const reasonCodes = authorityReasons(authority);
+  if (clockInvalid) reasonCodes.push("invalid_evaluation_time");
   const authorityBlocked = reasonCodes.length > 0;
   const target = normalizeTarget(input?.target);
   if (!target) reasonCodes.push("invalid_contact_target");
@@ -88,7 +91,7 @@ export function projectContactEligibility(value: {
     if (isDefensivelyValidContactObservation(point)) points.push(point);
     else hasInvalidEvidence = true;
   }
-  const projected = points.map((point) => projectPoint(point, target, strategy, now));
+  const projected = points.map((point) => projectPoint(point, target, strategy, evaluationTime));
   if (!points.length) reasonCodes.push("no_contact_evidence");
   if (hasInvalidEvidence) reasonCodes.push("contact_evidence_invalid");
   if (projected.some((point) => point.state === "stale")) reasonCodes.push("contact_evidence_stale");
@@ -104,11 +107,11 @@ export function projectContactEligibility(value: {
     || point.state === "scope_mismatch"
     || point.state === "configuration_mismatch"
   );
-  const blockedForReview = authorityBlocked || !target || !strategy || hasBlockingEvidence;
+  const blockedForReview = authorityBlocked || clockInvalid || !target || !strategy || hasBlockingEvidence;
   const state: ContactEligibilityState = suppressed
     ? "NonContactable"
     : hasEligible && !blockedForReview ? "ContactReady"
-    : hasEligible || hasInvalidEvidence || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
+    : clockInvalid || hasEligible || hasInvalidEvidence || projected.some((point) => point.state === "stale" || point.state === "invalid" || point.state === "scope_mismatch" || point.state === "configuration_mismatch") || authority.drifted || authority.disqualified
       ? "NeedsReview"
       : "ContactSuggestion";
   return freeze({ state, eligible: state === "ContactReady", reasonCodes: uniqueSorted(reasonCodes), points: projected });
@@ -193,9 +196,37 @@ function authorityReasons(authority: ContactEligibilityAuthority) {
   if (authority.suppressed) reasons.push("suppressed");
   return reasons;
 }
+type EligibilityInputSnapshot = Readonly<{
+  target: unknown;
+  points: unknown;
+  strategy: unknown;
+  authority: unknown;
+  now: unknown;
+  hasNow: boolean;
+}>;
+function snapshotEligibilityInput(value: unknown): EligibilityInputSnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const key of ["target", "points", "strategy", "authority", "now"] as const) {
+      const descriptor = descriptors[key];
+      if (descriptor && !Object.hasOwn(descriptor, "value")) return null;
+    }
+    return Object.freeze({
+      target: descriptors.target?.value,
+      points: descriptors.points?.value,
+      strategy: descriptors.strategy?.value,
+      authority: descriptors.authority?.value,
+      now: descriptors.now?.value,
+      hasNow: descriptors.now !== undefined,
+    });
+  } catch {
+    return null;
+  }
+}
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function opaque(value: unknown) { return typeof value === "string" && /^[A-Za-z0-9_.:-]+$/u.test(value) && value.length > 0 && value.length <= 160; }
-function validTimestamp(value: unknown) { return Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null; }
+function validEvaluationTimestamp(value: unknown) { return Number.isSafeInteger(value) && (value as number) > 0 ? value as number : null; }
 function freshness(value: unknown, fallback: number) { return value === undefined ? fallback : Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= MAX_FRESHNESS_MS ? value as number : null; }
 function uniqueSorted(values: readonly string[]) { return Object.freeze([...new Set(values)].sort()); }
 function freeze<T>(value: T): T { if (value && typeof value === "object") { Object.freeze(value); for (const child of Object.values(value as Record<string, unknown>)) freeze(child); } return value; }
