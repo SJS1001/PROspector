@@ -26,6 +26,7 @@ export type ReserveEnrichmentResult = { kind: "reserved"; reservation: Enrichmen
 export async function validateEnrichmentAuthority(authority: ReservationAuthority | null, input: ReserveEnrichmentInput): Promise<{ kind: "valid"; assignment: AuthorizedEnrichmentAssignment; accounts: BudgetAccount[] } | { kind: "blocked"; reason: EnrichmentAuthorityBlockedReason }> {
   if (!authority || !validInput(input)) return { kind: "blocked", reason: "grant_unavailable" };
   const { grant, configuration, quote } = authority;
+  if (input.grantId !== grant.id) return { kind: "blocked", reason: "grant_unavailable" };
   if (!authority.admitted || authority.principalSubject !== input.principalSubject || grant.tuple.ownerSubject !== input.principalSubject) return { kind: "blocked", reason: "owner_not_admitted" };
   if (grant.status !== "issued") return { kind: "blocked", reason: "grant_consumed" };
   const { digest, ...unsignedTuple } = grant.tuple;
@@ -56,7 +57,11 @@ export async function reserveEnrichmentOperation(repository: EnrichmentAuthority
 
 function sameQuote(quote: ProviderQuote, grant: EnrichmentGrant): boolean { const tuple = grant.tuple; return quote.providerId === tuple.providerId && quote.providerVersion === tuple.providerVersion && quote.catalogRef === tuple.catalogRef && quote.revision === tuple.quoteRevision && quote.unitCostMinor === tuple.quoteUnitCostMinor && quote.expiresAt === tuple.quoteExpiresAt && quote.currency === tuple.currency; }
 function sameProspects(prospects: ReservationAuthority["prospects"], grant: EnrichmentGrant): boolean { const expected = grant.tuple.prospectIds; const revisions = new Map(grant.tuple.prospectRevisions.map((item) => [item.id, item.revision])); return prospects.length === expected.length && revisions.size === expected.length && prospects.every((prospect) => prospect.state === "approved" && prospect.configurationId === grant.tuple.configurationId && prospect.configurationDigest === grant.tuple.configurationDigest && expected.includes(prospect.id) && revisions.get(prospect.id) === prospect.revision); }
-function withinAccounts(accounts: readonly BudgetAccount[], grant: EnrichmentGrant): boolean { return accounts.length > 0 && accounts.every((account) => account.currency === grant.tuple.currency && nonNegative(account.actualUnits) && nonNegative(account.reservedUnits) && nonNegative(account.maxUnits) && nonNegative(account.actualCostMinor) && nonNegative(account.reservedCostMinor) && nonNegative(account.maxCostMinor) && account.actualUnits + account.reservedUnits + grant.tuple.maxUnits <= account.maxUnits && account.actualCostMinor + account.reservedCostMinor + grant.tuple.maxCostMinor <= account.maxCostMinor); }
+function withinAccounts(accounts: readonly BudgetAccount[], grant: EnrichmentGrant): boolean {
+  const required = ["grant", "profile", "workspace", "provider"];
+  if (accounts.length !== required.length || new Set(accounts.map((account) => account.scope)).size !== required.length || !required.every((scope) => accounts.some((account) => account.scope === scope))) return false;
+  return accounts.every((account) => account.currency === grant.tuple.currency && nonNegative(account.actualUnits) && nonNegative(account.reservedUnits) && nonNegative(account.maxUnits) && nonNegative(account.actualCostMinor) && nonNegative(account.reservedCostMinor) && nonNegative(account.maxCostMinor) && account.actualUnits + account.reservedUnits + grant.tuple.maxUnits <= account.maxUnits && account.actualCostMinor + account.reservedCostMinor + grant.tuple.maxCostMinor <= account.maxCostMinor);
+}
 function copyAccount(account: BudgetAccount): BudgetAccount { return { ...account }; }
 function validInput(value: ReserveEnrichmentInput): boolean { return typeof value.grantId === "string" && value.grantId.length > 0 && typeof value.principalSubject === "string" && value.principalSubject.length > 0 && /^op_[a-f0-9]{64}$/.test(value.operationKey) && Number.isSafeInteger(value.now); }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }

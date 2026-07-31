@@ -17,10 +17,10 @@ export type EnrichmentGrantTuple = {
   workspaceId: string;
   providerId: string; providerVersion: string; catalogRef: string; quoteRevision: number;
   quoteUnitCostMinor: number; quoteExpiresAt: number;
-  prospectIds: string[]; operation: EnrichmentOperation; operationKey: string;
+  prospectIds: readonly string[]; operation: EnrichmentOperation; operationKey: string;
   maxUnits: number; maxCostMinor: number; currency: string; expiresAt: number;
   ownerSubject: string; nonce: string; configurationId: string; configurationDigest: string;
-  configurationRevision: number; sourceRevision: number; prospectRevisions: Array<{ id: string; revision: number }>; digest: string;
+  configurationRevision: number; sourceRevision: number; prospectRevisions: readonly Readonly<{ id: string; revision: number }>[]; digest: string;
 };
 export type EnrichmentGrant = { id: string; workspaceId: string; idempotencyKey: string; requestDigest: string; tuple: EnrichmentGrantTuple; status: "issued" };
 export type EnrichmentIssuanceAudit = { action: "enrichment.grant.issued"; grantId: string; operationKey: string; digest: string; requestDigest: string; boundedReason: "issued" };
@@ -57,20 +57,20 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
   const requestDigest = await canonicalDigest(requestMaterial);
   const existing = await repository.findGrantByIdempotency(current.workspaceId, input.idempotencyKey);
   if (existing) return existing.requestDigest === requestDigest
-    ? issued(existing, true)
+    ? issued(freezeGrant(existing), true)
     : { kind: "conflict", reason: "idempotency_conflict" };
   const nonce = serverNonce(repository);
   const unsigned = { ...requestMaterial, nonce };
   const tuple: EnrichmentGrantTuple = { ...unsigned, digest: await canonicalDigest(unsigned) };
-  const grant: EnrichmentGrant = {
+  const grant = freezeGrant({
     id: `eg_${tuple.digest.slice(0, 24)}`, workspaceId: current.workspaceId, idempotencyKey: input.idempotencyKey,
     requestDigest, tuple, status: "issued",
-  };
+  });
   const committed = await repository.commitGrant(grant);
   if (committed.kind === "existing") return committed.record.requestDigest === requestDigest
-    ? issued(committed.record, true)
+    ? issued(freezeGrant(committed.record), true)
     : { kind: "conflict", reason: "idempotency_conflict" };
-  return issued(committed.record, false);
+  return issued(freezeGrant(committed.record), false);
 }
 
 export async function deriveOperationKey(value: { snapshot: IssuanceSnapshot; input: Pick<IssueEnrichmentGrantInput, "operation" | "maxUnits" | "maxCostMinor" | "currency" | "expiresAt">; prospectIds: readonly string[] }): Promise<string> {
@@ -106,17 +106,19 @@ function issued(grant: EnrichmentGrant, replayed: boolean): Extract<IssueEnrichm
 }
 function validateSnapshot(snapshot: IssuanceSnapshot | null, input: IssueEnrichmentGrantInput, ids: readonly string[]): EnrichmentBlockedReason | null {
   if (!snapshot || !snapshot.admitted || snapshot.ownerSubject !== input.principalSubject) return "owner_not_admitted";
-  if (snapshot.revision !== input.expectedRevision) return "stale_revision";
-  if (!snapshot.configuration.current || !digestLike(snapshot.configuration.digest)) return "configuration_not_current";
-  if (!snapshot.quote || !bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !integer(snapshot.quote.revision) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0) return "quote_unavailable";
+  if (!bounded(snapshot.workspaceId, 256) || !bounded(snapshot.ownerSubject, 256) || !positive(snapshot.revision) || snapshot.revision !== input.expectedRevision) return "stale_revision";
+  if (!snapshot.configuration.current || !bounded(snapshot.configuration.id, 256) || !digestLike(snapshot.configuration.digest) || !positive(snapshot.configuration.revision)) return "configuration_not_current";
+  if (!snapshot.quote || !bounded(snapshot.quote.providerId, 128) || !bounded(snapshot.quote.providerVersion, 128) || !bounded(snapshot.quote.catalogRef, 256) || !positive(snapshot.quote.revision) || !integer(snapshot.quote.unitCostMinor) || snapshot.quote.unitCostMinor < 0 || !positive(snapshot.quote.expiresAt)) return "quote_unavailable";
   if (snapshot.quote.expiresAt <= input.now) return "quote_expired";
   if (snapshot.quote.currency !== input.currency) return "currency_mismatch";
-  if (input.maxCostMinor < snapshot.quote.unitCostMinor * input.maxUnits) return "cost_unbounded";
-  if (snapshot.prospects.length !== ids.length || snapshot.prospects.some((prospect) => !ids.includes(prospect.id) || prospect.state !== "approved" || prospect.configurationId !== snapshot.configuration.id || prospect.configurationDigest !== snapshot.configuration.digest || !integer(prospect.revision))) return "prospect_not_approved";
+  if (!safeProduct(snapshot.quote.unitCostMinor, input.maxUnits) || input.maxCostMinor < snapshot.quote.unitCostMinor * input.maxUnits) return "cost_unbounded";
+  if (input.expiresAt > snapshot.quote.expiresAt) return "quote_expired";
+  const actualIds = snapshot.prospects.map((prospect) => prospect.id);
+  if (snapshot.prospects.length !== ids.length || new Set(actualIds).size !== actualIds.length || !sameIdSet(actualIds, ids) || snapshot.prospects.some((prospect) => !bounded(prospect.id, 256) || prospect.state !== "approved" || prospect.configurationId !== snapshot.configuration.id || prospect.configurationDigest !== snapshot.configuration.digest || !positive(prospect.revision))) return "prospect_not_approved";
   return null;
 }
 function validRequest(input: IssueEnrichmentGrantInput, ids: readonly string[]): boolean {
-  return ids.length > 0 && bounded(input.principalSubject, 256) && input.operation === "business_contact_lookup/v1" && integer(input.maxUnits) && input.maxUnits > 0 && input.maxUnits <= 1_000 && integer(input.maxCostMinor) && input.maxCostMinor >= 0 && bounded(input.currency, 8) && integer(input.expiresAt) && integer(input.now) && input.expiresAt > input.now && input.expiresAt <= input.now + 60 * 60 * 1_000 && integer(input.expectedRevision) && input.expectedRevision > 0 && bounded(input.idempotencyKey, 256);
+  return ids.length > 0 && bounded(input.principalSubject, 256) && input.operation === "business_contact_lookup/v1" && integer(input.maxUnits) && input.maxUnits > 0 && input.maxUnits <= 1_000 && integer(input.maxCostMinor) && input.maxCostMinor >= 0 && bounded(input.currency, 8) && positive(input.expiresAt) && positive(input.now) && input.expiresAt > input.now && input.expiresAt <= input.now + 60 * 60 * 1_000 && positive(input.expectedRevision) && bounded(input.idempotencyKey, 256);
 }
 function normalizeIds(ids: readonly string[]): string[] | null {
   if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some((id) => !bounded(id, 256))) return null;
@@ -129,5 +131,14 @@ function serverNonce(repository: IssuanceRepository): string {
 }
 function bounded(value: unknown, length: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= length; }
 function integer(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value); }
+function positive(value: unknown): value is number { return integer(value) && value > 0; }
+function safeProduct(left: number, right: number): boolean { return left === 0 || left <= Math.floor(Number.MAX_SAFE_INTEGER / right); }
+function sameIdSet(left: readonly string[], right: readonly string[]): boolean { return left.length === right.length && left.every((id) => right.includes(id)); }
 function digestLike(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
 async function digest(value: string): Promise<string> { const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join(""); }
+
+function freezeGrant(grant: EnrichmentGrant): EnrichmentGrant {
+  const prospectRevisions = Object.freeze(grant.tuple.prospectRevisions.map((item) => Object.freeze({ id: item.id, revision: item.revision })));
+  const tuple = Object.freeze({ ...grant.tuple, prospectIds: Object.freeze([...grant.tuple.prospectIds]), prospectRevisions });
+  return Object.freeze({ ...grant, tuple });
+}
