@@ -104,20 +104,22 @@ export async function reserveRunnerSpend(
   repository: RunnerSpendRepository,
   input: { grantId: string; principalSubject: string; operationKey: string; now: number },
 ): Promise<ReserveRunnerSpendResult> {
-  const period = deriveRunnerUtcMonthPeriod(input.now);
-  if (!validInput(input) || period === null) return { kind: "blocked", reason: "runner_invalid_request" };
-  const loadedAuthority = await repository.loadRunnerAuthority(input.grantId);
+  const request = snapshotRunnerSpendInput(input);
+  if (!request) return { kind: "blocked", reason: "runner_invalid_request" };
+  const period = deriveRunnerUtcMonthPeriod(request.now);
+  if (period === null) return { kind: "blocked", reason: "runner_invalid_request" };
+  const loadedAuthority = await repository.loadRunnerAuthority(request.grantId);
   const authority = snapshotRunnerAuthority(loadedAuthority);
   if (loadedAuthority !== null && !authority) {
     return { kind: "blocked", reason: "runner_grant_unavailable" };
   }
-  if (!authority || !validGrant(authority.grant) || authority.grant.id !== input.grantId) {
+  if (!authority || !validGrant(authority.grant) || authority.grant.id !== request.grantId) {
     return { kind: "blocked", reason: "runner_grant_unavailable" };
   }
-  if (authority.admitted !== true || authority.principalSubject !== input.principalSubject) {
+  if (authority.admitted !== true || authority.principalSubject !== request.principalSubject) {
     return { kind: "blocked", reason: "runner_owner_denied" };
   }
-  if (authority.grant.expiresAt <= input.now) {
+  if (authority.grant.expiresAt <= request.now) {
     return { kind: "blocked", reason: "runner_grant_expired" };
   }
   if (!validAttempt(authority.attempt, authority.grant.maxRetries)) {
@@ -126,15 +128,15 @@ export async function reserveRunnerSpend(
   if (!await hasExactRetryHistory(authority)) {
     return { kind: "blocked", reason: "runner_retry_unavailable" };
   }
-  if (input.operationKey !== await deriveRunnerOperationKeyForAttempt(authority, authority.attempt.attemptNumber)) {
+  if (request.operationKey !== await deriveRunnerOperationKeyForAttempt(authority, authority.attempt.attemptNumber)) {
     return { kind: "blocked", reason: "runner_invalid_request" };
   }
-  if (authority.attempt.previousOperationKeys.includes(input.operationKey)) {
+  if (authority.attempt.previousOperationKeys.includes(request.operationKey)) {
     return { kind: "blocked", reason: "runner_retry_unavailable" };
   }
   const attemptCostMinor = authority.grant.perRunCostMinor;
   if (
-    !validPerRunAccount(authority.perRun, authority, input.operationKey)
+    !validPerRunAccount(authority.perRun, authority, request.operationKey)
     || !validMonthlyAccount(authority.monthly, authority, period)
     || authority.perRun.accountId === authority.monthly.accountId
     || !within(authority.perRun, attemptCostMinor)
@@ -145,9 +147,9 @@ export async function reserveRunnerSpend(
   }
   const attemptDigest = await digest(stable(authority.attempt));
   const record = freezeRunnerReservation({
-    id: `rr_${await digest(lengthPrefixed(authority.grant.id, input.operationKey, String(authority.attempt.attemptNumber)))}`,
+    id: `rr_${await digest(lengthPrefixed(authority.grant.id, request.operationKey, String(authority.attempt.attemptNumber)))}`,
     grantId: authority.grant.id,
-    operationKey: input.operationKey,
+    operationKey: request.operationKey,
     providerId: authority.grant.providerId,
     model: authority.grant.model,
     catalogRef: authority.grant.catalogRef,
@@ -259,6 +261,24 @@ function validInput(input: {
     && bounded(input.principalSubject, 256)
     && /^ro_[a-f0-9]{64}$/.test(input.operationKey)
     && positive(input.now);
+}
+
+function snapshotRunnerSpendInput(value: unknown): Readonly<{
+  grantId: string;
+  principalSubject: string;
+  operationKey: string;
+  now: number;
+}> | null {
+  const snapshot = snapshotRepositoryValue(value);
+  const root = exactDataRecord(snapshot, ["grantId", "principalSubject", "operationKey", "now"]);
+  if (!root) return null;
+  const request = {
+    grantId: root.grantId as string,
+    principalSubject: root.principalSubject as string,
+    operationKey: root.operationKey as string,
+    now: root.now as number,
+  };
+  return validInput(request) ? Object.freeze(request) : null;
 }
 
 function validGrant(grant: RunnerSpendGrant): boolean {

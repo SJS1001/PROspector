@@ -47,42 +47,44 @@ export type EnrichmentBlockedReason =
   | "repository_result_invalid";
 
 export async function issueEnrichmentGrant(repository: IssuanceRepository, input: IssueEnrichmentGrantInput): Promise<IssueEnrichmentGrantResult> {
-  const prospectIds = normalizeIds(input.prospectIds);
-  if (!prospectIds || !validRequest(input, prospectIds)) return { kind: "blocked", reason: "invalid_request" };
-  const loadedSnapshot = await repository.loadIssuanceSnapshot(input.principalSubject, prospectIds);
+  const request = snapshotIssueEnrichmentGrantInput(input);
+  if (!request) return { kind: "blocked", reason: "invalid_request" };
+  const prospectIds = normalizeIds(request.prospectIds);
+  if (!prospectIds || !validRequest(request, prospectIds)) return { kind: "blocked", reason: "invalid_request" };
+  const loadedSnapshot = await repository.loadIssuanceSnapshot(request.principalSubject, prospectIds);
   const snapshot = snapshotIssuanceAuthority(loadedSnapshot);
   if (loadedSnapshot !== null && !snapshot) return { kind: "blocked", reason: "repository_result_invalid" };
   const structureReason = validateIssuanceSnapshotStructure(snapshot);
   if (structureReason) return { kind: "blocked", reason: structureReason };
-  const admissionReason = validateAdmission(snapshot, input);
+  const admissionReason = validateAdmission(snapshot, request);
   if (admissionReason) return { kind: "blocked", reason: admissionReason };
   const current = snapshot!;
 
-  const loadedExisting = await repository.findGrantByIdempotency(current.workspaceId, input.idempotencyKey);
+  const loadedExisting = await repository.findGrantByIdempotency(current.workspaceId, request.idempotencyKey);
   const existingSnapshot = snapshotRepositoryValue(loadedExisting);
   if (loadedExisting !== null && !existingSnapshot) return { kind: "blocked", reason: "repository_result_invalid" };
   if (existingSnapshot !== null) {
     const existing = await validateRepositoryGrant(existingSnapshot, {
       workspaceId: current.workspaceId,
       ownerSubject: current.ownerSubject,
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey: request.idempotencyKey,
     });
     if (!existing) return { kind: "blocked", reason: "repository_result_invalid" };
-    return replayInputMatches(existing.grant, input, prospectIds)
+    return replayInputMatches(existing.grant, request, prospectIds)
       ? issued(existing.grant, true)
       : { kind: "conflict", reason: "idempotency_conflict" };
   }
 
-  const reason = validateCurrentAuthority(current, input, prospectIds);
+  const reason = validateCurrentAuthority(current, request, prospectIds);
   if (reason) return { kind: "blocked", reason };
-  const operationKey = await deriveOperationKey({ snapshot: current, input, prospectIds });
-  const requestMaterial = tupleMaterial(current, input, prospectIds, operationKey);
-  const requestDigest = await canonicalDigest(grantRequestMaterial(input.idempotencyKey, requestMaterial));
+  const operationKey = await deriveOperationKey({ snapshot: current, input: request, prospectIds });
+  const requestMaterial = tupleMaterial(current, request, prospectIds, operationKey);
+  const requestDigest = await canonicalDigest(grantRequestMaterial(request.idempotencyKey, requestMaterial));
   const nonce = serverNonce(repository);
   const unsigned = { ...requestMaterial, nonce };
   const tuple: EnrichmentGrantTuple = { ...unsigned, digest: await canonicalDigest(unsigned) };
   const grant = freezeGrant({
-    id: `eg_${tuple.digest.slice(0, 24)}`, workspaceId: current.workspaceId, idempotencyKey: input.idempotencyKey,
+    id: `eg_${tuple.digest.slice(0, 24)}`, workspaceId: current.workspaceId, idempotencyKey: request.idempotencyKey,
     requestDigest, tuple, status: "issued",
   });
   const loadedCommittedResult = await repository.commitGrant(grant);
@@ -95,7 +97,7 @@ export async function issueEnrichmentGrant(repository: IssuanceRepository, input
   const committed = await validateRepositoryGrant(committedEnvelope.record, {
     workspaceId: current.workspaceId,
     ownerSubject: current.ownerSubject,
-    idempotencyKey: input.idempotencyKey,
+    idempotencyKey: request.idempotencyKey,
     requestDigest,
     requestMaterial,
     exactGrant: committedEnvelope.kind === "created" ? grant : undefined,
@@ -206,9 +208,10 @@ function validateCurrentAuthority(snapshot: IssuanceSnapshot, input: IssueEnrich
 function validRequest(input: IssueEnrichmentGrantInput, ids: readonly string[]): boolean {
   return ids.length > 0 && bounded(input.principalSubject, 256) && input.operation === "business_contact_lookup/v1" && integer(input.maxUnits) && input.maxUnits > 0 && input.maxUnits <= 1_000 && integer(input.maxCostMinor) && input.maxCostMinor >= 0 && canonicalCurrency(input.currency) && positive(input.expiresAt) && positive(input.now) && input.expiresAt > input.now && input.expiresAt <= input.now + 60 * 60 * 1_000 && positive(input.expectedRevision) && bounded(input.idempotencyKey, 256);
 }
-function normalizeIds(ids: readonly string[]): string[] | null {
+function normalizeIds(ids: readonly string[]): readonly string[] | null {
   if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some((id) => !bounded(id, 256))) return null;
-  const sorted = [...ids].sort(); return new Set(sorted).size === sorted.length ? sorted : null;
+  const sorted = [...ids].sort();
+  return new Set(sorted).size === sorted.length ? Object.freeze(sorted) : null;
 }
 function serverNonce(repository: IssuanceRepository): string {
   const nonce = repository.nextNonce?.() ?? crypto.randomUUID();
@@ -228,6 +231,29 @@ function freezeGrant(grant: EnrichmentGrant): EnrichmentGrant {
   const prospectRevisions = Object.freeze(grant.tuple.prospectRevisions.map((item) => Object.freeze({ id: item.id, revision: item.revision })));
   const tuple = Object.freeze({ ...grant.tuple, prospectIds: Object.freeze([...grant.tuple.prospectIds]), prospectRevisions });
   return Object.freeze({ ...grant, tuple });
+}
+
+function snapshotIssueEnrichmentGrantInput(value: unknown): IssueEnrichmentGrantInput | null {
+  const snapshot = snapshotRepositoryValue(value);
+  const root = exactDataRecord(snapshot, [
+    "principalSubject", "prospectIds", "operation", "maxUnits", "maxCostMinor", "currency",
+    "expiresAt", "expectedRevision", "idempotencyKey", "now",
+  ]);
+  const prospectIds = root && exactDataArray(root.prospectIds, 1, 100);
+  if (!root || !prospectIds) return null;
+  const request = {
+    principalSubject: root.principalSubject as string,
+    prospectIds: Object.freeze([...prospectIds]) as readonly string[],
+    operation: root.operation as EnrichmentOperation,
+    maxUnits: root.maxUnits as number,
+    maxCostMinor: root.maxCostMinor as number,
+    currency: root.currency as string,
+    expiresAt: root.expiresAt as number,
+    expectedRevision: root.expectedRevision as number,
+    idempotencyKey: root.idempotencyKey as string,
+    now: root.now as number,
+  };
+  return validRequest(request, request.prospectIds) ? Object.freeze(request) : null;
 }
 
 type ExpectedRepositoryGrant = Readonly<{
