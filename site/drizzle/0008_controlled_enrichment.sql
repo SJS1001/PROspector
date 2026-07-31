@@ -438,6 +438,7 @@ CREATE TABLE `runner_spend_reservation_events` (
 	`state` text NOT NULL,
 	`terminal_reason` text,
 	`settlement_digest` text,
+	`documented_cost_minor` integer,
 	`acknowledgement_digest` text NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE no action,
@@ -456,6 +457,9 @@ CREATE TABLE `runner_spend_reservations` (
 	`monthly_account_id` text NOT NULL,
 	`operation_key` text NOT NULL,
 	`attempt_number` integer NOT NULL,
+	`period` text NOT NULL,
+	`previous_outcome` text NOT NULL,
+	`previous_operation_keys_json` text NOT NULL,
 	`provider_id` text NOT NULL,
 	`model` text NOT NULL,
 	`catalog_ref` text NOT NULL,
@@ -477,7 +481,7 @@ CREATE TABLE `runner_spend_reservations` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `runner_spend_reservation_attempt_unique` ON `runner_spend_reservations` (`workspace_id`,`grant_id`,`attempt_number`);--> statement-breakpoint
 CREATE UNIQUE INDEX `runner_spend_reservation_operation_unique` ON `runner_spend_reservations` (`workspace_id`,`operation_key`);--> statement-breakpoint
-CREATE UNIQUE INDEX `runner_spend_reservation_attempt_digest_unique` ON `runner_spend_reservations` (`workspace_id`,`attempt_digest`);
+CREATE UNIQUE INDEX `runner_spend_reservation_attempt_digest_unique` ON `runner_spend_reservations` (`workspace_id`,`grant_id`,`attempt_digest`);
 --> statement-breakpoint
 CREATE TRIGGER provider_quotes_scope_guard BEFORE INSERT ON provider_quotes BEGIN
   SELECT CASE WHEN NEW.operation <> 'business_contact_lookup/v1' OR NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id) THEN RAISE(ABORT, 'invalid provider quote scope') END;
@@ -502,9 +506,15 @@ CREATE TRIGGER enrichment_grant_prospects_scope_guard BEFORE INSERT ON enrichmen
     SELECT 1 FROM enrichment_grants g
     JOIN profile_prospects p ON p.id = NEW.prospect_id AND p.workspace_id = g.workspace_id
     JOIN typed_configurations c ON c.id = NEW.configuration_id AND c.workspace_id = g.workspace_id
-    WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id AND p.state = 'approved'
+    JOIN prospecting_candidates pc ON pc.id = p.candidate_id AND pc.workspace_id = p.workspace_id
+      AND pc.profile_id = p.profile_id AND pc.configuration_id = NEW.configuration_id AND pc.status = 'qualified'
+    JOIN qualification_assessments qa ON qa.id = p.assessment_id AND qa.workspace_id = p.workspace_id
+      AND qa.candidate_id = pc.id AND qa.configuration_id = NEW.configuration_id
+      AND qa.configuration_digest = NEW.configuration_digest AND qa.outcome = 'Passed'
+    WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id AND p.state = 'approved' AND p.active = 1
       AND p.revision = NEW.prospect_revision AND g.configuration_id = NEW.configuration_id
       AND g.configuration_digest = NEW.configuration_digest AND c.digest = NEW.configuration_digest
+      AND c.revision = g.configuration_revision AND c.active = 1
   ) THEN RAISE(ABORT, 'invalid enrichment prospect authority') END;
 END;
 --> statement-breakpoint
@@ -530,10 +540,31 @@ END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_reservations BEGIN
   SELECT CASE WHEN NOT EXISTS (
-    SELECT 1 FROM enrichment_grants g WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id
+    SELECT 1 FROM enrichment_grants g
+    JOIN typed_configurations c ON c.id = g.configuration_id AND c.workspace_id = g.workspace_id
+    WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id
       AND g.operation_key = NEW.operation_key AND g.max_units = NEW.reserved_units
       AND g.max_cost_minor = NEW.reserved_cost_minor AND g.currency = NEW.currency AND g.expires_at = NEW.expires_at
+      AND g.expires_at > NEW.created_at AND c.active = 1 AND c.digest = g.configuration_digest
+      AND c.revision = g.configuration_revision
   ) THEN RAISE(ABORT, 'invalid enrichment reservation authority') END;
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM enrichment_grant_prospects gp
+    WHERE gp.grant_id = NEW.grant_id AND gp.workspace_id = NEW.workspace_id
+  ) OR EXISTS (
+    SELECT 1 FROM enrichment_grant_prospects gp
+    JOIN enrichment_grants g ON g.id = gp.grant_id AND g.workspace_id = gp.workspace_id
+    LEFT JOIN profile_prospects p ON p.id = gp.prospect_id AND p.workspace_id = gp.workspace_id
+    LEFT JOIN prospecting_candidates pc ON pc.id = p.candidate_id AND pc.workspace_id = p.workspace_id
+    LEFT JOIN qualification_assessments qa ON qa.id = p.assessment_id AND qa.workspace_id = p.workspace_id
+    WHERE gp.grant_id = NEW.grant_id AND gp.workspace_id = NEW.workspace_id
+      AND (p.id IS NULL OR p.active <> 1 OR p.state <> 'approved' OR p.revision <> gp.prospect_revision
+        OR pc.id IS NULL OR pc.profile_id <> p.profile_id OR pc.configuration_id <> gp.configuration_id
+        OR pc.status <> 'qualified' OR qa.id IS NULL OR qa.candidate_id <> pc.id
+        OR qa.configuration_id <> gp.configuration_id OR qa.configuration_digest <> gp.configuration_digest
+        OR qa.outcome <> 'Passed' OR g.configuration_id <> gp.configuration_id
+        OR g.configuration_digest <> gp.configuration_digest)
+  ) THEN RAISE(ABORT, 'stale enrichment prospect authority') END;
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_entry_guard BEFORE INSERT ON enrichment_reservation_budget_entries BEGIN
@@ -562,7 +593,8 @@ CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_re
     OR NOT EXISTS (SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
     OR (NEW.state IN ('reserved','invoking','needs_reconciliation') AND (NEW.documented_units IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL))
     OR (NEW.state = 'settled' AND NEW.terminal_reason NOT IN ('completed','partial'))
-    OR (NEW.state = 'released' AND NEW.terminal_reason <> 'rejected')
+    OR (NEW.state = 'released' AND NEW.terminal_reason NOT IN ('rejected','expired'))
+    OR (NEW.state = 'released' AND NEW.terminal_reason = 'expired' AND (NEW.documented_units <> 0 OR NEW.documented_cost_minor <> 0))
     OR (NEW.state = 'needs_reconciliation' AND NEW.terminal_reason NOT IN ('timeout','ambiguous','provider_port_mismatch','invalid_provider_outcome','invalid_assignment','invalid_evidence','provider_throw','settlement_failure'))
     OR (NEW.state = 'reserved' AND (
       (SELECT count(*) FROM enrichment_reservation_budget_entries be WHERE be.reservation_id = NEW.reservation_id) <> 4
@@ -594,6 +626,12 @@ CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_re
       )
     ))
     OR (NEW.durable_revision = 1 AND NEW.state <> 'reserved')
+    OR (NEW.state = 'invoking' AND NOT EXISTS (
+      SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND NEW.created_at < r.expires_at
+    ))
+    OR (NEW.state = 'released' AND NEW.terminal_reason = 'expired' AND NOT EXISTS (
+      SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND NEW.created_at >= r.expires_at
+    ))
     OR (NEW.durable_revision > 1 AND NOT EXISTS (
       SELECT 1 FROM enrichment_reservation_events prior WHERE prior.reservation_id = NEW.reservation_id
         AND prior.durable_revision = NEW.durable_revision - 1
@@ -621,7 +659,7 @@ CREATE TRIGGER contact_assignment_scope_guard BEFORE INSERT ON contact_evidence_
     SELECT 1 FROM enrichment_grants g
     JOIN enrichment_grant_prospects gp ON gp.grant_id = g.id AND gp.prospect_id = NEW.prospect_id
     JOIN contacts c ON c.id = NEW.contact_id AND c.workspace_id = g.workspace_id
-    WHERE g.workspace_id = NEW.workspace_id
+    WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id
       AND (NEW.reservation_id IS NULL OR EXISTS (SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id AND r.grant_id = g.id))
       AND g.configuration_id = NEW.configuration_id AND g.configuration_digest = NEW.configuration_digest
       AND g.provider_id = NEW.provider_id AND g.provider_version = NEW.provider_version
@@ -731,25 +769,41 @@ END;
 CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_reservations BEGIN
   SELECT CASE WHEN NOT EXISTS (
     SELECT 1 FROM runner_spend_grants g
-    JOIN runner_budget_accounts pr ON pr.id = NEW.per_run_account_id AND pr.workspace_id = g.workspace_id
-    JOIN runner_budget_accounts mo ON mo.id = NEW.monthly_account_id AND mo.workspace_id = g.workspace_id
     WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id AND g.provider_id = NEW.provider_id
       AND g.model = NEW.model AND g.catalog_ref = NEW.catalog_ref AND g.scope_id = NEW.scope_id
       AND g.run_type = NEW.run_type AND g.currency = NEW.currency AND g.per_run_cost_minor = NEW.reserved_cost_minor
-      AND g.max_retries = NEW.max_retries AND NEW.attempt_number <= g.max_retries
+      AND g.max_retries = NEW.max_retries AND NEW.attempt_number <= g.max_retries AND g.expires_at > NEW.created_at
+      AND NEW.operation_key GLOB 'ro_[0-9a-f]*' AND length(NEW.operation_key) = 67
+      AND length(NEW.attempt_digest) = 64 AND NEW.attempt_digest NOT GLOB '*[^0-9a-f]*'
+      AND NEW.period = strftime('%Y-%m', NEW.created_at / 1000, 'unixepoch')
+      AND json_valid(NEW.previous_operation_keys_json) = 1 AND json_type(NEW.previous_operation_keys_json) = 'array'
+      AND json_array_length(NEW.previous_operation_keys_json) = NEW.attempt_number
+      AND ((NEW.attempt_number = 0 AND NEW.previous_outcome = 'none')
+        OR (NEW.attempt_number > 0 AND NEW.previous_outcome = 'failed_retryable'))
+  ) THEN RAISE(ABORT, 'invalid runner reservation authority') END;
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM runner_spend_grants g
+    JOIN runner_budget_accounts pr ON pr.id = NEW.per_run_account_id AND pr.workspace_id = g.workspace_id
+    JOIN runner_budget_accounts mo ON mo.id = NEW.monthly_account_id AND mo.workspace_id = g.workspace_id
+    WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id
       AND pr.scope = 'runner_per_run' AND pr.owner_subject = g.owner_subject AND pr.provider_id = g.provider_id
       AND pr.scope_id = g.scope_id AND pr.operation_key = NEW.operation_key AND pr.attempt_number = NEW.attempt_number
       AND pr.currency = g.currency AND pr.actual_cost_minor + pr.reserved_cost_minor + NEW.reserved_cost_minor <= pr.max_cost_minor
       AND mo.scope = 'runner_monthly' AND mo.owner_subject = g.owner_subject AND mo.provider_id = g.provider_id
-      AND mo.scope_id = g.scope_id AND mo.currency = g.currency
+      AND mo.scope_id = g.scope_id AND mo.currency = g.currency AND mo.period = NEW.period
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= mo.max_cost_minor
-      AND (NEW.attempt_number = 0 OR EXISTS (
-        SELECT 1 FROM runner_spend_reservations prior JOIN runner_spend_reservation_events ev ON ev.reservation_id = prior.id
-        WHERE prior.grant_id = NEW.grant_id AND prior.attempt_number = NEW.attempt_number - 1
-          AND ev.durable_revision = (SELECT max(e2.durable_revision) FROM runner_spend_reservation_events e2 WHERE e2.reservation_id = prior.id)
-          AND ev.state = 'failed_retryable'
-      ))
-  ) THEN RAISE(ABORT, 'invalid runner reservation authority') END;
+  ) THEN RAISE(ABORT, 'invalid runner reservation accounts') END;
+  SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM json_each(NEW.previous_operation_keys_json) history
+    WHERE NOT EXISTS (
+      SELECT 1 FROM runner_spend_reservations prior
+      JOIN runner_spend_reservation_events ev ON ev.reservation_id = prior.id
+      WHERE prior.workspace_id = NEW.workspace_id AND prior.grant_id = NEW.grant_id
+        AND prior.attempt_number = CAST(history.key AS integer) AND prior.operation_key = history.value
+        AND ev.durable_revision = (SELECT max(e2.durable_revision) FROM runner_spend_reservation_events e2 WHERE e2.reservation_id = prior.id)
+        AND ev.state = 'failed_retryable'
+    )
+  ) THEN RAISE(ABORT, 'invalid runner retry lineage') END;
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_apply AFTER INSERT ON runner_spend_reservations BEGIN
@@ -761,6 +815,28 @@ END;
 CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spend_reservation_events BEGIN
   SELECT CASE WHEN NEW.state NOT IN ('reserved','assigned','failed_retryable','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM runner_spend_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
+    OR (NEW.state IN ('reserved','assigned','needs_reconciliation') AND NEW.documented_cost_minor IS NOT NULL)
+    OR (NEW.state IN ('reserved','assigned') AND (NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL))
+    OR (NEW.state = 'needs_reconciliation' AND (NEW.terminal_reason NOT IN ('timeout','ambiguous','provider_error') OR NEW.settlement_digest IS NOT NULL))
+    OR (NEW.state = 'failed_retryable' AND (NEW.terminal_reason <> 'failed_retryable' OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL))
+    OR (NEW.state = 'failed_retryable' AND NOT EXISTS (
+      SELECT 1 FROM runner_spend_reservations r
+      WHERE r.id = NEW.reservation_id AND r.attempt_number < r.max_retries
+    ))
+    OR (NEW.state = 'settled' AND (NEW.terminal_reason NOT IN ('completed','partial') OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL))
+    OR (NEW.state = 'released' AND (NEW.terminal_reason NOT IN ('rejected','expired') OR NEW.settlement_digest IS NULL OR NEW.documented_cost_minor IS NULL))
+    OR (NEW.state IN ('failed_retryable','settled','released') AND (
+      NEW.documented_cost_minor < 0
+      OR NOT EXISTS (
+        SELECT 1 FROM runner_spend_reservations r
+        JOIN runner_budget_accounts pr ON pr.id = r.per_run_account_id
+        JOIN runner_budget_accounts mo ON mo.id = r.monthly_account_id
+        WHERE r.id = NEW.reservation_id AND NEW.documented_cost_minor <= r.reserved_cost_minor
+          AND pr.reserved_cost_minor >= r.reserved_cost_minor AND mo.reserved_cost_minor >= r.reserved_cost_minor
+          AND pr.actual_cost_minor + NEW.documented_cost_minor <= pr.max_cost_minor
+          AND mo.actual_cost_minor + NEW.documented_cost_minor <= mo.max_cost_minor
+      )
+    ))
     OR (NEW.durable_revision = 1 AND NEW.state <> 'reserved')
     OR (NEW.durable_revision > 1 AND NOT EXISTS (
       SELECT 1 FROM runner_spend_reservation_events prior WHERE prior.reservation_id = NEW.reservation_id
@@ -769,6 +845,20 @@ CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spen
           OR (prior.state = 'assigned' AND NEW.state IN ('failed_retryable','settled','released','needs_reconciliation'))
           OR (prior.state = 'needs_reconciliation' AND NEW.state IN ('settled','released')))
     )) THEN RAISE(ABORT, 'invalid runner reservation lifecycle') END;
+END;
+--> statement-breakpoint
+CREATE TRIGGER runner_reservation_terminal_apply AFTER INSERT ON runner_spend_reservation_events
+WHEN NEW.state IN ('failed_retryable','settled','released') BEGIN
+  UPDATE runner_budget_accounts SET
+    reserved_cost_minor = reserved_cost_minor - (SELECT r.reserved_cost_minor FROM runner_spend_reservations r WHERE r.id = NEW.reservation_id),
+    actual_cost_minor = actual_cost_minor + NEW.documented_cost_minor,
+    revision = revision + 1,
+    updated_at = NEW.created_at
+  WHERE id IN (
+    SELECT per_run_account_id FROM runner_spend_reservations WHERE id = NEW.reservation_id
+    UNION ALL
+    SELECT monthly_account_id FROM runner_spend_reservations WHERE id = NEW.reservation_id
+  ) AND workspace_id = NEW.workspace_id;
 END;
 --> statement-breakpoint
 CREATE TRIGGER immutable_provider_quotes_update BEFORE UPDATE ON provider_quotes BEGIN SELECT RAISE(ABORT, 'immutable provider quote'); END;

@@ -112,6 +112,39 @@ test("repository replays exact grants and atomically admits only one bounded res
     assert.equal(await countRows(fixture.database, "enrichment_grant_issuance_events"), 1);
 
     await seedReservationInputs(fixture.database, seeded, first.grant);
+    await fixture.database.prepare(
+      `INSERT INTO enrichment_budget_accounts
+        (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,
+         actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
+       VALUES ('same-currency-decoy',?,'enrichment','workspace','unrelated-entity','CAD',0,0,99,0,0,999,1,?,?)`,
+    ).bind(seeded.workspaceId, NOW, NOW).run();
+    await fixture.database.prepare(
+      `INSERT INTO enrichment_grants (
+        id,workspace_id,quote_id,configuration_id,configuration_digest,configuration_revision,source_revision,
+        provider_id,provider_version,catalog_ref,quote_revision,quote_unit_cost_minor,quote_expires_at,
+        operation,operation_key,max_units,max_cost_minor,currency,expires_at,owner_subject,nonce,
+        idempotency_key,request_digest,tuple_digest,status,created_at
+      )
+      SELECT 'unrelated-grant',workspace_id,quote_id,configuration_id,configuration_digest,configuration_revision,source_revision,
+        provider_id,provider_version,catalog_ref,quote_revision,quote_unit_cost_minor,quote_expires_at,
+        operation,?,max_units,max_cost_minor,currency,expires_at,owner_subject,'unrelated-nonce',
+        'unrelated-idempotency',?,?,status,created_at
+      FROM enrichment_grants WHERE id=?`,
+    ).bind(`op_${"1".repeat(64)}`, "2".repeat(64), "3".repeat(64), first.grant.id).run();
+    await assert.rejects(
+      fixture.database.prepare(
+        `INSERT INTO contact_evidence_assignments
+          (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,
+           provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
+         VALUES ('wrong-grant-assignment',?,NULL,'unrelated-grant','p5-prospect','p5-contact','champion',?,?,?,?,?,1,?,?)`,
+      ).bind(
+        seeded.workspaceId, first.grant.tuple.configurationId, first.grant.tuple.configurationDigest,
+        first.grant.tuple.providerId, first.grant.tuple.providerVersion, first.grant.tuple.catalogRef,
+        "4".repeat(64), NOW,
+      ).run(),
+      /invalid contact evidence assignment/,
+      "an unrelated grant cannot borrow another grant's prospect relationship",
+    );
     const reserved = await authority.reserveEnrichmentOperation(repository, {
       grantId: first.grant.id,
       principalSubject: OWNER.subject,
@@ -141,10 +174,19 @@ test("repository replays exact grants and atomically admits only one bounded res
       ).bind("c".repeat(64), reserved.reservation.id).run(),
     );
     const accounts = (await fixture.database.prepare(
-      "SELECT reserved_units,reserved_cost_minor FROM enrichment_budget_accounts WHERE workspace_id=? ORDER BY scope",
+      "SELECT id,reserved_units,reserved_cost_minor FROM enrichment_budget_accounts WHERE workspace_id=? ORDER BY scope,id",
     ).bind(seeded.workspaceId).all()).results;
-    assert.equal(accounts.length, 4);
-    assert.ok(accounts.every((row) => Number(row.reserved_units) === 1 && Number(row.reserved_cost_minor) === 10));
+    assert.equal(accounts.length, 5);
+    assert.deepEqual(
+      accounts.filter((row) => row.id === "same-currency-decoy").map((row) => ({
+        units: Number(row.reserved_units),
+        cost: Number(row.reserved_cost_minor),
+      })),
+      [{ units: 0, cost: 0 }],
+      "same-currency accounts outside the exact four derived IDs are not loaded or reserved",
+    );
+    assert.ok(accounts.filter((row) => row.id !== "same-currency-decoy")
+      .every((row) => Number(row.reserved_units) === 1 && Number(row.reserved_cost_minor) === 10));
     const settlement = {
       state: "released",
       documentedUnits: 0,
@@ -169,6 +211,325 @@ test("repository replays exact grants and atomically admits only one bounded res
     ).bind(seeded.workspaceId).all()).results;
     assert.ok(releasedAccounts.every((row) => Number(row.actual_units) === 0 && Number(row.reserved_units) === 0 && Number(row.actual_cost_minor) === 0 && Number(row.reserved_cost_minor) === 0));
     assert.deepEqual((await fixture.database.prepare("PRAGMA foreign_key_check").all()).results, []);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("expired invocation claims durably release every reserved enrichment account", async () => {
+  const fixture = await createD1Fixture("phase5-persistence-expired-claim");
+  try {
+    await applyMigrations(fixture.database);
+    const seeded = await seedApprovedProspect(fixture);
+    const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+    const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+    const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+    const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+      workspaceId: seeded.workspaceId,
+      ownerSubject: OWNER.subject,
+      now: () => NOW + 100,
+    });
+    await fixture.database.prepare(
+      `INSERT INTO provider_quotes
+        (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+       VALUES ('quote-expiry',?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
+    ).bind(seeded.workspaceId, "7".repeat(64), NOW + 10_000, NOW).run();
+    const snapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+    const issued = await issuance.issueEnrichmentGrant(repository, {
+      principalSubject: OWNER.subject,
+      prospectIds: [seeded.prospectId],
+      operation: "business_contact_lookup/v1",
+      maxUnits: 1,
+      maxCostMinor: 10,
+      currency: "CAD",
+      expiresAt: NOW + 5_000,
+      expectedRevision: snapshot.revision,
+      idempotencyKey: "phase5-expiry-grant-key",
+      now: NOW + 1,
+    });
+    assert.equal(issued.kind, "issued");
+    await seedReservationInputs(fixture.database, seeded, issued.grant);
+    const reserved = await authority.reserveEnrichmentOperation(repository, {
+      grantId: issued.grant.id,
+      principalSubject: OWNER.subject,
+      operationKey: issued.grant.tuple.operationKey,
+      now: NOW + 2,
+    });
+    assert.equal(reserved.kind, "reserved");
+    const blocked = await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, NOW + 5_000);
+    assert.deepEqual(blocked, { kind: "blocked", reason: "expired" });
+    const latest = await fixture.database.prepare(
+      "SELECT durable_revision,state,terminal_reason,documented_units,documented_cost_minor FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1",
+    ).bind(reserved.reservation.id).first();
+    assert.deepEqual(
+      {
+        durableRevision: Number(latest.durable_revision),
+        state: latest.state,
+        terminalReason: latest.terminal_reason,
+        documentedUnits: Number(latest.documented_units),
+        documentedCostMinor: Number(latest.documented_cost_minor),
+      },
+      { durableRevision: 2, state: "released", terminalReason: "expired", documentedUnits: 0, documentedCostMinor: 0 },
+    );
+    const accounts = (await fixture.database.prepare(
+      "SELECT actual_units,reserved_units,actual_cost_minor,reserved_cost_minor,revision FROM enrichment_budget_accounts WHERE workspace_id=?",
+    ).bind(seeded.workspaceId).all()).results;
+    assert.ok(accounts.every((row) =>
+      Number(row.actual_units) === 0 && Number(row.reserved_units) === 0
+      && Number(row.actual_cost_minor) === 0 && Number(row.reserved_cost_minor) === 0
+      && Number(row.revision) === 3
+    ));
+    assert.deepEqual(
+      await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, NOW + 5_001),
+      { kind: "blocked", reason: "expired" },
+      "an exact durable expiry acknowledgement is replay-safe",
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("replacement configuration and prospect races cannot reuse stale enrichment authority", async () => {
+  const fixture = await createD1Fixture("phase5-persistence-stale-prospect-authority");
+  try {
+    await applyMigrations(fixture.database);
+    const seeded = await seedApprovedProspect(fixture);
+    const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+    const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+    const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+    const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+      workspaceId: seeded.workspaceId,
+      ownerSubject: OWNER.subject,
+      now: () => NOW + 100,
+    });
+    await fixture.database.prepare(
+      `INSERT INTO provider_quotes
+        (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+       VALUES ('quote-stale-race',?,'provider-a','v1','catalog-a',1,'business_contact_lookup/v1','CAD',10,?,?,?)`,
+    ).bind(seeded.workspaceId, "1".repeat(64), NOW + 10_000, NOW).run();
+    const issuanceSnapshot = await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]);
+    const issued = await issuance.issueEnrichmentGrant(repository, {
+      principalSubject: OWNER.subject,
+      prospectIds: [seeded.prospectId],
+      operation: "business_contact_lookup/v1",
+      maxUnits: 1,
+      maxCostMinor: 10,
+      currency: "CAD",
+      expiresAt: NOW + 5_000,
+      expectedRevision: issuanceSnapshot.revision,
+      idempotencyKey: "phase5-stale-race-grant-key",
+      now: NOW + 1,
+    });
+    assert.equal(issued.kind, "issued");
+    await seedReservationInputs(fixture.database, seeded, issued.grant);
+    const admittedBeforeRace = await repository.loadReservationAuthority(issued.grant.id);
+    assert.equal(admittedBeforeRace?.prospects.length, 1);
+    const racingRepository = {
+      async loadReservationAuthority() {
+        return admittedBeforeRace;
+      },
+      async commitReservation(record, accounts) {
+        return repository.commitReservation(record, accounts);
+      },
+    };
+    await fixture.database.prepare(
+      "UPDATE profile_prospects SET state='rejected',revision=revision+1,updated_at=? WHERE id=? AND workspace_id=?",
+    ).bind(NOW + 2, seeded.prospectId, seeded.workspaceId).run();
+    const staleProspect = await authority.reserveEnrichmentOperation(racingRepository, {
+      grantId: issued.grant.id,
+      principalSubject: OWNER.subject,
+      operationKey: issued.grant.tuple.operationKey,
+      now: NOW + 3,
+    });
+    assert.equal(staleProspect.kind, "blocked");
+    assert.equal(await countRows(fixture.database, "enrichment_reservations"), 0);
+    await fixture.database.prepare(
+      "UPDATE profile_prospects SET state='approved',revision=revision-1,updated_at=? WHERE id=? AND workspace_id=?",
+    ).bind(NOW + 4, seeded.prospectId, seeded.workspaceId).run();
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "UPDATE typed_configurations SET active=0,updated_at=? WHERE id=? AND workspace_id=?",
+      ).bind(NOW + 5, seeded.configurationId, seeded.workspaceId),
+      fixture.database.prepare(
+        `INSERT INTO typed_configurations
+          (id,workspace_id,created_at,updated_at,revision,company_id,owner_type,owner_id,kind,digest,manifest_json,active)
+         SELECT 'replacement-profile-configuration',workspace_id,?,?,1,company_id,owner_type,owner_id,kind,?,'{}',1
+         FROM typed_configurations WHERE id=? AND workspace_id=?`,
+      ).bind(NOW + 5, NOW + 5, "2".repeat(64), seeded.configurationId, seeded.workspaceId),
+    ]);
+    assert.equal(
+      await repository.loadIssuanceSnapshot(OWNER.subject, [seeded.prospectId]),
+      null,
+      "an old approved prospect is not eligible under a replacement configuration",
+    );
+    const staleConfiguration = await authority.reserveEnrichmentOperation(racingRepository, {
+      grantId: issued.grant.id,
+      principalSubject: OWNER.subject,
+      operationKey: issued.grant.tuple.operationKey,
+      now: NOW + 6,
+    });
+    assert.equal(staleConfiguration.kind, "blocked");
+    assert.equal(await countRows(fixture.database, "enrichment_reservations"), 0);
+    const accounts = (await fixture.database.prepare(
+      "SELECT actual_units,reserved_units,actual_cost_minor,reserved_cost_minor FROM enrichment_budget_accounts WHERE workspace_id=?",
+    ).bind(seeded.workspaceId).all()).results;
+    assert.ok(accounts.every((row) =>
+      Number(row.actual_units) === 0 && Number(row.reserved_units) === 0
+      && Number(row.actual_cost_minor) === 0 && Number(row.reserved_cost_minor) === 0
+    ));
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("runner reservations enforce retry lineage and atomically settle both accounting scopes", async () => {
+  const fixture = await createD1Fixture("phase5-persistence-runner-ledger");
+  try {
+    await applyMigrations(fixture.database);
+    const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+    const runner = await fixture.vite.ssrLoadModule(new URL("../domain/runner-spend-authority.ts", import.meta.url).pathname);
+    const workspaceId = "runner-workspace";
+    const ownerSubject = "runner-owner";
+    await fixture.database.prepare(
+      "INSERT INTO workspaces (id,company_name,owner_subject,created_at,updated_at,revision) VALUES (?,?,?,?,?,1)",
+    ).bind(workspaceId, "Runner Company", ownerSubject, NOW, NOW).run();
+    const seeded = await seedRunnerAuthority(fixture.database, runner, {
+      workspaceId,
+      ownerSubject,
+      grantId: "runner-grant-a",
+      scopeId: "runner-scope-a",
+      maxRetries: 1,
+    });
+    const repository = repositoryModule.createD1RunnerSpendRepository(fixture.database, {
+      workspaceId,
+      ownerSubject,
+      now: () => NOW,
+    });
+    const authority0 = await repository.loadRunnerAuthority(seeded.grant.id);
+    assert.equal(authority0?.attempt.attemptNumber, 0);
+    const operationKey0 = await runner.deriveRunnerOperationKey(authority0);
+    const reservation0 = await runner.reserveRunnerSpend(repository, {
+      grantId: seeded.grant.id,
+      principalSubject: ownerSubject,
+      operationKey: operationKey0,
+      now: NOW,
+    });
+    assert.equal(reservation0.kind, "reserved", JSON.stringify(reservation0));
+    assert.equal(await repository.markRunnerAssigned(reservation0.reservation.id, NOW + 1), true);
+    await repository.recordRunnerOutcome({
+      reservationId: reservation0.reservation.id,
+      state: "needs_reconciliation",
+      terminalReason: "timeout",
+      documentedCostMinor: null,
+      settlementDigest: null,
+      now: NOW + 2,
+    });
+    let accounts = await readRunnerAccounts(fixture.database, workspaceId);
+    assert.ok(accounts.every((row) => Number(row.actual_cost_minor) === 0));
+    assert.equal(Number(accounts.find((row) => row.id === seeded.monthlyId).reserved_cost_minor), 10);
+    const settled = await repository.recordRunnerOutcome({
+      reservationId: reservation0.reservation.id,
+      state: "settled",
+      terminalReason: "partial",
+      documentedCostMinor: 7,
+      settlementDigest: "8".repeat(64),
+      now: NOW + 3,
+    });
+    assert.equal(settled.state, "settled");
+    accounts = await readRunnerAccounts(fixture.database, workspaceId);
+    const settledAccounts = accounts.filter((row) => row.id === seeded.monthlyId || row.id === seeded.perRunIds[0]);
+    assert.ok(settledAccounts.every((row) =>
+      Number(row.actual_cost_minor) === 7 && Number(row.reserved_cost_minor) === 0 && Number(row.revision) === 3
+    ));
+
+    const retrySeed = await seedRunnerAuthority(fixture.database, runner, {
+      workspaceId,
+      ownerSubject,
+      grantId: "runner-grant-b",
+      scopeId: "runner-scope-b",
+      maxRetries: 1,
+    });
+    const retryAuthority0 = await repository.loadRunnerAuthority(retrySeed.grant.id);
+    const retryKey0 = await runner.deriveRunnerOperationKey(retryAuthority0);
+    const retry0 = await runner.reserveRunnerSpend(repository, {
+      grantId: retrySeed.grant.id,
+      principalSubject: ownerSubject,
+      operationKey: retryKey0,
+      now: NOW,
+    });
+    assert.equal(retry0.kind, "reserved");
+    assert.equal(await repository.markRunnerAssigned(retry0.reservation.id, NOW + 1), true);
+    await repository.recordRunnerOutcome({
+      reservationId: retry0.reservation.id,
+      state: "failed_retryable",
+      terminalReason: "failed_retryable",
+      documentedCostMinor: 4,
+      settlementDigest: "9".repeat(64),
+      now: NOW + 2,
+    });
+    const retryAuthority1 = await repository.loadRunnerAuthority(retrySeed.grant.id);
+    assert.deepEqual(
+      {
+        attemptNumber: retryAuthority1.attempt.attemptNumber,
+        previousOutcome: retryAuthority1.attempt.previousOutcome,
+        previousOperationKeys: [...retryAuthority1.attempt.previousOperationKeys],
+      },
+      { attemptNumber: 1, previousOutcome: "failed_retryable", previousOperationKeys: [retryKey0] },
+    );
+    const retryKey1 = await runner.deriveRunnerOperationKey(retryAuthority1);
+    const retry1 = await runner.reserveRunnerSpend(repository, {
+      grantId: retrySeed.grant.id,
+      principalSubject: ownerSubject,
+      operationKey: retryKey1,
+      now: NOW,
+    });
+    assert.equal(retry1.kind, "reserved");
+    assert.equal(retry1.reservation.attemptNumber, 1);
+    const forged = await repository.commitRunnerReservation(
+      { ...retry1.reservation, operationKey: `ro_${"f".repeat(64)}` },
+      [retryAuthority1.perRun, retryAuthority1.monthly],
+      retryAuthority1.attempt,
+    );
+    assert.equal(forged.kind, "blocked");
+    const retryAccounts = await readRunnerAccounts(fixture.database, workspaceId);
+    assert.deepEqual(
+      retryAccounts.filter((row) => row.id === retrySeed.monthlyId).map((row) => ({
+        actual: Number(row.actual_cost_minor),
+        reserved: Number(row.reserved_cost_minor),
+        revision: Number(row.revision),
+      })),
+      [{ actual: 4, reserved: 10, revision: 4 }],
+    );
+    assert.equal(await repository.markRunnerAssigned(retry1.reservation.id, NOW + 3), true);
+    await assert.rejects(
+      repository.recordRunnerOutcome({
+        reservationId: retry1.reservation.id,
+        state: "failed_retryable",
+        terminalReason: "failed_retryable",
+        documentedCostMinor: 0,
+        settlementDigest: "c".repeat(64),
+        now: NOW + 4,
+      }),
+      /runner_outcome_commit_failed/,
+      "the last authorized attempt cannot manufacture another retry",
+    );
+    await repository.recordRunnerOutcome({
+      reservationId: retry1.reservation.id,
+      state: "released",
+      terminalReason: "rejected",
+      documentedCostMinor: 0,
+      settlementDigest: "d".repeat(64),
+      now: NOW + 5,
+    });
+    const releasedRetryAccounts = await readRunnerAccounts(fixture.database, workspaceId);
+    assert.deepEqual(
+      releasedRetryAccounts.filter((row) => row.id === retrySeed.monthlyId).map((row) => ({
+        actual: Number(row.actual_cost_minor),
+        reserved: Number(row.reserved_cost_minor),
+        revision: Number(row.revision),
+      })),
+      [{ actual: 4, reserved: 0, revision: 5 }],
+    );
   } finally {
     await fixture.dispose();
   }
@@ -253,4 +614,81 @@ async function seedReservationInputs(database, seeded, grant) {
        VALUES (?,?,'enrichment',?,?,'CAD',0,0,1,0,0,10,1,?,?)`,
     ).bind(accountId, seeded.workspaceId, scope, entityId, NOW, NOW).run();
   }
+}
+
+async function seedRunnerAuthority(database, runner, input) {
+  const grant = {
+    authorityType: "runner_spend",
+    id: input.grantId,
+    providerId: "runner-provider",
+    model: "runner-model",
+    catalogRef: "runner-catalog",
+    runType: "prospecting",
+    scopeId: input.scopeId,
+    perRunCostMinor: 10,
+    monthlyCostMinor: 100,
+    currency: "CAD",
+    expiresAt: NOW + 10_000,
+    maxRetries: input.maxRetries,
+  };
+  await database.prepare(
+    `INSERT INTO runner_spend_grants
+      (id,workspace_id,owner_subject,provider_id,model,catalog_ref,run_type,scope_id,per_run_cost_minor,
+       monthly_cost_minor,currency,max_retries,grant_digest,nonce,expires_at,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(
+    grant.id, input.workspaceId, input.ownerSubject, grant.providerId, grant.model, grant.catalogRef, grant.runType,
+    grant.scopeId, grant.perRunCostMinor, grant.monthlyCostMinor, grant.currency, grant.maxRetries,
+    input.grantId === "runner-grant-a" ? "a".repeat(64) : "b".repeat(64),
+    `${input.grantId}-nonce`, grant.expiresAt, NOW - 1,
+  ).run();
+  const period = runner.deriveRunnerUtcMonthPeriod(NOW);
+  const monthlyId = runner.deriveRunnerMonthlyAccountId({
+    principalSubject: input.ownerSubject,
+    providerId: grant.providerId,
+    scopeId: grant.scopeId,
+    period,
+  });
+  await database.prepare(
+    `INSERT INTO runner_budget_accounts
+      (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,currency,
+       actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
+     VALUES (?,?,'runner_monthly',?,?,?,?,NULL,NULL,?,0,0,100,1,?,?)`,
+  ).bind(monthlyId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, period, grant.currency, NOW, NOW).run();
+  const perRunIds = [];
+  const previousOperationKeys = [];
+  for (let attemptNumber = 0; attemptNumber <= input.maxRetries; attemptNumber += 1) {
+    const attempt = {
+      attemptNumber,
+      previousOutcome: attemptNumber === 0 ? "none" : "failed_retryable",
+      previousOperationKeys: [...previousOperationKeys],
+    };
+    const operationKey = await runner.deriveRunnerOperationKey({ principalSubject: input.ownerSubject, grant, attempt });
+    previousOperationKeys.push(operationKey);
+    const perRunId = runner.deriveRunnerPerRunAccountId({
+      principalSubject: input.ownerSubject,
+      grantId: grant.id,
+      providerId: grant.providerId,
+      scopeId: grant.scopeId,
+      attemptNumber,
+      operationKey,
+    });
+    perRunIds.push(perRunId);
+    await database.prepare(
+      `INSERT INTO runner_budget_accounts
+        (id,workspace_id,scope,owner_subject,provider_id,scope_id,period,attempt_number,operation_key,currency,
+         actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
+       VALUES (?,?,'runner_per_run',?,?,?,?,?,?,?,0,0,10,1,?,?)`,
+    ).bind(
+      perRunId, input.workspaceId, input.ownerSubject, grant.providerId, grant.scopeId, null,
+      attemptNumber, operationKey, grant.currency, NOW, NOW,
+    ).run();
+  }
+  return { grant, monthlyId, perRunIds };
+}
+
+async function readRunnerAccounts(database, workspaceId) {
+  return (await database.prepare(
+    "SELECT id,actual_cost_minor,reserved_cost_minor,revision FROM runner_budget_accounts WHERE workspace_id=? ORDER BY id",
+  ).bind(workspaceId).all()).results;
 }

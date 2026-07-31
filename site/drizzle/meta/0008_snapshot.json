@@ -11388,6 +11388,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "documented_cost_minor": {
+          "name": "documented_cost_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "acknowledgement_digest": {
           "name": "acknowledgement_digest",
           "type": "text",
@@ -11500,6 +11507,27 @@
           "notNull": true,
           "autoincrement": false
         },
+        "period": {
+          "name": "period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "previous_outcome": {
+          "name": "previous_outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "previous_operation_keys_json": {
+          "name": "previous_operation_keys_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "provider_id": {
           "name": "provider_id",
           "type": "text",
@@ -11584,7 +11612,7 @@
         },
         "runner_spend_reservation_attempt_digest_unique": {
           "name": "runner_spend_reservation_attempt_digest_unique",
-          "columns": ["workspace_id", "attempt_digest"],
+          "columns": ["workspace_id", "grant_id", "attempt_digest"],
           "isUnique": true
         }
       },
