@@ -119,9 +119,11 @@ export async function planIdentitySuggestion(
   const candidateIds = request.kind === "merge"
     ? uniqueIds(request.candidateIds, 2, 16)
     : uniqueIds([request.sourceId], 1, 1);
-  const snapshots = await repository.readIdentitySnapshots(request.workspaceId, candidateIds);
-  assertExactWorkspaceSnapshots(request.workspaceId, candidateIds, snapshots);
-  const candidates = [...snapshots].sort((left, right) => left.id.localeCompare(right.id));
+  const candidates = [...snapshotExactWorkspaceSnapshots(
+    request.workspaceId,
+    candidateIds,
+    await repository.readIdentitySnapshots(request.workspaceId, candidateIds),
+  )].sort((left, right) => left.id.localeCompare(right.id));
   const candidateRevisions = Object.fromEntries(candidates.map((candidate) => [candidate.id, candidate.revision]));
   const sources = unique(candidates.flatMap((candidate) => candidate.sourceLineageIds)).sort();
   const retainedIdentityLineageIds = unique(candidates.flatMap((candidate) => [candidate.id, ...candidate.identityLineageIds])).sort();
@@ -219,10 +221,13 @@ export async function applyIdentityResolution(
     if (existingResult !== null) throw rejected();
     if (authoritativeDecision.kind === "split") {
       const destination = await transaction.readIdentitySnapshots([authoritativeDecision.newIdentityId]);
-      if (!exactDataArray(destination, 0, 0)) throw rejected();
+      if (!snapshotExactEmptyIdentitySnapshots(destination)) throw rejected();
     }
-    const current = await transaction.readIdentitySnapshots(suggestion.candidateIds);
-    assertExactWorkspaceSnapshots(request.workspaceId, suggestion.candidateIds, current);
+    const current = snapshotExactWorkspaceSnapshots(
+      request.workspaceId,
+      suggestion.candidateIds,
+      await transaction.readIdentitySnapshots(suggestion.candidateIds),
+    );
     assertSuggestionMatchesSnapshots(suggestion, current);
     if (totalRevision(current) !== request.expectedRevision || !sameRevisions(suggestion.candidateRevisions, current)) throw rejected();
     const retainedSourceLineageIds = unique(current.flatMap((identity) => identity.sourceLineageIds)).sort();
@@ -303,19 +308,29 @@ function validateDecision(suggestion: IdentitySuggestion, decision: IdentityDeci
   if (stable(moved) !== stable(partition.moveAssociationIds)) throw rejected();
 }
 
-function assertExactWorkspaceSnapshots(workspaceId: string, ids: readonly string[], snapshots: readonly IdentitySnapshot[]) {
-  const rows = exactDataArray(snapshots, ids.length, ids.length);
+function snapshotExactWorkspaceSnapshots(
+  workspaceId: string,
+  ids: readonly string[],
+  value: unknown,
+): readonly IdentitySnapshot[] {
+  const repositorySnapshot = snapshotRepositoryValue(value);
+  const rows = exactDataArray(repositorySnapshot, ids.length, ids.length);
   if (!rows) throw rejected();
-  for (const snapshot of rows) assertSnapshot(workspaceId, snapshot);
-  const exactSnapshots = rows as IdentitySnapshot[];
+  const exactSnapshots = rows.map((row) => snapshotIdentitySnapshot(workspaceId, row));
   if (exactSnapshots.some((snapshot) => !ids.includes(snapshot.id))) throw rejected();
   if (new Set(exactSnapshots.map((snapshot) => snapshot.id)).size !== ids.length) throw rejected();
   const associationIds = exactSnapshots.flatMap((snapshot) => snapshot.associations.map((association) => association.id));
   if (new Set(associationIds).size !== associationIds.length) throw rejected();
+  return Object.freeze(exactSnapshots);
 }
 
-function assertSnapshot(workspaceId: string, snapshot: unknown): asserts snapshot is IdentitySnapshot {
-  const record = exactDataRecord(snapshot, [
+function snapshotExactEmptyIdentitySnapshots(value: unknown): boolean {
+  const repositorySnapshot = snapshotRepositoryValue(value);
+  return exactDataArray(repositorySnapshot, 0, 0) !== null;
+}
+
+function snapshotIdentitySnapshot(workspaceId: string, value: unknown): IdentitySnapshot {
+  const record = exactDataRecord(value, [
     "id", "workspaceId", "revision", "aliases", "sourceLineageIds",
     "identityLineageIds", "associations", "suppressionSubjectRefs",
   ]);
@@ -326,13 +341,13 @@ function assertSnapshot(workspaceId: string, snapshot: unknown): asserts snapsho
     || !Number.isSafeInteger(record.revision)
     || (record.revision as number) < 1
   ) throw rejected();
-  assertIdArray(record.aliases, 0, 256);
-  assertIdArray(record.sourceLineageIds, 1, 1_024);
-  assertIdArray(record.identityLineageIds, 0, 1_024);
-  assertIdArray(record.suppressionSubjectRefs, 0, 1_024);
-  const associations = exactDataArray(record.associations, 0, 1_024);
-  if (!associations) throw rejected();
-  const associationIds = associations.map((association) => {
+  const aliases = snapshotIdArray(record.aliases, 0, 256);
+  const sourceLineageIds = snapshotIdArray(record.sourceLineageIds, 1, 1_024);
+  const identityLineageIds = snapshotIdArray(record.identityLineageIds, 0, 1_024);
+  const suppressionSubjectRefs = snapshotIdArray(record.suppressionSubjectRefs, 0, 1_024);
+  const associationRows = exactDataArray(record.associations, 0, 1_024);
+  if (!associationRows) throw rejected();
+  const associations = associationRows.map((association) => {
     const associationRecord = exactDataRecord(association, [
       "id", "workspaceId", "scope", "relevanceId", "subjectId",
     ]);
@@ -344,9 +359,25 @@ function assertSnapshot(workspaceId: string, snapshot: unknown): asserts snapsho
       || associationRecord.subjectId !== record.id
       || (associationRecord.scope !== "market_play" && associationRecord.scope !== "customer_profile")
     ) throw rejected();
-    return associationRecord.id;
+    return Object.freeze({
+      id: associationRecord.id as string,
+      workspaceId,
+      scope: associationRecord.scope as IdentityAssociation["scope"],
+      relevanceId: associationRecord.relevanceId as string,
+      subjectId: record.id as string,
+    }) as IdentityAssociation;
   });
-  if (new Set(associationIds).size !== associationIds.length) throw rejected();
+  if (new Set(associations.map((association) => association.id)).size !== associations.length) throw rejected();
+  return Object.freeze({
+    id: record.id as string,
+    workspaceId,
+    revision: record.revision as number,
+    aliases,
+    sourceLineageIds,
+    identityLineageIds,
+    associations: Object.freeze(associations),
+    suppressionSubjectRefs,
+  }) as IdentitySnapshot;
 }
 
 function validateSuggestionShape(suggestion: IdentitySuggestion) {
@@ -398,7 +429,8 @@ async function parseIdentitySuggestion(
   exactSuggestion?: IdentitySuggestion,
 ): Promise<IdentitySuggestion | null> {
   try {
-    const record = exactDataRecord(value, [
+    const repositorySnapshot = snapshotRepositoryValue(value);
+    const record = exactDataRecord(repositorySnapshot, [
       "id", "digest", "ownerSubject", "workspaceId", "kind", "candidateIds",
       "candidateRevisions", "revision", "sourceLineageIds", "retainedIdentityLineageIds",
       "retainedAliases", "retainedSuppressionSubjectRefs", "associationImpact",
@@ -509,7 +541,8 @@ type AppliedResolutionContext = Readonly<{
 
 async function validateAppliedResolution(candidate: unknown, context: AppliedResolutionContext): Promise<AppliedResolution | null> {
   try {
-    const record = exactDataRecord(candidate, [
+    const repositorySnapshot = snapshotRepositoryValue(candidate);
+    const record = exactDataRecord(repositorySnapshot, [
       "id", "workspaceId", "ownerSubject", "suggestionId", "suggestionDigest", "idempotencyKey",
       "decision", "operationDigest", "resultDigest", "retainedSourceLineageIds", "retainedIdentityLineageIds",
       "retainedAliases", "retainedSuppressionSubjectRefs", "rePointedAssociationIds", "invalidations",
@@ -898,8 +931,81 @@ function uniqueIds(values: readonly string[], min: number, max: number) {
 }
 
 function assertIdArray(values: unknown, min: number, max: number): asserts values is readonly string[] {
+  snapshotIdArray(values, min, max);
+}
+function snapshotIdArray(values: unknown, min: number, max: number): readonly string[] {
   const data = exactDataArray(values, min, max);
   if (!data || data.some((value) => !validId(value)) || new Set(data).size !== data.length) throw rejected();
+  return Object.freeze([...data] as string[]);
+}
+
+const invalidRepositorySnapshot = Symbol("invalid_identity_repository_snapshot");
+
+/**
+ * Repository values are untrusted until one descriptor-only walk has produced a
+ * detached immutable copy. The subsequent structured-clone check rejects Proxy
+ * and exotic values; authority always comes from the descriptor-derived copy.
+ */
+function snapshotRepositoryValue(value: unknown): unknown | null {
+  if (value === null) return null;
+  const snapshot = snapshotPlainNode(value, new Set<object>());
+  if (snapshot === invalidRepositorySnapshot) return null;
+  try {
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return snapshot;
+}
+
+function snapshotPlainNode(value: unknown, seen: Set<object>): unknown | typeof invalidRepositorySnapshot {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : invalidRepositorySnapshot;
+  if (typeof value !== "object" || seen.has(value)) return invalidRepositorySnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string")) return invalidRepositorySnapshot;
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return invalidRepositorySnapshot;
+      const lengthDescriptor = descriptors.length;
+      if (
+        !lengthDescriptor
+        || !("value" in lengthDescriptor)
+        || !Number.isSafeInteger(lengthDescriptor.value)
+        || lengthDescriptor.value < 0
+        || lengthDescriptor.enumerable
+        || lengthDescriptor.configurable
+      ) return invalidRepositorySnapshot;
+      const length = lengthDescriptor.value;
+      if (ownKeys.length !== length + 1) return invalidRepositorySnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidRepositorySnapshot;
+        const child = snapshotPlainNode(descriptor.value, seen);
+        if (child === invalidRepositorySnapshot) return invalidRepositorySnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if (prototype !== Object.prototype) return invalidRepositorySnapshot;
+    const copy: Record<string, unknown> = {};
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return invalidRepositorySnapshot;
+      const child = snapshotPlainNode(descriptor.value, seen);
+      if (child === invalidRepositorySnapshot) return invalidRepositorySnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidRepositorySnapshot;
+  } finally {
+    seen.delete(value);
+  }
 }
 function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
   try {
