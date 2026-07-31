@@ -155,6 +155,13 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const admittedContactObservations = new WeakSet<object>();
 const serverBoundVerifiers = new WeakSet<object>();
 const trustedVerificationReceipts = new WeakSet<object>();
+type TrustedVerificationBinding = Readonly<{
+  request: ContactVerificationRequest;
+  verifier: ContactVerifierDescriptor;
+  canonicalRequest: string;
+  requestDigest: string;
+}>;
+const trustedVerificationBindings = new WeakMap<object, TrustedVerificationBinding>();
 
 /**
  * The server composition root binds a verification implementation to one
@@ -191,12 +198,21 @@ export async function executeContactVerification(
     const verdictValue = await verifierValue.verify(request);
     const verdict = normalizeVerifierVerdict(verdictValue, request);
     if (!verdict) return null;
+    const verifier = verifierValue.descriptor;
+    const canonicalRequest = canonicalVerificationBinding(request, verifier);
+    const requestDigest = await verificationBindingDigest(canonicalRequest);
     const receipt = deepFreeze({
       ...verdict,
-      verifierId: verifierValue.descriptor.verifierId,
-      verifierVersion: verifierValue.descriptor.verifierVersion,
+      verifierId: verifier.verifierId,
+      verifierVersion: verifier.verifierVersion,
     });
     trustedVerificationReceipts.add(receipt);
+    trustedVerificationBindings.set(receipt, Object.freeze({
+      request,
+      verifier,
+      canonicalRequest,
+      requestDigest,
+    }));
     return receipt;
   } catch {
     return null;
@@ -222,8 +238,10 @@ export function ingestContactEvidence(
   envelopeValue: unknown,
   trustedVerificationValue?: TrustedContactVerification | unknown,
 ): ContactEvidenceResult {
-  const assignment = assignmentRecord(assignmentValue);
-  const envelope = record(envelopeValue);
+  const assignmentSnapshot = snapshotCloneableBoundedData(assignmentValue);
+  const envelopeSnapshot = snapshotCloneableBoundedData(envelopeValue);
+  const assignment = assignmentRecord(assignmentSnapshot);
+  const envelope = record(envelopeSnapshot);
   if (!assignment || !envelope) return blocked("malformed_evidence_envelope");
 
   if (
@@ -257,7 +275,7 @@ export function ingestContactEvidence(
     ? null
     : normalizeTrustedVerification(trustedVerificationValue, assignment, {
         id, kind, normalizedValue, contentHash: provenance.contentHash,
-      });
+      }, envelope);
   if (trustedVerificationValue !== undefined && !trusted) return blocked("invalid_verification_authority");
 
   const verificationClass = trusted?.verificationClass ?? "suggested";
@@ -375,9 +393,37 @@ function normalizeTrustedVerification(
   value: unknown,
   assignment: ContactEvidenceAssignment,
   evidence: Readonly<{ id: string; kind: ContactPointKind; normalizedValue: string; contentHash: string }>,
+  envelope: Record<string, unknown>,
 ): TrustedContactVerification | null {
   const input = record(value);
-  if (!input || !trustedVerificationReceipts.has(input)) return null;
+  const binding = input ? trustedVerificationBindings.get(input) : undefined;
+  if (
+    !input
+    || !trustedVerificationReceipts.has(input)
+    || !binding
+    || !HASH.test(binding.requestDigest)
+  ) return null;
+  const boundAssignment = binding.request.assignment;
+  const exactEnvelope = normalizeVerificationEnvelope(
+    envelope,
+    binding.request.assignmentId,
+    binding.request.prospectId,
+  );
+  if (
+    !exactEnvelope
+    || assignment.workspaceId !== boundAssignment.workspaceId
+    || assignment.contactId !== boundAssignment.contactId
+    || assignment.profileConfigurationId !== boundAssignment.profileConfigurationId
+    || assignment.profileConfigurationDigest !== boundAssignment.profileConfigurationDigest
+    || assignment.providerAuthority === null
+    || assignment.providerAuthority.providerId !== boundAssignment.providerId
+    || assignment.providerAuthority.providerVersion !== boundAssignment.providerVersion
+    || assignment.providerAuthority.catalogRef !== boundAssignment.catalogRef
+    || canonicalVerificationBinding(
+      Object.freeze({ ...binding.request, envelope: exactEnvelope }),
+      binding.verifier,
+    ) !== binding.canonicalRequest
+  ) return null;
   const verificationClass = typeof input.verificationClass === "string" && CLASSES.has(input.verificationClass)
     ? input.verificationClass as ContactVerificationClass : null;
   const method = typeof input.method === "string" && METHODS.has(input.method as ContactMethod)
@@ -412,6 +458,8 @@ function normalizeTrustedVerification(
     !providerMatchesAssignment(assignment, providerId, providerVersion, catalogRef) ||
     !verifierId ||
     !verifierVersion ||
+    verifierId !== binding.verifier.verifierId ||
+    verifierVersion !== binding.verifier.verifierVersion ||
     !verdictReference ||
     !verdictDigest ||
     !methodMatchesClaim(evidence.kind, verificationClass, method, verifiedAt)
@@ -439,15 +487,8 @@ function normalizeTrustedVerification(
 }
 
 function normalizeVerificationRequest(value: unknown): ContactVerificationRequest | null {
-  const snapshot = snapshotBoundedPlainData(value);
+  const snapshot = snapshotCloneableBoundedData(value);
   if (!snapshot) return null;
-  try {
-    // Deep descriptor validation above rejects accessors before this check.
-    // structuredClone then rejects a Proxy at any depth without retaining it.
-    structuredClone(value);
-  } catch {
-    return null;
-  }
   const input = exactRecord(snapshot, ["assignmentId", "prospectId", "role", "assignment", "envelope"]);
   if (!input) return null;
   const assignment = exactRecord(input.assignment, [
@@ -474,7 +515,11 @@ function normalizeVerificationRequest(value: unknown): ContactVerificationReques
     !safeText(assignment.providerVersion, 120) ||
     !safeText(assignment.catalogRef, 256) ||
     !Number.isSafeInteger(assignment.quoteRevision) ||
-    (assignment.quoteRevision as number) <= 0
+    (assignment.quoteRevision as number) <= 0 ||
+    envelope.workspaceId !== assignment.workspaceId ||
+    envelope.contactId !== assignment.contactId ||
+    envelope.profileConfigurationId !== assignment.profileConfigurationId ||
+    envelope.profileConfigurationDigest !== assignment.profileConfigurationDigest
   ) return null;
   return Object.freeze({
     assignmentId,
@@ -649,7 +694,10 @@ function normalizeStoredVerificationAuthority(value: unknown) {
 }
 
 function assignmentRecord(value: unknown): ContactEvidenceAssignment | null {
-  const input = record(value);
+  const input = exactRecord(value, [
+    "workspaceId", "contactId", "profileConfigurationId",
+    "profileConfigurationDigest", "providerAuthority",
+  ]);
   if (!input) return null;
   const workspaceId = opaque(input.workspaceId, 160);
   const contactId = opaque(input.contactId, 160);
@@ -663,7 +711,7 @@ function assignmentRecord(value: unknown): ContactEvidenceAssignment | null {
 }
 
 function normalizeProviderAuthority(value: unknown) {
-  const input = record(value);
+  const input = exactRecord(value, ["providerId", "providerVersion", "catalogRef"]);
   if (!input) return null;
   const providerId = safeText(input.providerId, 120);
   const providerVersion = safeText(input.providerVersion, 120);
@@ -738,6 +786,18 @@ function snapshotBoundedPlainData(value: unknown): unknown | null {
   const snapshot = snapshotBoundedNode(value, 0, new Set<object>(), budget);
   return snapshot === invalidDataSnapshot ? null : snapshot;
 }
+function snapshotCloneableBoundedData(value: unknown): unknown | null {
+  const snapshot = snapshotBoundedPlainData(value);
+  if (!snapshot) return null;
+  try {
+    // Descriptor validation rejects accessors first; this then rejects Proxy
+    // objects at any depth without retaining caller-owned state.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return snapshot;
+}
 function snapshotBoundedNode(
   value: unknown,
   depth: number,
@@ -795,6 +855,31 @@ function snapshotBoundedNode(
   } finally {
     seen.delete(value);
   }
+}
+function canonicalVerificationBinding(
+  request: ContactVerificationRequest,
+  verifier: ContactVerifierDescriptor,
+): string {
+  return canonicalContactData({ request, verifier });
+}
+function canonicalContactData(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalContactData).join(",")}]`;
+  if (value && typeof value === "object") {
+    const input = value as Record<string, unknown>;
+    return `{${Object.keys(input).sort().map((key) =>
+      `${JSON.stringify(key)}:${canonicalContactData(input[key])}`
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+async function verificationBindingDigest(canonicalRequest: string): Promise<string> {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonicalRequest),
+  );
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 }
 function opaque(value: unknown, max: number): string | null { return typeof value === "string" && /^[A-Za-z0-9_.:-]+$/u.test(value) && value.length <= max ? value : null; }
 function safeText(value: unknown, max: number): string | null { if (typeof value !== "string") return null; const text = value.normalize("NFC").trim(); return text && text.length <= max && !/[<>\u0000-\u001f]/u.test(text) ? text : null; }
