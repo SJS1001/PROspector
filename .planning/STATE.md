@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: blocked
 stopped_at: Plan 02-12 hosted evidence prerequisites
-last_updated: "2026-07-31T10:41:12.000Z"
+last_updated: "2026-07-31T11:15:23.000Z"
 last_activity: 2026-07-31
 progress:
   total_phases: 7
@@ -83,6 +83,7 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Final independent code re-review after 2e879dc and 45bcdc1 is clean; security has zero open local implementation threats. External hosted evidence remains blocked.
 - [Phase 03]: Local Plans 03-01 through 03-08 have committed summaries and implementation, UI, tests, race hardening, and a fail-closed offline preflight. This is local-plan credit only: Phase 2 is not accepted and Plans 03-09 through 03-11 remain incomplete.
 - [Planning ledger]: Reconciled the checked repository to 80 plan files and 24 committed summaries (Phase 1: 5, Phase 2: 11, Phase 3: 8). Phase checkboxes, requirements, and external gates remain unchanged.
+- [Maintenance]: Dependency checkpoint `b794e89` patches the bundled React server component and Cloudflare/Vite toolchain advisories, preserves exact pins, and passes fresh-install isolated receipt tests, the full suite, lint, build, and Drizzle validation. Production audit is zero; the remaining npm findings are development-only ESLint/brace-expansion and Drizzle/esbuild-kit chains whose offered fixes are breaking or regressive. This maintenance grants no phase or activation credit.
 - [Phase 03]: Plans 03-09 through 03-11 are explicit owner/hosted proof and lifecycle gates; local evidence cannot complete them.
 - [Phase 04]: Twelve checked plans exist. Wave 1 RED contracts and additive persistence are committed; no plan is recorded complete.
 - [Phase 05]: Nine checked plans exist; execution has not started.
