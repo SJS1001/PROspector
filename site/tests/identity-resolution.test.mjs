@@ -268,6 +268,148 @@ test("malformed snapshot arrays and scoped associations fail closed without drop
   } finally { await loaded.vite.close(); }
 });
 
+test("sparse or descriptor-malformed snapshot arrays reject before suggestion persistence or resolution mutation", async () => {
+  const loaded = await load();
+  try {
+    let getterCalls = 0;
+    const sparseOne = () => new Array(1);
+    const withExtra = (values) => {
+      const array = [...values];
+      Object.defineProperty(array, "untrustedMetadata", {
+        value: "must-not-be-normalized",
+        enumerable: true,
+      });
+      return array;
+    };
+    const withAccessor = (value) => {
+      const array = [];
+      Object.defineProperty(array, "0", {
+        get() {
+          getterCalls += 1;
+          return value;
+        },
+        enumerable: true,
+      });
+      return array;
+    };
+    const withCustomPrototype = (values) => {
+      const array = [...values];
+      Object.setPrototypeOf(array, Object.create(Array.prototype));
+      return array;
+    };
+    const rows = () => [identity("identity-alpha", 3), identity("identity-beta", 4)];
+    const malformedCases = [
+      ["top-level hole", () => {
+        const value = new Array(2);
+        value[0] = identity("identity-alpha", 3);
+        return value;
+      }],
+      ["top-level extra property", () => withExtra(rows())],
+      ["top-level accessor", () => {
+        const value = withAccessor(identity("identity-alpha", 3));
+        value.length = 2;
+        Object.defineProperty(value, "1", {
+          value: identity("identity-beta", 4),
+          enumerable: true,
+        });
+        return value;
+      }],
+      ["top-level custom prototype", () => withCustomPrototype(rows())],
+      ["aliases hole", () => {
+        const value = rows();
+        value[0].aliases = sparseOne();
+        return value;
+      }],
+      ["aliases extra property", () => {
+        const value = rows();
+        value[0].aliases = withExtra(value[0].aliases);
+        return value;
+      }],
+      ["source lineage hole", () => {
+        const value = rows();
+        value[0].sourceLineageIds = sparseOne();
+        return value;
+      }],
+      ["identity lineage hole", () => {
+        const value = rows();
+        value[0].identityLineageIds = sparseOne();
+        return value;
+      }],
+      ["suppression reference hole", () => {
+        const value = rows();
+        value[0].suppressionSubjectRefs = sparseOne();
+        return value;
+      }],
+      ["association hole", () => {
+        const value = rows();
+        value[0].associations = sparseOne();
+        return value;
+      }],
+      ["association array accessor", () => {
+        const value = rows();
+        value[0].associations = withAccessor(value[0].associations[0]);
+        return value;
+      }],
+      ["association array extra property", () => {
+        const value = rows();
+        value[0].associations = withExtra(value[0].associations);
+        return value;
+      }],
+      ["association object accessor", () => {
+        const value = rows();
+        const association = { ...value[0].associations[0] };
+        Object.defineProperty(association, "relevanceId", {
+          get() {
+            getterCalls += 1;
+            return "relevance-identity-alpha";
+          },
+          enumerable: true,
+        });
+        value[0].associations = [association];
+        return value;
+      }],
+    ];
+    for (const [name, makeSnapshots] of malformedCases) {
+      const repository = new FakeIdentityRepository(rows());
+      const before = repository.identitySnapshot();
+      repository.readIdentitySnapshots = async () => makeSnapshots();
+      await assert.rejects(
+        () => plan(loaded.domain, repository, {
+          workspaceId,
+          kind: "merge",
+          candidateIds: ["identity-alpha", "identity-beta"],
+        }),
+        /identity_resolution_rejected/,
+        name,
+      );
+      assert.equal(repository.suggestionWrites, 0, `${name} cannot be normalized into a persisted suggestion`);
+      assert.deepEqual(repository.identitySnapshot(), before, `${name} cannot mutate the identity graph`);
+    }
+    assert.equal(getterCalls, 0, "snapshot validation inspects descriptors without invoking untrusted accessors");
+
+    const repository = new FakeIdentityRepository(rows());
+    const suggestion = await plan(loaded.domain, repository, {
+      workspaceId,
+      kind: "merge",
+      candidateIds: ["identity-alpha", "identity-beta"],
+    });
+    repository.rows.get("identity-alpha").identityLineageIds = sparseOne();
+    const beforeApply = repository.identitySnapshot();
+    await assert.rejects(
+      () => apply(
+        loaded.domain,
+        repository,
+        suggestion,
+        { kind: "merge", primaryId: "identity-alpha", secondaryIds: ["identity-beta"] },
+        "identity-resolution-sparse-current-0001",
+      ),
+      /identity_resolution_rejected/,
+    );
+    assert.equal(repository.mutations, 0, "a sparse current snapshot is rejected before the transaction applies a resolution");
+    assert.deepEqual(repository.identitySnapshot(), beforeApply);
+  } finally { await loaded.vite.close(); }
+});
+
 test("idempotent retry returns the original resolution; changed payload and concurrent stale decisions mutate once", async () => {
   const loaded = await load();
   try {

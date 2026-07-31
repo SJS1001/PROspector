@@ -212,7 +212,7 @@ export async function applyIdentityResolution(
     if (existingResult !== null) throw rejected();
     if (authoritativeDecision.kind === "split") {
       const destination = await transaction.readIdentitySnapshots([authoritativeDecision.newIdentityId]);
-      if (!Array.isArray(destination) || destination.length !== 0) throw rejected();
+      if (!exactDataArray(destination, 0, 0)) throw rejected();
     }
     const current = await transaction.readIdentitySnapshots(suggestion.candidateIds);
     assertExactWorkspaceSnapshots(input.workspaceId, suggestion.candidateIds, current);
@@ -297,24 +297,47 @@ function validateDecision(suggestion: IdentitySuggestion, decision: IdentityDeci
 }
 
 function assertExactWorkspaceSnapshots(workspaceId: string, ids: readonly string[], snapshots: readonly IdentitySnapshot[]) {
-  if (!Array.isArray(snapshots) || snapshots.length !== ids.length) throw rejected();
-  snapshots.forEach((snapshot) => assertSnapshot(workspaceId, snapshot));
-  if (snapshots.some((snapshot) => !ids.includes(snapshot.id))) throw rejected();
-  if (new Set(snapshots.map((snapshot) => snapshot.id)).size !== ids.length) throw rejected();
-  const associationIds = snapshots.flatMap((snapshot) => snapshot.associations.map((association) => association.id));
+  const rows = exactDataArray(snapshots, ids.length, ids.length);
+  if (!rows) throw rejected();
+  for (const snapshot of rows) assertSnapshot(workspaceId, snapshot);
+  const exactSnapshots = rows as IdentitySnapshot[];
+  if (exactSnapshots.some((snapshot) => !ids.includes(snapshot.id))) throw rejected();
+  if (new Set(exactSnapshots.map((snapshot) => snapshot.id)).size !== ids.length) throw rejected();
+  const associationIds = exactSnapshots.flatMap((snapshot) => snapshot.associations.map((association) => association.id));
   if (new Set(associationIds).size !== associationIds.length) throw rejected();
 }
 
-function assertSnapshot(workspaceId: string, snapshot: IdentitySnapshot) {
-  if (!snapshot || typeof snapshot !== "object" || snapshot.workspaceId !== workspaceId || !validId(snapshot.id) || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 1) throw rejected();
-  assertIdArray(snapshot.aliases, 0, 256);
-  assertIdArray(snapshot.sourceLineageIds, 1, 1_024);
-  assertIdArray(snapshot.identityLineageIds, 0, 1_024);
-  assertIdArray(snapshot.suppressionSubjectRefs, 0, 1_024);
-  if (!Array.isArray(snapshot.associations) || snapshot.associations.length > 1_024) throw rejected();
-  const associationIds = snapshot.associations.map((association) => {
-    if (!association || typeof association !== "object" || !validId(association.id) || association.workspaceId !== workspaceId || !validId(association.relevanceId) || association.subjectId !== snapshot.id || (association.scope !== "market_play" && association.scope !== "customer_profile")) throw rejected();
-    return association.id;
+function assertSnapshot(workspaceId: string, snapshot: unknown): asserts snapshot is IdentitySnapshot {
+  const record = exactDataRecord(snapshot, [
+    "id", "workspaceId", "revision", "aliases", "sourceLineageIds",
+    "identityLineageIds", "associations", "suppressionSubjectRefs",
+  ]);
+  if (
+    !record
+    || record.workspaceId !== workspaceId
+    || !validId(record.id)
+    || !Number.isSafeInteger(record.revision)
+    || (record.revision as number) < 1
+  ) throw rejected();
+  assertIdArray(record.aliases, 0, 256);
+  assertIdArray(record.sourceLineageIds, 1, 1_024);
+  assertIdArray(record.identityLineageIds, 0, 1_024);
+  assertIdArray(record.suppressionSubjectRefs, 0, 1_024);
+  const associations = exactDataArray(record.associations, 0, 1_024);
+  if (!associations) throw rejected();
+  const associationIds = associations.map((association) => {
+    const associationRecord = exactDataRecord(association, [
+      "id", "workspaceId", "scope", "relevanceId", "subjectId",
+    ]);
+    if (
+      !associationRecord
+      || !validId(associationRecord.id)
+      || associationRecord.workspaceId !== workspaceId
+      || !validId(associationRecord.relevanceId)
+      || associationRecord.subjectId !== record.id
+      || (associationRecord.scope !== "market_play" && associationRecord.scope !== "customer_profile")
+    ) throw rejected();
+    return associationRecord.id;
   });
   if (new Set(associationIds).size !== associationIds.length) throw rejected();
 }
@@ -711,7 +734,8 @@ function uniqueIds(values: readonly string[], min: number, max: number) {
 }
 
 function assertIdArray(values: unknown, min: number, max: number): asserts values is readonly string[] {
-  if (!Array.isArray(values) || values.length < min || values.length > max || values.some((value) => !validId(value)) || new Set(values).size !== values.length) throw rejected();
+  const data = exactDataArray(values, min, max);
+  if (!data || data.some((value) => !validId(value)) || new Set(data).size !== data.length) throw rejected();
 }
 function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
   try {
@@ -739,7 +763,16 @@ function exactDataArray(value: unknown, min: number, max: number): unknown[] | n
     if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length < min || value.length > max) return null;
     const descriptors = Object.getOwnPropertyDescriptors(value);
     const ownKeys = Reflect.ownKeys(descriptors);
-    if (ownKeys.some((key) => typeof key !== "string") || ownKeys.length !== value.length + 1 || !("length" in descriptors)) return null;
+    const lengthDescriptor = descriptors.length;
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== value.length + 1
+      || !lengthDescriptor
+      || !("value" in lengthDescriptor)
+      || lengthDescriptor.value !== value.length
+      || lengthDescriptor.enumerable
+      || lengthDescriptor.configurable
+    ) return null;
     const result: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
       const descriptor = descriptors[String(index)];
