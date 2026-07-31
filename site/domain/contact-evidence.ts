@@ -85,6 +85,12 @@ export type ContactEvidenceVerifier = Readonly<{
   verify(input: ContactVerificationRequest): Promise<ContactVerificationVerdict | unknown>;
 }>;
 
+export type ContactEvidenceBatchVerifier = Readonly<{
+  kind: "batch_bound";
+  descriptor: ContactVerifierDescriptor;
+  verifyBatch(inputs: readonly ContactVerificationRequest[]): Promise<readonly unknown[] | unknown>;
+}>;
+
 /**
  * Output from a trusted server-side verifier. Provider adapters must never
  * manufacture this value or place any of its authority fields in their envelope.
@@ -171,6 +177,7 @@ const E164 = /^\+[1-9][0-9]{7,14}$/u;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const admittedContactObservations = new WeakSet<object>();
 const serverBoundVerifiers = new WeakSet<object>();
+const serverBoundBatchVerifiers = new WeakSet<object>();
 const trustedVerificationReceipts = new WeakSet<object>();
 type TrustedVerificationBinding = Readonly<{
   request: ContactVerificationRequest;
@@ -201,6 +208,26 @@ export function bindContactEvidenceVerifier(
 }
 
 /**
+ * Binds one all-or-nothing batch callback. Multi-contact operations use this
+ * seam exactly once, then validate the complete ordered verdict set before any
+ * in-process receipt is issued.
+ */
+export function bindContactEvidenceBatchVerifier(
+  descriptorValue: ContactVerifierDescriptor,
+  verifyBatch: ContactEvidenceBatchVerifier["verifyBatch"],
+): ContactEvidenceBatchVerifier {
+  const descriptor = normalizeVerifierDescriptor(descriptorValue);
+  if (!descriptor || typeof verifyBatch !== "function") throw new TypeError("invalid_contact_batch_verifier_binding");
+  const verifier: ContactEvidenceBatchVerifier = Object.freeze({
+    kind: "batch_bound" as const,
+    descriptor,
+    verifyBatch,
+  });
+  serverBoundBatchVerifiers.add(verifier);
+  return verifier;
+}
+
+/**
  * Executes only a module-branded verifier and returns an unforgeable in-process
  * receipt. JSON copies and raw structural verdicts intentionally lose authority.
  */
@@ -216,21 +243,42 @@ export async function executeContactVerification(
     const verdict = normalizeVerifierVerdict(verdictValue, request);
     if (!verdict) return null;
     const verifier = verifierValue.descriptor;
-    const canonicalRequest = canonicalVerificationBinding(request, verifier);
-    const requestDigest = await verificationBindingDigest(canonicalRequest);
-    const receipt = deepFreeze({
-      ...verdict,
-      verifierId: verifier.verifierId,
-      verifierVersion: verifier.verifierVersion,
-    });
-    trustedVerificationReceipts.add(receipt);
-    trustedVerificationBindings.set(receipt, Object.freeze({
-      request,
-      verifier,
-      canonicalRequest,
-      requestDigest,
-    }));
+    const prepared = await prepareTrustedVerification(verdict, request, verifier);
+    const receipt = admitPreparedVerification(prepared);
     return receipt;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Executes one module-branded batch callback and admits receipts only after the
+ * complete dense, ordered, one-to-one verdict set has validated. A malformed,
+ * partial, duplicated, reordered, or throwing result therefore admits nothing.
+ */
+export async function executeContactVerificationBatch(
+  verifierValue: ContactEvidenceBatchVerifier | unknown,
+  requestValues: readonly ContactVerificationRequest[] | unknown,
+): Promise<readonly TrustedContactVerification[] | null> {
+  if (!isBoundContactEvidenceBatchVerifier(verifierValue)) return null;
+  const requests = normalizeVerificationRequestBatch(requestValues);
+  if (!requests) return null;
+  try {
+    const verdictValues = snapshotVerificationVerdictBatch(
+      await verifierValue.verifyBatch(requests),
+      requests.length,
+    );
+    if (!verdictValues) return null;
+    const verdicts = verdictValues.map((value, index) => normalizeVerifierVerdict(value, requests[index]));
+    if (verdicts.some((verdict) => verdict === null)) return null;
+    const observationIds = verdicts.map((verdict) => verdict!.observationId);
+    if (new Set(observationIds).size !== observationIds.length) return null;
+    const verifier = verifierValue.descriptor;
+    const prepared = await Promise.all(verdicts.map((verdict, index) =>
+      prepareTrustedVerification(verdict!, requests[index], verifier)
+    ));
+    const receipts = prepared.map(admitPreparedVerification);
+    return Object.freeze(receipts);
   } catch {
     return null;
   }
@@ -243,6 +291,15 @@ export function isBoundContactEvidenceVerifier(value: unknown): value is Contact
     && (value as ContactEvidenceVerifier).kind === "bound"
     && normalizeVerifierDescriptor((value as ContactEvidenceVerifier).descriptor) !== null
     && typeof (value as ContactEvidenceVerifier).verify === "function";
+}
+
+export function isBoundContactEvidenceBatchVerifier(value: unknown): value is ContactEvidenceBatchVerifier {
+  return !!value
+    && typeof value === "object"
+    && serverBoundBatchVerifiers.has(value)
+    && (value as ContactEvidenceBatchVerifier).kind === "batch_bound"
+    && normalizeVerifierDescriptor((value as ContactEvidenceBatchVerifier).descriptor) !== null
+    && typeof (value as ContactEvidenceBatchVerifier).verifyBatch === "function";
 }
 
 /**
@@ -621,6 +678,104 @@ function normalizeVerificationRequest(value: unknown): ContactVerificationReques
     }),
     envelope,
   });
+}
+
+function normalizeVerificationRequestBatch(value: unknown): readonly ContactVerificationRequest[] | null {
+  try {
+    if (
+      !Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Array.prototype
+      || value.length < 1
+      || value.length > 100
+    ) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== value.length + 1
+      || !Object.hasOwn(descriptors, "length")
+    ) return null;
+    const requests: ContactVerificationRequest[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      const request = normalizeVerificationRequest(descriptor.value);
+      if (!request) return null;
+      requests.push(request);
+    }
+    const assignmentIds = requests.map((request) => request.assignmentId);
+    const observationIds = requests.map((request) => (request.envelope as Record<string, unknown>).id);
+    if (
+      new Set(assignmentIds).size !== assignmentIds.length
+      || new Set(observationIds).size !== observationIds.length
+    ) return null;
+    structuredClone(value);
+    return Object.freeze(requests);
+  } catch {
+    return null;
+  }
+}
+
+function snapshotVerificationVerdictBatch(value: unknown, expectedLength: number): readonly unknown[] | null {
+  try {
+    if (
+      !Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Array.prototype
+      || value.length !== expectedLength
+    ) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.some((key) => typeof key !== "string")
+      || ownKeys.length !== expectedLength + 1
+      || !Object.hasOwn(descriptors, "length")
+    ) return null;
+    const verdicts: unknown[] = [];
+    for (let index = 0; index < expectedLength; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      const verdict = snapshotCloneableBoundedData(descriptor.value);
+      if (!verdict) return null;
+      verdicts.push(verdict);
+    }
+    structuredClone(value);
+    return Object.freeze(verdicts);
+  } catch {
+    return null;
+  }
+}
+
+type PreparedTrustedVerification = Readonly<{
+  receipt: TrustedContactVerification;
+  binding: TrustedVerificationBinding;
+}>;
+
+async function prepareTrustedVerification(
+  verdict: Omit<TrustedContactVerification, "verifierId" | "verifierVersion">,
+  request: ContactVerificationRequest,
+  verifier: ContactVerifierDescriptor,
+): Promise<PreparedTrustedVerification> {
+  const canonicalRequest = canonicalVerificationBinding(request, verifier);
+  const requestDigest = await verificationBindingDigest(canonicalRequest);
+  return Object.freeze({
+    receipt: deepFreeze({
+      ...verdict,
+      verifierId: verifier.verifierId,
+      verifierVersion: verifier.verifierVersion,
+    }),
+    binding: Object.freeze({
+      request,
+      verifier,
+      canonicalRequest,
+      requestDigest,
+    }),
+  });
+}
+
+function admitPreparedVerification(prepared: PreparedTrustedVerification): TrustedContactVerification {
+  trustedVerificationReceipts.add(prepared.receipt);
+  trustedVerificationBindings.set(prepared.receipt, prepared.binding);
+  return prepared.receipt;
 }
 
 function normalizeVerificationEnvelope(

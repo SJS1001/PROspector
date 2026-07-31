@@ -1,8 +1,12 @@
 import {
   executeContactVerification,
+  executeContactVerificationBatch,
   ingestContactEvidence,
+  isBoundContactEvidenceBatchVerifier,
   preflightContactEvidenceEnvelope,
+  type ContactEvidenceBatchVerifier,
   type ContactEvidenceVerifier,
+  type ContactVerificationRequest,
   type ContactObservation,
 } from "./contact-evidence";
 import { isContactProviderPortBoundTo } from "./contact-provider-port";
@@ -43,7 +47,7 @@ export async function executeEnrichmentOperation(
   repository: EnrichmentAuthorityRepository,
   port: unknown,
   input: { reservationId: string; now: number },
-  verifier?: ContactEvidenceVerifier | unknown,
+  verifier?: ContactEvidenceVerifier | ContactEvidenceBatchVerifier | unknown,
 ): Promise<ExecuteEnrichmentResult> {
   const inputSnapshot = snapshotExecuteEnrichmentInput(input);
   if (!inputSnapshot) return { kind: "blocked" };
@@ -481,36 +485,23 @@ async function ingestEvidence(
   assignment: AuthorizedEnrichmentAssignment,
   envelopes: readonly unknown[],
   documentedUnits: number,
-  verifier: ContactEvidenceVerifier | unknown,
+  verifier: ContactEvidenceVerifier | ContactEvidenceBatchVerifier | unknown,
 ): Promise<readonly ContactObservation[] | null> {
   const preflighted = preflightEvidenceSet(assignment, envelopes, documentedUnits);
   if (!preflighted) return null;
-  const verifications: unknown[] = [];
+  let verifications: readonly unknown[] = Object.freeze([]);
   if (verifier !== undefined) {
-    for (const item of preflighted) {
-      let trustedVerification: unknown;
-      try {
-        trustedVerification = await executeContactVerification(verifier, Object.freeze({
-          assignmentId: item.binding.assignmentId,
-          prospectId: item.binding.prospectId,
-          role: item.binding.role,
-          assignment: Object.freeze({
-            workspaceId: item.binding.workspaceId,
-            contactId: item.binding.contactId,
-            profileConfigurationId: item.binding.profileConfigurationId,
-            profileConfigurationDigest: item.binding.profileConfigurationDigest,
-            providerId: assignment.providerId,
-            providerVersion: assignment.providerVersion,
-            catalogRef: assignment.catalogRef,
-            quoteRevision: assignment.quoteRevision,
-          }),
-          envelope: item.envelope,
-        }));
-      } catch {
-        return null;
-      }
-      if (trustedVerification === null) return null;
-      verifications.push(trustedVerification);
+    const requests = Object.freeze(preflighted.map((item) =>
+      verificationRequest(assignment, item)
+    ));
+    if (preflighted.length > 1 || isBoundContactEvidenceBatchVerifier(verifier)) {
+      const trusted = await executeContactVerificationBatch(verifier, requests);
+      if (!trusted) return null;
+      verifications = trusted;
+    } else {
+      const trusted = await executeContactVerification(verifier, requests[0]);
+      if (!trusted) return null;
+      verifications = Object.freeze([trusted]);
     }
   }
   const observations: ContactObservation[] = [];
@@ -537,6 +528,28 @@ async function ingestEvidence(
   return observations.length === documentedUnits
     ? Object.freeze(observations)
     : null;
+}
+
+function verificationRequest(
+  assignment: AuthorizedEnrichmentAssignment,
+  item: PreflightedEvidence,
+): ContactVerificationRequest {
+  return Object.freeze({
+    assignmentId: item.binding.assignmentId,
+    prospectId: item.binding.prospectId,
+    role: item.binding.role,
+    assignment: Object.freeze({
+      workspaceId: item.binding.workspaceId,
+      contactId: item.binding.contactId,
+      profileConfigurationId: item.binding.profileConfigurationId,
+      profileConfigurationDigest: item.binding.profileConfigurationDigest,
+      providerId: assignment.providerId,
+      providerVersion: assignment.providerVersion,
+      catalogRef: assignment.catalogRef,
+      quoteRevision: assignment.quoteRevision,
+    }),
+    envelope: item.envelope,
+  });
 }
 
 type PreflightedEvidence = Readonly<{
