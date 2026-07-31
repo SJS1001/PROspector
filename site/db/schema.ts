@@ -472,3 +472,287 @@ export const importItems = sqliteTable("import_items", { id: text("id").primaryK
 export const prospects = sqliteTable("prospects", { id: text("id").primaryKey(), ...auditColumns, profileId: text("profile_id").notNull(), organizationName: text("organization_name").notNull(), targetName: text("target_name"), state: text("state").notNull(), score: integer("score"), configurationId: text("configuration_id").notNull() }, (t) => [index("prospect_queue_idx").on(t.workspaceId, t.profileId, t.state)]);
 export const suppressions = sqliteTable("suppressions", { id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull(), subjectType: text("subject_type").notNull(), subjectDigest: text("subject_digest").notNull(), channel: text("channel").notNull(), reason: text("reason").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull() }, (t) => [uniqueIndex("suppression_subject_unique").on(t.workspaceId, t.subjectType, t.subjectDigest, t.channel)]);
 export const auditEvents = sqliteTable("audit_events", { id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull(), actorType: text("actor_type").notNull(), actorId: text("actor_id").notNull(), action: text("action").notNull(), subjectType: text("subject_type").notNull(), subjectId: text("subject_id").notNull(), detailJson: text("detail_json").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull() }, (t) => [index("audit_workspace_time_idx").on(t.workspaceId, t.createdAt)]);
+
+// Provider-neutral Phase 5 preparation records. These tables intentionally
+// contain no credentials, endpoints, raw provider envelopes, or contact values.
+export const providerQuotes = sqliteTable("provider_quotes", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  providerId: text("provider_id").notNull(), providerVersion: text("provider_version").notNull(), catalogRef: text("catalog_ref").notNull(),
+  revision: integer("revision").notNull(), operation: text("operation", { enum: ["business_contact_lookup/v1"] }).notNull(),
+  currency: text("currency").notNull(), unitCostMinor: integer("unit_cost_minor").notNull(), quoteDigest: text("quote_digest").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("provider_quote_revision_unique").on(t.workspaceId, t.providerId, t.providerVersion, t.catalogRef, t.revision, t.operation),
+  uniqueIndex("provider_quote_digest_unique").on(t.workspaceId, t.quoteDigest), index("provider_quote_lookup_idx").on(t.workspaceId, t.operation, t.expiresAt),
+  check("provider_quote_revision_check", sql`${t.revision} > 0`), check("provider_quote_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+  check("provider_quote_cost_check", sql`${t.unitCostMinor} >= 0`), check("provider_quote_digest_check", sql`length(${t.quoteDigest}) = 64 and ${t.quoteDigest} not glob '*[^0-9a-f]*'`),
+  check("provider_quote_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+]);
+
+export const enrichmentGrants = sqliteTable("enrichment_grants", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  quoteId: text("quote_id").notNull().references(() => providerQuotes.id), configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  configurationDigest: text("configuration_digest").notNull(), configurationRevision: integer("configuration_revision").notNull(), sourceRevision: integer("source_revision").notNull(),
+  providerId: text("provider_id").notNull(), providerVersion: text("provider_version").notNull(), catalogRef: text("catalog_ref").notNull(),
+  quoteRevision: integer("quote_revision").notNull(), quoteUnitCostMinor: integer("quote_unit_cost_minor").notNull(), quoteExpiresAt: integer("quote_expires_at", { mode: "timestamp_ms" }).notNull(),
+  operation: text("operation", { enum: ["business_contact_lookup/v1"] }).notNull(), operationKey: text("operation_key").notNull(),
+  maxUnits: integer("max_units").notNull(), maxCostMinor: integer("max_cost_minor").notNull(), currency: text("currency").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(), ownerSubject: text("owner_subject").notNull(), nonce: text("nonce").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(), requestDigest: text("request_digest").notNull(), tupleDigest: text("tuple_digest").notNull(),
+  status: text("status", { enum: ["issued"] }).notNull().default("issued"), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_grant_idempotency_unique").on(t.workspaceId, t.idempotencyKey), uniqueIndex("enrichment_grant_operation_unique").on(t.workspaceId, t.operationKey),
+  uniqueIndex("enrichment_grant_tuple_digest_unique").on(t.workspaceId, t.tupleDigest), index("enrichment_grant_configuration_idx").on(t.workspaceId, t.configurationId, t.createdAt),
+  check("enrichment_grant_configuration_revision_check", sql`${t.configurationRevision} > 0 and ${t.sourceRevision} > 0`),
+  check("enrichment_grant_configuration_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+  check("enrichment_grant_operation_key_check", sql`length(${t.operationKey}) = 67 and substr(${t.operationKey}, 1, 3) = 'op_' and substr(${t.operationKey}, 4) not glob '*[^0-9a-f]*'`),
+  check("enrichment_grant_bounds_check", sql`${t.maxUnits} > 0 and ${t.maxUnits} <= 1000 and ${t.maxCostMinor} >= 0 and ${t.quoteUnitCostMinor} >= 0 and ${t.maxCostMinor} >= ${t.quoteUnitCostMinor} * ${t.maxUnits}`),
+  check("enrichment_grant_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+  check("enrichment_grant_digest_check", sql`length(${t.requestDigest}) = 64 and ${t.requestDigest} not glob '*[^0-9a-f]*' and length(${t.tupleDigest}) = 64 and ${t.tupleDigest} not glob '*[^0-9a-f]*'`),
+  check("enrichment_grant_expiry_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.quoteExpiresAt}`),
+]);
+
+export const enrichmentGrantProspects = sqliteTable("enrichment_grant_prospects", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  grantId: text("grant_id").notNull().references(() => enrichmentGrants.id), prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  ordinal: integer("ordinal").notNull(), prospectRevision: integer("prospect_revision").notNull(), configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  configurationDigest: text("configuration_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_grant_prospect_unique").on(t.grantId, t.prospectId), uniqueIndex("enrichment_grant_prospect_ordinal_unique").on(t.grantId, t.ordinal),
+  index("enrichment_grant_prospect_lookup_idx").on(t.workspaceId, t.prospectId), check("enrichment_grant_prospect_revision_check", sql`${t.ordinal} >= 0 and ${t.prospectRevision} > 0`),
+  check("enrichment_grant_prospect_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const enrichmentGrantIssuanceEvents = sqliteTable("enrichment_grant_issuance_events", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  grantId: text("grant_id").notNull().references(() => enrichmentGrants.id), actorSubject: text("actor_subject").notNull(),
+  action: text("action", { enum: ["enrichment.grant.issued"] }).notNull(), operationKey: text("operation_key").notNull(),
+  requestDigest: text("request_digest").notNull(), eventDigest: text("event_digest").notNull(), boundedReason: text("bounded_reason", { enum: ["issued"] }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_grant_issuance_grant_unique").on(t.grantId), uniqueIndex("enrichment_grant_issuance_digest_unique").on(t.workspaceId, t.eventDigest),
+  check("enrichment_grant_issuance_digest_check", sql`length(${t.requestDigest}) = 64 and ${t.requestDigest} not glob '*[^0-9a-f]*' and length(${t.eventDigest}) = 64 and ${t.eventDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const enrichmentBudgetAccounts = sqliteTable("enrichment_budget_accounts", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  authorityType: text("authority_type", { enum: ["enrichment"] }).notNull().default("enrichment"), scope: text("scope", { enum: ["grant", "profile", "workspace", "provider"] }).notNull(),
+  entityId: text("entity_id").notNull(), currency: text("currency").notNull(), actualUnits: integer("actual_units").notNull().default(0),
+  reservedUnits: integer("reserved_units").notNull().default(0), maxUnits: integer("max_units").notNull(), actualCostMinor: integer("actual_cost_minor").notNull().default(0),
+  reservedCostMinor: integer("reserved_cost_minor").notNull().default(0), maxCostMinor: integer("max_cost_minor").notNull(), revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_budget_account_scope_unique").on(t.workspaceId, t.scope, t.entityId, t.currency),
+  check("enrichment_budget_account_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+  check("enrichment_budget_account_bounds_check", sql`${t.actualUnits} >= 0 and ${t.reservedUnits} >= 0 and ${t.maxUnits} >= 0 and ${t.actualUnits} + ${t.reservedUnits} <= ${t.maxUnits} and ${t.actualCostMinor} >= 0 and ${t.reservedCostMinor} >= 0 and ${t.maxCostMinor} >= 0 and ${t.actualCostMinor} + ${t.reservedCostMinor} <= ${t.maxCostMinor} and ${t.revision} > 0`),
+]);
+
+export const enrichmentReservations = sqliteTable("enrichment_reservations", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  grantId: text("grant_id").notNull().references(() => enrichmentGrants.id), operationKey: text("operation_key").notNull(),
+  assignmentJson: text("assignment_json").notNull(), assignmentDigest: text("assignment_digest").notNull(), reservedUnits: integer("reserved_units").notNull(),
+  reservedCostMinor: integer("reserved_cost_minor").notNull(), currency: text("currency").notNull(), expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_reservation_grant_operation_unique").on(t.workspaceId, t.grantId, t.operationKey),
+  uniqueIndex("enrichment_reservation_assignment_digest_unique").on(t.workspaceId, t.assignmentDigest),
+  check("enrichment_reservation_assignment_digest_check", sql`length(${t.assignmentDigest}) = 64 and ${t.assignmentDigest} not glob '*[^0-9a-f]*'`),
+  check("enrichment_reservation_bounds_check", sql`${t.reservedUnits} > 0 and ${t.reservedCostMinor} >= 0 and ${t.expiresAt} > ${t.createdAt}`),
+  check("enrichment_reservation_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+]);
+
+export const enrichmentReservationBudgetEntries = sqliteTable("enrichment_reservation_budget_entries", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  reservationId: text("reservation_id").notNull().references(() => enrichmentReservations.id), accountId: text("account_id").notNull().references(() => enrichmentBudgetAccounts.id),
+  reservedUnits: integer("reserved_units").notNull(), reservedCostMinor: integer("reserved_cost_minor").notNull(), accountExpectedRevision: integer("account_expected_revision").notNull(),
+  entryDigest: text("entry_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_reservation_budget_account_unique").on(t.reservationId, t.accountId), uniqueIndex("enrichment_reservation_budget_entry_digest_unique").on(t.workspaceId, t.entryDigest),
+  check("enrichment_reservation_budget_entry_bounds_check", sql`${t.reservedUnits} > 0 and ${t.reservedCostMinor} >= 0 and ${t.accountExpectedRevision} > 0`),
+  check("enrichment_reservation_budget_entry_digest_check", sql`length(${t.entryDigest}) = 64 and ${t.entryDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const enrichmentReservationEvents = sqliteTable("enrichment_reservation_events", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  reservationId: text("reservation_id").notNull().references(() => enrichmentReservations.id), durableRevision: integer("durable_revision").notNull(),
+  state: text("state", { enum: ["reserved", "invoking", "settled", "released", "needs_reconciliation"] }).notNull(), terminalReason: text("terminal_reason"),
+  settlementDigest: text("settlement_digest"), documentedUnits: integer("documented_units"), documentedCostMinor: integer("documented_cost_minor"),
+  observationIdsJson: text("observation_ids_json").notNull().default("[]"),
+  acknowledgementDigest: text("acknowledgement_digest").notNull(), claimedAt: integer("claimed_at", { mode: "timestamp_ms" }), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("enrichment_reservation_event_revision_unique").on(t.reservationId, t.durableRevision),
+  uniqueIndex("enrichment_reservation_event_ack_unique").on(t.workspaceId, t.acknowledgementDigest), index("enrichment_reservation_event_state_idx").on(t.workspaceId, t.state, t.createdAt),
+  check("enrichment_reservation_event_revision_check", sql`${t.durableRevision} > 0`),
+  check("enrichment_reservation_event_digest_check", sql`length(${t.acknowledgementDigest}) = 64 and ${t.acknowledgementDigest} not glob '*[^0-9a-f]*' and (${t.settlementDigest} is null or (length(${t.settlementDigest}) = 64 and ${t.settlementDigest} not glob '*[^0-9a-f]*'))`),
+]);
+
+export const contactEvidenceAssignments = sqliteTable("contact_evidence_assignments", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  reservationId: text("reservation_id").references(() => enrichmentReservations.id), grantId: text("grant_id").notNull().references(() => enrichmentGrants.id),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id), contactId: text("contact_id").notNull().references(() => contacts.id),
+  role: text("role", { enum: ["champion", "economic_buyer", "general"] }).notNull(), configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  configurationDigest: text("configuration_digest").notNull(), providerId: text("provider_id").notNull(), providerVersion: text("provider_version").notNull(),
+  catalogRef: text("catalog_ref").notNull(), quoteRevision: integer("quote_revision").notNull(), assignmentDigest: text("assignment_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("contact_evidence_assignment_digest_unique").on(t.workspaceId, t.assignmentDigest),
+  index("contact_evidence_assignment_prospect_idx").on(t.workspaceId, t.prospectId, t.role),
+  check("contact_evidence_assignment_configuration_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+  check("contact_evidence_assignment_digest_check", sql`length(${t.assignmentDigest}) = 64 and ${t.assignmentDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const contactPointObservations = sqliteTable("contact_point_observations", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  assignmentId: text("assignment_id").notNull().references(() => contactEvidenceAssignments.id), contactId: text("contact_id").notNull().references(() => contacts.id),
+  configurationId: text("configuration_id").notNull().references(() => configurations.id), configurationDigest: text("configuration_digest").notNull(),
+  kind: text("kind", { enum: ["email", "phone"] }).notNull(), contactPointDigest: text("contact_point_digest").notNull(),
+  contactPointReference: text("contact_point_reference").notNull(), verificationClass: text("verification_class", { enum: ["suggested", "domain_valid", "mailbox_verified", "source_verified", "invalid"] }).notNull(),
+  confidenceBasisPoints: integer("confidence_basis_points").notNull(), method: text("method", { enum: ["pattern_inference", "domain_validation", "mailbox_verification", "authoritative_source_reconfirmed"] }).notNull(),
+  sourceReference: text("source_reference").notNull(), excerptDigest: text("excerpt_digest").notNull(), objectReference: text("object_reference").notNull(),
+  contentHash: text("content_hash").notNull(), retrievedAt: integer("retrieved_at", { mode: "timestamp_ms" }).notNull(),
+  observedAt: integer("observed_at", { mode: "timestamp_ms" }).notNull(), verifiedAt: integer("verified_at", { mode: "timestamp_ms" }),
+  providerId: text("provider_id"), providerVersion: text("provider_version"), catalogRef: text("catalog_ref"),
+  verifierId: text("verifier_id"), verifierVersion: text("verifier_version"), verdictReference: text("verdict_reference"), verdictDigest: text("verdict_digest"),
+  parentObservationId: text("parent_observation_id"), observationDigest: text("observation_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("contact_point_observation_digest_unique").on(t.workspaceId, t.observationDigest), index("contact_point_observation_contact_idx").on(t.workspaceId, t.contactId, t.observedAt),
+  check("contact_point_observation_confidence_check", sql`${t.confidenceBasisPoints} >= 0 and ${t.confidenceBasisPoints} <= 10000`),
+  check("contact_point_observation_time_check", sql`${t.retrievedAt} <= ${t.observedAt} and (${t.verifiedAt} is null or (${t.verifiedAt} >= ${t.retrievedAt} and ${t.verifiedAt} <= ${t.observedAt}))`),
+  check("contact_point_observation_digest_check", sql`length(${t.contactPointDigest}) = 64 and ${t.contactPointDigest} not glob '*[^0-9a-f]*' and length(${t.excerptDigest}) = 64 and ${t.excerptDigest} not glob '*[^0-9a-f]*' and length(${t.contentHash}) = 64 and ${t.contentHash} not glob '*[^0-9a-f]*' and length(${t.observationDigest}) = 64 and ${t.observationDigest} not glob '*[^0-9a-f]*' and (${t.verdictDigest} is null or (length(${t.verdictDigest}) = 64 and ${t.verdictDigest} not glob '*[^0-9a-f]*'))`),
+]);
+
+export const contactEligibilitySnapshots = sqliteTable("contact_eligibility_snapshots", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  contactId: text("contact_id").notNull().references(() => contacts.id), prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  state: text("state", { enum: ["ContactReady", "ContactSuggestion", "NeedsReview", "NonContactable"] }).notNull(),
+  eligible: integer("eligible", { mode: "boolean" }).notNull(), observationIdsJson: text("observation_ids_json").notNull(),
+  reasonCodesJson: text("reason_codes_json").notNull(), preservedSuppressionRefsJson: text("preserved_suppression_refs_json").notNull().default("[]"),
+  snapshotDigest: text("snapshot_digest").notNull(), projectedAt: integer("projected_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("contact_eligibility_snapshot_digest_unique").on(t.workspaceId, t.snapshotDigest),
+  index("contact_eligibility_snapshot_current_idx").on(t.workspaceId, t.prospectId, t.contactId, t.projectedAt),
+  check("contact_eligibility_snapshot_digest_check", sql`length(${t.snapshotDigest}) = 64 and ${t.snapshotDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const identitySuggestions = sqliteTable("identity_suggestions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(), subjectKind: text("subject_kind", { enum: ["contact", "organization"] }).notNull(),
+  kind: text("kind", { enum: ["merge", "split"] }).notNull(), revision: integer("revision").notNull(),
+  candidateRevisionsJson: text("candidate_revisions_json").notNull(), sourceLineageIdsJson: text("source_lineage_ids_json").notNull(),
+  retainedIdentityLineageIdsJson: text("retained_identity_lineage_ids_json").notNull(), retainedAliasesJson: text("retained_aliases_json").notNull(),
+  retainedSuppressionSubjectRefsJson: text("retained_suppression_subject_refs_json").notNull(), proposedPartitionJson: text("proposed_partition_json"),
+  suggestionDigest: text("suggestion_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("identity_suggestion_digest_unique").on(t.workspaceId, t.suggestionDigest), index("identity_suggestion_owner_idx").on(t.workspaceId, t.ownerSubject, t.createdAt),
+  check("identity_suggestion_revision_check", sql`${t.revision} > 0`), check("identity_suggestion_digest_check", sql`length(${t.suggestionDigest}) = 64 and ${t.suggestionDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const identitySuggestionCandidates = sqliteTable("identity_suggestion_candidates", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  suggestionId: text("suggestion_id").notNull().references(() => identitySuggestions.id), subjectId: text("subject_id").notNull(),
+  candidateRevision: integer("candidate_revision").notNull(), ordinal: integer("ordinal").notNull(),
+}, (t) => [
+  uniqueIndex("identity_suggestion_candidate_unique").on(t.suggestionId, t.subjectId), uniqueIndex("identity_suggestion_candidate_ordinal_unique").on(t.suggestionId, t.ordinal),
+  check("identity_suggestion_candidate_revision_check", sql`${t.candidateRevision} > 0 and ${t.ordinal} >= 0`),
+]);
+
+export const identitySuggestionImpacts = sqliteTable("identity_suggestion_impacts", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  suggestionId: text("suggestion_id").notNull().references(() => identitySuggestions.id), associationId: text("association_id").notNull(),
+  scope: text("scope", { enum: ["market_play", "customer_profile"] }).notNull(), relevanceId: text("relevance_id").notNull(),
+  subjectId: text("subject_id").notNull(), impactDigest: text("impact_digest").notNull(),
+}, (t) => [
+  uniqueIndex("identity_suggestion_impact_association_unique").on(t.suggestionId, t.associationId), uniqueIndex("identity_suggestion_impact_digest_unique").on(t.workspaceId, t.impactDigest),
+  check("identity_suggestion_impact_digest_check", sql`length(${t.impactDigest}) = 64 and ${t.impactDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const identityDecisions = sqliteTable("identity_decisions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  suggestionId: text("suggestion_id").notNull().references(() => identitySuggestions.id), ownerSubject: text("owner_subject").notNull(),
+  subjectKind: text("subject_kind", { enum: ["contact", "organization"] }).notNull(), kind: text("kind", { enum: ["merge", "split"] }).notNull(),
+  decisionJson: text("decision_json").notNull(), idempotencyKey: text("idempotency_key").notNull(), operationDigest: text("operation_digest").notNull(),
+  resultDigest: text("result_digest").notNull(), retainedSourceLineageIdsJson: text("retained_source_lineage_ids_json").notNull(),
+  retainedIdentityLineageIdsJson: text("retained_identity_lineage_ids_json").notNull(), retainedAliasesJson: text("retained_aliases_json").notNull(),
+  retainedSuppressionSubjectRefsJson: text("retained_suppression_subject_refs_json").notNull(), rePointedAssociationIdsJson: text("repointed_association_ids_json").notNull(),
+  invalidationsJson: text("invalidations_json").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("identity_decision_suggestion_unique").on(t.suggestionId), uniqueIndex("identity_decision_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+  uniqueIndex("identity_decision_operation_unique").on(t.workspaceId, t.operationDigest),
+  check("identity_decision_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*' and length(${t.resultDigest}) = 64 and ${t.resultDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const identityLineage = sqliteTable("identity_lineage", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  decisionId: text("decision_id").notNull().references(() => identityDecisions.id), subjectKind: text("subject_kind", { enum: ["contact", "organization"] }).notNull(),
+  sourceSubjectId: text("source_subject_id").notNull(), targetSubjectId: text("target_subject_id").notNull(),
+  relationship: text("relationship", { enum: ["merged_into", "split_from", "association_repointed"] }).notNull(),
+  retainedSourceLineageIdsJson: text("retained_source_lineage_ids_json").notNull(), retainedIdentityLineageIdsJson: text("retained_identity_lineage_ids_json").notNull(),
+  retainedAliasesJson: text("retained_aliases_json").notNull(), retainedSuppressionSubjectRefsJson: text("retained_suppression_subject_refs_json").notNull(),
+  lineageDigest: text("lineage_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("identity_lineage_digest_unique").on(t.workspaceId, t.lineageDigest), index("identity_lineage_source_idx").on(t.workspaceId, t.sourceSubjectId, t.createdAt),
+  index("identity_lineage_target_idx").on(t.workspaceId, t.targetSubjectId, t.createdAt),
+  check("identity_lineage_digest_check", sql`length(${t.lineageDigest}) = 64 and ${t.lineageDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const runnerSpendGrants = sqliteTable("runner_spend_grants", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(), providerId: text("provider_id").notNull(), model: text("model").notNull(),
+  catalogRef: text("catalog_ref").notNull(), runType: text("run_type").notNull(), scopeId: text("scope_id").notNull(),
+  perRunCostMinor: integer("per_run_cost_minor").notNull(), monthlyCostMinor: integer("monthly_cost_minor").notNull(),
+  currency: text("currency").notNull(), maxRetries: integer("max_retries").notNull(), grantDigest: text("grant_digest").notNull(),
+  nonce: text("nonce").notNull(), expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("runner_spend_grant_digest_unique").on(t.workspaceId, t.grantDigest), index("runner_spend_grant_owner_idx").on(t.workspaceId, t.ownerSubject, t.expiresAt),
+  check("runner_spend_grant_bounds_check", sql`${t.perRunCostMinor} >= 0 and ${t.monthlyCostMinor} >= ${t.perRunCostMinor} and ${t.maxRetries} >= 0 and ${t.maxRetries} <= 10 and ${t.expiresAt} > ${t.createdAt}`),
+  check("runner_spend_grant_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+  check("runner_spend_grant_digest_check", sql`length(${t.grantDigest}) = 64 and ${t.grantDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const runnerBudgetAccounts = sqliteTable("runner_budget_accounts", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  scope: text("scope", { enum: ["runner_per_run", "runner_monthly"] }).notNull(), ownerSubject: text("owner_subject").notNull(),
+  providerId: text("provider_id").notNull(), scopeId: text("scope_id").notNull(), period: text("period"),
+  attemptNumber: integer("attempt_number"), operationKey: text("operation_key"), currency: text("currency").notNull(),
+  actualCostMinor: integer("actual_cost_minor").notNull().default(0), reservedCostMinor: integer("reserved_cost_minor").notNull().default(0),
+  maxCostMinor: integer("max_cost_minor").notNull(), revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  // Monthly identity intentionally excludes grant and model: all grants for the
+  // same owner/provider/scope/UTC month share one durable cap.
+  uniqueIndex("runner_budget_account_identity_unique").on(t.workspaceId, t.scope, t.ownerSubject, t.providerId, t.scopeId, t.period, t.attemptNumber, t.operationKey, t.currency),
+  index("runner_budget_account_month_idx").on(t.workspaceId, t.ownerSubject, t.providerId, t.scopeId, t.period),
+  check("runner_budget_account_shape_check", sql`(${t.scope} = 'runner_monthly' and ${t.period} glob '[0-9][0-9][0-9][0-9]-[0-1][0-9]' and ${t.attemptNumber} is null and ${t.operationKey} is null) or (${t.scope} = 'runner_per_run' and ${t.period} is null and ${t.attemptNumber} >= 0 and ${t.operationKey} is not null)`),
+  check("runner_budget_account_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+  check("runner_budget_account_bounds_check", sql`${t.actualCostMinor} >= 0 and ${t.reservedCostMinor} >= 0 and ${t.maxCostMinor} >= 0 and ${t.actualCostMinor} + ${t.reservedCostMinor} <= ${t.maxCostMinor} and ${t.revision} > 0`),
+]);
+
+export const runnerSpendReservations = sqliteTable("runner_spend_reservations", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  grantId: text("grant_id").notNull().references(() => runnerSpendGrants.id), perRunAccountId: text("per_run_account_id").notNull().references(() => runnerBudgetAccounts.id),
+  monthlyAccountId: text("monthly_account_id").notNull().references(() => runnerBudgetAccounts.id), operationKey: text("operation_key").notNull(),
+  attemptNumber: integer("attempt_number").notNull(), providerId: text("provider_id").notNull(), model: text("model").notNull(),
+  catalogRef: text("catalog_ref").notNull(), scopeId: text("scope_id").notNull(), runType: text("run_type").notNull(),
+  currency: text("currency").notNull(), reservedCostMinor: integer("reserved_cost_minor").notNull(), maxRetries: integer("max_retries").notNull(),
+  attemptDigest: text("attempt_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("runner_spend_reservation_attempt_unique").on(t.workspaceId, t.grantId, t.attemptNumber),
+  uniqueIndex("runner_spend_reservation_operation_unique").on(t.workspaceId, t.operationKey), uniqueIndex("runner_spend_reservation_attempt_digest_unique").on(t.workspaceId, t.attemptDigest),
+  check("runner_spend_reservation_bounds_check", sql`${t.attemptNumber} >= 0 and ${t.reservedCostMinor} >= 0 and ${t.maxRetries} >= ${t.attemptNumber}`),
+  check("runner_spend_reservation_currency_check", sql`length(${t.currency}) = 3 and ${t.currency} = upper(${t.currency}) and ${t.currency} not glob '*[^A-Z]*'`),
+  check("runner_spend_reservation_digest_check", sql`length(${t.attemptDigest}) = 64 and ${t.attemptDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const runnerSpendReservationEvents = sqliteTable("runner_spend_reservation_events", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  reservationId: text("reservation_id").notNull().references(() => runnerSpendReservations.id), durableRevision: integer("durable_revision").notNull(),
+  state: text("state", { enum: ["reserved", "assigned", "failed_retryable", "settled", "released", "needs_reconciliation"] }).notNull(),
+  terminalReason: text("terminal_reason"), settlementDigest: text("settlement_digest"), acknowledgementDigest: text("acknowledgement_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("runner_spend_reservation_event_revision_unique").on(t.reservationId, t.durableRevision),
+  uniqueIndex("runner_spend_reservation_event_ack_unique").on(t.workspaceId, t.acknowledgementDigest),
+  check("runner_spend_reservation_event_revision_check", sql`${t.durableRevision} > 0`),
+  check("runner_spend_reservation_event_digest_check", sql`length(${t.acknowledgementDigest}) = 64 and ${t.acknowledgementDigest} not glob '*[^0-9a-f]*' and (${t.settlementDigest} is null or (length(${t.settlementDigest}) = 64 and ${t.settlementDigest} not glob '*[^0-9a-f]*'))`),
+]);
