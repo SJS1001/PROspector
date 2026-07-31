@@ -35,9 +35,54 @@ export type ContactEvidenceAssignment = Readonly<{
   }> | null;
 }>;
 
+export type ContactVerifierDescriptor = Readonly<{
+  verifierId: string;
+  verifierVersion: string;
+}>;
+
+export type ContactVerificationRequest = Readonly<{
+  assignmentId: string;
+  prospectId: string;
+  role: "champion" | "economic_buyer" | "general";
+  assignment: Readonly<Omit<ContactEvidenceAssignment, "providerAuthority"> & {
+    providerId: string;
+    providerVersion: string;
+    catalogRef: string;
+    quoteRevision: number;
+  }>;
+  envelope: unknown;
+}>;
+
+export type ContactVerificationVerdict = Readonly<{
+  observationId: string;
+  workspaceId: string;
+  contactId: string;
+  profileConfigurationId: string;
+  profileConfigurationDigest: string;
+  kind: ContactPointKind;
+  normalizedValue: string;
+  contentHash: string;
+  verificationClass: ContactVerificationClass;
+  method: ContactMethod;
+  verifiedAt: number | null;
+  providerId: string | null;
+  providerVersion: string | null;
+  catalogRef: string | null;
+  verdictReference: string;
+  verdictDigest: string;
+}>;
+
+export type ContactEvidenceVerifier = Readonly<{
+  kind: "bound";
+  descriptor: ContactVerifierDescriptor;
+  verify(input: ContactVerificationRequest): Promise<ContactVerificationVerdict | unknown>;
+}>;
+
 /**
  * Output from a trusted server-side verifier. Provider adapters must never
  * manufacture this value or place any of its authority fields in their envelope.
+ * Structural equality is insufficient: ingestion also requires the module-local
+ * receipt issued by executeContactVerification.
  */
 export type TrustedContactVerification = Readonly<{
   observationId: string;
@@ -108,6 +153,64 @@ const HASH = /^[a-f0-9]{64}$/u;
 const E164 = /^\+[1-9][0-9]{7,14}$/u;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const admittedContactObservations = new WeakSet<object>();
+const serverBoundVerifiers = new WeakSet<object>();
+const trustedVerificationReceipts = new WeakSet<object>();
+
+/**
+ * The server composition root binds a verification implementation to one
+ * immutable verifier identity. Neither callback output nor provider evidence can
+ * choose or replace that identity.
+ */
+export function bindContactEvidenceVerifier(
+  descriptorValue: ContactVerifierDescriptor,
+  verify: ContactEvidenceVerifier["verify"],
+): ContactEvidenceVerifier {
+  const descriptor = normalizeVerifierDescriptor(descriptorValue);
+  if (!descriptor || typeof verify !== "function") throw new TypeError("invalid_contact_verifier_binding");
+  const verifier: ContactEvidenceVerifier = Object.freeze({
+    kind: "bound" as const,
+    descriptor,
+    verify,
+  });
+  serverBoundVerifiers.add(verifier);
+  return verifier;
+}
+
+/**
+ * Executes only a module-branded verifier and returns an unforgeable in-process
+ * receipt. JSON copies and raw structural verdicts intentionally lose authority.
+ */
+export async function executeContactVerification(
+  verifierValue: ContactEvidenceVerifier | unknown,
+  requestValue: ContactVerificationRequest | unknown,
+): Promise<TrustedContactVerification | null> {
+  if (!isBoundContactEvidenceVerifier(verifierValue)) return null;
+  const request = normalizeVerificationRequest(requestValue);
+  if (!request) return null;
+  try {
+    const verdictValue = await verifierValue.verify(request);
+    const verdict = normalizeVerifierVerdict(verdictValue, request);
+    if (!verdict) return null;
+    const receipt = deepFreeze({
+      ...verdict,
+      verifierId: verifierValue.descriptor.verifierId,
+      verifierVersion: verifierValue.descriptor.verifierVersion,
+    });
+    trustedVerificationReceipts.add(receipt);
+    return receipt;
+  } catch {
+    return null;
+  }
+}
+
+export function isBoundContactEvidenceVerifier(value: unknown): value is ContactEvidenceVerifier {
+  return !!value
+    && typeof value === "object"
+    && serverBoundVerifiers.has(value)
+    && (value as ContactEvidenceVerifier).kind === "bound"
+    && normalizeVerifierDescriptor((value as ContactEvidenceVerifier).descriptor) !== null
+    && typeof (value as ContactEvidenceVerifier).verify === "function";
+}
 
 /**
  * Defensively accepts only a bounded, assignment-bound immutable observation.
@@ -273,7 +376,7 @@ function normalizeTrustedVerification(
   evidence: Readonly<{ id: string; kind: ContactPointKind; normalizedValue: string; contentHash: string }>,
 ): TrustedContactVerification | null {
   const input = record(value);
-  if (!input) return null;
+  if (!input || !trustedVerificationReceipts.has(input)) return null;
   const verificationClass = typeof input.verificationClass === "string" && CLASSES.has(input.verificationClass)
     ? input.verificationClass as ContactVerificationClass : null;
   const method = typeof input.method === "string" && METHODS.has(input.method as ContactMethod)
@@ -332,6 +435,135 @@ function normalizeTrustedVerification(
     verdictReference,
     verdictDigest,
   });
+}
+
+function normalizeVerificationRequest(value: unknown): ContactVerificationRequest | null {
+  const input = exactRecord(value, ["assignmentId", "prospectId", "role", "assignment", "envelope"]);
+  if (!input) return null;
+  const assignment = exactRecord(input.assignment, [
+    "workspaceId", "contactId", "profileConfigurationId", "profileConfigurationDigest",
+    "providerId", "providerVersion", "catalogRef", "quoteRevision",
+  ]);
+  const assignmentId = opaque(input.assignmentId, 256);
+  const prospectId = opaque(input.prospectId, 256);
+  const role = input.role === "champion" || input.role === "economic_buyer" || input.role === "general"
+    ? input.role : null;
+  if (
+    !assignment ||
+    !assignmentId ||
+    !prospectId ||
+    !role ||
+    !opaque(assignment.workspaceId, 160) ||
+    !opaque(assignment.contactId, 160) ||
+    !opaque(assignment.profileConfigurationId, 160) ||
+    typeof assignment.profileConfigurationDigest !== "string" ||
+    !HASH.test(assignment.profileConfigurationDigest) ||
+    !safeText(assignment.providerId, 120) ||
+    !safeText(assignment.providerVersion, 120) ||
+    !safeText(assignment.catalogRef, 256) ||
+    !Number.isSafeInteger(assignment.quoteRevision) ||
+    (assignment.quoteRevision as number) <= 0
+  ) return null;
+  return Object.freeze({
+    assignmentId,
+    prospectId,
+    role,
+    assignment: Object.freeze({
+      workspaceId: assignment.workspaceId as string,
+      contactId: assignment.contactId as string,
+      profileConfigurationId: assignment.profileConfigurationId as string,
+      profileConfigurationDigest: assignment.profileConfigurationDigest,
+      providerId: assignment.providerId as string,
+      providerVersion: assignment.providerVersion as string,
+      catalogRef: assignment.catalogRef as string,
+      quoteRevision: assignment.quoteRevision as number,
+    }),
+    envelope: input.envelope,
+  });
+}
+
+function normalizeVerifierVerdict(
+  value: unknown,
+  request: ContactVerificationRequest,
+): Omit<TrustedContactVerification, "verifierId" | "verifierVersion"> | null {
+  const input = exactRecord(value, [
+    "observationId", "workspaceId", "contactId", "profileConfigurationId",
+    "profileConfigurationDigest", "kind", "normalizedValue", "contentHash",
+    "verificationClass", "method", "verifiedAt", "providerId", "providerVersion",
+    "catalogRef", "verdictReference", "verdictDigest",
+  ]);
+  const envelope = record(request.envelope);
+  if (!input || !envelope) return null;
+  const evidenceId = opaque(envelope.id, 160);
+  const evidenceKind = envelope.kind === "email" || envelope.kind === "phone" ? envelope.kind : null;
+  const normalizedValue = evidenceKind ? normalizeContactValue(evidenceKind, envelope.value) : null;
+  const provenance = normalizeProvenance(envelope.provenance);
+  if (!evidenceId || !evidenceKind || !normalizedValue || !provenance) return null;
+  const assignment: ContactEvidenceAssignment = {
+    workspaceId: request.assignment.workspaceId,
+    contactId: request.assignment.contactId,
+    profileConfigurationId: request.assignment.profileConfigurationId,
+    profileConfigurationDigest: request.assignment.profileConfigurationDigest,
+    providerAuthority: {
+      providerId: request.assignment.providerId,
+      providerVersion: request.assignment.providerVersion,
+      catalogRef: request.assignment.catalogRef,
+    },
+  };
+  const verificationClass = typeof input.verificationClass === "string" && CLASSES.has(input.verificationClass)
+    ? input.verificationClass as ContactVerificationClass : null;
+  const method = typeof input.method === "string" && METHODS.has(input.method as ContactMethod)
+    ? input.method as ContactMethod : null;
+  const verifiedAt = input.verifiedAt === null ? null : timestamp(input.verifiedAt);
+  const providerId = input.providerId === null ? null : optionalText(input.providerId, 120);
+  const providerVersion = input.providerVersion === null ? null : optionalText(input.providerVersion, 120);
+  const catalogRef = input.catalogRef === null ? null : optionalText(input.catalogRef, 256);
+  const verdictReference = opaque(input.verdictReference, 256);
+  const verdictDigest = typeof input.verdictDigest === "string" && HASH.test(input.verdictDigest)
+    ? input.verdictDigest : null;
+  if (
+    input.observationId !== evidenceId ||
+    input.workspaceId !== assignment.workspaceId ||
+    input.contactId !== assignment.contactId ||
+    input.profileConfigurationId !== assignment.profileConfigurationId ||
+    input.profileConfigurationDigest !== assignment.profileConfigurationDigest ||
+    input.kind !== evidenceKind ||
+    input.normalizedValue !== normalizedValue ||
+    input.contentHash !== provenance.contentHash ||
+    !verificationClass ||
+    !method ||
+    (input.verifiedAt !== null && verifiedAt === null) ||
+    !providerMatchesAssignment(assignment, providerId, providerVersion, catalogRef) ||
+    !verdictReference ||
+    !verdictDigest ||
+    !methodMatchesClaim(evidenceKind, verificationClass, method, verifiedAt)
+  ) return null;
+  return deepFreeze({
+    observationId: evidenceId,
+    workspaceId: assignment.workspaceId,
+    contactId: assignment.contactId,
+    profileConfigurationId: assignment.profileConfigurationId,
+    profileConfigurationDigest: assignment.profileConfigurationDigest,
+    kind: evidenceKind,
+    normalizedValue,
+    contentHash: provenance.contentHash,
+    verificationClass,
+    method,
+    verifiedAt,
+    providerId,
+    providerVersion,
+    catalogRef,
+    verdictReference,
+    verdictDigest,
+  });
+}
+
+function normalizeVerifierDescriptor(value: unknown): ContactVerifierDescriptor | null {
+  const input = exactRecord(value, ["verifierId", "verifierVersion"]);
+  if (!input) return null;
+  const verifierId = opaque(input.verifierId, 160);
+  const verifierVersion = opaque(input.verifierVersion, 160);
+  return verifierId && verifierVersion ? Object.freeze({ verifierId, verifierVersion }) : null;
 }
 
 function normalizeStoredVerificationAuthority(value: unknown) {
@@ -410,6 +642,15 @@ function methodMatchesClaim(kind: ContactPointKind, verificationClass: ContactVe
 
 function blocked(reason: string): ContactEvidenceResult { return Object.freeze({ accepted: false as const, reason }); }
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
+function exactRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  const input = record(value);
+  if (!input) return null;
+  const prototype = Object.getPrototypeOf(input);
+  return (prototype === null || prototype === Object.prototype)
+    && Object.keys(input).sort().join(",") === [...keys].sort().join(",")
+    ? input
+    : null;
+}
 function opaque(value: unknown, max: number): string | null { return typeof value === "string" && /^[A-Za-z0-9_.:-]+$/u.test(value) && value.length <= max ? value : null; }
 function safeText(value: unknown, max: number): string | null { if (typeof value !== "string") return null; const text = value.normalize("NFC").trim(); return text && text.length <= max && !/[<>\u0000-\u001f]/u.test(text) ? text : null; }
 function optionalText(value: unknown, max: number): string | null { return value === undefined || value === null ? null : safeText(value, max); }

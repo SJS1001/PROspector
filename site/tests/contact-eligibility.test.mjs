@@ -25,7 +25,7 @@ function envelope(patch = {}) {
     observedAt: NOW - 1_000, lineage: { parentObservationId: null }, ...patch,
   };
 }
-function trustedVerification(raw = envelope(), patch = {}) {
+function trustedVerdict(raw = envelope(), patch = {}) {
   const normalizedValue = raw.kind === "email"
     ? String(raw.value).trim().toLowerCase()
     : `+${String(raw.value).slice(1).replace(/[^0-9]/g, "")}`;
@@ -35,12 +35,31 @@ function trustedVerification(raw = envelope(), patch = {}) {
     kind: raw.kind, normalizedValue, contentHash: raw.provenance.contentHash,
     verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: NOW - 1_500,
     providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic",
-    verifierId: "server-verifier", verifierVersion: "v1", verdictReference: "verdict-synthetic",
-    verdictDigest: "d".repeat(64), ...patch,
+    verdictReference: "verdict-synthetic", verdictDigest: "d".repeat(64), ...patch,
   };
 }
-function ingest(evidence, raw = envelope(), verificationPatch = {}) {
-  return evidence.ingestContactEvidence(assignment, raw, trustedVerification(raw, verificationPatch));
+async function ingest(evidence, raw = envelope(), verificationPatch = {}) {
+  const verifier = evidence.bindContactEvidenceVerifier(
+    { verifierId: "server-verifier", verifierVersion: "v1" },
+    async () => trustedVerdict(raw, verificationPatch),
+  );
+  const receipt = await evidence.executeContactVerification(verifier, {
+    assignmentId: "assignment-synthetic",
+    prospectId: "prospect-synthetic",
+    role: "champion",
+    assignment: {
+      workspaceId: assignment.workspaceId,
+      contactId: assignment.contactId,
+      profileConfigurationId: assignment.profileConfigurationId,
+      profileConfigurationDigest: assignment.profileConfigurationDigest,
+      providerId: assignment.providerAuthority.providerId,
+      providerVersion: assignment.providerAuthority.providerVersion,
+      catalogRef: assignment.providerAuthority.catalogRef,
+      quoteRevision: 1,
+    },
+    envelope: raw,
+  });
+  return evidence.ingestContactEvidence(assignment, raw, receipt);
 }
 function target(patch = {}) { return { workspaceId: assignment.workspaceId, contactId: assignment.contactId, ...patch }; }
 function strategy(patch = {}) { return { configurationId: assignment.profileConfigurationId, configurationDigest: DIGEST, ...patch }; }
@@ -49,7 +68,7 @@ function authority(patch = {}) { return { profileAvailable: true, configurationC
 test("P5 prep accepts only bounded assignment-bound evidence and canonicalizes synthetic business contact values", async () => {
   const { vite, evidence } = await modules();
   try {
-    const accepted = ingest(evidence);
+    const accepted = await ingest(evidence);
     assert.equal(accepted.accepted, true);
     assert.equal(accepted.observation.normalizedValue, "contact@example.test");
     assert.equal(Object.isFrozen(accepted.observation), true);
@@ -57,11 +76,51 @@ test("P5 prep accepts only bounded assignment-bound evidence and canonicalizes s
     assert.equal(evidence.normalizeBusinessPhone("not-a-phone"), null);
     assert.equal(evidence.normalizeBusinessPhone("4165550199"), null, "a local number is not silently promoted to E.164");
     assert.equal(evidence.normalizeBusinessEmail("not an email"), null);
+    const unbranded = trustedVerdict();
+    assert.equal(evidence.ingestContactEvidence(assignment, envelope(), unbranded).accepted, false, "a structural verdict has no runtime receipt authority");
+    const clonedVerifier = { ...evidence.bindContactEvidenceVerifier({ verifierId: "server-verifier", verifierVersion: "v1" }, async () => trustedVerdict()) };
+    assert.equal(await evidence.executeContactVerification(clonedVerifier, {}), null, "a cloned verifier cannot recreate the module brand");
+    const receiptVerifier = evidence.bindContactEvidenceVerifier(
+      { verifierId: "server-verifier", verifierVersion: "v1" },
+      async () => trustedVerdict(),
+    );
+    const receiptRequest = {
+      assignmentId: "assignment-synthetic",
+      prospectId: "prospect-synthetic",
+      role: "champion",
+      assignment: {
+        workspaceId: assignment.workspaceId,
+        contactId: assignment.contactId,
+        profileConfigurationId: assignment.profileConfigurationId,
+        profileConfigurationDigest: assignment.profileConfigurationDigest,
+        providerId: assignment.providerAuthority.providerId,
+        providerVersion: assignment.providerAuthority.providerVersion,
+        catalogRef: assignment.providerAuthority.catalogRef,
+        quoteRevision: 1,
+      },
+      envelope: envelope(),
+    };
+    const receipt = await evidence.executeContactVerification(receiptVerifier, receiptRequest);
+    assert.ok(receipt);
+    assert.equal(
+      evidence.ingestContactEvidence(assignment, envelope(), JSON.parse(JSON.stringify(receipt))).accepted,
+      false,
+      "JSON cloning strips the module-local receipt brand",
+    );
+    const identitySelectingVerifier = evidence.bindContactEvidenceVerifier(
+      { verifierId: "server-verifier", verifierVersion: "v1" },
+      async () => ({ ...trustedVerdict(), verifierId: "callback-selected", verifierVersion: "v999" }),
+    );
+    assert.equal(
+      await evidence.executeContactVerification(identitySelectingVerifier, receiptRequest),
+      null,
+      "callback output cannot select verifier identity",
+    );
     for (const patch of [{ workspaceId: "other-workspace" }, { verificationClass: "mailbox_verified" }, { providerId: "adapter-provider" }, { provenance: { ...envelope().provenance, excerpt: "<script>" } }, { profileConfigurationDigest: "c".repeat(64) }]) {
-      assert.equal(evidence.ingestContactEvidence(assignment, envelope(patch), trustedVerification(envelope(patch))).accepted, false, JSON.stringify(patch));
+      assert.equal((await ingest(evidence, envelope(patch))).accepted, false, JSON.stringify(patch));
     }
     assert.equal(
-      evidence.ingestContactEvidence(assignment, envelope(), trustedVerification(envelope(), { providerId: "different-provider" })).accepted,
+      (await ingest(evidence, envelope(), { providerId: "different-provider" })).accepted,
       false,
       "trusted verdict must still match the committed provider tuple",
     );
@@ -78,15 +137,15 @@ test("P5 prep verification class, not adapter confidence, controls eligibility",
     for (const verificationClass of ["suggested", "domain_valid"]) {
       const method = verificationClass === "suggested" ? "pattern_inference" : "domain_validation";
       const raw = envelope({ confidence: 1 });
-      const accepted = ingest(evidence, raw, { verificationClass, method, verifiedAt: null });
+      const accepted = await ingest(evidence, raw, { verificationClass, method, verifiedAt: null });
       assert.equal(accepted.accepted, true);
       const result = eligibility.projectContactEligibility({ target: target(), points: [accepted.observation], strategy: strategy(), authority: authority(), now: NOW });
       assert.equal(result.state, "ContactSuggestion", verificationClass);
       assert.equal(result.eligible, false, verificationClass);
     }
-    const forged = ingest(evidence, envelope({ confidence: 1 }), { verificationClass: "source_verified", method: "domain_validation", verifiedAt: NOW - 1_500 });
+    const forged = await ingest(evidence, envelope({ confidence: 1 }), { verificationClass: "source_verified", method: "domain_validation", verifiedAt: NOW - 1_500 });
     assert.equal(forged.accepted, false, "an adapter assertion cannot promote domain validation");
-    const invalid = ingest(evidence, envelope({ confidence: 1 }), { verificationClass: "invalid", method: "mailbox_verification", verifiedAt: NOW - 1_500 });
+    const invalid = await ingest(evidence, envelope({ confidence: 1 }), { verificationClass: "invalid", method: "mailbox_verification", verifiedAt: NOW - 1_500 });
     assert.equal(invalid.accepted, true, "negative verification evidence is retained rather than silently discarded");
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [invalid.observation], strategy: strategy(), authority: authority(), now: NOW }).state, "NeedsReview");
   } finally { await vite.close(); }
@@ -102,7 +161,7 @@ test("P5 prep refuses direct forged or partial verified observation shapes", asy
     assert.equal(result.eligible, false);
     assert.ok(result.reasonCodes.includes("no_contact_evidence"));
     assert.ok(result.reasonCodes.includes("contact_evidence_invalid"));
-    const accepted = ingest(evidence);
+    const accepted = await ingest(evidence);
     assert.equal(accepted.accepted, true);
     const forgedComplete = JSON.parse(JSON.stringify(accepted.observation));
     assert.deepEqual(forgedComplete, accepted.observation, "the forgery is a complete, shape-valid JSON copy");
@@ -138,18 +197,18 @@ test("P5 prep applies default 30/90/90 day freshness and current invalidations",
   try {
     const mailboxVerifiedAt = NOW - (30 * 24 * 60 * 60 * 1000) + 1;
     const mailboxRaw = envelope({ observedAt: NOW, provenance: { ...envelope().provenance, retrievedAt: mailboxVerifiedAt - 1 } });
-    const mailbox = ingest(evidence, mailboxRaw, { verifiedAt: mailboxVerifiedAt });
+    const mailbox = await ingest(evidence, mailboxRaw, { verifiedAt: mailboxVerifiedAt });
     assert.equal(mailbox.accepted, true);
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [mailbox.observation], strategy: strategy(), authority: authority(), now: NOW }).state, "ContactReady");
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [mailbox.observation], strategy: strategy(), authority: authority(), now: NOW + 1 }).state, "NeedsReview");
     const phoneVerifiedAt = NOW - (90 * 24 * 60 * 60 * 1000) + 1;
     const phoneRaw = envelope({ id: "phone-synthetic", kind: "phone", value: "+14165550199", observedAt: NOW, provenance: { ...envelope().provenance, retrievedAt: phoneVerifiedAt - 1 } });
-    const phone = ingest(evidence, phoneRaw, { verificationClass: "source_verified", method: "authoritative_source_reconfirmed", verifiedAt: phoneVerifiedAt });
+    const phone = await ingest(evidence, phoneRaw, { verificationClass: "source_verified", method: "authoritative_source_reconfirmed", verifiedAt: phoneVerifiedAt });
     assert.equal(phone.accepted, true);
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [phone.observation], strategy: strategy(), authority: authority(), now: NOW }).state, "ContactReady");
     const sourceEmailVerifiedAt = NOW - (90 * 24 * 60 * 60 * 1000) + 1;
     const sourceEmailRaw = envelope({ id: "source-email-synthetic", observedAt: NOW, provenance: { ...envelope().provenance, retrievedAt: sourceEmailVerifiedAt - 1 } });
-    const sourceEmail = ingest(evidence, sourceEmailRaw, { verificationClass: "source_verified", method: "authoritative_source_reconfirmed", verifiedAt: sourceEmailVerifiedAt });
+    const sourceEmail = await ingest(evidence, sourceEmailRaw, { verificationClass: "source_verified", method: "authoritative_source_reconfirmed", verifiedAt: sourceEmailVerifiedAt });
     assert.equal(sourceEmail.accepted, true);
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [sourceEmail.observation], strategy: strategy(), authority: authority(), now: NOW }).state, "ContactReady");
     assert.equal(eligibility.projectContactEligibility({ target: target(), points: [sourceEmail.observation], strategy: strategy(), authority: authority(), now: NOW + 1 }).state, "NeedsReview");
@@ -164,7 +223,7 @@ test("P5 prep applies default 30/90/90 day freshness and current invalidations",
 test("P5 prep invalidates observations from a different current Contact Strategy with zero downstream effects", async () => {
   const { vite, evidence, eligibility } = await modules();
   try {
-    const accepted = ingest(evidence);
+    const accepted = await ingest(evidence);
     assert.equal(accepted.accepted, true);
     const zeroEffects = { packageMutations: 0, exportMutations: 0, callInvocations: 0, sendInvocations: 0, suppressionMutations: 0 };
     for (const currentStrategy of [strategy({ configurationId: "config-new" }), strategy({ configurationDigest: "c".repeat(64) })]) {
@@ -188,7 +247,7 @@ test("P5 prep invalidates observations from a different current Contact Strategy
 test("P5 prep later-boundary helpers only return rechecks and have exact Phase 6/7 zero effects", async () => {
   const { vite, evidence, eligibility } = await modules();
   try {
-    const accepted = ingest(evidence);
+    const accepted = await ingest(evidence);
     assert.equal(accepted.accepted, true);
     const input = { target: target(), points: [accepted.observation], strategy: strategy(), authority: authority(), now: NOW };
     for (const helper of [eligibility.recheckForPackageApproval, eligibility.recheckForCrmExport, eligibility.recheckForClickToCall, eligibility.recheckForFinalSend]) {

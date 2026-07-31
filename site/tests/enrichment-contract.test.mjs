@@ -290,7 +290,11 @@ test("P5 hardening: exact provider binding and quote economics fail closed befor
 test("P5 hardening: invocation expiry is atomic and provider evidence must pass exact assignment-bound ingestion", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    const [operation, portModule, evidenceModule] = await Promise.all([
+      module(vite, "enrichment-operation"),
+      module(vite, "contact-provider-port"),
+      module(vite, "contact-evidence"),
+    ]);
     const port = boundFakePort(portModule, async (assignment) => ({ kind: "completed", reservationId: assignment.reservationId, operationKey: assignment.operationKey, documentedUnits: 1, documentedCostMinor: 1, evidence: [contactEnvelope()] }));
     const expiryState = { status: "reserved" };
     const expiredRepository = {
@@ -343,13 +347,43 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       async markNeedsReconciliation() { verifiedState.reconciled += 1; verifiedState.status = "needs_reconciliation"; return { kind: "recorded" }; },
       async listInvocationsNeedingRecovery() { return []; },
     };
-    const trustedVerifier = { async verify({ envelope: raw }) { return contactVerification(raw); } };
+    const trustedVerifier = evidenceModule.bindContactEvidenceVerifier(
+      { verifierId: "server-verifier", verifierVersion: "v1" },
+      async ({ envelope: raw }) => contactVerification(raw),
+    );
     const verified = await operation.executeEnrichmentOperation(verifiedRepository, acceptedPort.port, { reservationId: assignment.reservationId, now: 1_100 }, trustedVerifier);
     assert.equal(verified.kind, "settled"); assert.equal(verifiedState.reconciled, 0); assert.equal(verifiedState.observations.length, 1);
     assert.equal(verifiedState.observations[0].verificationClass, "mailbox_verified");
     assert.equal(verifiedState.observations[0].providerId, assignment.providerId);
     assert.equal(verifiedState.observations[0].providerVersion, assignment.providerVersion);
     assert.equal(verifiedState.observations[0].catalogRef, assignment.catalogRef);
+    assert.equal(verifiedState.observations[0].verificationAuthority.verifierId, "server-verifier");
+    assert.equal(verifiedState.observations[0].verificationAuthority.verifierVersion, "v1");
+    assert.equal(Object.isFrozen(trustedVerifier.descriptor), true);
+
+    const rawVerifierState = { settled: 0, reconciled: 0 };
+    const rawVerifierRepository = {
+      async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
+      async settleReservation() { rawVerifierState.settled += 1; },
+      async markNeedsReconciliation() { rawVerifierState.reconciled += 1; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    };
+    const rawVerifier = {
+      kind: "bound",
+      descriptor: { verifierId: "client-selected", verifierVersion: "v999" },
+      async verify({ envelope: raw }) {
+        return { ...contactVerification(raw), verifierId: "client-selected", verifierVersion: "v999" };
+      },
+    };
+    const rawVerifierResult = await operation.executeEnrichmentOperation(
+      rawVerifierRepository,
+      acceptedPort.port,
+      { reservationId: assignment.reservationId, now: 1_100 },
+      rawVerifier,
+    );
+    assert.equal(rawVerifierResult.kind, "needs_reconciliation");
+    assert.equal(rawVerifierState.settled, 0);
+    assert.equal(rawVerifierState.reconciled, 1, "a structural verifier cannot mint a receipt");
 
     const multiAssignment = authorizedAssignment({
       maxUnits: 2,
@@ -379,6 +413,34 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
     assert.equal(multiState.reconciled, 0);
     assert.deepEqual(multiState.observations.map((observation) => observation.contactId), ["contact-synthetic", "contact-economic-buyer"]);
 
+    const duplicateState = { settled: 0, reconciled: 0, reason: null };
+    const duplicateRepository = {
+      async claimCommittedInvocation() { return { kind: "claimed", assignment: multiAssignment, claimedAt: 1_100 }; },
+      async settleReservation() { duplicateState.settled += 1; },
+      async markNeedsReconciliation(_id, reason) { duplicateState.reconciled += 1; duplicateState.reason = reason; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    };
+    const duplicatePort = boundFakePort(portModule, async (value) => ({
+      kind: "completed",
+      reservationId: value.reservationId,
+      operationKey: value.operationKey,
+      documentedUnits: 2,
+      documentedCostMinor: 2,
+      evidence: [
+        contactEnvelope(),
+        contactEnvelope({ id: "observation-duplicate", value: "duplicate@example.invalid" }),
+      ],
+    }));
+    const duplicate = await operation.executeEnrichmentOperation(
+      duplicateRepository,
+      duplicatePort.port,
+      { reservationId: multiAssignment.reservationId, now: 1_100 },
+    );
+    assert.equal(duplicate.kind, "needs_reconciliation");
+    assert.equal(duplicateState.reason, "invalid_evidence");
+    assert.equal(duplicateState.settled, 0);
+    assert.equal(duplicateState.reconciled, 1, "one assignment/contact cannot be billed twice");
+
     const forgedProviderState = { settled: 0, reconciled: 0 };
     const forgedProviderRepository = {
       async claimCommittedInvocation() { return { kind: "claimed", assignment, claimedAt: 1_100 }; },
@@ -390,11 +452,79 @@ test("P5 hardening: invocation expiry is atomic and provider evidence must pass 
       forgedProviderRepository,
       acceptedPort.port,
       { reservationId: assignment.reservationId, now: 1_100 },
-      { async verify({ envelope: raw }) { return contactVerification(raw, { providerId: "different-provider" }); } },
+      evidenceModule.bindContactEvidenceVerifier(
+        { verifierId: "server-verifier", verifierVersion: "v1" },
+        async ({ envelope: raw }) => contactVerification(raw, { providerId: "different-provider" }),
+      ),
     );
     assert.equal(forgedProvider.kind, "needs_reconciliation");
     assert.equal(forgedProviderState.settled, 0);
     assert.equal(forgedProviderState.reconciled, 1);
+  } finally { await vite.close(); }
+});
+
+test("P5 hardening: claimed assignments and hostile provider outcomes cannot leak extra fields or escape reconciliation", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const [operation, portModule] = await Promise.all([module(vite, "enrichment-operation"), module(vite, "contact-provider-port")]);
+    let extraGetterReads = 0;
+    const assignmentWithExtra = authorizedAssignment();
+    Object.defineProperty(assignmentWithExtra, "secretLike", {
+      enumerable: true,
+      get() { extraGetterReads += 1; return "must-not-leak"; },
+    });
+    const assignmentState = { settled: 0, reconciled: 0, reason: null };
+    const assignmentPort = boundFakePort(portModule, async () => { throw new Error("must not call"); });
+    const assignmentResult = await operation.executeEnrichmentOperation({
+      async claimCommittedInvocation() { return { kind: "claimed", assignment: assignmentWithExtra, claimedAt: 1_100 }; },
+      async settleReservation() { assignmentState.settled += 1; },
+      async markNeedsReconciliation(_id, reason) { assignmentState.reconciled += 1; assignmentState.reason = reason; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    }, assignmentPort.port, { reservationId: assignmentWithExtra.reservationId, now: 1_100 });
+    assert.equal(assignmentResult.kind, "needs_reconciliation");
+    assert.equal(assignmentState.reason, "invalid_assignment");
+    assert.equal(assignmentPort.calls, 0);
+    assert.equal(assignmentState.settled, 0);
+    assert.equal(extraGetterReads, 0, "unknown claimed fields are rejected before access");
+
+    const bindingWithExtra = { ...evidenceBinding(), secretLike: "must-not-leak" };
+    const bindingAssignment = authorizedAssignment({ evidenceAssignments: [bindingWithExtra] });
+    const bindingPort = boundFakePort(portModule, async () => { throw new Error("must not call"); });
+    const bindingState = { settled: 0, reconciled: 0 };
+    const bindingResult = await operation.executeEnrichmentOperation({
+      async claimCommittedInvocation() { return { kind: "claimed", assignment: bindingAssignment, claimedAt: 1_100 }; },
+      async settleReservation() { bindingState.settled += 1; },
+      async markNeedsReconciliation() { bindingState.reconciled += 1; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    }, bindingPort.port, { reservationId: bindingAssignment.reservationId, now: 1_100 });
+    assert.equal(bindingResult.kind, "needs_reconciliation");
+    assert.equal(bindingPort.calls, 0);
+    assert.equal(bindingState.settled, 0);
+    assert.equal(bindingState.reconciled, 1);
+
+    let hostileGetterReads = 0;
+    const hostileOutcome = {
+      kind: "completed",
+      reservationId: "reservation-hardened",
+      operationKey: `op_${"a".repeat(64)}`,
+      documentedUnits: 1,
+      documentedCostMinor: 1,
+      get evidence() { hostileGetterReads += 1; throw new Error("hostile getter"); },
+    };
+    const hostilePort = boundFakePort(portModule, async () => hostileOutcome);
+    const hostileState = { settled: 0, reconciled: 0, reason: null };
+    const hostileResult = await operation.executeEnrichmentOperation({
+      async claimCommittedInvocation() { return { kind: "claimed", assignment: authorizedAssignment(), claimedAt: 1_100 }; },
+      async settleReservation() { hostileState.settled += 1; },
+      async markNeedsReconciliation(_id, reason) { hostileState.reconciled += 1; hostileState.reason = reason; return { kind: "recorded" }; },
+      async listInvocationsNeedingRecovery() { return []; },
+    }, hostilePort.port, { reservationId: "reservation-hardened", now: 1_100 });
+    assert.equal(hostileResult.kind, "needs_reconciliation");
+    assert.equal(hostileState.reason, "invalid_provider_outcome");
+    assert.equal(hostilePort.calls, 1);
+    assert.equal(hostileGetterReads, 1);
+    assert.equal(hostileState.settled, 0);
+    assert.equal(hostileState.reconciled, 1);
   } finally { await vite.close(); }
 });
 
@@ -439,7 +569,7 @@ function budget(scope, maxCostMinor = 22, grantId = "runner-grant") {
 function evidenceBinding(patch = {}) { return { assignmentId: "assignment-prospect-a-champion", prospectId: "prospect-a", role: "champion", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), ...patch }; }
 function authorizedAssignment(patch = {}) { return { reservationId: "reservation-hardened", workspaceId: "workspace-synthetic", configurationId: "config-synthetic", configurationDigest: "a".repeat(64), operationKey: `op_${"a".repeat(64)}`, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", quoteRevision: 1, quoteUnitCostMinor: 1, prospectIds: ["prospect-a"], operation: "business_contact_lookup/v1", maxUnits: 1, maxCostMinor: 1, currency: "USD", expiresAt: 2_000, evidenceAssignments: [evidenceBinding()], ...patch }; }
 function contactEnvelope(patch = {}) { return { id: "observation-synthetic", assignmentId: "assignment-prospect-a-champion", prospectId: "prospect-a", workspaceId: "workspace-synthetic", contactId: "contact-synthetic", profileConfigurationId: "config-synthetic", profileConfigurationDigest: "a".repeat(64), kind: "email", value: "synthetic-contact@example.invalid", confidence: 1, provenance: { sourceReference: "source-synthetic", excerpt: "synthetic excerpt", objectReference: "object-synthetic", contentHash: "b".repeat(64), retrievedAt: 1_090 }, observedAt: 1_100, ...patch }; }
-function contactVerification(raw = contactEnvelope(), patch = {}) { return { observationId: raw.id, workspaceId: raw.workspaceId, contactId: raw.contactId, profileConfigurationId: raw.profileConfigurationId, profileConfigurationDigest: raw.profileConfigurationDigest, kind: raw.kind, normalizedValue: String(raw.value).trim().toLowerCase(), contentHash: raw.provenance.contentHash, verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: 1_095, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", verifierId: "server-verifier", verifierVersion: "v1", verdictReference: "verdict-synthetic", verdictDigest: "d".repeat(64), ...patch }; }
+function contactVerification(raw = contactEnvelope(), patch = {}) { return { observationId: raw.id, workspaceId: raw.workspaceId, contactId: raw.contactId, profileConfigurationId: raw.profileConfigurationId, profileConfigurationDigest: raw.profileConfigurationDigest, kind: raw.kind, normalizedValue: String(raw.value).trim().toLowerCase(), contentHash: raw.provenance.contentHash, verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: 1_095, providerId: "synthetic-provider", providerVersion: "v1", catalogRef: "catalog-synthetic", verdictReference: "verdict-synthetic", verdictDigest: "d".repeat(64), ...patch }; }
 async function configuredRunnerAuthority(runner, { maxRetries, attempt }) {
   const principalSubject = "owner-synthetic";
   const grant = { authorityType: "runner_spend", id: "runner-grant", providerId: "synthetic-model-provider", model: "synthetic-model", catalogRef: "runner-catalog", runType: "prospecting", scopeId: "run-synthetic", maxRetries, currency: "USD", expiresAt: 2_000, perRunCostMinor: 9, monthlyCostMinor: 9 };

@@ -1,4 +1,9 @@
-import { ingestContactEvidence, type ContactEvidenceAssignment, type ContactObservation } from "./contact-evidence";
+import {
+  executeContactVerification,
+  ingestContactEvidence,
+  type ContactEvidenceVerifier,
+  type ContactObservation,
+} from "./contact-evidence";
 import { isContactProviderPortBoundTo } from "./contact-provider-port";
 import type { AssignedContactEvidence, AuthorizedEnrichmentAssignment, EnrichmentAuthorityRepository, ReconciliationReason } from "./enrichment-authority";
 
@@ -9,21 +14,16 @@ type ValidProviderOutcome =
   | { kind: "rejected"; reservationId: string; operationKey: string; documentedUnits: 0; documentedCostMinor: 0; evidence: readonly [] }
   | { kind: "timeout"; reservationId: string; operationKey: string }
   | { kind: "ambiguous"; reservationId: string; operationKey: string };
-
-export type ContactEvidenceVerifier = Readonly<{
-  verify(input: Readonly<{
-    assignmentId: string;
-    prospectId: string;
-    role: AssignedContactEvidence["role"];
-    assignment: Readonly<Omit<ContactEvidenceAssignment, "providerAuthority"> & {
-      providerId: string;
-      providerVersion: string;
-      catalogRef: string;
-      quoteRevision: number;
-    }>;
-    envelope: unknown;
-  }>): Promise<unknown>;
-}>;
+const ASSIGNMENT_KEYS = Object.freeze([
+  "reservationId", "workspaceId", "configurationId", "configurationDigest",
+  "operationKey", "providerId", "providerVersion", "catalogRef",
+  "quoteRevision", "quoteUnitCostMinor", "prospectIds", "evidenceAssignments",
+  "operation", "maxUnits", "maxCostMinor", "currency", "expiresAt",
+]);
+const EVIDENCE_ASSIGNMENT_KEYS = Object.freeze([
+  "assignmentId", "prospectId", "role", "workspaceId", "contactId",
+  "profileConfigurationId", "profileConfigurationDigest",
+]);
 
 /**
  * A provider port is reachable only after the repository atomically claims an
@@ -38,16 +38,31 @@ export async function executeEnrichmentOperation(
   if (!validInput(input)) return { kind: "blocked" };
   const claim = await repository.claimCommittedInvocation(input.reservationId, input.now);
   if (!plain(claim) || claim.kind !== "claimed") return { kind: "blocked" };
-  if (!positive(claim.claimedAt) || claim.claimedAt > input.now) return reconcile(repository, input.reservationId, "invalid_assignment");
-  const assignment = claim.assignment;
-  if (!validAssignment(assignment, input.reservationId, input.now)) return reconcile(repository, input.reservationId, "invalid_assignment");
+  let assignment: Readonly<AuthorizedEnrichmentAssignment>;
+  try {
+    if (!positive(claim.claimedAt) || claim.claimedAt > input.now) {
+      return reconcile(repository, input.reservationId, "invalid_assignment");
+    }
+    const assignmentSnapshot = snapshotAssignment(claim.assignment);
+    if (!validAssignment(assignmentSnapshot, input.reservationId, input.now)) {
+      return reconcile(repository, input.reservationId, "invalid_assignment");
+    }
+    assignment = freezeAssignment(assignmentSnapshot);
+  } catch {
+    return reconcile(repository, input.reservationId, "invalid_assignment");
+  }
   if (!isContactProviderPortBoundTo(port, assignment)) return reconcile(repository, input.reservationId, "provider_port_mismatch");
-  let outcome: unknown;
-  try { outcome = await invokePort(port, freezeAssignment(assignment)); }
+  let providerOutcome: unknown;
+  try { providerOutcome = await invokePort(port, assignment); }
   catch { return reconcile(repository, input.reservationId, "provider_throw"); }
-  if (!validOutcome(outcome, assignment)) return reconcile(repository, input.reservationId, "invalid_provider_outcome");
+  let outcome: ValidProviderOutcome | null;
+  try { outcome = normalizeOutcome(providerOutcome, assignment); }
+  catch { return reconcile(repository, input.reservationId, "invalid_provider_outcome"); }
+  if (!outcome) return reconcile(repository, input.reservationId, "invalid_provider_outcome");
   if (outcome.kind === "timeout" || outcome.kind === "ambiguous") return reconcile(repository, input.reservationId, outcome.kind);
-  const observations = outcome.kind === "rejected" ? [] : await ingestEvidence(assignment, outcome.evidence, verifier);
+  const observations = outcome.kind === "rejected"
+    ? []
+    : await ingestEvidence(assignment, outcome.evidence, outcome.documentedUnits, verifier);
   if (!observations) return reconcile(repository, input.reservationId, "invalid_evidence");
   const state = outcome.kind === "rejected" ? "released" : "settled";
   try { await repository.settleReservation(input.reservationId, { state, documentedUnits: outcome.documentedUnits, documentedCostMinor: outcome.documentedCostMinor, reason: outcome.kind, observations }); }
@@ -64,32 +79,104 @@ async function reconcile(repository: EnrichmentAuthorityRepository, reservationI
   catch { return { kind: "reconciliation_persistence_failure" }; }
 }
 function validAssignment(value: unknown, reservationId: string, now: number): value is AuthorizedEnrichmentAssignment {
-  if (!plain(value) || value.reservationId !== reservationId || !bounded(value.workspaceId, 256) || !bounded(value.configurationId, 256) || !digest(value.configurationDigest) || !/^op_[a-f0-9]{64}$/.test(String(value.operationKey)) || !bounded(value.providerId, 128) || !bounded(value.providerVersion, 128) || !bounded(value.catalogRef, 256) || !positive(value.quoteRevision) || !nonNegative(value.quoteUnitCostMinor) || value.operation !== "business_contact_lookup/v1" || !positive(value.maxUnits) || value.maxUnits > 1_000 || !nonNegative(value.maxCostMinor) || !safeProduct(value.quoteUnitCostMinor, value.maxUnits) || value.quoteUnitCostMinor * value.maxUnits > value.maxCostMinor || !/^[A-Z]{3}$/.test(String(value.currency)) || !positive(value.expiresAt) || value.expiresAt <= now) return false;
+  if (
+    !exactRecord(value, ASSIGNMENT_KEYS) ||
+    value.reservationId !== reservationId ||
+    !bounded(value.workspaceId, 256) ||
+    !bounded(value.configurationId, 256) ||
+    !digest(value.configurationDigest) ||
+    !/^op_[a-f0-9]{64}$/.test(String(value.operationKey)) ||
+    !bounded(value.providerId, 128) ||
+    !bounded(value.providerVersion, 128) ||
+    !bounded(value.catalogRef, 256) ||
+    !positive(value.quoteRevision) ||
+    !nonNegative(value.quoteUnitCostMinor) ||
+    value.operation !== "business_contact_lookup/v1" ||
+    !positive(value.maxUnits) ||
+    value.maxUnits > 1_000 ||
+    !nonNegative(value.maxCostMinor) ||
+    !safeProduct(value.quoteUnitCostMinor, value.maxUnits) ||
+    value.quoteUnitCostMinor * value.maxUnits > value.maxCostMinor ||
+    !/^[A-Z]{3}$/.test(String(value.currency)) ||
+    !positive(value.expiresAt) ||
+    value.expiresAt <= now
+  ) return false;
   if (!Array.isArray(value.prospectIds) || !value.prospectIds.length || value.prospectIds.length > 100 || value.prospectIds.some((id) => !bounded(id, 256)) || new Set(value.prospectIds).size !== value.prospectIds.length) return false;
   return validAssignmentBindings(value.evidenceAssignments, value.workspaceId, value.configurationId, value.configurationDigest, value.prospectIds, value.maxUnits);
 }
-function validOutcome(value: unknown, assignment: Pick<AuthorizedEnrichmentAssignment, "reservationId" | "operationKey" | "operation" | "maxUnits" | "maxCostMinor" | "quoteUnitCostMinor">): value is ValidProviderOutcome {
-  if (!plain(value) || !bounded(value.reservationId, 256) || !bounded(value.operationKey, 256) || value.reservationId !== assignment.reservationId || value.operationKey !== assignment.operationKey || typeof value.kind !== "string") return false;
-  if (value.kind === "timeout" || value.kind === "ambiguous") return Object.keys(value).every((key) => ["kind", "reservationId", "operationKey"].includes(key));
-  if (value.kind !== "completed" && value.kind !== "partial" && value.kind !== "rejected") return false;
-  const units = value.documentedUnits, cost = value.documentedCostMinor;
+function normalizeOutcome(value: unknown, assignment: Pick<AuthorizedEnrichmentAssignment, "reservationId" | "operationKey" | "operation" | "maxUnits" | "maxCostMinor" | "quoteUnitCostMinor">): ValidProviderOutcome | null {
+  const snapshot = cloneBoundedValue(value, 0);
+  if (!plain(snapshot) || !bounded(snapshot.reservationId, 256) || !bounded(snapshot.operationKey, 256) || snapshot.reservationId !== assignment.reservationId || snapshot.operationKey !== assignment.operationKey || typeof snapshot.kind !== "string") return null;
+  if (snapshot.kind === "timeout" || snapshot.kind === "ambiguous") {
+    if (!exactRecord(snapshot, ["kind", "reservationId", "operationKey"])) return null;
+    return Object.freeze({ kind: snapshot.kind, reservationId: snapshot.reservationId, operationKey: snapshot.operationKey });
+  }
+  if (snapshot.kind !== "completed" && snapshot.kind !== "partial" && snapshot.kind !== "rejected") return null;
+  if (!exactRecord(snapshot, ["kind", "reservationId", "operationKey", "documentedUnits", "documentedCostMinor", "evidence"])) return null;
+  const units = snapshot.documentedUnits, cost = snapshot.documentedCostMinor;
   if (
-    !Object.keys(value).every((key) => ["kind", "reservationId", "operationKey", "documentedUnits", "documentedCostMinor", "evidence"].includes(key))
-    || typeof units !== "number"
+    typeof units !== "number"
     || typeof cost !== "number"
     || !Number.isSafeInteger(units)
     || !Number.isSafeInteger(cost)
-    || !boundedEvidence(value.evidence)
-  ) return false;
-  if (value.kind === "rejected") return units === 0 && cost === 0 && value.evidence.length === 0;
-  if (assignment.operation !== "business_contact_lookup/v1" || units <= 0 || units > assignment.maxUnits || value.evidence.length !== units) return false;
-  return safeProduct(assignment.quoteUnitCostMinor, units)
-    && cost === assignment.quoteUnitCostMinor * units
-    && cost <= assignment.maxCostMinor;
+    || !Array.isArray(snapshot.evidence)
+    || snapshot.evidence.length > 100
+    || new TextEncoder().encode(JSON.stringify(snapshot.evidence)).byteLength > 32_768
+  ) return null;
+  if (snapshot.kind === "rejected") {
+    const noEvidence: readonly [] = Object.freeze([]);
+    return units === 0 && cost === 0 && snapshot.evidence.length === 0
+      ? Object.freeze({ kind: "rejected", reservationId: snapshot.reservationId, operationKey: snapshot.operationKey, documentedUnits: 0, documentedCostMinor: 0, evidence: noEvidence })
+      : null;
+  }
+  if (
+    assignment.operation !== "business_contact_lookup/v1" ||
+    units <= 0 ||
+    units > assignment.maxUnits ||
+    snapshot.evidence.length !== units ||
+    !safeProduct(assignment.quoteUnitCostMinor, units) ||
+    cost !== assignment.quoteUnitCostMinor * units ||
+    cost > assignment.maxCostMinor
+  ) return null;
+  return Object.freeze({
+    kind: snapshot.kind,
+    reservationId: snapshot.reservationId,
+    operationKey: snapshot.operationKey,
+    documentedUnits: units,
+    documentedCostMinor: cost,
+    evidence: Object.freeze(snapshot.evidence),
+  });
 }
-function boundedEvidence(value: unknown): value is readonly unknown[] { if (!Array.isArray(value) || value.length > 100 || !value.every((item) => boundedValue(item, 0))) return false; try { return new TextEncoder().encode(JSON.stringify(value)).byteLength <= 32_768; } catch { return false; } }
-function boundedValue(value: unknown, depth: number): boolean { if (depth > 4 || value === null || typeof value === "boolean" || typeof value === "number") return value === null || typeof value === "boolean" || Number.isFinite(value); if (typeof value === "string") return value.length <= 4_096; if (Array.isArray(value)) return value.length <= 16 && value.every((item) => boundedValue(item, depth + 1)); if (plain(value)) return Object.keys(value).length <= 16 && Object.values(value).every((item) => boundedValue(item, depth + 1)); return false; }
-function plain(value: unknown): value is Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const prototype = Object.getPrototypeOf(value); return prototype === null || prototype?.constructor?.name === "Object"; }
+function cloneBoundedValue(value: unknown, depth: number): unknown {
+  if (depth > 4) throw new TypeError("provider_outcome_too_deep");
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("provider_outcome_invalid_number");
+    return value;
+  }
+  if (typeof value === "string") {
+    if (value.length > 4_096) throw new TypeError("provider_outcome_string_too_large");
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 100) throw new TypeError("provider_outcome_array_too_large");
+    return Object.freeze(value.map((item) => cloneBoundedValue(item, depth + 1)));
+  }
+  if (!plain(value)) throw new TypeError("provider_outcome_not_plain");
+  const keys = Object.keys(value);
+  if (keys.length > 16) throw new TypeError("provider_outcome_object_too_large");
+  const copy: Record<string, unknown> = {};
+  for (const key of keys) copy[key] = cloneBoundedValue(value[key], depth + 1);
+  return Object.freeze(copy);
+}
+function plain(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === null || prototype === Object.prototype;
+}
+function exactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return plain(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+}
 function bounded(value: unknown, max: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
 function positive(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
 function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
@@ -106,7 +193,7 @@ function validAssignmentBindings(value: unknown, workspaceId: string, configurat
     prospectIds.some((prospectId) => !value.some((item) => plain(item) && item.prospectId === prospectId))
   ) return false;
   return value.every((item) =>
-    plain(item) &&
+    exactRecord(item, EVIDENCE_ASSIGNMENT_KEYS) &&
     bounded(item.assignmentId, 256) &&
     bounded(item.prospectId, 256) &&
     prospectIds.includes(item.prospectId) &&
@@ -117,24 +204,93 @@ function validAssignmentBindings(value: unknown, workspaceId: string, configurat
     item.profileConfigurationDigest === configurationDigest
   );
 }
+function snapshotAssignment(value: unknown): unknown {
+  if (!exactRecord(value, ASSIGNMENT_KEYS)) return null;
+  const prospectIds = value.prospectIds;
+  const evidenceAssignments = value.evidenceAssignments;
+  if (!Array.isArray(prospectIds) || !Array.isArray(evidenceAssignments)) return null;
+  const bindingSnapshots: Record<string, unknown>[] = [];
+  for (const item of evidenceAssignments) {
+    if (!exactRecord(item, EVIDENCE_ASSIGNMENT_KEYS)) return null;
+    bindingSnapshots.push({
+      assignmentId: item.assignmentId,
+      prospectId: item.prospectId,
+      role: item.role,
+      workspaceId: item.workspaceId,
+      contactId: item.contactId,
+      profileConfigurationId: item.profileConfigurationId,
+      profileConfigurationDigest: item.profileConfigurationDigest,
+    });
+  }
+  return {
+    reservationId: value.reservationId,
+    workspaceId: value.workspaceId,
+    configurationId: value.configurationId,
+    configurationDigest: value.configurationDigest,
+    operationKey: value.operationKey,
+    providerId: value.providerId,
+    providerVersion: value.providerVersion,
+    catalogRef: value.catalogRef,
+    quoteRevision: value.quoteRevision,
+    quoteUnitCostMinor: value.quoteUnitCostMinor,
+    prospectIds: [...prospectIds],
+    evidenceAssignments: bindingSnapshots,
+    operation: value.operation,
+    maxUnits: value.maxUnits,
+    maxCostMinor: value.maxCostMinor,
+    currency: value.currency,
+    expiresAt: value.expiresAt,
+  };
+}
 function freezeAssignment(assignment: AuthorizedEnrichmentAssignment): Readonly<AuthorizedEnrichmentAssignment> {
-  return Object.freeze({ ...assignment, prospectIds: Object.freeze([...assignment.prospectIds]), evidenceAssignments: Object.freeze(assignment.evidenceAssignments.map((item) => Object.freeze({ ...item }))) });
+  return Object.freeze({
+    reservationId: assignment.reservationId,
+    workspaceId: assignment.workspaceId,
+    configurationId: assignment.configurationId,
+    configurationDigest: assignment.configurationDigest,
+    operationKey: assignment.operationKey,
+    providerId: assignment.providerId,
+    providerVersion: assignment.providerVersion,
+    catalogRef: assignment.catalogRef,
+    quoteRevision: assignment.quoteRevision,
+    quoteUnitCostMinor: assignment.quoteUnitCostMinor,
+    prospectIds: Object.freeze([...assignment.prospectIds]),
+    evidenceAssignments: Object.freeze(assignment.evidenceAssignments.map((item) => Object.freeze({
+      assignmentId: item.assignmentId,
+      prospectId: item.prospectId,
+      role: item.role,
+      workspaceId: item.workspaceId,
+      contactId: item.contactId,
+      profileConfigurationId: item.profileConfigurationId,
+      profileConfigurationDigest: item.profileConfigurationDigest,
+    }))),
+    operation: assignment.operation,
+    maxUnits: assignment.maxUnits,
+    maxCostMinor: assignment.maxCostMinor,
+    currency: assignment.currency,
+    expiresAt: assignment.expiresAt,
+  });
 }
 async function ingestEvidence(
   assignment: AuthorizedEnrichmentAssignment,
   envelopes: readonly unknown[],
+  documentedUnits: number,
   verifier: ContactEvidenceVerifier | unknown,
 ): Promise<readonly ContactObservation[] | null> {
+  if (envelopes.length !== documentedUnits) return null;
   const observations: ContactObservation[] = [];
+  const consumedAssignments = new Set<string>();
+  const consumedContacts = new Set<string>();
   for (const envelope of envelopes) {
     if (!plain(envelope) || !bounded(envelope.assignmentId, 256) || !bounded(envelope.prospectId, 256)) return null;
     const binding = assignment.evidenceAssignments.find((item) => item.assignmentId === envelope.assignmentId && item.prospectId === envelope.prospectId && item.workspaceId === envelope.workspaceId && item.contactId === envelope.contactId && item.profileConfigurationId === envelope.profileConfigurationId && item.profileConfigurationDigest === envelope.profileConfigurationDigest);
-    if (!binding) return null;
+    if (!binding || consumedAssignments.has(binding.assignmentId) || consumedContacts.has(binding.contactId)) return null;
+    consumedAssignments.add(binding.assignmentId);
+    consumedContacts.add(binding.contactId);
     let trustedVerification: unknown = undefined;
     if (verifier !== undefined) {
-      if (!plain(verifier) || typeof verifier.verify !== "function") return null;
       try {
-        trustedVerification = await (verifier as ContactEvidenceVerifier).verify(Object.freeze({
+        trustedVerification = await executeContactVerification(verifier, Object.freeze({
           assignmentId: binding.assignmentId,
           prospectId: binding.prospectId,
           role: binding.role,
@@ -153,12 +309,7 @@ async function ingestEvidence(
       } catch {
         return null;
       }
-      if (
-        !plain(trustedVerification) ||
-        trustedVerification.providerId !== assignment.providerId ||
-        trustedVerification.providerVersion !== assignment.providerVersion ||
-        trustedVerification.catalogRef !== assignment.catalogRef
-      ) return null;
+      if (trustedVerification === null) return null;
     }
     const result = ingestContactEvidence({
       workspaceId: binding.workspaceId,
@@ -174,5 +325,9 @@ async function ingestEvidence(
     if (!result.accepted || observations.some((item) => item.id === result.observation.id)) return null;
     observations.push(result.observation);
   }
-  return Object.freeze(observations);
+  return observations.length === documentedUnits
+    && consumedAssignments.size === documentedUnits
+    && consumedContacts.size === documentedUnits
+    ? Object.freeze(observations)
+    : null;
 }
