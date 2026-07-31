@@ -47,7 +47,14 @@ export async function processAcceptedRunnerSubmission(
     return partialProjection(database,submission,true);
   }
   if(payloadStatus==="partial"&&submission.execution_state==="succeeded"){
-    await appendTerminalEvent(database,submission,0,input.now,"partial_submission_retryable",true);
+    try {
+      await appendValidatedSignals(database,{workspaceId:input.workspaceId,submissionId:input.submissionId,now:input.now});
+      await appendTerminalEvent(database,submission,0,input.now,"partial_submission_retryable",true);
+    } catch(error) {
+      const deterministic=isDeterministicFailure(error);
+      await appendTerminalEvent(database,submission,0,input.now,deterministic?"validation_rejected":"processing_retryable",!deterministic);
+      throw fail();
+    }
     return partialProjection(database,submission,true);
   }
   if (submission.execution_state === "succeeded") {

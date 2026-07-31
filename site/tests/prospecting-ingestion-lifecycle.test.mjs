@@ -53,7 +53,7 @@ async function submit(seed, key, value = payload()) {
     audience:"prospecting-runner/v1", expiresAt:NOW+600_000,
     instructionVersion:"runner-instructions/v1", toolConfigurationDigest:"f".repeat(64),
     quotas:{maxBytes:20_000,maxFindings:3,maxSources:3}, grantReference:"synthetic",
-    reason:"synthetic lifecycle", idempotencyKey:`${key}-assignment`, now:NOW,
+    reason:`synthetic lifecycle ${key}`, idempotencyKey:`${key}-assignment`, now:NOW,
     capabilitySecret:SECRET,
   });
   return runner.submitRunnerObservations(seed.fixture.database, {
@@ -62,7 +62,7 @@ async function submit(seed, key, value = payload()) {
   });
 }
 
-test("partial canonical submissions stay immutable, retryable, and cannot advance evidence or watermark", async () => {
+test("partial canonical submissions stay immutable, retryable, and cannot advance qualification or watermark", async () => {
   const seed=await setup("ledger-partial");
   try {
     const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
@@ -206,6 +206,27 @@ test("a neutral transient terminal immediately permits the next append-only atte
     const claims=(await ledgerEvents(seed)).filter(event=>event.stage==="claim");
     assert.deepEqual(claims.map(event=>event.attempt),[0,1]);
     assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id=?").bind(seed.runId).first()).execution_state,"succeeded");
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("an accepted partial callback arriving after another submission succeeded still preserves its validated evidence", async () => {
+  const seed=await setup("ledger-late-partial");
+  try {
+    const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
+    const partial=await submit(seed,"late-partial",payload("partial"));
+    const complete=await submit(seed,"early-complete",payload("complete"));
+    await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{
+      workspaceId:seed.workspaceId,submissionId:complete.submissionId,now:NOW+2,
+    });
+    const before=await seed.fixture.database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=?").bind(seed.runId).first();
+    const result=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{
+      workspaceId:seed.workspaceId,submissionId:partial.submissionId,now:NOW+3,
+    });
+    assert.equal(result.signalCount,1);
+    assert.equal(result.retryable,true);
+    assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospecting_signals WHERE run_id=?").bind(seed.runId).first()).count),2);
+    assert.deepEqual(await seed.fixture.database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=?").bind(seed.runId).first(),before);
+    assert.equal((await terminalEvents(seed)).some(event=>event.submissionId===partial.submissionId&&event.terminalReason==="partial_submission_retryable"),true);
   } finally { await seed.fixture.dispose(); }
 });
 
