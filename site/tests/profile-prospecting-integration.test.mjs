@@ -11,8 +11,32 @@ test("Phase 4 synthetic lifecycle keeps all external and later-phase effects una
     const sourcePolicy = await fixture.vite.ssrLoadModule(new URL("../domain/source-policy.ts", import.meta.url).pathname);
     const runnerPort = await fixture.vite.ssrLoadModule(new URL("../domain/ports/runner.ts", import.meta.url).pathname);
     const retrieval = await fixture.vite.ssrLoadModule(new URL("../domain/ports/retrieval.ts", import.meta.url).pathname);
-    const assessment = qualification.evaluateMiningQualification({ configurationDigest: "a".repeat(64), candidateId: "candidate", accountId: "account", targetId: "target", offerId: "offer", accountFit: 2, painStrength: 2, timingUrgency: 1, dataReadiness: 1, commercialViability: 1, requiredEvidence: ["target", "pain", "timing", "operation", "offer"], sources: [{ id: "source", tier: 1, independenceGroup: "origin", retrievedAt: 1_780_000_000_000 }] });
+    const assessment = qualification.evaluateMiningQualification({
+      configurationDigest: "a".repeat(64),
+      rubricDigest: "b".repeat(64),
+      evaluationVersion: qualification.MINING_EVALUATION_VERSION,
+      candidateId: "candidate",
+      accountId: "account",
+      targetId: "target",
+      offerId: "offer",
+      accountFit: 2,
+      painStrength: 2,
+      timingUrgency: 1,
+      dataReadiness: 1,
+      commercialViability: 1,
+      requiredEvidence: ["target", "pain", "timing", "operation", "offer"],
+      sources: [{
+        id: "candidate:source",
+        tier: 1,
+        independenceGroup: "origin:example.com",
+        retrievedAt: 1_780_000_000_000,
+        recency: "current",
+        material: true,
+      }],
+    });
     assert.equal(assessment.outcome, "Passed");
+    assert.equal(assessment.candidateId, "candidate");
+    assert.equal(assessment.freshestMaterialEvent, 1_780_000_000_000);
     const source = await sourcePolicy.validateSourceObservation({ tier1Origins: ["example.com"], tier2Origins: [], materialSignalKinds: ["signal"] }, { url: "https://news.example.com/a", retrievedAt: 1_780_000_000_000, observedAt: 1_780_000_000_000, excerpt: "<script>", kind: "signal" }, 1_780_000_000_000);
     assert.equal(source.tier, 1); assert.match(source.excerpt, /&lt;/);
     await assert.rejects(() => runnerPort.createRejectOnlyRunnerPort().deliver({}), /unavailable/);
