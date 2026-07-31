@@ -96,10 +96,13 @@ function verdict(raw) {
 
 function eligibilityInput(observation) {
   return {
-    target: { workspaceId: "workspace-binding", contactId: "contact-binding" },
+    target: { workspaceId: "workspace-binding", prospectId: "prospect-binding", contactId: "contact-binding" },
     points: observation ? [observation] : [],
     strategy: { configurationId: "config-binding", configurationDigest: DIGEST },
     authority: {
+      prospectId: "prospect-binding",
+      configurationId: "config-binding",
+      configurationDigest: DIGEST,
       profileAvailable: true,
       configurationCurrent: true,
       drifted: false,

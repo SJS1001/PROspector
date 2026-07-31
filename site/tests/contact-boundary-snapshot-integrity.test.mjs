@@ -102,6 +102,9 @@ function assignment() {
 
 function authority() {
   return {
+    prospectId: "prospect-boundary",
+    configurationId: "config-boundary",
+    configurationDigest: DIGEST,
     profileAvailable: true,
     configurationCurrent: true,
     drifted: false,
@@ -231,7 +234,7 @@ test("eligibility deep-snapshots nested inputs and requires complete veto author
     const admitted = evidence.ingestContactEvidence(assignment(), raw, receipt);
     assert.equal(admitted.accepted, true);
     const baseline = {
-      target: { workspaceId: "workspace-boundary", contactId: "contact-boundary" },
+      target: { workspaceId: "workspace-boundary", prospectId: "prospect-boundary", contactId: "contact-boundary" },
       points: [admitted.observation],
       strategy: { configurationId: "config-boundary", configurationDigest: DIGEST },
       authority: authority(),

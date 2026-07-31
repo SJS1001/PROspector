@@ -247,7 +247,8 @@ function validAssignment(value: unknown, reservationId: string, now: number): va
   return validAssignmentBindings(value.evidenceAssignments, value.workspaceId, value.configurationId, value.configurationDigest, value.prospectIds, value.maxUnits);
 }
 function normalizeOutcome(value: unknown, assignment: Pick<AuthorizedEnrichmentAssignment, "reservationId" | "operationKey" | "operation" | "maxUnits" | "maxCostMinor" | "quoteUnitCostMinor">): ValidProviderOutcome | null {
-  const snapshot = cloneBoundedValue(value, 0);
+  const snapshot = snapshotProviderOutcome(value);
+  if (!snapshot) return null;
   if (!plain(snapshot) || !bounded(snapshot.reservationId, 256) || !bounded(snapshot.operationKey, 256) || snapshot.reservationId !== assignment.reservationId || snapshot.operationKey !== assignment.operationKey || typeof snapshot.kind !== "string") return null;
   if (snapshot.kind === "timeout" || snapshot.kind === "ambiguous") {
     if (!exactRecord(snapshot, ["kind", "reservationId", "operationKey"])) return null;
@@ -289,27 +290,90 @@ function normalizeOutcome(value: unknown, assignment: Pick<AuthorizedEnrichmentA
     evidence: Object.freeze(snapshot.evidence),
   });
 }
-function cloneBoundedValue(value: unknown, depth: number): unknown {
-  if (depth > 4) throw new TypeError("provider_outcome_too_deep");
+const invalidProviderOutcomeSnapshot = Symbol("invalid_provider_outcome_snapshot");
+function snapshotProviderOutcome(value: unknown): unknown | null {
+  const budget = { nodes: 0, text: 0 };
+  const snapshot = snapshotProviderOutcomeNode(value, 0, new Set<object>(), budget);
+  if (snapshot === invalidProviderOutcomeSnapshot) return null;
+  try {
+    // The descriptor walk rejects accessors without evaluating them. This final
+    // cloneability check rejects Proxy/exotic values while authority remains the
+    // detached descriptor-derived snapshot.
+    structuredClone(value);
+  } catch {
+    return null;
+  }
+  return snapshot;
+}
+function snapshotProviderOutcomeNode(
+  value: unknown,
+  depth: number,
+  seen: Set<object>,
+  budget: { nodes: number; text: number },
+): unknown | typeof invalidProviderOutcomeSnapshot {
+  if (depth > 4 || budget.nodes >= 256) return invalidProviderOutcomeSnapshot;
+  budget.nodes += 1;
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new TypeError("provider_outcome_invalid_number");
-    return value;
+    return Number.isFinite(value) ? value : invalidProviderOutcomeSnapshot;
   }
   if (typeof value === "string") {
-    if (value.length > 4_096) throw new TypeError("provider_outcome_string_too_large");
-    return value;
+    budget.text += value.length;
+    return value.length <= 4_096 && budget.text <= 32_768
+      ? value
+      : invalidProviderOutcomeSnapshot;
   }
-  if (Array.isArray(value)) {
-    if (value.length > 100) throw new TypeError("provider_outcome_array_too_large");
-    return Object.freeze(value.map((item) => cloneBoundedValue(item, depth + 1)));
+  if (typeof value !== "object" || seen.has(value)) return invalidProviderOutcomeSnapshot;
+  seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string")) return invalidProviderOutcomeSnapshot;
+    if (Array.isArray(value)) {
+      const lengthDescriptor = descriptors.length;
+      if (
+        prototype !== Array.prototype
+        || !lengthDescriptor
+        || !("value" in lengthDescriptor)
+        || !Number.isSafeInteger(lengthDescriptor.value)
+        || lengthDescriptor.value < 0
+        || lengthDescriptor.value > 100
+        || lengthDescriptor.enumerable
+        || lengthDescriptor.configurable
+        || ownKeys.length !== lengthDescriptor.value + 1
+      ) return invalidProviderOutcomeSnapshot;
+      const copy: unknown[] = [];
+      for (let index = 0; index < lengthDescriptor.value; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+          return invalidProviderOutcomeSnapshot;
+        }
+        const child = snapshotProviderOutcomeNode(descriptor.value, depth + 1, seen, budget);
+        if (child === invalidProviderOutcomeSnapshot) return invalidProviderOutcomeSnapshot;
+        copy.push(child);
+      }
+      return Object.freeze(copy);
+    }
+    if ((prototype !== Object.prototype && prototype !== null) || ownKeys.length > 16) {
+      return invalidProviderOutcomeSnapshot;
+    }
+    const copy: Record<string, unknown> = {};
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        return invalidProviderOutcomeSnapshot;
+      }
+      const child = snapshotProviderOutcomeNode(descriptor.value, depth + 1, seen, budget);
+      if (child === invalidProviderOutcomeSnapshot) return invalidProviderOutcomeSnapshot;
+      copy[key] = child;
+    }
+    return Object.freeze(copy);
+  } catch {
+    return invalidProviderOutcomeSnapshot;
+  } finally {
+    seen.delete(value);
   }
-  if (!plain(value)) throw new TypeError("provider_outcome_not_plain");
-  const keys = Object.keys(value);
-  if (keys.length > 16) throw new TypeError("provider_outcome_object_too_large");
-  const copy: Record<string, unknown> = {};
-  for (const key of keys) copy[key] = cloneBoundedValue(value[key], depth + 1);
-  return Object.freeze(copy);
 }
 function plain(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;

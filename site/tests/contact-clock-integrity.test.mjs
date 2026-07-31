@@ -100,6 +100,7 @@ function eligibleInput(observation) {
   return {
     target: {
       workspaceId: "workspace-synthetic",
+      prospectId: "prospect-synthetic",
       contactId: "contact-synthetic",
     },
     points: [observation],
@@ -108,6 +109,9 @@ function eligibleInput(observation) {
       configurationDigest: DIGEST,
     },
     authority: {
+      prospectId: "prospect-synthetic",
+      configurationId: "config-synthetic",
+      configurationDigest: DIGEST,
       profileAvailable: true,
       configurationCurrent: true,
       drifted: false,

@@ -15,6 +15,9 @@ export type ContactStrategy = Readonly<{
   verifiedBusinessPhoneFreshnessMs?: number;
 }>;
 export type ContactEligibilityAuthority = Readonly<{
+  prospectId: string;
+  configurationId: string;
+  configurationDigest: string;
   profileAvailable: boolean;
   configurationCurrent: boolean;
   drifted: boolean;
@@ -25,6 +28,7 @@ export type ContactEligibilityAuthority = Readonly<{
 }>;
 export type ContactEligibilityTarget = Readonly<{
   workspaceId: string;
+  prospectId: string;
   contactId: string;
 }>;
 export type DownstreamBoundary = "package_approval" | "crm_export" | "click_to_call" | "final_send";
@@ -80,11 +84,22 @@ export function projectContactEligibility(value: {
   const reasonCodes = authority ? authorityReasons(authority) : ["invalid_contact_authority"];
   if (!input) reasonCodes.push("invalid_contact_input");
   if (clockInvalid) reasonCodes.push("invalid_evaluation_time");
-  const authorityBlocked = reasonCodes.length > 0;
   const target = normalizeTarget(input?.target);
   if (!target) reasonCodes.push("invalid_contact_target");
   const strategy = normalizeStrategy(input?.strategy);
   if (!strategy) reasonCodes.push("invalid_contact_strategy");
+  if (authority && target && authority.prospectId !== target.prospectId) {
+    reasonCodes.push("contact_authority_scope_mismatch");
+  }
+  if (
+    authority
+    && strategy
+    && (
+      authority.configurationId !== strategy.configurationId
+      || authority.configurationDigest !== strategy.configurationDigest
+    )
+  ) reasonCodes.push("contact_authority_configuration_mismatch");
+  const authorityBlocked = reasonCodes.length > 0;
 
   const suppliedPoints = input?.points ?? [];
   const points: ContactObservation[] = [];
@@ -141,7 +156,12 @@ function blockedRecheck(boundary: DownstreamBoundary, input: unknown): Downstrea
 function projectPoint(point: ContactObservation, target: ContactEligibilityTarget | null, strategy: Freshness | null, now: number) {
   const eligibleClass = point.verificationClass === "mailbox_verified" || point.verificationClass === "source_verified";
   if (!eligibleClass) return freeze({ observationId: point.id, state: point.verificationClass === "invalid" ? "invalid" as const : "suggestion" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
-  if (!target || point.workspaceId !== target.workspaceId || point.contactId !== target.contactId) {
+  if (
+    !target
+    || point.workspaceId !== target.workspaceId
+    || point.contactId !== target.contactId
+    || point.assignmentContext?.prospectId !== target.prospectId
+  ) {
     return freeze({ observationId: point.id, state: "scope_mismatch" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
   }
   if (strategy && (point.profileConfigurationId !== strategy.configurationId || point.profileConfigurationDigest !== strategy.configurationDigest)) {
@@ -156,8 +176,12 @@ function projectPoint(point: ContactObservation, target: ContactEligibilityTarge
 type Freshness = Readonly<Pick<ContactStrategy, "configurationId" | "configurationDigest"> & Required<Pick<ContactStrategy, "mailboxVerifiedEmailFreshnessMs" | "sourceVerifiedEmailFreshnessMs" | "verifiedBusinessPhoneFreshnessMs">>>;
 function normalizeTarget(value: unknown): ContactEligibilityTarget | null {
   const target = record(value);
-  return target && opaque(target.workspaceId) && opaque(target.contactId)
-    ? Object.freeze({ workspaceId: target.workspaceId as string, contactId: target.contactId as string })
+  return target && opaque(target.workspaceId) && opaque(target.prospectId) && opaque(target.contactId)
+    ? Object.freeze({
+        workspaceId: target.workspaceId as string,
+        prospectId: target.prospectId as string,
+        contactId: target.contactId as string,
+      })
     : null;
 }
 function normalizeStrategy(value: unknown): Freshness | null {
@@ -176,10 +200,14 @@ function freshnessFor(point: ContactObservation, strategy: Freshness) {
   return null;
 }
 const AUTHORITY_KEYS = Object.freeze([
+  "prospectId", "configurationId", "configurationDigest",
   "profileAvailable", "configurationCurrent", "drifted", "disqualified",
   "suppressed", "phase4Approved", "contactCapabilityEnabled",
 ]);
 const FAIL_CLOSED_AUTHORITY: ContactEligibilityAuthority = Object.freeze({
+  prospectId: "",
+  configurationId: "",
+  configurationDigest: "",
   profileAvailable: false,
   configurationCurrent: false,
   drifted: false,
@@ -190,8 +218,19 @@ const FAIL_CLOSED_AUTHORITY: ContactEligibilityAuthority = Object.freeze({
 });
 function normalizeAuthority(value: unknown): ContactEligibilityAuthority | null {
   const input = exactPlainRecord(value, AUTHORITY_KEYS);
-  if (!input || AUTHORITY_KEYS.some((key) => typeof input[key] !== "boolean")) return null;
+  const booleanKeys = AUTHORITY_KEYS.slice(3);
+  if (
+    !input
+    || !opaque(input.prospectId)
+    || !opaque(input.configurationId)
+    || typeof input.configurationDigest !== "string"
+    || !DIGEST.test(input.configurationDigest)
+    || booleanKeys.some((key) => typeof input[key] !== "boolean")
+  ) return null;
   return Object.freeze({
+    prospectId: input.prospectId as string,
+    configurationId: input.configurationId as string,
+    configurationDigest: input.configurationDigest,
     profileAvailable: input.profileAvailable as boolean,
     configurationCurrent: input.configurationCurrent as boolean,
     drifted: input.drifted as boolean,
@@ -234,7 +273,7 @@ function snapshotEligibilityInput(value: unknown): EligibilityInputSnapshot | nu
       if (descriptor && (!Object.hasOwn(descriptor, "value") || !descriptor.enumerable)) return null;
     }
     const target = descriptors.target
-      ? snapshotKnownRecord(descriptors.target.value, ["workspaceId", "contactId"])
+      ? snapshotKnownRecord(descriptors.target.value, ["workspaceId", "prospectId", "contactId"])
       : undefined;
     const strategy = descriptors.strategy
       ? snapshotKnownRecord(descriptors.strategy.value, [

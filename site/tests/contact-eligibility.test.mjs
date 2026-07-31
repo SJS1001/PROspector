@@ -65,9 +65,9 @@ async function ingest(evidence, raw = envelope(), verificationPatch = {}) {
   });
   return evidence.ingestContactEvidence(assignment, raw, receipt);
 }
-function target(patch = {}) { return { workspaceId: assignment.workspaceId, contactId: assignment.contactId, ...patch }; }
+function target(patch = {}) { return { workspaceId: assignment.workspaceId, prospectId: assignment.prospectId, contactId: assignment.contactId, ...patch }; }
 function strategy(patch = {}) { return { configurationId: assignment.profileConfigurationId, configurationDigest: DIGEST, ...patch }; }
-function authority(patch = {}) { return { profileAvailable: true, configurationCurrent: true, phase4Approved: true, contactCapabilityEnabled: true, drifted: false, disqualified: false, suppressed: false, ...patch }; }
+function authority(patch = {}) { return { prospectId: assignment.prospectId, configurationId: assignment.profileConfigurationId, configurationDigest: DIGEST, profileAvailable: true, configurationCurrent: true, phase4Approved: true, contactCapabilityEnabled: true, drifted: false, disqualified: false, suppressed: false, ...patch }; }
 
 test("P5 prep accepts only bounded assignment-bound evidence and canonicalizes synthetic business contact values", async () => {
   const { vite, evidence } = await modules();
