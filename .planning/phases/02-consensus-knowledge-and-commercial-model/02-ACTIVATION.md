@@ -20,4 +20,14 @@ The existing private Sites project must be reused without clone, replace, delete
 
 No automated test, local fixture, status row, deployment record, digest, or text in this ledger can satisfy an absent human evidence requirement.
 
-The 2026-07-30 inspection was read-only. It confirmed the exact existing project remains active, private/custom, owner-only, and at saved version 10 with zero accepted editors. No access policy, secret, deployment, database, object, or gate state was changed. Plan 02-12 remains incomplete and no `02-12-SUMMARY.md` exists.
+The 2026-07-30 inspection was read-only. It confirmed the exact existing project remains active, private/custom, owner-only, and at saved version 10 with zero accepted editors. No access policy, secret, deployment, database, object, or gate state was changed.
+
+On 2026-08-01, the resolving owner account found that the project had been
+temporarily set to public access and restored it to the existing custom,
+owner-only policy: one owner, no non-owner users, no groups, and no editors.
+The restoration changed no secret, deployment, database, object, gate, or
+runtime value. A read-only unauthenticated request reached the private Sites
+edge and received a 401/no-store response; this is not a second signed-in
+principal proof. The project still exposes only the logical D1 binding to this
+account, not an approved read-only hosted-D1 query/result-adapter surface.
+Plan 02-12 therefore remains incomplete and no `02-12-SUMMARY.md` exists.
