@@ -51,7 +51,7 @@ The Sites-owning account should be reserved for short hosted checkpoints. Other 
 - Phase 1 automated build is complete; real second-principal and control-plane proof remains non-substitutable and must not be fabricated.
 - Phase 2 has 20 independently verified plans. Plans 02-01 through 02-11 are implemented locally and have summaries.
 - Phase 2 completed locally: Wave 0 RED contracts, exact `uuid@14.0.1` approval, additive migration `0004_consensus_knowledge.sql`, commercial hierarchy authority, and Proposed/Confirmed Knowledge authority.
-- Phase 2 Plan 02-12 is blocked on two non-substitutable prerequisites: a real second signed-in principal for hosting-boundary denial/zero-state-delta proof, and an owner-side read-only hosted D1 baseline for migrations 0000-0003. No `02-12-SUMMARY.md` exists by design.
+- Phase 2 Plan 02-12 is complete: the owner accepted the required redacted real-principal denial/zero-state-delta proof and read-only hosted D1 baseline for migrations 0000-0003. `02-12-SUMMARY.md` records no raw hosted data. Plan 02-13 is the next ordered compatibility deployment.
 - On 2026-08-01, the Sites-owning account restored the original project from temporary public access to custom owner-only access (one owner, no other users, groups, or editors). This is a boundary restoration only: the required second-principal proof and read-only hosted-D1 baseline remain absent.
 - Phase 2 Plans 02-13 through 02-20 remain dependency-blocked behind Plan 02-12.
 - Independent Phase 2 code, security, and UI audits are recorded in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. The final code re-review after `2e879dc` and `45bcdc1` is clean; security has no open local implementation threats. Hosted evidence remains separate and blocked.

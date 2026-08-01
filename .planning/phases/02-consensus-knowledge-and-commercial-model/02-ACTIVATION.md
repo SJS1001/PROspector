@@ -4,8 +4,8 @@ This ledger is status-only evidence. It **never grants authority**, changes a ga
 
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
-| Phase 1 real-principal prerequisite | status: blocked (`human_needed`, 2026-07-30) | Existing project resolved as owner-only; no controlled second real principal/zero-delta evidence is available. |
-| Old-schema preflight | status: blocked (`human_needed`, 2026-07-30) | Sites project access is confirmed, but no approved hosted-D1 query/result-adapter surface is available; no deploy or migration was attempted. |
+| Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
+| Old-schema preflight | status: accepted (owner-confirmed, 2026-08-01) | Redacted read-only hosted-D1 evidence confirms the exact 0000–0003 baseline, zero foreign-key violations, protected historian digest/count baseline, complete forbidden-table counts, and absent Phase 2 gate. |
 | Compatibility deployment | status: blocked | existing private Sites project deployment identifier: pending |
 | Additive 0004 | status: blocked | migration identifier / timestamp: pending |
 | Post-migration proof | status: blocked | counts / foreign-key status / opaque digest reference: pending |
@@ -36,6 +36,11 @@ On 2026-08-01, the operator reported that a separately signed-in account was
 denied on the private app entry and all three protected API routes:
 `/api/interview`, `/api/capabilities`, and `/api/capability-probe`. This is
 partial real-principal evidence only. The required owner-side zero-delta check
-for D1, R2, and audit state remains unavailable without the same approved
-read-only hosted-D1 control-plane path; the old-schema baseline is also still
-absent. The Plan 02-12 status remains blocked and no summary is created.
+for D1, R2, and audit state remained unavailable without the same approved
+read-only hosted-D1 control-plane path. This partial report was superseded on
+2026-08-01 when the owner confirmed receipt and acceptance of the complete
+redacted evidence set: real-principal denial, zero D1/R2/audit delta, and the
+read-only old-schema hosted-D1 baseline. Raw control-plane output, counts,
+identifiers, and digests remain outside Git and this ledger. Plan 02-12 is
+complete; it authorizes only the next ordered compatibility deployment plan,
+not a migration, gate activation, upload, or later capability.

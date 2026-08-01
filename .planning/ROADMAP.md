@@ -68,7 +68,7 @@ Plans:
 - [x] `02-09-PLAN.md` — Build Commercial Model, Interview, Knowledge Library, and Drift leaf views.
 - [x] `02-10-PLAN.md` — Compose and style the authoritative Knowledge workspace while preserving disabled effects.
 - [x] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
-- [ ] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
+- [x] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
 - [ ] `02-13-PLAN.md` — Deploy backward-compatible code to the existing private project behind an absent gate.
 - [ ] `02-14-PLAN.md` — Apply additive migration 0004 and prove post-migration invariants.
 - [ ] `02-15-PLAN.md` — Accept fresh independent review of the exact deployment source.
@@ -168,7 +168,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
-| 2. Consensus Knowledge and Commercial Model | 11/20 | Blocked at hosted evidence | - |
+| 2. Consensus Knowledge and Commercial Model | 12/20 | Plan 02-13 compatibility deployment next | - |
 | 3. Product Readiness and Market Discovery | 8/11 | Local plans complete; blocked on Phase 2 acceptance and 03-09..11 external gates | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |
