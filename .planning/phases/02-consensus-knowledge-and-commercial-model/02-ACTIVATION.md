@@ -6,7 +6,7 @@ This ledger is status-only evidence. It **never grants authority**, changes a ga
 |---|---|---|
 | Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
 | Old-schema preflight | status: accepted (owner-confirmed, 2026-08-01) | Redacted read-only hosted-D1 evidence confirms the exact 0000–0003 baseline, zero foreign-key violations, protected historian digest/count baseline, complete forbidden-table counts, and absent Phase 2 gate. |
-| Compatibility deployment | status: blocked | existing private Sites project deployment identifier: pending |
+| Compatibility deployment | status: deployed, verification pending (2026-08-01) | Existing private project only; source `e07e3f950a27a96bd928135e700a659b7ac6c324`, saved version 11, deployment `appgdep_6a6e38c59fdc8191840f6427bc1efe55` succeeded. Owner GET/POST and fresh-log checks remain pending. |
 | Additive 0004 | status: blocked | migration identifier / timestamp: pending |
 | Post-migration proof | status: blocked | counts / foreign-key status / opaque digest reference: pending |
 | Independent review | status: blocked | independent review reference: pending |
@@ -44,3 +44,11 @@ read-only old-schema hosted-D1 baseline. Raw control-plane output, counts,
 identifiers, and digests remain outside Git and this ledger. Plan 02-12 is
 complete; it authorizes only the next ordered compatibility deployment plan,
 not a migration, gate activation, upload, or later capability.
+
+On 2026-08-01, the tested Plan 02 compatibility source was saved and deployed
+to the existing private project without changing access, bindings, secrets,
+database schema, gate state, or later capability state. The deployment is not
+accepted as Plan 02-13 completion: the in-app Browser could not perform the
+required owner-session `/api/knowledge` checks, so the neutral GET, 503 POST,
+zero-delta, and fresh-log evidence remains outstanding. Do not migrate until
+those checks are recorded.
