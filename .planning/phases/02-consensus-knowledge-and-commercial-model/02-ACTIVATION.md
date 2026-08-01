@@ -31,3 +31,11 @@ edge and received a 401/no-store response; this is not a second signed-in
 principal proof. The project still exposes only the logical D1 binding to this
 account, not an approved read-only hosted-D1 query/result-adapter surface.
 Plan 02-12 therefore remains incomplete and no `02-12-SUMMARY.md` exists.
+
+On 2026-08-01, the operator reported that a separately signed-in account was
+denied on the private app entry and all three protected API routes:
+`/api/interview`, `/api/capabilities`, and `/api/capability-probe`. This is
+partial real-principal evidence only. The required owner-side zero-delta check
+for D1, R2, and audit state remains unavailable without the same approved
+read-only hosted-D1 control-plane path; the old-schema baseline is also still
+absent. The Plan 02-12 status remains blocked and no summary is created.
