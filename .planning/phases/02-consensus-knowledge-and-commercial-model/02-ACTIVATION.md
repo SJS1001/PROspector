@@ -6,7 +6,7 @@ This ledger is status-only evidence. It **never grants authority**, changes a ga
 |---|---|---|
 | Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
 | Old-schema preflight | status: accepted (owner-confirmed, 2026-08-01) | Redacted read-only hosted-D1 evidence confirms the exact 0000–0003 baseline, zero foreign-key violations, protected historian digest/count baseline, complete forbidden-table counts, and absent Phase 2 gate. |
-| Compatibility deployment | status: deployed, verification pending (2026-08-01) | Existing private project only; source `e07e3f950a27a96bd928135e700a659b7ac6c324`, saved version 11, deployment `appgdep_6a6e38c59fdc8191840f6427bc1efe55` succeeded. Owner GET/POST and fresh-log checks remain pending. |
+| Compatibility deployment | status: accepted (owner-confirmed, 2026-08-01) | Existing private project only; source `e07e3f950a27a96bd928135e700a659b7ac6c324`, saved version 11, deployment `appgdep_6a6e38c59fdc8191840f6427bc1efe55` succeeded. Owner confirmed neutral old-schema GET, rejected POST, zero delta, and clean bounded logs. |
 | Additive 0004 | status: blocked | migration identifier / timestamp: pending |
 | Post-migration proof | status: blocked | counts / foreign-key status / opaque digest reference: pending |
 | Independent review | status: blocked | independent review reference: pending |
@@ -52,3 +52,9 @@ accepted as Plan 02-13 completion: the in-app Browser could not perform the
 required owner-session `/api/knowledge` checks, so the neutral GET, 503 POST,
 zero-delta, and fresh-log evidence remains outstanding. Do not migrate until
 those checks are recorded.
+
+On 2026-08-01, the owner confirmed the required post-deployment compatibility
+checks: `/api/knowledge` was neutral against schema 0003, Phase 2 POST was
+rejected without a missing-table error or state delta, Phase 1 routes remained
+healthy, and fresh logs contained only bounded/redacted outcomes. Plan 02-13
+is complete; the next ordered step is additive migration 0004.
