@@ -21,7 +21,7 @@
    If the branch already exists locally, use `git switch codex/generic-prospector-pilot` followed by `git pull --ff-only`.
 3. Read this file, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the current phase's `*-PLAN.md`/`*-SUMMARY.md` files.
 4. Install and verify the application from `site/` with Node.js 22.13 or newer: `npm ci`, `npm test`, and `npm run lint`.
-5. Confirm the current Phase 2 code/security audit results and note the source revision of the UI review, then resume Phase 2 from Plan 02-12 after reading `02-ACTIVATION.md`. Plan 02-12 is a real hosted-evidence checkpoint, not an implementation task that can be marked complete locally.
+5. Read `.planning/forensics/report-20260824-140458.md` after the Phase 2 activation and audit files. Plan 02-13 acceptance is invalidated by a hosted schema/source incident, Plan 02-14 and every later Phase 2 plan are non-executable, and the only permissible next action is owner-authorized read-only schema/journal/audit reconciliation on the same existing private project.
 6. Use `gpt-5.6-terra` medium for implementation/planning, Terra low for routine checks, and Sol medium only for final security/red-team or a demonstrated hard blocker.
 
 Do not rely on a Codex conversation, local task IDs, or uncommitted work as authority. Git commits and repository artifacts are the portable source of truth.
@@ -44,17 +44,18 @@ The Sites-owning account should be reserved for short hosted checkpoints. Other 
 
 ## Paste-ready prompt for another Codex account
 
-> Continue the PROspector project from `https://github.com/SJS1001/PROspector.git` on branch `codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the Phase 2 activation/audit files before changing anything. Treat Git and committed repository artifacts as the source of truth, preserve all human/hosted evidence gates, keep the existing Sites project private, never create a replacement Sites project, and never reveal or alter secrets. Install with `cd site && npm ci`, run `npm test` and `npm run lint`, and preserve the clean local implementation. Plan 02-12 remains blocked until its real-principal and hosted D1 prerequisites genuinely exist. Phase 3 local Plans 03-01 through 03-08 and their summaries are committed; this is local-plan credit only, while Plans 03-09 through 03-11 remain human/hosted gates. Phase 4 has a clean local candidate but remains hosted/human-gated. Phase 5 has a verified, reject-only local preparation checkpoint at `c3233abf4e752afb5ca4e9d0a588852a4aaae07f`; it completes no Phase 5 plan. Continue only in dependency order and never fabricate completion evidence.
+> Continue the PROspector project from `https://github.com/SJS1001/PROspector.git` on branch `codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, the Phase 2 activation/audit files, and `.planning/forensics/report-20260824-140458.md` before changing anything. Treat Git and committed repository artifacts as the source of truth, preserve all human/hosted evidence gates, keep the existing Sites project private, never create a replacement Sites project, and never reveal or alter secrets. Plan 02-13 acceptance is invalidated because its schema-0003 premise is contradicted and the deployed source was not the reviewed Phase 2 lineage. The exact applied migration digest and actor are unknown. Plans 02-14 through 02-20 are non-executable, all hosted writes remain frozen, and the gate must remain absent. The only permissible next action is owner-authorized read-only schema, migration-journal, and provider-audit reconciliation on the same existing private project. Phase 3 Plans 03-01 through 03-08 remain local-only completion credit; later phases remain dependency-gated. Never fabricate completion evidence or improvise a rollback or repair.
 
 ## Current state
 
 - Phase 1 automated build is complete; real second-principal and control-plane proof remains non-substitutable and must not be fabricated.
-- Phase 2 has 20 independently verified plans. Plans 02-01 through 02-11 are implemented locally and have summaries.
-- Phase 2 completed locally: Wave 0 RED contracts, exact `uuid@14.0.1` approval, additive migration `0004_consensus_knowledge.sql`, commercial hierarchy authority, and Proposed/Confirmed Knowledge authority.
-- Phase 2 Plan 02-12 is complete: the owner accepted the required redacted real-principal denial/zero-state-delta proof and read-only hosted D1 baseline for migrations 0000-0003. `02-12-SUMMARY.md` records no raw hosted data. Plan 02-13 is the next ordered compatibility deployment.
-- On 2026-08-01, the Sites-owning account restored the original project from temporary public access to custom owner-only access (one owner, no other users, groups, or editors). This is a boundary restoration only: the required second-principal proof and read-only hosted-D1 baseline remain absent.
-- Phase 2 Plans 02-13 through 02-20 remain dependency-blocked behind Plan 02-12.
-- Independent Phase 2 code, security, and UI audits are recorded in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. The final code re-review after `2e879dc` and `45bcdc1` is clean; security has no open local implementation threats. Hosted evidence remains separate and blocked.
+- Phase 2 has 20 checked plans. Plans 02-01 through 02-12 retain accepted completion credit. The Plan 02-13 summary is preserved only as invalidated incident history and does not count as completion.
+- Phase 2 local implementation includes Wave 0 RED contracts, exact `uuid@14.0.1` approval, the reviewed `0004_consensus_knowledge.sql` file, commercial hierarchy authority, and Proposed/Confirmed Knowledge authority. The local migration file is not evidence of what ran against hosted D1.
+- Phase 2 Plan 02-12 records the owner-accepted redacted real-principal denial/zero-state-delta proof and read-only hosted D1 baseline available on 2026-08-01. It does not classify the current live schema or repair the later incident.
+- On 2026-08-01, the Sites-owning account restored the original project from temporary public access to custom owner-only access (one owner, no other users, groups, or editors). That restoration alone was not evidence for Plan 02-12; the owner separately accepted the later redacted Plan 02-12 evidence set.
+- The 2026-08-24 forensic report invalidates Plan 02-13 acceptance: a supplied read-only observation contradicts the required schema-0003/no-migration premise, and Git proves the deployed source was reconstructed from superseded blobs rather than the reviewed Phase 2 lineage.
+- The exact applied migration digest, migration mechanism, actor, time, journal state, and live schema completeness are unknown. Plan 02-14 cannot safely apply the current migration, and Plans 02-14 through 02-20 are non-executable.
+- Independent Phase 2 code, security, and UI audits are recorded in `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`. Their clean local results apply to reviewed mainline source, not the divergent deployed artifact, and authorize no hosted action.
 - Phase 3 Plans 03-01 through 03-08 have committed local implementation, tests, UI, race hardening, a fail-closed offline release preflight, and matching summaries. They count as local-plan completion only; the phase and its requirements remain unaccepted while Phase 2 and the external gates are incomplete.
 - Phase 3 Plans 03-09 through 03-11 require explicit owner authorization, controlled hosted proof, and owner lifecycle acceptance. They remain incomplete and cannot be replaced by local evidence.
 - Phase 4 context/research/UI/validation and 12 checked plans are committed. Wave 1 is underway: RED contracts and additive profile-prospecting persistence are committed, but no Phase 4 plan summary exists.
@@ -62,6 +63,7 @@ The Sites-owning account should be reserved for short hosted checkpoints. Other 
 - Phase 6 preparation and 13 checked plans are committed; execution has not started.
 - Phase 7 preparation was integrated at `fc3f46f` and `e39ef11`.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority.
+- Safe resume is limited to an owner-authorized read-only schema, migration-journal, and provider-audit reconciliation on the same existing private project. All hosted writes remain frozen, the gate must remain absent, and no destructive rollback or forward repair is authorized.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -82,6 +84,7 @@ Use these existing artifacts rather than restating product decisions:
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
 - Sites deployment administration is not made portable by GitHub. The existing Sites project is owner/workspace scoped; an account that cannot resolve the project must use the platform's supported same-workspace collaboration or ownership procedure. Absence of cross-account Sites sharing does not authorize a second project.
 - Hosted Phase 2 writes remain fail-closed until the ordered preflight, compatible deploy, additive migration, exact-source review/deploy, real-principal boundary proof, explicit eight-field authorization tuple, narrow `consensus_knowledge` activation, and owner lifecycle proof all pass.
+- The Phase 2 release order is currently interrupted by the 2026-08-24 schema/source incident. Do not deploy, migrate, compensate, alter access, run a gate writer, or perform any other hosted write until the live database is classified through the owner-authorized read-only reconciliation and a later explicit owner decision authorizes a reviewed recovery path.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
 ## Safety boundaries
@@ -99,11 +102,14 @@ Use these existing artifacts rather than restating product decisions:
 - Phase 5 local preparation checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` passed `npm test`, `npm run lint`, and `npm run build` on an isolated non-CI Mac Studio checkout. Independent exact-source and persistence/security reviews found no blocker, high, or medium issue. This is local preparation evidence only and cannot satisfy its upstream or activation gates.
 - Repository maintenance checkpoint `b794e89` patches the production-bundled React server component and coherent Cloudflare/Vite dependencies. A fresh install passed the three affected receipt/eligibility tests twice before build, then the full suite, lint, build, and Drizzle check. `npm audit --omit=dev` reports zero findings. The residual full-audit findings are confined to local ESLint/brace-expansion and Drizzle/esbuild-kit chains; npm offers only breaking or regressive replacements, so they remain recorded development-tool debt rather than runtime exposure.
 - A sandbox-only Miniflare loopback `EPERM` is an environment restriction; rerun with loopback permission rather than weakening tests or runtime.
-- No completion summary may be created for a blocked plan. Local code, fixtures, tests, digests, and status prose do not satisfy Plans 02-12 or 03-09 through 03-11.
+- No completion summary may be created for a blocked plan. The existing `02-13-SUMMARY.md` is retained only as clearly invalidated incident history and earns no completion credit. Local code, fixtures, tests, digests, and status prose do not satisfy the incident reconciliation, Plans 02-14 through 02-20, or Plans 03-09 through 03-11.
 
-## Suggested skills for the next account
+## Safe next action
 
-- `gsd-autonomous` to continue the milestone loop.
-- `gsd-execute-phase` for current Phase 2 plans.
-- `gsd-code-review`, `gsd-secure-phase`, `gsd-ui-review`, and `red-team` at their defined gates.
-- `sites:sites-building` followed by `sites:sites-hosting` only for reviewed, authorized deployment work.
+Do not start an execution or hosting workflow. An owner-authorized account may
+collect only the redacted, target-bound, read-only schema, migration-journal,
+and provider-audit provenance bundle specified by
+`.planning/forensics/report-20260824-140458.md`. Any later write requires a
+fresh explicit owner decision naming the classified live schema, reviewed
+recovery method, exact source/migration or reconciliation digests, backup and
+restore evidence, target binding, independent review, and stop conditions.

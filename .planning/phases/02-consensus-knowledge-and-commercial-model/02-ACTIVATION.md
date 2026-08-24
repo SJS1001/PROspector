@@ -5,16 +5,17 @@ This ledger is status-only evidence. It **never grants authority**, changes a ga
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
 | Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
-| Old-schema preflight | status: accepted (owner-confirmed, 2026-08-01) | Redacted read-only hosted-D1 evidence confirms the exact 0000–0003 baseline, zero foreign-key violations, protected historian digest/count baseline, complete forbidden-table counts, and absent Phase 2 gate. |
-| Compatibility deployment | status: accepted (owner-confirmed, 2026-08-01) | Existing private project only; source `e07e3f950a27a96bd928135e700a659b7ac6c324`, saved version 11, deployment `appgdep_6a6e38c59fdc8191840f6427bc1efe55` succeeded. Owner confirmed neutral old-schema GET, rejected POST, zero delta, and clean bounded logs. |
-| Additive 0004 | status: blocked | migration identifier / timestamp: pending |
-| Post-migration proof | status: blocked | counts / foreign-key status / opaque digest reference: pending |
-| Independent review | status: blocked | independent review reference: pending |
-| Exact-source deployment | status: blocked | reviewed source digest / deployment identifier: pending |
-| Post-deploy real-principal/negative/log proof | status: blocked | boundary proof reference / redacted timestamp: pending |
-| Explicit consensus_knowledge authorization | status: blocked | owner authorization reference: pending |
-| Gate activation | status: blocked | exact tuple digest / accepted timestamp: pending |
-| Owner lifecycle | status: blocked | owner lifecycle evidence reference: pending |
+| Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
+| Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |
+| Read-only incident reconciliation | status: owner authorization required | Next permissible action only: bind redacted schema, `d1_migrations`, provider audit, deployment, and database provenance evidence to the same existing private project. No hosted write is permitted. |
+| Additive 0004 | status: **non-executable** | Exact applied migration digest, mechanism, actor, time, journal state, and schema completeness are unknown. Do not apply either known 0004 file over the current state. |
+| Post-migration proof | status: non-executable | Current schema must first be classified read-only as exact reviewed, exact superseded, or partial/mixed/unknown. |
+| Independent review | status: non-executable | No reconciled source/schema artifact exists for review. |
+| Exact-source deployment | status: non-executable | Reconciled immutable source and target-bound evidence are absent. |
+| Post-deploy real-principal/negative/log proof | status: non-executable | Upstream incident reconciliation and reviewed deployment are absent. |
+| Explicit consensus_knowledge authorization | status: non-executable | Upstream release stages are unaccepted. |
+| Gate activation | status: non-executable; gate absent | Preserve the absent gate. No gate writer or activation is authorized. |
+| Owner lifecycle | status: non-executable | Upstream release and activation stages are unaccepted. |
 
 The existing private Sites project must be reused without clone, replace, delete, rename, or public exposure. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after the later exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
 
@@ -22,39 +23,28 @@ No automated test, local fixture, status row, deployment record, digest, or text
 
 The 2026-07-30 inspection was read-only. It confirmed the exact existing project remains active, private/custom, owner-only, and at saved version 10 with zero accepted editors. No access policy, secret, deployment, database, object, or gate state was changed.
 
-On 2026-08-01, the resolving owner account found that the project had been
-temporarily set to public access and restored it to the existing custom,
-owner-only policy: one owner, no non-owner users, no groups, and no editors.
-The restoration changed no secret, deployment, database, object, gate, or
-runtime value. A read-only unauthenticated request reached the private Sites
-edge and received a 401/no-store response; this is not a second signed-in
-principal proof. The project still exposes only the logical D1 binding to this
-account, not an approved read-only hosted-D1 query/result-adapter surface.
-Plan 02-12 therefore remains incomplete and no `02-12-SUMMARY.md` exists.
+## Historical checkpoints and incident disposition
 
-On 2026-08-01, the operator reported that a separately signed-in account was
-denied on the private app entry and all three protected API routes:
-`/api/interview`, `/api/capabilities`, and `/api/capability-probe`. This is
-partial real-principal evidence only. The required owner-side zero-delta check
-for D1, R2, and audit state remained unavailable without the same approved
-read-only hosted-D1 control-plane path. This partial report was superseded on
-2026-08-01 when the owner confirmed receipt and acceptance of the complete
-redacted evidence set: real-principal denial, zero D1/R2/audit delta, and the
-read-only old-schema hosted-D1 baseline. Raw control-plane output, counts,
-identifiers, and digests remain outside Git and this ledger. Plan 02-12 is
-complete; it authorizes only the next ordered compatibility deployment plan,
-not a migration, gate activation, upload, or later capability.
+On 2026-08-01, the resolving owner account restored the existing project from
+temporary public access to its custom owner-only policy. Later that day, the
+owner accepted a redacted evidence set for Plan 02-12 and then accepted the
+Plan 02-13 route observations as a schema-0003 compatibility deployment. Those
+records remain historical evidence of what was reported and accepted at the
+time; raw hosted evidence remains outside Git.
 
-On 2026-08-01, the tested Plan 02 compatibility source was saved and deployed
-to the existing private project without changing access, bindings, secrets,
-database schema, gate state, or later capability state. The deployment is not
-accepted as Plan 02-13 completion: the in-app Browser could not perform the
-required owner-session `/api/knowledge` checks, so the neutral GET, 503 POST,
-zero-delta, and fresh-log evidence remains outstanding. Do not migrate until
-those checks are recorded.
+The committed 2026-08-24 forensic report supersedes the Plan 02-13 acceptance
+and its release-order conclusion. A supplied read-only owner observation found
+0004-created tables while the gate remained empty. Git also proves that the
+deployed source was reconstructed from superseded blobs rather than the
+reviewed Phase 2 lineage. The observation does not prove which migration SQL
+ran, whether it ran completely, what the migration journal records, or which
+actor or mechanism wrote the schema. The exact applied migration digest and
+actor therefore remain unknown.
 
-On 2026-08-01, the owner confirmed the required post-deployment compatibility
-checks: `/api/knowledge` was neutral against schema 0003, Phase 2 POST was
-rejected without a missing-table error or state delta, Phase 1 routes remained
-healthy, and fresh logs contained only bounded/redacted outcomes. Plan 02-13
-is complete; the next ordered step is additive migration 0004.
+Plan 02-13 is incident-blocked and earns no completion credit. Plans 02-14
+through 02-20 are non-executable. All hosted writes remain frozen: do not
+deploy, migrate, compensate, drop or rebuild tables, run a gate writer, alter
+access, modify secrets, or improvise a destructive rollback. The only
+permissible next action is owner-authorized read-only schema, migration-journal,
+and provider-audit reconciliation on the same existing private project. See
+`.planning/forensics/report-20260824-140458.md`.

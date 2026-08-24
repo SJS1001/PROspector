@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 2 hosted schema/source incident; all hosted writes frozen pending read-only reconciliation
-last_updated: "2026-08-24T18:06:33.213Z"
+stopped_at: Phase 2 hosted schema/source incident; all hosted writes frozen pending owner-authorized read-only reconciliation on the same existing private project
+last_updated: "2026-08-24T18:09:04Z"
 last_activity: 2026-08-24
 progress:
   total_phases: 7
@@ -25,18 +25,18 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 
 ## Current Position
 
-Phase: 2 (Consensus Knowledge and Commercial Model) — COMPATIBILITY DEPLOYMENT
-Plan: 13 of 20
-Status: Plan 02-12 external evidence accepted; Plan 02-13 is next
-Last activity: 2026-08-01
+Phase: 2 (Consensus Knowledge and Commercial Model) — HOSTED SCHEMA/SOURCE INCIDENT
+Plan: 13 of 20 (acceptance invalidated; no later Phase 2 plan is executable)
+Status: All hosted writes are frozen pending owner-authorized read-only schema/journal/audit reconciliation on the same existing private project
+Last activity: 2026-08-24
 
-Progress: [███░░░░░░░] 30% of currently planned plans
+Progress: [███░░░░░░░] 31% of currently planned plans (25/80 completion credits; Plan 02-13 excluded)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 16
+- Total plan completion credits: 25
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -45,7 +45,7 @@ Progress: [███░░░░░░░] 30% of currently planned plans
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | Phase 1 | 5 | recorded in plan summaries | - |
-| Phase 2 | 11 | recorded in plan summaries | - |
+| Phase 2 | 12 | Plans 02-01 through 02-12 accepted; Plan 02-13 summary invalidated | - |
 | Phase 3 | 8 | recorded local-plan summaries; phase acceptance blocked | - |
 
 **Recent Trend:**
@@ -79,10 +79,13 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Plan 04 pins uuid@14.0.1 and keeps consensus_knowledge activation absent behind an immutable complete tuple. — Additive migration preserves valid historian authority and explicitly quarantines legacy-unbound records.
 - [Phase 02]: Commercial initialization seeds exactly Digitalrain -> ONE -> ONE for Mining with Draft/nurture Operating and Greenfield Profiles, never an Offer. — Locked hierarchy seed and Offer lineage boundary.
 - [Phase 02]: Knowledge intake remains immutable Proposed state; only Accept, Correct, or Rescope appends a Confirmed Version. — Prevents proposed evidence from gaining authority or operational effect.
-- [Phase 02]: Plan 02-12 cannot receive a completion summary until a real second signed-in principal and owner-side read-only hosted D1 baseline are both available.
+- [Phase 02]: Plan 02-12 records the owner-accepted external prerequisite evidence available on 2026-08-01; it does not establish the current live schema or repair the later Plan 02-13 incident.
 - [Phase 02]: Final independent code re-review after 2e879dc and 45bcdc1 is clean; security has zero open local implementation threats. External hosted evidence remains blocked.
+- [Phase 02 incident]: The 2026-08-24 forensic report contradicts Plan 02-13's required schema-0003/no-migration premise and proves that the deployed source was not the reviewed Phase 2 lineage. Plan 02-13 acceptance is invalidated and does not count as completion.
+- [Phase 02 incident]: The exact applied migration digest, migration mechanism, actor, time, and completeness remain unknown. Plan 02-14 cannot safely apply the current 0004 over the unknown live state, and Plans 02-14 through 02-20 are non-executable.
+- [Phase 02 incident]: The only permissible next action is owner-authorized read-only schema, migration-journal, and provider-audit reconciliation bound to the same existing private project. No deploy, migration, compensation, rollback, gate write, access change, or other hosted write is authorized.
 - [Phase 03]: Local Plans 03-01 through 03-08 have committed summaries and implementation, UI, tests, race hardening, and a fail-closed offline preflight. This is local-plan credit only: Phase 2 is not accepted and Plans 03-09 through 03-11 remain incomplete.
-- [Planning ledger]: Reconciled the checked repository to 80 plan files and 24 committed summaries (Phase 1: 5, Phase 2: 11, Phase 3: 8). Phase checkboxes, requirements, and external gates remain unchanged.
+- [Planning ledger]: The checked repository contains 80 plan files and 26 summary artifacts (Phase 1: 5, Phase 2: 13, Phase 3: 8). The invalidated Plan 02-13 summary is retained as incident history but earns no completion credit, leaving 25 completion credits; Phase 3's eight credits remain local-only.
 - [Maintenance]: Dependency checkpoint `b794e89` patches the bundled React server component and Cloudflare/Vite toolchain advisories, preserves exact pins, and passes fresh-install isolated receipt tests, the full suite, lint, build, and Drizzle validation. Production audit is zero; the remaining npm findings are development-only ESLint/brace-expansion and Drizzle/esbuild-kit chains whose offered fixes are breaking or regressive. This maintenance grants no phase or activation credit.
 - [Phase 03]: Plans 03-09 through 03-11 are explicit owner/hosted proof and lifecycle gates; local evidence cannot complete them.
 - [Phase 04]: Twelve checked plans exist. Wave 1 RED contracts and additive persistence are committed; no plan is recorded complete.
@@ -98,7 +101,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- Version 10 is deployed from exact Sites source `d6b3b61…`; hosted R2 lifecycle and clean fresh-client log transport are proven.
+- The committed forensic report at `.planning/forensics/report-20260824-140458.md` proves a Phase 2 hosted schema/source divergence: Plan 02-13's schema-0003 premise is contradicted and its deployed source was not the reviewed Phase 2 lineage.
+- The empty hosted gate is useful negative evidence but does not repair provenance. The exact applied migration digest and actor are unknown; all hosted writes remain frozen and Plans 02-14 through 02-20 are non-executable.
 - Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
 - Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.

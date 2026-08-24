@@ -69,14 +69,21 @@ Plans:
 - [x] `02-10-PLAN.md` — Compose and style the authoritative Knowledge workspace while preserving disabled effects.
 - [x] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
 - [x] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
-- [x] `02-13-PLAN.md` — Deploy backward-compatible code to the existing private project behind an absent gate.
-- [ ] `02-14-PLAN.md` — Apply additive migration 0004 and prove post-migration invariants.
+- [ ] `02-13-PLAN.md` — **INCIDENT-BLOCKED:** the 2026-08-24 forensic report invalidates the prior acceptance because the live schema-0003/no-migration premise is contradicted and the deployed source was not the reviewed Phase 2 lineage. Its historical summary is retained but earns no completion credit.
+- [ ] `02-14-PLAN.md` — **NON-EXECUTABLE:** do not apply 0004 while the exact applied migration digest, actor, journal state, and live schema classification remain unknown.
 - [ ] `02-15-PLAN.md` — Accept fresh independent review of the exact deployment source.
 - [ ] `02-16-PLAN.md` — Deploy the exact reviewed source with hosted mutations still disabled.
 - [ ] `02-17-PLAN.md` — Accept real post-deploy principal, mutation-negative, and clean-log proof.
 - [ ] `02-18-PLAN.md` — Obtain separate owner authorization for `consensus_knowledge` only.
 - [ ] `02-19-PLAN.md` — Activate and verify the exact narrow `consensus_knowledge` gate.
 - [ ] `02-20-PLAN.md` — Accept the complete hosted owner lifecycle and zero-effect proof.
+
+**Incident disposition (2026-08-24):** All hosted writes remain frozen and the
+hosted gate must remain absent. The only permissible next action is an
+owner-authorized read-only schema, migration-journal, and provider-audit
+reconciliation on the same existing private project. No destructive rollback
+or forward repair is authorized. See
+`.planning/forensics/report-20260824-140458.md`.
 
 ### Phase 3: Product Readiness and Market Discovery
 **Goal**: The owner can make a Product Ready from complete confirmed policy and receive bounded, replayable Market Play proposals without activating prospecting.  
@@ -168,7 +175,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
-| 2. Consensus Knowledge and Commercial Model | 13/20 | Plan 02-14 additive migration next | - |
+| 2. Consensus Knowledge and Commercial Model | 12/20 | Incident-blocked at Plan 02-13; 02-14+ non-executable pending owner-authorized read-only reconciliation | - |
 | 3. Product Readiness and Market Discovery | 8/11 | Local plans complete; blocked on Phase 2 acceptance and 03-09..11 external gates | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |
