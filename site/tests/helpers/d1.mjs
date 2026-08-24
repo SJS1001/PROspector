@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { createServer } from "vite";
+import { PHASE2_FORBIDDEN_TABLE_NAMES } from "../../scripts/phase2-hosted-contract.mjs";
 
 export const PHASE2_MIGRATION_FILENAMES = [
   "0000_jittery_meteorite.sql",
@@ -42,31 +43,7 @@ export const PHASE4_PERSISTENCE_TABLES = [
   "prospect_reentry_events",
 ];
 
-export const FORBIDDEN_OPERATIONAL_TABLES = [
-  "runner_connections",
-  "runs",
-  "signals",
-  "candidates",
-  "prospects",
-  "contacts",
-  "schedules",
-  "approval_grants",
-  "provider_grants",
-  "provider_calls",
-  "outreach_packages",
-  "outreach_package_approvals",
-  "message_versions",
-  "message_approvals",
-  "message_dispatches",
-  "manual_calls",
-  "export_jobs",
-  "external_effects",
-  "credential_records",
-  "provider_credentials",
-  "provider_secrets",
-  "workspace_archives",
-  "workspace_archive_objects",
-];
+export const FORBIDDEN_OPERATIONAL_TABLES = PHASE2_FORBIDDEN_TABLE_NAMES;
 const SENSITIVE_FORBIDDEN_TABLES = new Set([
   "credential_records",
   "provider_credentials",

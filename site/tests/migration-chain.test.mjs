@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildPreflightCommands } from "../scripts/phase2-hosted-preflight.mjs";
 import {
   applyPhase2Migrations,
   createD1Fixture,
   seedBoundHistorian,
   seedCoexistenceHistorian,
   seedLegacyUnboundHistorian,
+  snapshotForbiddenOperationalRows,
 } from "./helpers/d1.mjs";
 
 async function historianSnapshot(database) {
@@ -72,5 +74,36 @@ test("Phase 2 migration path stops at exactly 0004", async () => {
     const laterTable = await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_play_proposal_decisions'").first();
     assert.equal(phase2Table.name, "phase_activation_gates");
     assert.equal(laterTable, null);
+  } finally { await fixture.dispose(); }
+});
+
+test("real 0000-0004 schema keeps prospects present and adds only an empty contacts table", async () => {
+  const fixture = await createD1Fixture("migration-forbidden-schema");
+  try {
+    await seedBoundHistorian(fixture.database);
+    const before = await snapshotForbiddenOperationalRows(fixture.database);
+    assert.deepEqual(before.prospects, { present: true, count: 0, rows: [] });
+    assert.deepEqual(before.contacts, { present: false, count: null, rows: null });
+
+    await applyPhase2Migrations(fixture.database);
+    const after = await snapshotForbiddenOperationalRows(fixture.database);
+    assert.deepEqual(after.prospects, { present: true, count: 0, rows: [] });
+    assert.deepEqual(after.contacts, { present: true, count: 0, rows: [] });
+    for (const [name, state] of Object.entries(after)) {
+      if (name !== "prospects" && name !== "contacts") assert.deepEqual(state, { present: false, count: null, rows: null });
+    }
+
+    const queryResults = {};
+    for (const command of buildPreflightCommands({ mode: "post-migration", database: "00000000-0000-0000-0000-000000000004" })) {
+      if (command.key === "migrations") continue;
+      try {
+        queryResults[command.key] = (await fixture.database.prepare(command.args.at(-1)).all()).results;
+      } catch (error) {
+        throw new Error(`fixed ${command.key} query failed against real 0000-0004 schema`, { cause: error });
+      }
+    }
+    assert.deepEqual(queryResults.forbiddenTables, [{ name: "contacts" }, { name: "prospects" }]);
+    assert.equal(Number(queryResults.counts[0].prospect_count), 0);
+    assert.equal(Number(queryResults.counts[0].contact_count), 0);
   } finally { await fixture.dispose(); }
 });
