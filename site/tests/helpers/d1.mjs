@@ -3,12 +3,16 @@ import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { createServer } from "vite";
 
-export const MIGRATION_FILENAMES = [
+export const PHASE2_MIGRATION_FILENAMES = [
   "0000_jittery_meteorite.sql",
   "0001_true_spencer_smythe.sql",
   "0002_eager_supreme_intelligence.sql",
   "0003_acoustic_magik.sql",
   "0004_consensus_knowledge.sql",
+];
+
+export const MIGRATION_FILENAMES = [
+  ...PHASE2_MIGRATION_FILENAMES,
   "0005_even_mastermind.sql",
   "0006_private-proof-run-binding.sql",
   "0007_profile_prospecting.sql",
@@ -89,6 +93,11 @@ export async function createD1Fixture(name = "prospector-authority-test") {
 
 export async function applyMigrations(database, filenames = MIGRATION_FILENAMES) {
   assert.deepEqual(filenames, MIGRATION_FILENAMES, "Authority fixtures require the exact 0000-0009 migration chain");
+  await applyMigrationFiles(database, filenames);
+}
+
+export async function applyPhase2Migrations(database, filenames = PHASE2_MIGRATION_FILENAMES) {
+  assert.deepEqual(filenames, PHASE2_MIGRATION_FILENAMES, "Phase 2 fixtures require the exact 0000-0004 migration chain");
   await applyMigrationFiles(database, filenames);
 }
 
