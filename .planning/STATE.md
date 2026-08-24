@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Plan 02-13 compatibility deployment
-last_updated: "2026-08-01T15:00:00.000Z"
-last_activity: 2026-08-01
+stopped_at: Phase 2 hosted schema/source incident; all hosted writes frozen pending read-only reconciliation
+last_updated: "2026-08-24T18:06:33.213Z"
+last_activity: 2026-08-24
 progress:
   total_phases: 7
   completed_phases: 1
@@ -117,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-31
-Stopped at: Plan 02-12 hosted evidence prerequisites
-Resume file: `docs/CODEX-CONTINUATION.md`
+Last session: 2026-08-24
+Stopped at: Phase 2 hosted schema/source incident; all hosted writes frozen pending owner-authorized read-only schema/journal/audit reconciliation
+Resume file: `.planning/forensics/report-20260824-140458.md`
