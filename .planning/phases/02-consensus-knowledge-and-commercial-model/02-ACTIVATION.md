@@ -7,9 +7,13 @@ This ledger is status-only evidence. It **never grants authority**, changes a ga
 | Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
 | Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
 | Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |
-| Read-only incident reconciliation | status: owner authorization required | Next permissible action only: bind redacted schema, `d1_migrations`, provider audit, deployment, and database provenance evidence to the same existing private project. No hosted write is permitted. |
-| Additive 0004 | status: **non-executable** | Exact applied migration digest, mechanism, actor, time, journal state, and schema completeness are unknown. Do not apply either known 0004 file over the current state. |
-| Post-migration proof | status: non-executable | Current schema must first be classified read-only as exact reviewed, exact superseded, or partial/mixed/unknown. |
+| Read-only incident reconciliation | status: **constrained classification recorded; provenance incomplete** | Owner-approved read-only inspection confirms version 11/source `e07e3f9`, an empty gate, and live column signatures that rule out complete reviewed `b93c71d…` 0004 and align with a superseded pre-`e66dbf0` family. Exact journal, constraints/triggers/indexes/FKs, mechanism, actor, and time remain unavailable, so classification remains `partial/mixed/unknown`. |
+| Recovery design and independent review | status: Plan 02-21; read-only/design work only | Finish the target-bound journal/schema/provider-audit bundle, preserve Plans 02-14..20 outside executor discovery, select one design path, and independently review the design. No executable artifact, rehearsal, provider recovery environment, restore drill, future execution plan, or hosted write is authorized. |
+| Recovery plan drafting authorization | status: **not authorized** | A new exact owner decision naming the classified target, design path/digest, backup/restore requirements, intended actor, review, and stop conditions may authorize only drafting and checking a future path-specific plan. It cannot authorize that uncreated plan to run. |
+| Recovery write authorization | status: **not authorized** | A future checked plan must require a separate artifact-bound owner checkpoint after implementation, local rehearsal, backup/restore proof, and independent exact-artifact review. |
+| Terminal Phase 2 verification and acceptance | status: **Plan 02-99 Tasks 1-2 incomplete** | Plan 02-21 completion cannot complete the phase. Future planning must atomically move Plan 02-99 after the replacement sequence's terminal successor. Task 1 then creates fresh independent `02-VERIFICATION.md` from checked/redacted evidence only; Task 2 consumes a passed report for exact owner acceptance. Plan 02-99 performs no hosted action and cannot summarize until both tasks pass. |
+| Additive 0004 | status: **permanently non-executable for current target** | The clean schema-0003 premise is false for the current target. Do not apply either known 0004 file over the live state. |
+| Post-migration proof | status: non-executable; replan required | Plans 02-15 through 02-20 require a new exact baseline after an authorized recovery and cannot resume from Plan 02-14's original contract. |
 | Independent review | status: non-executable | No reconciled source/schema artifact exists for review. |
 | Exact-source deployment | status: non-executable | Reconciled immutable source and target-bound evidence are absent. |
 | Post-deploy real-principal/negative/log proof | status: non-executable | Upstream incident reconciliation and reviewed deployment are absent. |
@@ -45,6 +49,34 @@ Plan 02-13 is incident-blocked and earns no completion credit. Plans 02-14
 through 02-20 are non-executable. All hosted writes remain frozen: do not
 deploy, migrate, compensate, drop or rebuild tables, run a gate writer, alter
 access, modify secrets, or improvise a destructive rollback. The only
-permissible next action is owner-authorized read-only schema, migration-journal,
-and provider-audit reconciliation on the same existing private project. See
-`.planning/forensics/report-20260824-140458.md`.
+permissible hosted action is completion of the owner-authorized read-only
+schema, migration-journal, and provider-audit bundle on the same existing
+private project. Local incident documentation, recovery design, independent
+design review, and a plan-drafting decision may proceed under Plan 02-21. The
+obsolete Plans 02-14 through 02-20 are preserved only as `*.retired.md` history
+outside GSD executor discovery. No executable recovery artifact, rehearsal,
+provider recovery environment, restore drill, future execution plan, or
+recovery write is authorized. Plan 02-99 remains the canonical terminal
+acceptance barrier after Plan 02-21 and grants no authority. See `.planning/forensics/report-20260824-140458.md` and
+`02-INCIDENT-RECONCILIATION.md`.
+
+## 2026-08-25 constrained read-only classification
+
+The owner-authorized inspection resolved the same private owner-only project at
+saved version 11/source `e07e3f9`, found zero activation-gate rows, and obtained
+a complete 42-table user-table overview. The live `knowledge_drifts`,
+`replacement_candidates`, and `knowledge_versions` column signatures exclude
+a complete reviewed `b93c71d…` migration and align with a superseded
+pre-`e66dbf0` family. They cannot distinguish exact `aa89768…` from another
+intermediate variant without the missing journal, canonical schema,
+trigger/index/foreign-key, and provider-audit evidence. No tables from the
+normal 0005 through 0009 chain were observed. This is a constrained
+`partial/mixed/unknown` classification, not recovery authority.
+
+The connector exposed no arbitrary read-only SQL for `d1_migrations`,
+`sqlite_schema`, triggers, indexes, foreign keys, or provider audit. The
+remaining evidence must come from a provider-supported read-only
+database/control-plane view. The browser session deliberately avoided
+application API calls that could issue or consume a CSRF token. No hosted
+write, route mutation, deployment, access change, secret operation, repair,
+restore, or gate action occurred.

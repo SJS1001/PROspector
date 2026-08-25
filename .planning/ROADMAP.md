@@ -53,7 +53,7 @@ Plans:
   3. Reloads, retries, stale tabs, and concurrent answers converge on one authoritative active question and never create duplicate answers, confirmations, or hidden overwrites.
   4. Uploads, imports, research, edits, and reusable knowledge enter as Proposed Knowledge with provenance; the owner can review and promote them without creating unauthorized Runs, Accounts, Contacts, or Prospects.
   5. The owner can inspect drift impact, activate immutable replacement configurations, preserve historical snapshots, invalidate affected approvals, and pause only high-risk outbound reached by the recorded dependency graph.
-**Plans**: 20 plans
+**Plans**: 15 active plans / 32 tasks; 7 obsolete hosted-release plans preserved as retired history outside executor discovery
 **UI hint**: yes
 
 Plans:
@@ -70,20 +70,29 @@ Plans:
 - [x] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
 - [x] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
 - [ ] `02-13-PLAN.md` — **INCIDENT-BLOCKED:** the 2026-08-24 forensic report invalidates the prior acceptance because the live schema-0003/no-migration premise is contradicted and the deployed source was not the reviewed Phase 2 lineage. Its historical summary is retained but earns no completion credit.
-- [ ] `02-14-PLAN.md` — **NON-EXECUTABLE:** do not apply 0004 while the exact applied migration digest, actor, journal state, and live schema classification remain unknown.
-- [ ] `02-15-PLAN.md` — Accept fresh independent review of the exact deployment source.
-- [ ] `02-16-PLAN.md` — Deploy the exact reviewed source with hosted mutations still disabled.
-- [ ] `02-17-PLAN.md` — Accept real post-deploy principal, mutation-negative, and clean-log proof.
-- [ ] `02-18-PLAN.md` — Obtain separate owner authorization for `consensus_knowledge` only.
-- [ ] `02-19-PLAN.md` — Activate and verify the exact narrow `consensus_knowledge` gate.
-- [ ] `02-20-PLAN.md` — Accept the complete hosted owner lifecycle and zero-effect proof.
+- [ ] `02-21-PLAN.md` — **NEXT INCIDENT PLAN; NO HOSTED WRITES:** finish the target-bound read-only provenance bundle, verify obsolete release plans are outside executor discovery, draft and independently review one design-only recovery contract, and require a new exact owner decision before a future checked execution plan may be drafted.
+- [ ] `02-99-PLAN.md` — **TERMINAL ACCEPTANCE BARRIER:** remains incomplete after Plan 02-21 and until a separately checked recovery/replacement release sequence executes, fresh exact-target Phase 2 verification passes, and the owner accepts the exact artifact/target/evidence tuple. Future planning must atomically move its dependency/wave after the replacement sequence's terminal successor.
 
-**Incident disposition (2026-08-24):** All hosted writes remain frozen and the
-hosted gate must remain absent. The only permissible next action is an
-owner-authorized read-only schema, migration-journal, and provider-audit
-reconciliation on the same existing private project. No destructive rollback
-or forward repair is authorized. See
-`.planning/forensics/report-20260824-140458.md`.
+Retired incident history (not active plans; GSD executor discovery must omit them):
+
+- `02-14-PLAN.retired.md` — Original clean-schema-0003-to-reviewed-0004 contract; permanently invalid for the current target.
+- `02-15-PLAN.retired.md` through `02-20-PLAN.retired.md` — Original review/deploy/activation/lifecycle sequence; preserve only as evidence of the invalidated release design and never execute.
+
+**Incident disposition (updated 2026-08-25):** Owner-authorized read-only
+inspection produced a constrained `partial/mixed/unknown` classification with
+strong evidence of a superseded pre-`e66dbf0` schema family; it rules out a
+complete reviewed `b93c71d…` 0004 but does not prove an exact migration,
+journal, trigger/index/FK set, actor, mechanism, or time. All hosted writes
+remain frozen and the hosted gate must remain absent. Plan 02-21 permits only
+the remaining provider-supported read-only evidence, structural retirement of
+obsolete executor plans, one local design-only recovery contract, independent
+design review, and a separate decision that may authorize only drafting a
+future checked plan. Canonical Plan 02-99 prevents Plan 02-21 from falsely
+completing the phase and performs no hosted action. No executable recovery artifact, rehearsal, provider
+recovery environment, restore drill, destructive rollback, forward repair,
+restore, deployment, or gate action is authorized. See
+`.planning/forensics/report-20260824-140458.md` and
+`02-INCIDENT-RECONCILIATION.md`.
 
 ### Phase 3: Product Readiness and Market Discovery
 **Goal**: The owner can make a Product Ready from complete confirmed policy and receive bounded, replayable Market Play proposals without activating prospecting.  
@@ -175,7 +184,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
-| 2. Consensus Knowledge and Commercial Model | 12/20 | Incident-blocked at Plan 02-13; 02-14+ non-executable pending owner-authorized read-only reconciliation | - |
+| 2. Consensus Knowledge and Commercial Model | 12/15 active | Plan 02-21 is blocked at incomplete read-only provenance; Plan 02-99 is the terminal acceptance barrier; retired 02-14..20 are outside discovery and no recovery implementation/write is authorized | - |
 | 3. Product Readiness and Market Discovery | 8/11 | Local plans complete; blocked on Phase 2 acceptance and 03-09..11 external gates | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |

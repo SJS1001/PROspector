@@ -1,18 +1,20 @@
 ---
 phase: 02
 slug: consensus-knowledge-and-commercial-model
-status: approved
+status: incident_revised
 nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-30
-updated: 2026-07-30
-plan_count: 20
-task_count: 34
+updated: 2026-08-25
+plan_count: 15
+task_count: 32
 ---
 
 # Phase 02 — Validation Strategy
 
-> Final validation map for the revised 20-plan/34-task implementation and fail-closed hosted release.
+> Incident-revised validation map for 15 active plans and 32 tasks. Seven
+> obsolete hosted-release plans are preserved as `*.retired.md` history outside
+> GSD executor discovery and are not executable validation entries.
 
 ## Test Infrastructure
 
@@ -31,7 +33,7 @@ Every consequential Phase 2 mutation test pairs its positive authority assertion
 - After every local code task: run its focused command, then `cd site && npm test`.
 - After every local wave: run `cd site && npm test && npm run lint`.
 - Before a source deployment: run `cd site && npm test && npm run lint && npm run build`.
-- Before `/gsd:verify-work`: all automated checks and Plans 12, 15, 17, 18, and 20 must be explicitly approved; `human_needed` is paused/incomplete.
+- Before `/gsd:verify-work`: the separately checked recovery/replacement release sequence must have executed and Plan 02-99 must be atomically rebased after its terminal successor. Fresh Phase 2 verification and exact terminal owner acceptance remain mandatory; Plan 02-21 design/drafting approval alone cannot advance verification or completion.
 - No watch mode. Focused local samples target less than 30 seconds; hosted gates are deliberately manual and excluded from the latency target.
 
 ## Per-Task Verification Map
@@ -63,15 +65,13 @@ Every consequential Phase 2 mutation test pairs its positive authority assertion
 | 02-11-02 | 11 | 9 | all | T-02-15 | Fixed exact consensus_knowledge gate writer, not executed | CLI security | `cd site && node --test tests/phase2-gate.test.mjs && node scripts/phase2-gate.mjs --help` | pending |
 | 02-11-03 | 11 | 9 | all | T-02-16 | Blocked non-authorizing ordered ledger | static check | `rg -n "status: blocked|human_needed.*pause|existing private Sites project|consensus_knowledge|arbitrary file upload|never grants authority" .planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md` | pending |
 | 02-12-01 | 12 | 10 | all | T-02-17 | Real Phase 1 principal proof and read-only old-schema baseline | blocking hosted gate | `cd site && npm test && npm run lint && node --test tests/phase2-hosted-preflight.test.mjs` | pending |
-| 02-13-01 | 13 | 11 | all | T-02-19 | Existing-project compatibility deploy; old-schema GET neutral/POST 503 | deployment gate | `cd site && npm test && npm run lint && npm run build` | pending |
-| 02-14-01 | 14 | 12 | all | T-02-21 | Apply exact additive 0004 only | migration gate | `cd site && node --test tests/migration-chain.test.mjs && npm run lint` | pending |
-| 02-14-02 | 14 | 12 | all | T-02-22 | Post counts/digests/FKs/gate absence | hosted read-only gate | `cd site && node --test tests/phase2-hosted-preflight.test.mjs && npm test` | pending |
-| 02-15-01 | 15 | 13 | all | T-02-23 | Fresh independent exact-source review, zero BLOCKER/HIGH | blocking review gate | `cd site && npm test && npm run lint && npm run build` | pending |
-| 02-16-01 | 16 | 14 | all | T-02-24 | Deploy exact reviewed source; gate absent/POST 503 | deployment gate | `cd site && npm test && npm run lint && npm run build && node --test tests/phase2-gate.test.mjs` | pending |
-| 02-17-01 | 17 | 15 | all | T-02-26 | Real post-deploy principal/negative/log/zero-delta proof | blocking hosted gate | `cd site && npm test && npm run lint && node --test tests/phase2-hosted-preflight.test.mjs tests/phase2-gate.test.mjs` | pending |
-| 02-18-01 | 18 | 16 | all | T-02-29 | Separate explicit consensus_knowledge-only authorization | blocking decision | `cd site && node --test tests/phase2-gate.test.mjs && node scripts/phase2-gate.mjs --help` | pending |
-| 02-19-01 | 19 | 17 | all | T-02-30 | Exact gate insert, same-tuple retry, Proposed-only smoke, zero effects | hosted activation gate | `cd site && node --test tests/phase2-gate.test.mjs tests/knowledge-handler.test.mjs && npm test && npm run lint` | pending |
-| 02-20-01 | 20 | 18 | all | T-02-32 | Complete hosted owner lifecycle, safe intake provenance, disabled upload/effects | blocking UAT gate | `cd site && npm test && npm run lint && npm run build` | pending |
+| 02-13-01 | 13 | 11 | all | T-02-19 | Historical compatibility deployment whose schema-0003 premise is contradicted; preserve evidence and never rerun | invalidated incident gate | `rg -n "INVALIDATED|incident-blocked|superseded" .planning/phases/02-consensus-knowledge-and-commercial-model/02-13-SUMMARY.md .planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md` | invalidated |
+| 02-21-01 | 21 | 11 | all | T-02-35 | Exact read-only journal/schema/constraint/trigger/index/FK/invariant/provider-audit classification or explicit unsupported surfaces | blocking read-only gate | `rg -n "classified_schema_fingerprint|d1_migrations|sqlite_schema|foreign_key_check|provider.*actor|partial/mixed/unknown|recovery_not_authorized" .planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECONCILIATION.md .planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md` | pending |
+| 02-21-02 | 21 | 11 | all | T-02-36, T-02-37 | Retire 02-14..20 from discovery and write one design-only recovery contract without executable artifacts/rehearsal | static planning gate | `test -z "$(gsd-sdk query phase-plan-index 02 | rg '\"id\": \"02-(14|15|16|17|18|19|20)\"')" && rg -n "classified_schema_fingerprint|forward_reconciliation|provider_supported_restore|future checked plan|no executable" .planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECOVERY.md` | pending |
+| 02-21-03 | 21 | 11 | all | T-02-37 | Independent design review with no artifact, rehearsal, provider environment, plan, or write authority | blocking design-review gate | `rg -n "incident_recovery_design_review_reference|design.*digest|gate.*CSRF|deny-all|design only|BLOCKER|HIGH" .planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECOVERY.md .planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md` | pending |
+| 02-21-04 | 21 | 11 | all | T-02-38 | Exact authorization permits only drafting/checking a future plan with its own later artifact-bound owner checkpoint | blocking drafting decision | `rg -n "phase2_incident_recovery_plan_draft|recovery_design_digest|incident_recovery_design_review_reference|drafted and checked|does not authorize.*run|no hosted write" .planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECOVERY.md .planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md` | pending |
+| 02-99-01 | 99 | 12 | all | T-02-39, T-02-40 | After atomic dependency/wave rebase and every successor summary, create fresh independent exact-target Phase 2 verification from checked/redacted evidence only | independent terminal verification | `! rg -n '^wave: 12$|^depends_on: \["02-21"\]$' .planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md && rg -n "status: passed|terminal_successor|predecessor_plan_summary_manifest|REQ-commercial-hierarchy|REQ-consensus-interview|REQ-versioned-knowledge-and-drift|D-01|D-16|classified_schema_fingerprint|recovery_artifact_digest|deployed_source_digest|forbidden.*zero|no hosted" .planning/phases/02-consensus-knowledge-and-commercial-model/02-VERIFICATION.md` | pending |
+| 02-99-02 | 99 | 12 | all | T-02-41 | Consume fresh passed verification and require exact artifact/target/evidence-bound owner acceptance; performs no hosted action | blocking terminal acceptance | `test -z "$(gsd-sdk query phase-plan-index 02 | rg '\"id\": \"02-(14|15|16|17|18|19|20)\"')" && rg -n "status: passed|classified_schema_fingerprint|recovery_artifact_digest|terminal_successor" .planning/phases/02-consensus-knowledge-and-commercial-model/02-VERIFICATION.md .planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md` | pending |
 
 ## Wave 0 Requirements
 
@@ -85,25 +85,29 @@ Every consequential Phase 2 mutation test pairs its positive authority assertion
 
 | Plan | Gate | Pass signal | Failure behavior |
 |---:|---|---|---|
-| 12 | Real Phase 1 second principal plus read-only schema-0003 baseline before any deploy/migration | `approved old-schema baseline` | `human_needed` pauses; no SUMMARY/deploy/migration |
-| 13 | Exact backward-compatible deployment to existing private project and hosted old-schema route proof | recorded terminal deploy + neutral GET/503 POST | stop; gate absent |
-| 14 | Exact additive 0004 plus post counts/digests/FKs | accepted post-migration proof | stop; deployed POST remains 503 |
-| 15 | Fresh independent exact-source review | `approved independent review` | `human_needed` pauses; no exact-source deploy |
-| 16 | Exact reviewed-source deploy with gate absent | source/version equality + POST 503 | stop; gate absent |
-| 17 | Real deployed second principal, owner negative matrix, clean logs | `approved deployed boundary proof` | `human_needed` pauses; no authorization request |
-| 18 | Separate owner authorization for only consensus_knowledge | exact scoped authorization phrase | silence/generic approval/human_needed pauses; no write |
-| 19 | Fixed exact gate insert and scoped smoke | one exact row + zero side effects | stop blocked; never broaden/update/delete |
-| 20 | Hosted owner lifecycle and requirement proof | `approved Phase 2 owner lifecycle` | `human_needed` pauses; phase incomplete |
+| 12 | Historical real-principal/read-only schema-0003 evidence retained as accepted Plan 12 credit | `approved old-schema baseline` (2026-08-01 history only) | Cannot classify current live schema or authorize recovery |
+| 13 | Invalidated compatibility deployment history | no valid pass signal; schema-0003 premise contradicted | Preserve summary as invalidated evidence; never rerun |
+| 21 Task 1 | Exact remaining read-only provenance on the same private target | `approved Phase 2 read-only provenance bundle <classified_schema_fingerprint> <provenance_evidence_reference>` | `human_needed` pauses; no design or SUMMARY |
+| 21 Task 3 | Independent review of the design-only recovery contract | `approved Phase 2 incident recovery design review <classified_schema_fingerprint> <recovery_design_digest> <incident_recovery_design_review_reference>` | `human_needed` pauses; no drafting authority |
+| 21 Task 4 | Separate authority only to draft/check a future path-specific plan | exact twelve-field `authorize drafting phase2 incident recovery plan ...` signal from Plan 02-21 | silence/generic/prior approval pauses; no future plan or write |
+| 99 Task 2 | Terminal Phase 2 acceptance after Task 1 creates fresh independent verification | exact ten-field `approved Phase 2 recovered release and terminal acceptance ...` signal from Plan 02-99 | `human_needed`, stale dependency/wave, missing successor summary, or stale/failed verification keeps Phase 2 incomplete |
 
-The existing private Sites project is reused throughout. No plan may clone, replace, delete, rename, or expose it, or reveal/rotate/remove secret values. Arbitrary file upload remains disabled because no scanner/release provider is authorized.
+Plans 02-14 through 02-20 are retained only as `02-14-PLAN.retired.md`
+through `02-20-PLAN.retired.md`; they must not appear in
+`gsd-sdk query phase-plan-index 02` and have no executable gate. The existing
+private Sites project is reused throughout. No plan may clone, replace, delete,
+rename, or expose it, create a recovery environment, run a restore drill, or
+reveal/rotate/remove secret values. Arbitrary file upload remains disabled
+because no scanner/release provider is authorized.
 
 ## Validation Sign-Off
 
-- [x] Map matches 20 plans and 34 tasks.
+- [x] Map matches 15 active plans and 32 tasks; seven retired hosted-release plans are outside discovery and task counts.
 - [x] Every task has an automated command; hosted/manual evidence remains explicitly non-substitutable.
 - [x] Focused local sampling targets under 30 seconds; no watch flags.
 - [x] `human_needed` is pause/incomplete, never acceptance or done.
-- [x] Old-schema proof precedes deployment/migration; exact reviewed source precedes activation.
-- [x] Separate consensus_knowledge authorization and final owner lifecycle are required.
+- [x] Plan 02-21 ends at design review and exact authority only to draft/check a future plan; no execution or write is authorized.
+- [x] Any future recovery plan must add local rehearsal, exact-artifact review, backup/restore proof, and a separate artifact-bound owner checkpoint before a hosted write.
+- [x] Canonical Plan 02-99 remains after Plan 02-21 and prevents Phase 2 completion until future planning atomically rebases it after the executed terminal successor and fresh verification/owner acceptance pass.
 
-**Approval:** approved revision 2026-07-30; execution pending
+**Approval:** incident revision 2026-08-25; Plan 02-21 read-only checkpoint pending

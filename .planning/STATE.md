@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 2 hosted schema/source incident; all hosted writes frozen pending owner-authorized read-only reconciliation on the same existing private project
-last_updated: "2026-08-24T18:09:04Z"
-last_activity: 2026-08-24
+stopped_at: Phase 2 Plan 02-21 read-only provenance checkpoint; constrained partial/mixed/unknown classification recorded, recovery not authorized; Plan 02-99 terminal barrier pending
+last_updated: "2026-08-25T08:21:36Z"
+last_activity: 2026-08-25
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 80
+  total_plans: 75
   completed_plans: 25
-  percent: 31
+  percent: 33
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 ## Current Position
 
 Phase: 2 (Consensus Knowledge and Commercial Model) — HOSTED SCHEMA/SOURCE INCIDENT
-Plan: 13 of 20 (acceptance invalidated; no later Phase 2 plan is executable)
-Status: All hosted writes are frozen pending owner-authorized read-only schema/journal/audit reconciliation on the same existing private project
-Last activity: 2026-08-24
+Plan: 02-21 (14th of 15 active Phase 2 plans; blocked at incomplete read-only provenance; 02-99 is the terminal barrier)
+Status: Constrained partial/mixed/unknown live-schema classification recorded; remaining read-only journal/schema/provider evidence is incomplete and recovery is not authorized
+Last activity: 2026-08-25
 
-Progress: [███░░░░░░░] 31% of currently planned plans (25/80 completion credits; Plan 02-13 excluded)
+Progress: [███░░░░░░░] 33% of active plans (25/75 completion credits; Plan 02-13 excluded and retired 02-14..20 are not active plans)
 
 ## Performance Metrics
 
@@ -83,9 +83,14 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02]: Final independent code re-review after 2e879dc and 45bcdc1 is clean; security has zero open local implementation threats. External hosted evidence remains blocked.
 - [Phase 02 incident]: The 2026-08-24 forensic report contradicts Plan 02-13's required schema-0003/no-migration premise and proves that the deployed source was not the reviewed Phase 2 lineage. Plan 02-13 acceptance is invalidated and does not count as completion.
 - [Phase 02 incident]: The exact applied migration digest, migration mechanism, actor, time, and completeness remain unknown. Plan 02-14 cannot safely apply the current 0004 over the unknown live state, and Plans 02-14 through 02-20 are non-executable.
-- [Phase 02 incident]: The only permissible next action is owner-authorized read-only schema, migration-journal, and provider-audit reconciliation bound to the same existing private project. No deploy, migration, compensation, rollback, gate write, access change, or other hosted write is authorized.
+- [Phase 02 incident]: The only permissible hosted action is completion of the owner-authorized read-only schema, migration-journal, and provider-audit bundle bound to the same existing private project. Local incident documentation, one design-only recovery contract, independent design review, and a decision that may authorize only drafting/checking a future plan may proceed under Plan 02-21. No executable artifact, rehearsal, provider recovery environment, restore drill, future execution plan, deploy, migration, compensation, rollback, restore, gate write, access change, or other hosted write is authorized.
+- [Phase 02 incident]: Owner-authorized read-only inspection on 2026-08-25 resolved the same private owner-only project at version 11/source `e07e3f9`, confirmed zero gate rows, and found live 0004-family table signatures that rule out a complete reviewed `b93c71d…` schema and align with a superseded pre-`e66dbf0` family.
+- [Phase 02 incident]: The available column signatures cannot distinguish exact `aa89768…` from another intermediate pre-`e66dbf0` migration. The journal, canonical constraints/triggers/indexes/FKs, provider actor/mechanism/time, invariant bundle, and backup/restore proof remain unavailable, so classification is `partial/mixed/unknown` and recovery remains unauthorized.
+- [Phase 02 incident]: Plans 02-14 through 02-20 are preserved verbatim as `*.retired.md` history outside GSD executor discovery. They are not active plan-count entries and cannot be resumed.
+- [Phase 02 incident]: Plan 02-21 is a counted, non-autonomous incident plan. It performs no implementation, rehearsal, provider recovery environment, restore drill, future execution-plan creation, or hosted write. A separate exact owner authorization may permit only drafting and checking a future path-specific plan; that plan must contain a new artifact-bound owner checkpoint before any write.
+- [Phase 02 incident]: Canonical Plan 02-99 is a counted non-autonomous two-task terminal barrier. Plan 02-21 completion leaves Phase 2 incomplete. Future planning must atomically move Plan 02-99's dependency/wave after the replacement sequence's terminal successor; Task 1 then creates fresh independent verification and Task 2 requires exact owner acceptance. No 02-99 summary may exist until both pass.
 - [Phase 03]: Local Plans 03-01 through 03-08 have committed summaries and implementation, UI, tests, race hardening, and a fail-closed offline preflight. This is local-plan credit only: Phase 2 is not accepted and Plans 03-09 through 03-11 remain incomplete.
-- [Planning ledger]: The checked repository contains 80 plan files and 26 summary artifacts (Phase 1: 5, Phase 2: 13, Phase 3: 8). The invalidated Plan 02-13 summary is retained as incident history but earns no completion credit, leaving 25 completion credits; Phase 3's eight credits remain local-only.
+- [Planning ledger]: The checked repository contains 75 active `*-PLAN.md` files and 26 summary artifacts (active Phase 2: 15 plans / 32 tasks; retired Phase 2 hosted-release plans: 7 outside discovery). The invalidated Plan 02-13 summary is retained as incident history but earns no completion credit, leaving 25 completion credits; Phase 3's eight credits remain local-only.
 - [Maintenance]: Dependency checkpoint `b794e89` patches the bundled React server component and Cloudflare/Vite toolchain advisories, preserves exact pins, and passes fresh-install isolated receipt tests, the full suite, lint, build, and Drizzle validation. Production audit is zero; the remaining npm findings are development-only ESLint/brace-expansion and Drizzle/esbuild-kit chains whose offered fixes are breaking or regressive. This maintenance grants no phase or activation credit.
 - [Phase 03]: Plans 03-09 through 03-11 are explicit owner/hosted proof and lifecycle gates; local evidence cannot complete them.
 - [Phase 04]: Twelve checked plans exist. Wave 1 RED contracts and additive persistence are committed; no plan is recorded complete.
@@ -101,8 +106,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- The committed forensic report at `.planning/forensics/report-20260824-140458.md` proves a Phase 2 hosted schema/source divergence: Plan 02-13's schema-0003 premise is contradicted and its deployed source was not the reviewed Phase 2 lineage.
-- The empty hosted gate is useful negative evidence but does not repair provenance. The exact applied migration digest and actor are unknown; all hosted writes remain frozen and Plans 02-14 through 02-20 are non-executable.
+- The committed forensic report and `02-INCIDENT-RECONCILIATION.md` prove a Phase 2 hosted schema/source divergence: Plan 02-13's schema-0003 premise is contradicted, the deployed source was not the reviewed Phase 2 lineage, and live column signatures rule out the complete reviewed `b93c71d…` schema.
+- The empty hosted gate is useful negative evidence but does not repair provenance. Exact journal state, applied migration digest, constraints/triggers/indexes/FKs, actor, mechanism, time, invariant bundle, and backup/restore proof remain unknown. All hosted writes remain frozen; the original Plans 02-14 through 02-20 are preserved outside executor discovery and require replacement by a newly checked release sequence after recovery.
+- Plan 02-21 is blocked at its remaining read-only evidence checkpoint. It may proceed only through provider-supported read-only inspection, a local design-only recovery contract, independent design review, and a separate decision that can authorize only drafting/checking a future plan. It cannot create executable recovery files, a provider recovery environment, a restore drill, a future execution plan, a hosted write, or a completion summary early.
+- Plan 02-99 remains incomplete after Plan 02-21 by design. It must be atomically rebased after the eventual replacement release terminal successor and cannot summarize without executed successor summaries, fresh passed Phase 2 verification, and exact owner terminal acceptance. It performs no hosted action and grants no authority.
 - Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
 - Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.
@@ -121,6 +128,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-24
-Stopped at: Phase 2 hosted schema/source incident; all hosted writes frozen pending owner-authorized read-only schema/journal/audit reconciliation
-Resume file: `.planning/forensics/report-20260824-140458.md`
+Last session: 2026-08-25
+Stopped at: Plan 02-21 Task 1; constrained read-only classification recorded, remaining provenance unavailable, recovery not authorized; Plan 02-99 remains the terminal barrier
+Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECONCILIATION.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-21-PLAN.md`, and `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`
