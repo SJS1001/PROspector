@@ -65,6 +65,7 @@ The Sites-owning account should be reserved for short hosted checkpoints. Other 
 - Phase 7 preparation was integrated at `fc3f46f` and `e39ef11`.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority.
 - Safe resume is Plan 02-21 Task 1: finish the remaining provider-supported read-only journal/schema/provider-audit evidence on the same existing private project. One local design-only recovery contract and independent design review may follow in the checked order. A later exact owner decision may authorize only drafting/checking a future path-specific plan; that future plan must contain its own artifact-bound owner checkpoint before any write. Plan 02-99 remains incomplete throughout and must later be atomically rebased after the replacement terminal successor. All hosted writes remain frozen and the gate must remain absent.
+- The current reviewed checkout includes a fail-closed `incident-provenance` mode in `site/scripts/phase2-hosted-preflight.mjs` for the D1 portion of that checkpoint. It uses only fixed reads, double-collects a target/time-bound redacted envelope, and always remains partial while protected/audit digests and provider binding/audit are external. Its 17 focused contracts, full suite/build, lint, and independent BLOCKER/HIGH review pass. It has not been run against the hosted target and is not Task 1 evidence or approval.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -110,7 +111,11 @@ Use these existing artifacts rather than restating product decisions:
 Do not start a hosted execution or recovery workflow. Resume Plan 02-21 Task 1
 only: an owner-authorized account may collect the remaining redacted,
 target-bound, read-only journal, canonical schema, trigger/index/FK, invariant,
-and provider-audit evidence specified by `02-INCIDENT-RECONCILIATION.md`. One
+and provider-audit evidence specified by `02-INCIDENT-RECONCILIATION.md`. The
+checked incident-only collector may be used from the verified current checkout
+only with the exact immutable target and owner-held provider access; its partial
+output must be combined with separate provider binding/audit and protected-data
+digest evidence before owner approval. One
 local design-only recovery contract and independent design review may then
 proceed in Plan 02-21. A fresh explicit owner decision may authorize only
 drafting/checking a new path-specific plan. That future plan must separately

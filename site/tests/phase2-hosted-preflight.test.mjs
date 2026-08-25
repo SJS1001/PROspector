@@ -7,6 +7,7 @@ import test from "node:test";
 import { buildExact0004MigrationApply } from "../scripts/phase2-exact-migration.mjs";
 import {
   buildPreflightCommands,
+  LOCAL_WRANGLER_PATH,
   parsePreflightArgs,
   runHostedPreflight,
   runPreflightCli,
@@ -26,6 +27,12 @@ const OPTIONS = {
   baseline: "/outside/repo/baseline.json",
   postProbeAdapter: POST_PROBE_ADAPTER,
 };
+const INCIDENT_OPTIONS = {
+  mode: "incident-provenance",
+  ...TARGET,
+  observedAt: "2026-08-25T12:34:56.789Z",
+};
+const INCIDENT_CLOCK = () => new Date(INCIDENT_OPTIONS.observedAt);
 const PROTECTED_DIGEST = "190697270d72e64226736d3c99792a32669e6bfa40c18448cc35316a7665e875";
 const CATEGORY_COUNTS = {
   answer_operation: 1,
@@ -147,6 +154,53 @@ function fakePostProbe(overrides = {}) {
   });
 }
 
+function incidentOutputs(command) {
+  if (command.key === "migrations") return [{ id: 5, migration_name: "0004_consensus_knowledge.sql", applied_at: "2026-08-25T12:30:00.000Z" }];
+  if (command.key === "schema") return buildPreflightCommands(INCIDENT_OPTIONS).flatMap(({ key }) => {
+    if (key.startsWith("tableXinfo:")) {
+      const name = key.slice("tableXinfo:".length);
+      return [{ type: "table", name, tbl_name: name, sql: `CREATE TABLE \`${name}\` (\`id\` text)` }];
+    }
+    if (key.startsWith("indexXinfo:")) {
+      const name = key.slice("indexXinfo:".length);
+      return [{ type: "index", name, tbl_name: "knowledge_versions", sql: `CREATE INDEX \`${name}\` ON \`knowledge_versions\` (\`id\`)` }];
+    }
+    return [];
+  });
+  if (command.key.startsWith("tableXinfo:")) return [{ cid: 0, name: "id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1, hidden: 0 }];
+  if (command.key.startsWith("foreignKeyList:")) return [];
+  if (command.key.startsWith("indexList:")) return [];
+  if (command.key.startsWith("indexXinfo:")) return [{ seqno: 0, cid: 0, name: "id", desc: 0, coll: "BINARY", key: 1 }];
+  if (command.key === "foreignKeyCheck") return [];
+  if (command.key.startsWith("forbiddenRows:")) return [{ row_count: 0 }];
+  if (command.key === "counts") return [{
+    workspace_count: 1, bound_historian_count: 1, legacy_unbound_count: 0, company_count: 1,
+    workspace_company_count: 1, invalid_company_binding_count: 0, binding_count: 1, invalid_binding_count: 0,
+    invalid_knowledge_lineage_count: 0, legacy_bound_count: 0, quarantine_count: 0,
+    invalid_quarantine_count: 0, audit_count: 1, total_gate_count: 0, consensus_gate_count: 0,
+    prospect_count: 0, contact_count: 0, forbidden_table_count: 0,
+  }];
+  return [];
+}
+
+function incidentRunner({ failKey = "", drift = false, malformedKey = "", reorder = false, auditCount, missingSchemaObject = "" } = {}) {
+  let calls = 0;
+  return async (command) => {
+    calls += 1;
+    if (command.key === failKey) throw new Error("private target and secret failure");
+    const rows = incidentOutputs(command);
+    if (command.key === malformedKey) return { stdout: wranglerJson([{ malformed: "private target" }]) };
+    if (command.key === "schema" && missingSchemaObject) {
+      const filtered = rows.filter(({ name }) => name !== missingSchemaObject);
+      return { stdout: wranglerJson(filtered), stderr: "private child output" };
+    }
+    if (command.key === "counts" && Number.isSafeInteger(auditCount)) rows[0].audit_count = auditCount;
+    if (reorder && calls > buildPreflightCommands(INCIDENT_OPTIONS).length && command.key === "schema") rows.reverse();
+    if (drift && calls > buildPreflightCommands(INCIDENT_OPTIONS).length && command.key === "counts") rows[0].audit_count = 2;
+    return { stdout: wranglerJson(rows), stderr: "private child output" };
+  };
+}
+
 test("preflight builds only fixed Wrangler 4.116 d1 execute --json reads", () => {
   const options = parsePreflightArgs(["--mode", "post-migration", "--database", TARGET.database, "--project", TARGET.project, "--deployment", TARGET.deployment, "--origin", TARGET.origin, "--baseline", OPTIONS.baseline, "--post-probe-adapter", POST_PROBE_ADAPTER]);
   const commands = buildPreflightCommands(options);
@@ -165,6 +219,113 @@ test("preflight builds only fixed Wrangler 4.116 d1 execute --json reads", () =>
     assert.match(sql, /^(SELECT|PRAGMA)/u);
     assert.doesNotMatch(sql, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|REPLACE|ATTACH|DETACH|VACUUM)\b/iu);
   }
+});
+
+test("incident provenance requires immutable target binding and builds only fixed read-only metadata/count surfaces", () => {
+  const parsed = parsePreflightArgs([
+    "--mode", "incident-provenance", "--database", TARGET.database, "--project", TARGET.project,
+    "--deployment", TARGET.deployment, "--origin", TARGET.origin, "--observed-at", INCIDENT_OPTIONS.observedAt,
+  ]);
+  assert.deepEqual(parsed, { ...INCIDENT_OPTIONS, baseline: "", postProbeAdapter: "", help: false });
+  const commands = buildPreflightCommands(parsed);
+  assert.ok(commands.length > 10);
+  for (const command of commands) {
+    assert.deepEqual(command.args.slice(0, 2), ["d1", "execute"]);
+    assert.equal(command.args[2], TARGET.database);
+    assert.ok(command.args.includes("--remote"));
+    assert.ok(command.args.includes("--json"));
+    const sql = command.args.at(-1);
+    assert.match(sql, /^(SELECT|PRAGMA)/u);
+    assert.doesNotMatch(sql, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|REPLACE|ATTACH|DETACH|VACUUM)\b/iu);
+    assert.doesNotMatch(sql, /\b(value_json|detail_json|excerpt|identity|secret|principal|cookie)\b/iu);
+  }
+  for (const args of [
+    ["--mode", "incident-provenance", "--database", TARGET.database, "--project", TARGET.project, "--deployment", TARGET.deployment, "--origin", TARGET.origin],
+    ["--mode", "incident-provenance", "--database", "not-an-immutable-id", "--project", TARGET.project, "--deployment", TARGET.deployment, "--origin", TARGET.origin, "--observed-at", INCIDENT_OPTIONS.observedAt],
+    ["--mode", "incident-provenance", "--database", TARGET.database, "--project", TARGET.project, "--deployment", TARGET.deployment, "--origin", TARGET.origin, "--observed-at", "2026-08-25T12:34:56Z"],
+    ["--mode", "incident-provenance", "--database", TARGET.database, "--project", TARGET.project, "--deployment", TARGET.deployment, "--origin", TARGET.origin, "--observed-at", INCIDENT_OPTIONS.observedAt, "--baseline", OPTIONS.baseline],
+  ]) assert.throws(() => parsePreflightArgs(args));
+  assert.match(LOCAL_WRANGLER_PATH, /node_modules\/\.bin\/wrangler$/u);
+});
+
+test("incident provenance takes two read-only collections and emits stable redacted partial evidence without a POST probe", async () => {
+  const commands = buildPreflightCommands(INCIDENT_OPTIONS);
+  let calls = 0;
+  let probeCalls = 0;
+  const runner = incidentRunner();
+  const result = await runHostedPreflight({
+    options: INCIDENT_OPTIONS,
+    runner: async (command) => { calls += 1; return runner(command); },
+    postProbe: async () => { probeCalls += 1; throw new Error("must not be called"); },
+    clock: INCIDENT_CLOCK,
+  });
+  assert.equal(calls, commands.length * 2);
+  assert.equal(probeCalls, 0);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.code, "provider_evidence_external_required");
+  assert.equal(result.observedAt, INCIDENT_OPTIONS.observedAt);
+  assert.equal(result.classification, "partial/mixed/unknown");
+  assert.match(result.targetBindingDigest, /^[a-f0-9]{64}$/u);
+  assert.equal(result.classifiedSchemaFingerprintStatus, "external_evidence_required");
+  assert.match(result.incidentEvidenceFingerprint, /^[a-f0-9]{64}$/u);
+  assert.match(result.schemaDigest, /^[a-f0-9]{64}$/u);
+  assert.match(result.evidenceDigest, /^[a-f0-9]{64}$/u);
+  assert.deepEqual(result.collectionInterval, { startedAt: INCIDENT_OPTIONS.observedAt, completedAt: INCIDENT_OPTIONS.observedAt });
+  assert.deepEqual(result.protectedHistorianDigest, { status: "external_required" });
+  assert.deepEqual(result.auditDigest, { status: "external_required" });
+  assert.deepEqual(result.providerAudit, { status: "external_required" });
+  assert.deepEqual(result.deploymentBinding, { status: "external_required" });
+  assert.equal(result.surfaces.schema.status, "available");
+  assert.equal(result.counts.total_gate_count, 0);
+  const laterObservation = await runHostedPreflight({
+    options: { ...INCIDENT_OPTIONS, observedAt: "2026-08-25T12:35:56.789Z" },
+    runner: incidentRunner(),
+    clock: () => new Date("2026-08-25T12:35:56.789Z"),
+  });
+  assert.notEqual(laterObservation.targetBindingDigest, result.targetBindingDigest);
+  assert.notEqual(laterObservation.incidentEvidenceFingerprint, result.incidentEvidenceFingerprint);
+  const changedEvidence = await runHostedPreflight({
+    options: INCIDENT_OPTIONS,
+    runner: incidentRunner({ auditCount: 2 }),
+    clock: INCIDENT_CLOCK,
+  });
+  assert.notEqual(changedEvidence.evidenceDigest, result.evidenceDigest);
+  assert.notEqual(changedEvidence.incidentEvidenceFingerprint, result.incidentEvidenceFingerprint);
+  const serialized = JSON.stringify(result);
+  for (const raw of [TARGET.project, TARGET.database, TARGET.deployment, "private child output"]) assert.doesNotMatch(serialized, new RegExp(raw, "u"));
+});
+
+test("incident provenance redacts per-surface failures and blocks unstable double collections", async () => {
+  const unavailable = await runHostedPreflight({ options: INCIDENT_OPTIONS, runner: incidentRunner({ failKey: "schema" }), clock: INCIDENT_CLOCK });
+  assert.equal(unavailable.status, "partial");
+  assert.equal(unavailable.code, "provider_evidence_external_required");
+  assert.equal(unavailable.surfaces.schema.status, "partial");
+  assert.equal(unavailable.surfaceDigests.schema.code, "query_unavailable");
+
+  const malformed = await runHostedPreflight({ options: INCIDENT_OPTIONS, runner: incidentRunner({ malformedKey: "migrations" }), clock: INCIDENT_CLOCK });
+  assert.equal(malformed.surfaceDigests.migrations.code, "malformed_result");
+
+  const missing = await runHostedPreflight({ options: INCIDENT_OPTIONS, runner: incidentRunner({ missingSchemaObject: "audit_events" }), clock: INCIDENT_CLOCK });
+  assert.deepEqual(missing.surfaceDigests["tableXinfo:audit_events"], { status: "missing", code: "required_object_missing" });
+
+  const reordered = await runHostedPreflight({ options: INCIDENT_OPTIONS, runner: incidentRunner({ reorder: true }), clock: INCIDENT_CLOCK });
+  assert.equal(reordered.status, "partial");
+
+  const drift = await runHostedPreflight({ options: INCIDENT_OPTIONS, runner: incidentRunner({ drift: true }), clock: INCIDENT_CLOCK });
+  assert.deepEqual(drift, { ok: false, status: "blocked", code: "incident_evidence_drift_detected" });
+  assert.doesNotMatch(JSON.stringify([unavailable, malformed, missing, reordered, drift]), /private-raw|secret failure|private target|00000000-0000/u);
+});
+
+test("incident provenance rejects a caller timestamp outside the live collection window before querying", async () => {
+  let calls = 0;
+  const result = await runHostedPreflight({
+    options: INCIDENT_OPTIONS,
+    runner: async () => { calls += 1; throw new Error("must not query"); },
+    clock: () => new Date("2026-08-25T12:45:56.789Z"),
+  });
+  assert.equal(calls, 0);
+  assert.deepEqual(result, { ok: false, status: "blocked", code: "target_binding_mismatch" });
 });
 
 test("post-migration flow requires 503, rechecks D1, and emits only an allowlisted success", async () => {

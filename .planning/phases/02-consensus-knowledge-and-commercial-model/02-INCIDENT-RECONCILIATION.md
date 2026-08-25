@@ -108,6 +108,33 @@ restore is safe.
 
 ## Remaining evidence and next action
 
+### Checked local collection support
+
+The current reviewed checkout now contains an `incident-provenance` mode in
+`site/scripts/phase2-hosted-preflight.mjs`. It is preparation for the remaining
+owner-held read-only checkpoint, not hosted evidence and not a
+`classified_schema_fingerprint`.
+
+The mode uses the pinned local Wrangler binary and fixed `SELECT`/read-PRAGMA
+operations only. It binds an internally measured collection interval and the
+operator observation timestamp to an opaque target digest, collects the D1
+journal/schema/table/FK/index/trigger/check/count envelope twice, rejects
+drift, and emits only safe digests, aggregate counts, and
+missing/unavailable/absent statuses. It never calls an application route,
+issues or consumes CSRF state, runs a migration, invokes the gate CLI, or
+returns raw schema/journal rows or child-process errors. Protected historian
+and application-audit digests, provider actor/action/mechanism/time evidence,
+and provider deployment-to-D1 binding remain explicitly
+`external_required`; the mode therefore returns `partial`, never a pass.
+
+The focused no-network contracts pass 17/17, the canonical full application
+suite and build pass, lint passes, and an independent security re-review found
+no BLOCKER/HIGH in the local collector. No hosted invocation was performed.
+This account's Sites connector cannot resolve the persisted private project,
+and its provider CLI is not authenticated, so it cannot collect the live
+bundle. Do not create or discover a substitute project and do not treat the
+local test evidence as Task 1 approval.
+
 Complete one redacted, timestamped, target-bound read-only bundle through a
 provider-supported database/control-plane view. It must contain the missing
 journal, canonical schema, trigger/index/foreign-key, invariant, and provider

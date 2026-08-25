@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { PHASE2_FORBIDDEN_TABLES, PHASE2_FORBIDDEN_TABLE_NAMES } from "./phase2-hosted-contract.mjs";
 
 const execFile = promisify(nativeExecFile);
-const MODES = new Set(["old-schema", "post-migration", "inspect-gate"]);
+const MODES = new Set(["old-schema", "post-migration", "inspect-gate", "incident-provenance"]);
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]{1,160}$/u;
 const SAFE_DATABASE = /^[A-Za-z0-9_-]{1,96}$/u;
 const SAFE_DATABASE_ID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u;
@@ -19,6 +19,7 @@ const SAFE_MIGRATION_NAME = /^\d{4}_[A-Za-z0-9_-]+\.sql$/u;
 const FORBIDDEN_SQL = /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|REPLACE|ATTACH|DETACH|VACUUM)\b/iu;
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const IGNORED_BASELINE_ROOT = fileURLToPath(new URL("../.wrangler/", import.meta.url));
+export const LOCAL_WRANGLER_PATH = fileURLToPath(new URL("../node_modules/.bin/wrangler", import.meta.url));
 const OLD_MIGRATIONS = [
   "0000_jittery_meteorite.sql",
   "0001_true_spencer_smythe.sql",
@@ -52,8 +53,9 @@ const SAFE_FAILURE_CODES = new Set([
   "post_probe_failed",
   "post_probe_invariant_mismatch",
   "target_binding_mismatch",
+  "incident_evidence_drift_detected",
 ]);
-const HELP = `Phase 2 hosted D1 preflight (read-only except for the required POST probe)\n\nUsage: node scripts/phase2-hosted-preflight.mjs --mode old-schema|inspect-gate --database <name-or-id>\n       node scripts/phase2-hosted-preflight.mjs --mode post-migration --database <immutable-d1-uuid> --project <project-id> --deployment <deployment-id> --origin <https-origin> --baseline <owner-held-json> --post-probe-adapter <owner-held-mjs>\n\nPost-migration mode requires owner-held files outside Git. The adapter must export buildKnowledgePostRequest(target) and may supply authenticated RequestInit material; this CLI performs the fixed POST itself against <origin>/api/knowledge and requires the exact inactive-gate 503. The only permitted D1 delta is consumption of exactly one one-time CSRF token; all checked authority and operational state must remain unchanged. Every hosted D1 read uses a fixed Wrangler d1 execute --json query against the immutable D1 UUID. Output is limited to status and fixed code; rows, identifiers, content, child-process errors, request material, and secrets are never emitted.\n`;
+const HELP = `Phase 2 hosted D1 preflight (read-only except for the required POST probe)\n\nUsage: node scripts/phase2-hosted-preflight.mjs --mode old-schema|inspect-gate --database <name-or-id>\n       node scripts/phase2-hosted-preflight.mjs --mode post-migration --database <immutable-d1-uuid> --project <project-id> --deployment <deployment-id> --origin <https-origin> --baseline <owner-held-json> --post-probe-adapter <owner-held-mjs>\n       node scripts/phase2-hosted-preflight.mjs --mode incident-provenance --database <immutable-d1-uuid> --project <project-id> --deployment <deployment-id> --origin <https-origin> --observed-at <ISO-8601>\n\nIncident-provenance uses two fixed read-only D1 collections and never calls an application route or POST probe. It emits redacted database evidence only; provider audit and deployment-to-D1 binding remain external-required. Every hosted D1 read uses the pinned local Wrangler d1 execute --json query against the immutable D1 UUID. Output is limited to safe status, digests, aggregate counts, and surface availability; rows, identifiers, content, child-process errors, request material, and secrets are never emitted.\n`;
 
 class PreflightError extends Error {
   constructor(code) {
@@ -63,13 +65,14 @@ class PreflightError extends Error {
 }
 
 export function parsePreflightArgs(args) {
-  const options = { mode: "", database: "", project: "", deployment: "", origin: "", baseline: "", postProbeAdapter: "", help: false };
+  const options = { mode: "", database: "", project: "", deployment: "", origin: "", observedAt: "", baseline: "", postProbeAdapter: "", help: false };
   const optionNames = new Map([
     ["--mode", "mode"],
     ["--database", "database"],
     ["--project", "project"],
     ["--deployment", "deployment"],
     ["--origin", "origin"],
+    ["--observed-at", "observedAt"],
     ["--baseline", "baseline"],
     ["--post-probe-adapter", "postProbeAdapter"],
   ]);
@@ -90,8 +93,24 @@ export function parsePreflightArgs(args) {
     if (!SAFE_DATABASE_ID.test(options.database) || !isExactHttpsOrigin(options.origin)) throw new Error("immutable_target_required");
     if (!options.baseline || !isOwnerHeldPath(options.baseline)) throw new Error("baseline_required");
     if (!options.postProbeAdapter.endsWith(".mjs") || !isOwnerHeldPath(options.postProbeAdapter)) throw new Error("post_probe_adapter_required");
-  } else if (options.project || options.deployment || options.origin || options.baseline || options.postProbeAdapter) throw new Error("post_migration_argument_not_permitted");
+  } else if (options.mode === "incident-provenance") {
+    if (!SAFE_IDENTIFIER.test(options.project) || !SAFE_IDENTIFIER.test(options.deployment)
+      || !SAFE_DATABASE_ID.test(options.database) || !isExactHttpsOrigin(options.origin) || !isExactIsoTimestamp(options.observedAt)) throw new Error("immutable_target_required");
+    if (options.baseline || options.postProbeAdapter) throw new Error("incident_provenance_argument_not_permitted");
+  } else if (options.project || options.deployment || options.origin || options.observedAt || options.baseline || options.postProbeAdapter) throw new Error("post_migration_argument_not_permitted");
   return options;
+}
+
+function isExactIsoTimestamp(candidate) {
+  if (typeof candidate !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(candidate)) return false;
+  return Number.isFinite(Date.parse(candidate)) && new Date(candidate).toISOString() === candidate;
+}
+
+function timestampFromClock(clock) {
+  const value = clock();
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new PreflightError("target_binding_mismatch");
+  return date.toISOString();
 }
 
 function isExactHttpsOrigin(candidate) {
@@ -133,10 +152,50 @@ const POST_COUNTS_QUERY = "SELECT (SELECT COUNT(*) FROM workspaces) AS workspace
 const FOREIGN_KEYS_QUERY = "PRAGMA foreign_key_check";
 const FORBIDDEN_TABLE_QUERY = `SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN (${PHASE2_FORBIDDEN_TABLE_NAMES.map((name) => `'${name}'`).join(",")}) ORDER BY name`;
 const GATE_QUERY = "SELECT COUNT(*) AS total_gate_count, COUNT(CASE WHEN capability = 'consensus_knowledge' THEN 1 END) AS consensus_gate_count FROM phase_activation_gates";
+const INCIDENT_TABLES = Object.freeze([
+  "workspaces", "audit_events", "interview_sessions", "interview_answers", "interview_confirmations",
+  "accounts", "artifact_configuration_dependencies", "authority_commands", "companies",
+  "configuration_activations", "configuration_knowledge_dependencies", "contact_relevance", "contacts",
+  "drift_impact_snapshots", "interview_authority_bindings", "interview_authority_review", "knowledge_drifts",
+  "knowledge_items", "knowledge_proposals", "knowledge_versions", "offers", "organizations",
+  "phase_activation_gates", "proposal_decisions", "proposal_prerequisites", "replacement_candidates",
+  "research_candidates", "source_custody", "source_excerpts", "sources", "targets", "workspace_companies",
+  "typed_configurations", "products", "market_plays", "customer_profiles",
+]);
+const INCIDENT_INDEXES = Object.freeze([
+  "account_play_organization_unique", "artifact_configuration_dependency_unique",
+  "authority_command_key_unique", "authority_command_digest_unique", "companies_workspace_unique",
+  "configuration_activation_candidate_unique", "configuration_activation_command_unique",
+  "configuration_knowledge_dependency_unique", "contact_relevance_play_contact_unique",
+  "contact_company_identity_unique", "drift_impact_digest_unique", "knowledge_item_scope_unique",
+  "knowledge_item_current_version_unique", "knowledge_proposal_digest_unique", "offers_profile_idx",
+  "offers_authority_unique", "organization_company_identity_unique", "phase_gate_capability_unique",
+  "phase_gate_tuple_unique", "proposal_decision_proposal_unique", "proposal_decision_key_unique",
+  "proposal_decision_snapshot_unique", "proposal_prerequisite_unique",
+  "replacement_candidate_digest_unique", "research_candidate_locator_unique",
+  "source_custody_object_unique", "source_excerpt_digest_unique", "source_workspace_digest_unique",
+  "source_workspace_locator_unique", "target_profile_account_unique", "workspace_companies_company_unique",
+  "config_owner_idx", "active_configuration_owner_unique", "live_interview_destination_unique",
+  "knowledge_current_version_item_unique", "knowledge_version_item_idx", "products_company_idx",
+]);
+const INCIDENT_COUNTS_QUERY = "SELECT (SELECT COUNT(*) FROM workspaces) AS workspace_count, (SELECT COUNT(*) FROM interview_answers a JOIN interview_confirmations c ON c.answer_id = a.id JOIN knowledge_versions k ON k.id = c.knowledge_version_id WHERE a.proposal_digest != 'legacy-unbound' AND c.operation_digest != 'legacy-unbound') AS bound_historian_count, (SELECT COUNT(*) FROM interview_answers WHERE proposal_digest = 'legacy-unbound') AS legacy_unbound_count, (SELECT COUNT(*) FROM companies) AS company_count, (SELECT COUNT(*) FROM workspace_companies) AS workspace_company_count, (SELECT COUNT(*) FROM workspaces w LEFT JOIN workspace_companies wc ON wc.workspace_id = w.id LEFT JOIN companies c ON c.id = wc.company_id AND c.workspace_id = w.id WHERE wc.company_id IS NULL OR c.id IS NULL) AS invalid_company_binding_count, (SELECT COUNT(*) FROM interview_authority_bindings) AS binding_count, (SELECT COUNT(*) FROM interview_answers a JOIN interview_confirmations c ON c.answer_id = a.id JOIN knowledge_versions k ON k.id = c.knowledge_version_id LEFT JOIN interview_authority_bindings b ON b.answer_id = a.id AND b.confirmation_id = c.id AND b.knowledge_version_id = k.id AND b.knowledge_item_id = k.knowledge_item_id WHERE a.proposal_digest != 'legacy-unbound' AND c.operation_digest != 'legacy-unbound' AND b.answer_id IS NULL) AS invalid_binding_count, (SELECT COUNT(*) FROM knowledge_versions k WHERE k.source_digest IS NOT NULL AND k.source_digest != 'legacy-unbound' AND (k.knowledge_item_id IS NULL OR k.value_digest != k.source_digest OR NOT EXISTS (SELECT 1 FROM knowledge_items i WHERE i.id = k.knowledge_item_id AND i.current_version_id = k.id AND i.workspace_id = k.workspace_id))) AS invalid_knowledge_lineage_count, (SELECT COUNT(*) FROM interview_answers a JOIN interview_authority_bindings b ON b.answer_id = a.id WHERE a.proposal_digest = 'legacy-unbound') AS legacy_bound_count, (SELECT COUNT(*) FROM interview_authority_review WHERE status = 'review_required') AS quarantine_count, (SELECT COUNT(*) FROM interview_answers a LEFT JOIN interview_authority_review r ON r.answer_id = a.id AND r.workspace_id = a.workspace_id AND r.status = 'review_required' AND r.reason = 'legacy_unbound_authority' WHERE a.proposal_digest = 'legacy-unbound' AND r.answer_id IS NULL) AS invalid_quarantine_count, (SELECT COUNT(*) FROM audit_events) AS audit_count, (SELECT COUNT(*) FROM phase_activation_gates) AS total_gate_count, (SELECT COUNT(*) FROM phase_activation_gates WHERE capability = 'consensus_knowledge') AS consensus_gate_count, (SELECT COUNT(*) FROM prospects) AS prospect_count, (SELECT COUNT(*) FROM contacts) AS contact_count, (SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('runner_connections','runs','signals','candidates','schedules','approval_grants','provider_grants','provider_calls','outreach_packages','outreach_package_approvals','message_versions','message_approvals','message_dispatches','manual_calls','export_jobs','external_effects','credential_records','provider_credentials','provider_secrets','workspace_archives','workspace_archive_objects')) AS forbidden_table_count";
 
 export function buildPreflightCommands({ mode, database }) {
-  if (!MODES.has(mode) || !SAFE_DATABASE.test(database) || (mode === "post-migration" && !SAFE_DATABASE_ID.test(database))) throw new Error("invalid_preflight_options");
+  if (!MODES.has(mode) || !SAFE_DATABASE.test(database) || (["post-migration", "incident-provenance"].includes(mode) && !SAFE_DATABASE_ID.test(database))) throw new Error("invalid_preflight_options");
   if (mode === "inspect-gate") return [fixedRead("counts", database, GATE_QUERY)];
+  if (mode === "incident-provenance") return [
+    fixedRead("migrations", database, "SELECT id, name AS migration_name, applied_at AS applied_at FROM d1_migrations ORDER BY id"),
+    fixedRead("schema", database, "SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND type IN ('table','index','trigger') ORDER BY type, name"),
+    ...INCIDENT_TABLES.flatMap((table) => [
+      fixedRead(`tableXinfo:${table}`, database, `PRAGMA table_xinfo('${table}')`),
+      fixedRead(`foreignKeyList:${table}`, database, `PRAGMA foreign_key_list('${table}')`),
+      fixedRead(`indexList:${table}`, database, `PRAGMA index_list('${table}')`),
+    ]),
+    ...INCIDENT_INDEXES.map((index) => fixedRead(`indexXinfo:${index}`, database, `PRAGMA index_xinfo('${index}')`)),
+    fixedRead("foreignKeyCheck", database, FOREIGN_KEYS_QUERY),
+    fixedRead("counts", database, INCIDENT_COUNTS_QUERY),
+    ...PHASE2_FORBIDDEN_TABLE_NAMES.map((table) => fixedRead(`forbiddenRows:${table}`, database, `SELECT COUNT(*) AS row_count FROM \`${table}\``)),
+  ];
   return [
     fixedRead("migrations", database, "SELECT name AS migration_name, applied_at FROM d1_migrations ORDER BY id"),
     ...PROTECTED_QUERIES.map(({ key, sql }) => fixedRead(key, database, sql)),
@@ -219,11 +278,254 @@ function targetBindingDigest({ project, database, deployment, origin }) {
   return createHash("sha256").update(JSON.stringify({ project, database, deployment, origin })).digest("hex");
 }
 
+function incidentTargetBindingDigest({ project, database, deployment, origin, observedAt }) {
+  return createHash("sha256").update(JSON.stringify({ project, database, deployment, origin, observedAt })).digest("hex");
+}
+
 function validateHostedTarget(options) {
   if (!SAFE_IDENTIFIER.test(options.project) || !SAFE_IDENTIFIER.test(options.deployment)
     || !SAFE_DATABASE_ID.test(options.database) || !isExactHttpsOrigin(options.origin)) {
     throw new PreflightError("target_binding_mismatch");
   }
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  return value;
+}
+
+function digest(value) {
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
+}
+
+function exactRow(row, keys) {
+  if (!hasExactKeys(row, keys)) throw new PreflightError("malformed_result");
+  return row;
+}
+
+function boundedText(value, { nullable = false, maximum = 1_048_576 } = {}) {
+  if (nullable && value === null) return value;
+  if (typeof value !== "string" || value.length === 0 || value.length > maximum || /\0/u.test(value)) throw new PreflightError("malformed_result");
+  return value;
+}
+
+function safeSqlValue(value) {
+  if (value === null || typeof value === "string" || Number.isSafeInteger(value)) return value;
+  throw new PreflightError("malformed_result");
+}
+
+function compareRows(keys) {
+  return (left, right) => {
+    for (const key of keys) {
+      const leftValue = JSON.stringify(left[key]);
+      const rightValue = JSON.stringify(right[key]);
+      if (leftValue < rightValue) return -1;
+      if (leftValue > rightValue) return 1;
+    }
+    return 0;
+  };
+}
+
+function normalizeIncidentRows(key, rows) {
+  if (key === "migrations") {
+    if (rows.length === 0) throw new PreflightError("required_object_missing");
+    const normalized = rows.map((candidate) => {
+      const row = exactRow(candidate, ["id", "migration_name", "applied_at"]);
+      if (!Number.isSafeInteger(row.id) || row.id < 0 || !SAFE_MIGRATION_NAME.test(row.migration_name)) throw new PreflightError("malformed_result");
+      return { id: row.id, migration_name: row.migration_name, applied_at: boundedText(row.applied_at, { maximum: 128 }) };
+    }).sort(compareRows(["id"]));
+    if (new Set(normalized.map(({ id }) => id)).size !== normalized.length || new Set(normalized.map(({ migration_name }) => migration_name)).size !== normalized.length) throw new PreflightError("malformed_result");
+    return normalized;
+  }
+  if (key === "schema") {
+    if (rows.length === 0) throw new PreflightError("required_object_missing");
+    return rows.map((candidate) => {
+      const row = exactRow(candidate, ["type", "name", "tbl_name", "sql"]);
+      if (!["table", "index", "trigger"].includes(row.type)) throw new PreflightError("malformed_result");
+      return {
+        type: row.type,
+        name: boundedText(row.name, { maximum: 512 }),
+        tbl_name: boundedText(row.tbl_name, { maximum: 512 }),
+        sql: row.sql === null ? null : boundedText(row.sql),
+      };
+    }).sort(compareRows(["type", "tbl_name", "name", "sql"]));
+  }
+  if (key.startsWith("tableXinfo:")) {
+    if (rows.length === 0) throw new PreflightError("required_object_missing");
+    return rows.map((candidate) => {
+      const row = exactRow(candidate, ["cid", "name", "type", "notnull", "dflt_value", "pk", "hidden"]);
+      for (const integerKey of ["cid", "notnull", "pk", "hidden"]) if (!Number.isSafeInteger(row[integerKey]) || row[integerKey] < 0) throw new PreflightError("malformed_result");
+      return { ...row, name: boundedText(row.name, { maximum: 512 }), type: boundedText(row.type, { maximum: 128 }), dflt_value: safeSqlValue(row.dflt_value) };
+    }).sort(compareRows(["cid", "name"]));
+  }
+  if (key.startsWith("foreignKeyList:")) {
+    return rows.map((candidate) => {
+      const row = exactRow(candidate, ["id", "seq", "table", "from", "to", "on_update", "on_delete", "match"]);
+      for (const integerKey of ["id", "seq"]) if (!Number.isSafeInteger(row[integerKey]) || row[integerKey] < 0) throw new PreflightError("malformed_result");
+      return {
+        ...row,
+        table: boundedText(row.table, { maximum: 512 }),
+        from: boundedText(row.from, { maximum: 512 }),
+        to: boundedText(row.to, { nullable: true, maximum: 512 }),
+        on_update: boundedText(row.on_update, { maximum: 64 }),
+        on_delete: boundedText(row.on_delete, { maximum: 64 }),
+        match: boundedText(row.match, { maximum: 64 }),
+      };
+    }).sort(compareRows(["id", "seq", "table", "from", "to"]));
+  }
+  if (key.startsWith("indexList:")) {
+    return rows.map((candidate) => {
+      const row = exactRow(candidate, ["seq", "name", "unique", "origin", "partial"]);
+      for (const integerKey of ["seq", "unique", "partial"]) if (!Number.isSafeInteger(row[integerKey]) || row[integerKey] < 0) throw new PreflightError("malformed_result");
+      return { ...row, name: boundedText(row.name, { maximum: 512 }), origin: boundedText(row.origin, { maximum: 64 }) };
+    }).sort(compareRows(["seq", "name"]));
+  }
+  if (key.startsWith("indexXinfo:")) {
+    if (rows.length === 0) throw new PreflightError("required_object_missing");
+    return rows.map((candidate) => {
+      const row = exactRow(candidate, ["seqno", "cid", "name", "desc", "coll", "key"]);
+      for (const integerKey of ["seqno", "cid", "desc", "key"]) if (!Number.isSafeInteger(row[integerKey]) || row[integerKey] < -2) throw new PreflightError("malformed_result");
+      return { ...row, name: boundedText(row.name, { nullable: true, maximum: 512 }), coll: boundedText(row.coll, { nullable: true, maximum: 128 }) };
+    }).sort(compareRows(["seqno", "cid", "name"]));
+  }
+  if (key === "foreignKeyCheck") {
+    return rows.map((candidate) => {
+      const row = exactRow(candidate, ["table", "rowid", "parent", "fkid"]);
+      if ((row.rowid !== null && !Number.isSafeInteger(row.rowid)) || !Number.isSafeInteger(row.fkid) || row.fkid < 0) throw new PreflightError("malformed_result");
+      return { table: boundedText(row.table, { maximum: 512 }), rowid: row.rowid, parent: boundedText(row.parent, { maximum: 512 }), fkid: row.fkid };
+    }).sort(compareRows(["table", "rowid", "parent", "fkid"]));
+  }
+  if (key.startsWith("forbiddenRows:")) {
+    if (rows.length !== 1) throw new PreflightError("malformed_result");
+    return { row_count: integer(exactRow(rows[0], ["row_count"]), "row_count") };
+  }
+  if (key === "counts") return incidentCounts(rows);
+  throw new PreflightError("malformed_result");
+}
+
+function incidentCounts(rows) {
+  if (rows.length !== 1) throw new PreflightError("hosted_output_invalid");
+  const keys = [
+    "workspace_count", "bound_historian_count", "legacy_unbound_count", "company_count",
+    "workspace_company_count", "invalid_company_binding_count", "binding_count", "invalid_binding_count",
+    "invalid_knowledge_lineage_count", "legacy_bound_count", "quarantine_count", "invalid_quarantine_count",
+    "audit_count", "total_gate_count", "consensus_gate_count", "prospect_count", "contact_count",
+    "forbidden_table_count",
+  ];
+  return Object.fromEntries(keys.map((key) => [key, integer(rows[0], key)]));
+}
+
+async function collectIncidentEvidence(options, runner) {
+  const surfaces = {};
+  const values = {};
+  for (const command of buildPreflightCommands(options)) {
+    try {
+      const result = await runner(command);
+      const rows = parseRows(result?.stdout);
+      values[command.key] = normalizeIncidentRows(command.key, rows);
+      surfaces[command.key] = { status: "available" };
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === "required_object_missing") surfaces[command.key] = { status: "missing", code: "required_object_missing" };
+      else if (error instanceof PreflightError) surfaces[command.key] = { status: "unavailable", code: "malformed_result" };
+      else surfaces[command.key] = { status: "unavailable", code: "query_unavailable" };
+    }
+  }
+  const schemaTables = new Set((values.schema ?? []).filter(({ type }) => type === "table").map(({ name }) => name));
+  const schemaIndexes = new Set((values.schema ?? []).filter(({ type }) => type === "index").map(({ name }) => name));
+  if (surfaces.schema?.status === "available") {
+    for (const table of INCIDENT_TABLES) {
+      if (!schemaTables.has(table)) {
+        surfaces[`tableXinfo:${table}`] = { status: "missing", code: "required_object_missing" };
+        delete values[`tableXinfo:${table}`];
+      }
+    }
+    for (const index of INCIDENT_INDEXES) {
+      if (!schemaIndexes.has(index)) {
+        surfaces[`indexXinfo:${index}`] = { status: "missing", code: "required_object_missing" };
+        delete values[`indexXinfo:${index}`];
+      }
+    }
+    for (const table of PHASE2_FORBIDDEN_TABLE_NAMES) {
+      const key = `forbiddenRows:${table}`;
+      if (!schemaTables.has(table)) surfaces[key] = { status: "absent" };
+    }
+  }
+  const surfaceDigests = Object.fromEntries(Object.keys(surfaces).sort().map((key) => [key, {
+    ...surfaces[key],
+    ...(surfaces[key].status === "available" ? { digest: digest(values[key]) } : {}),
+  }]));
+  const statusGroups = Object.entries(surfaces).reduce((groups, [key, surface]) => {
+    const group = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
+    if (!groups[group]) groups[group] = { status: "available", available: 0, missing: 0, absent: 0, unavailable: 0 };
+    groups[group][surface.status] += 1;
+    if (surface.status === "unavailable") groups[group].status = "partial";
+    else if (surface.status === "missing" && groups[group].status === "available") groups[group].status = "available_with_missing_objects";
+    return groups;
+  }, {});
+  const counts = surfaces.counts?.status === "available" ? values.counts : {};
+  const forbiddenState = Object.fromEntries(PHASE2_FORBIDDEN_TABLE_NAMES.map((table) => {
+    const key = `forbiddenRows:${table}`;
+    const surface = surfaces[key];
+    return [table, surface.status === "available" ? { status: "present", rowCount: values[key].row_count } : { status: surface.status }];
+  }));
+  const metadataSurfaces = Object.fromEntries(Object.entries(surfaceDigests).filter(([key]) => key !== "counts" && !key.startsWith("forbiddenRows:")));
+  const schemaDigest = digest(metadataSurfaces);
+  const evidenceDigest = digest({ schemaDigest, counts, forbiddenState, surfaceDigests });
+  return {
+    schemaDigest,
+    evidenceDigest,
+    counts,
+    forbiddenState,
+    foreignKeyViolationCount: surfaces.foreignKeyCheck?.status === "available" ? values.foreignKeyCheck.length : null,
+    journalEntryCount: surfaces.migrations?.status === "available" ? values.migrations.length : null,
+    schemaObjectCount: surfaces.schema?.status === "available" ? values.schema.length : null,
+    surfaces: statusGroups,
+    surfaceDigests,
+    digest: evidenceDigest,
+  };
+}
+
+function incidentResult(options, bindingDigest, evidence, collectionInterval) {
+  const classification = "partial/mixed/unknown";
+  const externalStatuses = {
+    protectedHistorianDigest: "external_required",
+    auditDigest: "external_required",
+    providerAudit: "external_required",
+    deploymentBinding: "external_required",
+  };
+  const incidentEvidenceFingerprint = digest({
+    targetBindingDigest: bindingDigest,
+    observedAt: options.observedAt,
+    collectionInterval,
+    evidenceDigest: evidence.evidenceDigest,
+    classification,
+    externalStatuses,
+  });
+  return {
+    ok: false,
+    status: "partial",
+    code: "provider_evidence_external_required",
+    targetBindingDigest: bindingDigest,
+    observedAt: options.observedAt,
+    collectionInterval,
+    classification,
+    classifiedSchemaFingerprintStatus: "external_evidence_required",
+    incidentEvidenceFingerprint,
+    schemaDigest: evidence.schemaDigest,
+    evidenceDigest: evidence.evidenceDigest,
+    counts: evidence.counts,
+    forbiddenState: evidence.forbiddenState,
+    foreignKeyViolationCount: evidence.foreignKeyViolationCount,
+    journalEntryCount: evidence.journalEntryCount,
+    schemaObjectCount: evidence.schemaObjectCount,
+    surfaces: evidence.surfaces,
+    surfaceDigests: evidence.surfaceDigests,
+    protectedHistorianDigest: { status: externalStatuses.protectedHistorianDigest },
+    auditDigest: { status: externalStatuses.auditDigest },
+    providerAudit: { status: externalStatuses.providerAudit },
+    deploymentBinding: { status: externalStatuses.deploymentBinding },
+  };
 }
 
 function migrationState(rows) {
@@ -361,8 +663,21 @@ function evaluateGate(rows) {
   if (rows.length !== 1 || integer(rows[0], "total_gate_count") !== 0 || integer(rows[0], "consensus_gate_count") !== 0) throw new PreflightError("gate_invariant_mismatch");
 }
 
-export async function runHostedPreflight({ options, baseline, runner, postProbe }) {
+export async function runHostedPreflight({ options, baseline, runner, postProbe, clock = () => new Date() }) {
   try {
+    if (options.mode === "incident-provenance") {
+      validateHostedTarget(options);
+      if (!isExactIsoTimestamp(options.observedAt)) throw new PreflightError("target_binding_mismatch");
+      const collectionStartedAt = timestampFromClock(clock);
+      if (Math.abs(Date.parse(collectionStartedAt) - Date.parse(options.observedAt)) > 5 * 60 * 1000) throw new PreflightError("target_binding_mismatch");
+      const bindingDigest = incidentTargetBindingDigest(options);
+      const before = await collectIncidentEvidence(options, runner);
+      const after = await collectIncidentEvidence(options, runner);
+      if (before.digest !== after.digest) throw new PreflightError("incident_evidence_drift_detected");
+      const collectionCompletedAt = timestampFromClock(clock);
+      if (Date.parse(collectionCompletedAt) < Date.parse(collectionStartedAt)) throw new PreflightError("target_binding_mismatch");
+      return incidentResult(options, bindingDigest, after, { startedAt: collectionStartedAt, completedAt: collectionCompletedAt });
+    }
     if (options.mode === "inspect-gate") {
       evaluateGate(await collectState(options, runner));
       return SAFE_RESULTS.gateAbsent;
@@ -395,7 +710,7 @@ export async function runHostedPreflight({ options, baseline, runner, postProbe 
 }
 
 async function nativeRunner(command) {
-  return execFile("npx", ["wrangler", ...command.args], { cwd: new URL("..", import.meta.url), maxBuffer: 4 * 1024 * 1024 });
+  return execFile(LOCAL_WRANGLER_PATH, command.args, { cwd: new URL("..", import.meta.url), maxBuffer: 4 * 1024 * 1024 });
 }
 
 async function nativeLoadPostProbe(adapterPath) {

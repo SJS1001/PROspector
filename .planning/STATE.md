@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 2 Plan 02-21 read-only provenance checkpoint; constrained partial/mixed/unknown classification recorded, recovery not authorized; Plan 02-99 terminal barrier pending
-last_updated: "2026-08-25T08:21:36Z"
+stopped_at: Phase 2 Plan 02-21 read-only provenance checkpoint; checked local incident collector ready but not run against target; partial/mixed/unknown classification and recovery freeze retained; Plan 02-99 pending
+last_updated: "2026-08-25T11:15:23Z"
 last_activity: 2026-08-25
 progress:
   total_phases: 7
@@ -89,6 +89,7 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 02 incident]: Plans 02-14 through 02-20 are preserved verbatim as `*.retired.md` history outside GSD executor discovery. They are not active plan-count entries and cannot be resumed.
 - [Phase 02 incident]: Plan 02-21 is a counted, non-autonomous incident plan. It performs no implementation, rehearsal, provider recovery environment, restore drill, future execution-plan creation, or hosted write. A separate exact owner authorization may permit only drafting and checking a future path-specific plan; that plan must contain a new artifact-bound owner checkpoint before any write.
 - [Phase 02 incident]: Canonical Plan 02-99 is a counted non-autonomous two-task terminal barrier. Plan 02-21 completion leaves Phase 2 incomplete. Future planning must atomically move Plan 02-99's dependency/wave after the replacement sequence's terminal successor; Task 1 then creates fresh independent verification and Task 2 requires exact owner acceptance. No 02-99 summary may exist until both pass.
+- [Phase 02 incident]: The checked local preflight now has a fail-closed `incident-provenance` mode for the D1 portion of Task 1: pinned local Wrangler, fixed SELECT/read-PRAGMA surfaces, double-collection drift detection, target/time-bound opaque evidence, semantic metadata validation, and safe digests/counts only. It returns partial and marks protected/audit digests plus provider binding/audit external-required. It has not run against the target and earns no plan credit or recovery authority.
 - [Phase 03]: Local Plans 03-01 through 03-08 have committed summaries and implementation, UI, tests, race hardening, and a fail-closed offline preflight. This is local-plan credit only: Phase 2 is not accepted and Plans 03-09 through 03-11 remain incomplete.
 - [Planning ledger]: The checked repository contains 75 active `*-PLAN.md` files and 26 summary artifacts (active Phase 2: 15 plans / 32 tasks; retired Phase 2 hosted-release plans: 7 outside discovery). The invalidated Plan 02-13 summary is retained as incident history but earns no completion credit, leaving 25 completion credits; Phase 3's eight credits remain local-only.
 - [Maintenance]: Dependency checkpoint `b794e89` patches the bundled React server component and Cloudflare/Vite toolchain advisories, preserves exact pins, and passes fresh-install isolated receipt tests, the full suite, lint, build, and Drizzle validation. Production audit is zero; the remaining npm findings are development-only ESLint/brace-expansion and Drizzle/esbuild-kit chains whose offered fixes are breaking or regressive. This maintenance grants no phase or activation credit.
@@ -109,6 +110,7 @@ None yet.
 - The committed forensic report and `02-INCIDENT-RECONCILIATION.md` prove a Phase 2 hosted schema/source divergence: Plan 02-13's schema-0003 premise is contradicted, the deployed source was not the reviewed Phase 2 lineage, and live column signatures rule out the complete reviewed `b93c71d…` schema.
 - The empty hosted gate is useful negative evidence but does not repair provenance. Exact journal state, applied migration digest, constraints/triggers/indexes/FKs, actor, mechanism, time, invariant bundle, and backup/restore proof remain unknown. All hosted writes remain frozen; the original Plans 02-14 through 02-20 are preserved outside executor discovery and require replacement by a newly checked release sequence after recovery.
 - Plan 02-21 is blocked at its remaining read-only evidence checkpoint. It may proceed only through provider-supported read-only inspection, a local design-only recovery contract, independent design review, and a separate decision that can authorize only drafting/checking a future plan. It cannot create executable recovery files, a provider recovery environment, a restore drill, a future execution plan, a hosted write, or a completion summary early.
+- The local incident-provenance collector is verified and independently reviewed, but this account cannot resolve the persisted private Sites project and has no authenticated provider CLI. The owner-held account must run the read-only database envelope and obtain the separate provider control-plane evidence; no substitute project or local fixture can close the checkpoint.
 - Plan 02-99 remains incomplete after Plan 02-21 by design. It must be atomically rebased after the eventual replacement release terminal successor and cannot summarize without executed successor summaries, fresh passed Phase 2 verification, and exact owner terminal acceptance. It performs no hosted action and grants no authority.
 - Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
@@ -129,5 +131,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-25
-Stopped at: Plan 02-21 Task 1; constrained read-only classification recorded, remaining provenance unavailable, recovery not authorized; Plan 02-99 remains the terminal barrier
+Stopped at: Plan 02-21 Task 1; checked local incident collector ready but not run against the target, remaining owner-held/provider provenance unavailable, recovery not authorized; Plan 02-99 remains the terminal barrier
 Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECONCILIATION.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-21-PLAN.md`, and `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`
