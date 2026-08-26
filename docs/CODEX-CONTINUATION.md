@@ -6,6 +6,13 @@
 **Portable checkpoint:** use the latest `origin/codex/generic-prospector-pilot` commit  
 **Focus:** Continue all remaining GSD phases while preserving private hosting and authority gates.
 
+## Fresh isolated pilot ownership
+
+For the separately authorized fresh PROspector pilot, use the non-secret
+deployment ownership record in [`DEPLOYMENT-OWNERSHIP.md`](DEPLOYMENT-OWNERSHIP.md).
+It does not change the preservation requirements for the original deployment
+or authorize access to it.
+
 ## Resume from another Codex account
 
 1. Confirm the other account has GitHub read/write access to `SJS1001/PROspector`.
