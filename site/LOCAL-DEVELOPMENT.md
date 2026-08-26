@@ -38,6 +38,14 @@ The page should render a centered **Local demo interview** card with two clear
 steps. After initialization, step one is marked complete and **Open Consensus
 Knowledge** becomes the primary action. Workspace views use a `?view=` URL, so
 direct links, reload, and browser Back preserve the selected top-level view.
+In Consensus Knowledge, the interview card shows the exact company destination
+from the commercial hierarchy. Choose an answer and **Submit answer for
+confirmation**; this creates Proposed Knowledge only. Then choose a separate
+owner decision and submit it. Accepting records a local Knowledge Version and
+audit reference while prospecting, providers, contacts, exports, scheduling,
+and outreach remain disabled. The local browser sends only these interview
+commands through the loopback interview boundary; all other Knowledge actions
+remain on the ordinary activation-gated endpoint.
 Safari receives a separate non-Secure local-only
 CSRF cookie because it rejects `Secure` cookies over plain HTTP; all ordinary
 and hosted paths retain the `Secure` `__Host-` cookie. If a Safari tab was open

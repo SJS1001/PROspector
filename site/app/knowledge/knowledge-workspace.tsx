@@ -5,6 +5,7 @@ import type { CommercialHierarchyNode, CommercialModelProjection } from "../../d
 import type { InterviewState } from "../../domain/interview";
 import { CommercialModelView, type CommercialCommand } from "./commercial-model";
 import { ConsensusInterviewView, type InterviewAnswerCommand, type InterviewDecisionCommand } from "./consensus-interview";
+import { knowledgeMutationTransport } from "./mutation-transport";
 import { DriftReplacementsView, type DriftProjection, type DriftReviewCommand, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
 import { KnowledgeLibraryView, type KnowledgeIntakeCommand, type KnowledgeItemProjection, type KnowledgeReviewCommand } from "./knowledge-library";
 
@@ -58,30 +59,36 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
   const dispatch = useCallback(async (action: string, logicalKey: string, fields: Record<string, unknown>) => {
     if (state.kind !== "ready") return;
     const operationKey = keyFor(logicalKey);
+    const transport = knowledgeMutationTransport(action, window.location.hostname);
     setPending(logicalKey); setNotice(null);
     try {
-      const post = () => fetch("/api/knowledge", {
+      const post = () => fetch(transport.endpoint, {
         method: "POST", credentials: "same-origin", cache: "no-store",
-        headers: { "content-type": "application/json", "x-prospector-intent": "knowledge-mutation" },
+        headers: { "content-type": "application/json", "x-prospector-intent": transport.intent },
         body: JSON.stringify({ action, idempotencyKey: operationKey, ...fields }),
       });
       let response = await post();
       if (response.status === 404) { onUnauthorized(); setState({ kind: "unauthorized" }); return; }
       if (response.status === 403) {
-        const refreshed = await fetch("/api/knowledge", { credentials: "same-origin", cache: "no-store" });
+        const refreshed = await fetch(transport.endpoint, { credentials: "same-origin", cache: "no-store" });
         if (refreshed.status === 404) { onUnauthorized(); setState({ kind: "unauthorized" }); return; }
         if (!refreshed.ok) throw new Error("csrf_recovery_unavailable");
         response = await post();
       }
       if (response.status === 409) { setNotice({ message: "This item changed in another tab. Your action was not applied. Review the current version before continuing.", actionLabel: "Load current version" }); return; }
       if (!response.ok) throw new Error("mutation_unavailable");
+      if (!transport.returnsKnowledgeProjection) {
+        operationKeys.current.delete(logicalKey);
+        await load();
+        return;
+      }
       const value = normalizeProjection(await response.json());
       operationKeys.current.delete(logicalKey);
       setState({ kind: "ready", value });
     } catch {
       setNotice({ message: "The outcome could not be verified. Nothing will be retried automatically. Check the current version.", actionLabel: "Check current version" });
     } finally { setPending(null); }
-  }, [keyFor, onUnauthorized, state.kind]);
+  }, [keyFor, load, onUnauthorized, state.kind]);
 
   if (state.kind === "loading") return <section className="panel loading-state" role="status">Loading authoritative knowledge…</section>;
   if (state.kind === "unauthorized") return null;

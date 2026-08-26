@@ -89,6 +89,28 @@ test("LOCAL_DEMO uses a Safari-compatible HTTP cookie only inside the guarded lo
   assert.match(route, /csrfCookieMode:[\s\S]*\? "local-demo"[\s\S]*: "secure"/);
 });
 
+test("local demo routes only interview authority commands through the dedicated loopback boundary", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const { knowledgeMutationTransport } = await vite.ssrLoadModule(resolve(root, "app/knowledge/mutation-transport.ts"));
+    for (const hostname of ["localhost", "LOCALHOST", "127.0.0.1", "::1", "[::1]"]) {
+      assert.deepEqual(knowledgeMutationTransport("submit_interview_answer", hostname), {
+        endpoint: "/api/interview",
+        intent: "interview-mutation",
+        returnsKnowledgeProjection: false,
+      });
+      assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/interview");
+      assert.equal(knowledgeMutationTransport("propose_owner_edit", hostname).endpoint, "/api/knowledge");
+    }
+    for (const hostname of ["", "localhost.", "127.0.0.2", "0.0.0.0", "example.test"]) {
+      assert.equal(knowledgeMutationTransport("submit_interview_answer", hostname).endpoint, "/api/knowledge");
+      assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/knowledge");
+    }
+  } finally {
+    await vite.close();
+  }
+});
+
 test("local persisted runtime state survives a separate local process", async () => {
   await rm(state, { recursive: true, force: true });
   execFileSync(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", ".local/test-demo-persistence-state"], { cwd: root });

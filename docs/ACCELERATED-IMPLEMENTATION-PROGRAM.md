@@ -27,6 +27,15 @@ or credentials are activated by implementation work alone.
   `site/scripts/local-bootstrap.mjs`; it applies the complete chain only to
   ignored local state and verifies foreign keys. It creates no operational,
   provider, contact, or outbound data.
+- The guarded `LOCAL_DEMO` runtime now exercises the first complete governed
+  product loop in a real browser: initialize a disposable interview, enter the
+  URL-addressable Knowledge workspace, review the exact projected commercial
+  destination, submit an answer, and separately confirm it into a Knowledge
+  Version. The local transport uses the dedicated interview boundary only for
+  those two interview commands on canonical loopback hostnames; every other
+  Knowledge command remains on the Phase 2 activation-gated boundary. Focused
+  regression coverage proves exact destination and revision authority and
+  zero change to downstream operational tables.
 
 ## Dependency-ordered master plan
 

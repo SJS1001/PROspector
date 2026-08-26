@@ -137,8 +137,12 @@ function assertClosedCommand(body: Record<string, unknown>) {
 }
 
 async function projectionResponse(database: D1Database, principal: InterviewPrincipal) {
-  const [commercial, interview, library, drift, replacements] = await Promise.all([
-    readCommercialModel(database, principal), readInterviewState(database, principal), readKnowledgeLibrary(database, principal), readDrift(database, principal), readReplacements(database, principal),
+  // The library bootstrap already establishes the default commercial model.
+  // Complete it before projecting the interview so a fresh workspace never
+  // races its legacy workspace-scoped question against the company hierarchy.
+  const library = await readKnowledgeLibrary(database, principal);
+  const [commercial, interview, drift, replacements] = await Promise.all([
+    readCommercialModel(database, principal), readInterviewState(database, principal), readDrift(database, principal), readReplacements(database, principal),
   ]);
   return withCsrfCookie(json({ commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
 }
