@@ -31,6 +31,7 @@ try {
   const pageHtml = await page.text();
   assert.match(pageHtml, /Local demo interview/);
   assert.match(pageHtml, /data-local-demo-visible="true"/);
+  assert.match(pageHtml, /Local demo setup steps/);
 
   const initial = await fetch(`${base}/api/interview`);
   assert.equal(initial.status, 200);
