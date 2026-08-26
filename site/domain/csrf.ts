@@ -3,24 +3,43 @@ export class CsrfTokenError extends Error {
 }
 
 export const CSRF_COOKIE_NAME = "__Host-prospector-csrf";
+export const LOCAL_CSRF_COOKIE_NAME = "prospector-local-csrf";
+export type CsrfCookieMode = "secure" | "local-demo";
 
-export function csrfTokenFromRequest(request: Request): string {
+export function csrfTokenFromRequest(
+  request: Request,
+  cookieName = CSRF_COOKIE_NAME,
+): string {
   const cookieHeader = request.headers.get("cookie") ?? "";
   for (const part of cookieHeader.split(";")) {
     const separator = part.indexOf("=");
     if (separator === -1) continue;
     const name = part.slice(0, separator).trim();
-    if (name === CSRF_COOKIE_NAME) return part.slice(separator + 1).trim();
+    if (name === cookieName) return part.slice(separator + 1).trim();
   }
   return "";
 }
 
-export function csrfCookie(token: string): string {
+export function csrfCookie(
+  token: string,
+  mode: CsrfCookieMode = "secure",
+): string {
+  if (mode === "local-demo") {
+    return `${LOCAL_CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=900; HttpOnly; SameSite=Strict`;
+  }
   return `${CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Strict`;
 }
 
-export function withCsrfCookie(response: Response, token: string): Response {
-  response.headers.append("set-cookie", csrfCookie(token));
+export function csrfCookieName(mode: CsrfCookieMode = "secure") {
+  return mode === "local-demo" ? LOCAL_CSRF_COOKIE_NAME : CSRF_COOKIE_NAME;
+}
+
+export function withCsrfCookie(
+  response: Response,
+  token: string,
+  mode: CsrfCookieMode = "secure",
+): Response {
+  response.headers.append("set-cookie", csrfCookie(token, mode));
   return response;
 }
 

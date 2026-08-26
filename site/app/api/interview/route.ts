@@ -1,5 +1,8 @@
 import { env } from "cloudflare:workers";
-import { runtimeIdentity } from "../../runtime-identity";
+import {
+  isLocalDemoRequest,
+  runtimeIdentity,
+} from "../../runtime-identity";
 import {
   handleInterviewGet,
   handleInterviewPost,
@@ -33,6 +36,9 @@ function dependencies(request: Request): InterviewHandlerDependencies {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
+    csrfCookieMode: isLocalDemoRequest(request, bindings.LOCAL_DEMO)
+      ? "local-demo"
+      : "secure",
     getIdentity: async () => {
       return runtimeIdentity(request, bindings.LOCAL_DEMO);
     },

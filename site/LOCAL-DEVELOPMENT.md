@@ -30,6 +30,14 @@ same-origin CSRF cookie itself; the page never reads or forwards it. The demo
 identity is admitted only in Vite development on loopback. Cross-origin
 mutations and ordinary/hosted paths remain denied.
 
+The page should render a centered **Local demo interview** card and change its
+status from **Local demo is ready to initialize** to **Interview initialized
+with disposable local data**. Safari receives a separate non-Secure local-only
+CSRF cookie because it rejects `Secure` cookies over plain HTTP; all ordinary
+and hosted paths retain the `Secure` `__Host-` cookie. If a Safari tab was open
+while the development server restarted, use a full reload or open the URL in a
+fresh tab so Safari discards the old Vite module graph.
+
 Run the disposable end-to-end assertion with:
 
 ```sh
@@ -37,6 +45,7 @@ npm run demo:local:smoke
 ```
 
 It uses its own ignored `.local/local-demo-smoke-state` database, proves the
-loopback page and interview bootstrap, and proves a hostile-origin mutation is
-rejected. It starts and stops its own local server and makes no network or
-provider request.
+visible-shell contract, models Safari's HTTP cookie acceptance, proves the
+loopback interview bootstrap, and proves a hostile-origin mutation is rejected.
+It starts and stops its own local server and makes no network or provider
+request.

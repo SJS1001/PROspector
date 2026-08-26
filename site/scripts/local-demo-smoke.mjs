@@ -28,12 +28,14 @@ try {
   const base = `http://[::1]:${port}`;
   await waitFor(() => fetch(`${base}/local-demo`).then((response) => response.ok ? response : Promise.reject(new Error(`status_${response.status}`))));
   const page = await fetch(`${base}/local-demo`);
-  assert.match(await page.text(), /Local demo interview/);
+  const pageHtml = await page.text();
+  assert.match(pageHtml, /Local demo interview/);
+  assert.match(pageHtml, /data-local-demo-visible="true"/);
 
   const initial = await fetch(`${base}/api/interview`);
   assert.equal(initial.status, 200);
   assert.equal((await initial.clone().json()).status, "uninitialized");
-  const cookie = csrfCookie(initial);
+  const cookie = browserCookieForHttp(initial);
 
   const hostile = await fetch(`${base}/api/interview`, {
     method: "POST",
@@ -84,9 +86,11 @@ function mutationHeaders(origin, cookie, fetchSite) {
   };
 }
 
-function csrfCookie(response) {
-  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
-  assert.match(cookie, /^__Host-prospector-csrf=[A-Za-z0-9_-]{43}$/);
+function browserCookieForHttp(response) {
+  const setCookie = response.headers.get("set-cookie") ?? "";
+  assert.doesNotMatch(setCookie, /;\s*Secure(?:;|$)/i);
+  const cookie = setCookie.split(";", 1)[0];
+  assert.match(cookie, /^prospector-local-csrf=[A-Za-z0-9_-]{43}$/);
   return cookie;
 }
 

@@ -29,6 +29,13 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .access-screen span { color:var(--teal); font-size:10px; font-weight:760; letter-spacing:1.15px; line-height:1.2; }
 .access-screen h1 { margin:16px 0 8px; font-size:28px; font-weight:760; line-height:1.05; }
 .access-screen p { margin:0; color:var(--muted); font-size:12px; font-weight:400; line-height:1.55; }
+.local-demo-screen { min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--paper); color:var(--ink); }
+.local-demo-screen section { width:min(100%,640px); padding:32px; border:1px solid var(--line); border-radius:9px; background:var(--white); box-shadow:0 18px 50px rgba(20,37,31,.08); }
+.local-demo-screen span { color:var(--teal); font-size:10px; font-weight:760; letter-spacing:1.15px; }
+.local-demo-screen h1 { margin:16px 0 8px; font-size:28px; font-weight:760; line-height:1.05; }
+.local-demo-screen p { margin:0; color:var(--muted); font-size:12px; line-height:1.55; }
+.local-demo-screen button { min-height:44px; margin:24px 0 16px; padding:10px 15px; border:1px solid var(--green); border-radius:7px; background:var(--green); color:var(--white); font-size:12px; font-weight:760; }
+.local-demo-screen button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .pilot-status { --proven-fg:#2a725b; --proven-bg:#e8f5ee; --proven-border:#cbe0d2; --blocked-fg:#735c25; --blocked-bg:#fff8df; --blocked-border:#d9a441; --unproven-fg:#66736d; --unproven-bg:#f4f6f2; --unproven-border:#dfe5df; display:grid; gap:24px; font-size:12px; font-weight:400; line-height:1.55; }
 .pilot-status .page-heading { margin-bottom:8px; }
 .pilot-status .page-heading h1 { font-size:28px; font-weight:760; line-height:1.05; }

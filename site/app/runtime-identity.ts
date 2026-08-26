@@ -19,6 +19,12 @@ export async function runtimeIdentity(request?: Request, localDemo?: unknown) {
   return DEMO;
 }
 
+export function isLocalDemoRequest(request: Request, localDemo?: unknown) {
+  return import.meta.env.DEV
+    && localDemo === "1"
+    && isLoopbackHostname(new URL(request.url).hostname);
+}
+
 export function isLoopbackHostname(hostname: string | null | undefined) {
   if (!hostname) return false;
   const normalized = hostname.toLowerCase();

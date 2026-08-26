@@ -1,8 +1,10 @@
 import {
   consumeCsrfToken,
+  csrfCookieName,
   csrfTokenFromRequest,
   CsrfTokenError,
   issueCsrfToken,
+  type CsrfCookieMode,
   withCsrfCookie,
 } from "./csrf";
 import {
@@ -24,6 +26,7 @@ export type InterviewHandlerDependencies = {
   database: D1Database;
   subjectPepper: string;
   pilotOwnerEmail: string;
+  csrfCookieMode?: CsrfCookieMode;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -32,7 +35,7 @@ export async function handleInterviewGet(
 ): Promise<Response> {
   try {
     const principal = await authenticatedPrincipal(dependencies);
-    return stateResponse(dependencies.database, principal, await readInterviewState(dependencies.database, principal));
+    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal));
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "server_error" }, 500);
@@ -51,7 +54,10 @@ export async function handleInterviewPost(
     await consumeCsrfToken(
       dependencies.database,
       principal.subject,
-      csrfTokenFromRequest(request),
+      csrfTokenFromRequest(
+        request,
+        csrfCookieName(dependencies.csrfCookieMode),
+      ),
     );
     const body = await readBoundedJson(request, 8192);
     if (!isRecord(body)) return json({ error: "unsupported_action" }, 400);
@@ -102,7 +108,7 @@ export async function handleInterviewPost(
         idempotencyKey: requiredString(body, "idempotencyKey", 80),
       });
     }
-    return stateResponse(dependencies.database, principal, state);
+    return stateResponse(dependencies, principal, state);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError)
@@ -125,14 +131,15 @@ async function authenticatedPrincipal(dependencies: InterviewHandlerDependencies
 }
 
 async function stateResponse(
-  database: D1Database,
+  dependencies: InterviewHandlerDependencies,
   principal: InterviewPrincipal,
   state: InterviewState,
 ) {
   const response = json(state);
   return withCsrfCookie(
     response,
-    await issueCsrfToken(database, principal.subject),
+    await issueCsrfToken(dependencies.database, principal.subject),
+    dependencies.csrfCookieMode,
   );
 }
 
