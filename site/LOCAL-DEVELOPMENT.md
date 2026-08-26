@@ -8,7 +8,7 @@ paid services.
 npm ci
 cp .dev.vars.example .dev.vars # only if .dev.vars is absent
 npm run db:local:reset
-npm run dev
+npm run dev -- --port 8788 --host 127.0.0.1
 ```
 
 `db:local:reset` recreates the local Miniflare state at
@@ -23,7 +23,8 @@ For the disposable demo it contains only `LOCAL_DEMO=1`, the fixed
 hosted deployment and must never contain a real owner email, credential, or
 hosted secret.
 
-Open `http://localhost:8788/local-demo` (or the port reported by Vite) and
+Open `http://localhost:8788/local-demo` (or `http://[::1]:8788/local-demo`
+when Vite reports the IPv6 loopback address) and
 choose **Initialize local interview**. The browser supplies the HttpOnly
 same-origin CSRF cookie itself; the page never reads or forwards it. The demo
 identity is admitted only in Vite development on loopback. Cross-origin

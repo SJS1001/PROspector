@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { createServer } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const state = resolve(root, ".local", "test-demo-persistence-state");
@@ -14,7 +15,7 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(source, /import\.meta\.env\.DEV/);
   assert.match(source, /localDemo !== "1"/);
   assert.match(source, /local-owner@prospector\.invalid/);
-  assert.match(source, /host !== "localhost"/);
+  assert.match(source, /isLoopbackHostname/);
   assert.match(source, /origin\).*host !== new URL\(request\.url\)\.host/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);
   const demoPage = await readFile(resolve(root, "app/local-demo/page.tsx"), "utf8");
@@ -22,6 +23,19 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.doesNotMatch(demoPage, /headers\.get\("set-cookie"\)|cookie:/);
   const routes = await Promise.all(["contacts","discovery","interview","knowledge","prospecting"].map((name) => readFile(resolve(root, `app/api/${name}/route.ts`), "utf8")));
   for (const route of routes) assert.match(route, /runtimeIdentity/);
+});
+
+test("LOCAL_DEMO recognizes only canonical loopback hostnames, including bracketed IPv6", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const identity = await vite.ssrLoadModule(resolve(root, "app/runtime-identity.ts"));
+    for (const hostname of ["localhost", "LOCALHOST", "127.0.0.1", "::1", "[::1]"])
+      assert.equal(identity.isLoopbackHostname(hostname), true, hostname);
+    for (const hostname of [null, "", "localhost.", "0.0.0.0", "127.0.0.2", "[::2]", "example.test"])
+      assert.equal(identity.isLoopbackHostname(hostname), false, String(hostname));
+  } finally {
+    await vite.close();
+  }
 });
 
 test("local persisted runtime state survives a separate local process", async () => {
