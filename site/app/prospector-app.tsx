@@ -37,6 +37,16 @@ const views: { label: View; key: string }[] = [
   { label: "Exports & History", key: "07" },
 ];
 
+const TORONTO_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Toronto",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
 const signals = [
   { company: "Eldorado Gold", target: "McIlvenna Bay", signal: "First concentrate produced; ramp-up toward 4,900 t/d", score: 9, tier: "T1", age: "2h", status: "Review" },
   { company: "Boliden", target: "Odda expansion", signal: "Commissioning activity and production ramp underway", score: 8, tier: "T1", age: "4h", status: "Review" },
@@ -356,11 +366,10 @@ function capabilitySentence(item: CapabilityItem) {
 }
 
 function formatToronto(value: number) {
-  return new Date(value).toLocaleString("en-CA", {
-    timeZone: "America/Toronto",
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const parts = TORONTO_TIMESTAMP_FORMATTER.formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")} America/Toronto`;
 }
 
 function normalizeCapabilityState(value: unknown): CapabilityApiState {

@@ -203,6 +203,51 @@ test("Pilot Status renders the evidence hierarchy and a neutral denial", async (
   }
 });
 
+test("workspace hydration text is stable across server and Safari locale formatters", async () => {
+  const server = await createServer({
+    configFile: false,
+    logLevel: "silent",
+    plugins: [react()],
+    server: { middlewareMode: true },
+  });
+  const originalLocaleString = Date.prototype.toLocaleString;
+  try {
+    const { ProspectorApp } = await server.ssrLoadModule(
+      new URL("../app/prospector-app.tsx", import.meta.url).pathname,
+    );
+    const capabilityState = {
+      ok: true,
+      owner: { admitted: true },
+      workspace: { companyName: "Digitalrain" },
+      overallStatus: "unproven",
+      capabilities: [{
+        ...capability("trusted_owner_identity", "Trusted owner identity", "proven"),
+        checkedAt: 1_787_773_461_545,
+      }],
+    };
+    const renderWorkspace = () => renderToStaticMarkup(
+      createElement(ProspectorApp, {
+        initialView: "Pilot Status",
+        initialCapabilityState: capabilityState,
+      }),
+    );
+
+    Date.prototype.toLocaleString = () => "server locale timestamp";
+    const serverHtml = renderWorkspace();
+    Date.prototype.toLocaleString = () => "Safari locale timestamp";
+    const safariHtml = renderWorkspace();
+
+    assert.equal(
+      safariHtml,
+      serverHtml,
+      "client hydration must not depend on engine-specific locale text",
+    );
+  } finally {
+    Date.prototype.toLocaleString = originalLocaleString;
+    await server.close();
+  }
+});
+
 function capability(id, name, status) {
   return {
     id,
