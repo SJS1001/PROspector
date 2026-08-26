@@ -10,9 +10,10 @@ npm run db:local:reset
 npm run dev
 ```
 
-`db:local:reset` recreates `site/.local/prospector.sqlite` from migrations
-0000–0009 and verifies foreign keys. The directory is ignored by Git and may
-be deleted at any time. It never points at a hosted database.
+`db:local:reset` recreates the local Miniflare state at
+`site/.local/miniflare-state` from migrations 0000–0009 and verifies foreign
+keys. The directory is ignored by Git and may be deleted at any time. It never
+points at a hosted database.
 
 The browser server uses local Miniflare bindings. It intentionally stays
 unauthorized without the platform identity boundary; owner-authenticated

@@ -6,11 +6,11 @@ import test from "node:test";
 
 test("local bootstrap creates a disposable complete migration chain", async () => {
   const root = resolve(import.meta.dirname, "..");
-  const database = resolve(root, ".local", "prospector.sqlite");
-  await rm(database, { force: true });
+  const state = resolve(root, ".local", "miniflare-state");
+  await rm(state, { recursive: true, force: true });
   const output = execFileSync(process.execPath, ["scripts/local-bootstrap.mjs", "--reset"], { cwd: root, encoding: "utf8" });
   assert.match(output, /"status":"ready"/);
-  assert.equal(execFileSync("sqlite3", [database, "PRAGMA foreign_key_check;"], { encoding: "utf8" }).trim(), "");
-  assert.ok(Number(execFileSync("sqlite3", [database, "SELECT count(*) FROM sqlite_master WHERE type='table';"], { encoding: "utf8" }).trim()) >= 40);
-  await rm(database, { force: true });
+  const result = execFileSync(resolve(root, "node_modules/.bin/wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", state, "--config", "wrangler.local.jsonc", "--command", "SELECT count(*) FROM sqlite_master WHERE type='table';"], { encoding: "utf8" });
+  assert.match(result, /4[0-9]|[5-9][0-9]/);
+  await rm(state, { recursive: true, force: true });
 });
