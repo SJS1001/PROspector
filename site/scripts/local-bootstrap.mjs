@@ -3,7 +3,11 @@ import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const STATE = resolve(ROOT, ".local", "miniflare-state");
+const requestedState = process.argv.indexOf("--state");
+const STATE = requestedState >= 0 && process.argv[requestedState + 1]
+  ? resolve(ROOT, process.argv[requestedState + 1])
+  : resolve(ROOT, ".local", "miniflare-state");
+if (!STATE.startsWith(resolve(ROOT, ".local") + "/")) throw new Error("local_state_path_invalid");
 const MIGRATIONS = [
   "0000_jittery_meteorite.sql", "0001_true_spencer_smythe.sql",
   "0002_eager_supreme_intelligence.sql", "0003_acoustic_magik.sql",

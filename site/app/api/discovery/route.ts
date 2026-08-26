@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { runtimeIdentity } from "../../runtime-identity";
 import {
   handleDiscoveryGet,
   handleDiscoveryPost,
@@ -9,18 +9,19 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  return handleDiscoveryGet(request, dependencies());
+  return handleDiscoveryGet(request, dependencies(request));
 }
 
 export async function POST(request: Request) {
-  return handleDiscoveryPost(request, dependencies());
+  return handleDiscoveryPost(request, dependencies(request));
 }
 
-function dependencies(): DiscoveryHandlerDependencies {
+function dependencies(request: Request): DiscoveryHandlerDependencies {
   const bindings = env as unknown as {
     DB?: D1Database;
     OWNER_SUBJECT_PEPPER?: string;
     PILOT_OWNER_EMAIL?: string;
+    LOCAL_DEMO?: string;
   };
   if (!bindings.DB || !bindings.OWNER_SUBJECT_PEPPER || !bindings.PILOT_OWNER_EMAIL)
     throw new Error("Secure discovery bindings are unavailable");
@@ -29,8 +30,7 @@ function dependencies(): DiscoveryHandlerDependencies {
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     getIdentity: async () => {
-      const user = await getChatGPTUser();
-      return user ? { email: user.email, displayName: user.displayName } : null;
+      return runtimeIdentity(request, bindings.LOCAL_DEMO);
     },
   };
 }

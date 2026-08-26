@@ -6,9 +6,9 @@ import test from "node:test";
 
 test("local bootstrap creates a disposable complete migration chain", async () => {
   const root = resolve(import.meta.dirname, "..");
-  const state = resolve(root, ".local", "miniflare-state");
+  const state = resolve(root, ".local", "test-bootstrap-state");
   await rm(state, { recursive: true, force: true });
-  const output = execFileSync(process.execPath, ["scripts/local-bootstrap.mjs", "--reset"], { cwd: root, encoding: "utf8" });
+  const output = execFileSync(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", ".local/test-bootstrap-state"], { cwd: root, encoding: "utf8" });
   assert.match(output, /"status":"ready"/);
   const result = execFileSync(resolve(root, "node_modules/.bin/wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", state, "--config", "wrangler.local.jsonc", "--command", "SELECT count(*) FROM sqlite_master WHERE type='table';"], { encoding: "utf8" });
   assert.match(result, /4[0-9]|[5-9][0-9]/);
