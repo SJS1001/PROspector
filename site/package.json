@@ -14,6 +14,7 @@
     "preflight:phase3-release": "npm run test:phase3 && node scripts/phase3-release-preflight.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
+    ,"db:local:reset": "node scripts/local-bootstrap.mjs --reset"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

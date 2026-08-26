@@ -23,6 +23,10 @@ or credentials are activated by implementation work alone.
   migration importer returned `incomplete input: SQLITE_ERROR`.
 - Local SQLite and Miniflare-style migration tests accept the chain, but they
   do not prove compatibility with the Sites migration importer.
+- The repository now has a disposable local SQLite bootstrap at
+  `site/scripts/local-bootstrap.mjs`; it applies the complete chain only to
+  ignored local state and verifies foreign keys. It creates no operational,
+  provider, contact, or outbound data.
 
 ## Dependency-ordered master plan
 
