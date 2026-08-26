@@ -13,8 +13,9 @@
     "test:phase3": "npm run build && node scripts/run-test-suite.mjs tests/discovery-handler-ui.test.mjs tests/product-readiness-repository.test.mjs tests/market-discovery-repository.test.mjs",
     "preflight:phase3-release": "npm run test:phase3 && node scripts/phase3-release-preflight.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
-    ,"db:local:reset": "node scripts/local-bootstrap.mjs --reset"
+    "db:generate": "drizzle-kit generate",
+    "db:local:reset": "node scripts/local-bootstrap.mjs --reset",
+    "demo:local:smoke": "node scripts/local-demo-smoke.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

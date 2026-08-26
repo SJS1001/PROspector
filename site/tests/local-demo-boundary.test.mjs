@@ -17,6 +17,9 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(source, /host !== "localhost"/);
   assert.match(source, /origin\).*host !== new URL\(request\.url\)\.host/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);
+  const demoPage = await readFile(resolve(root, "app/local-demo/page.tsx"), "utf8");
+  assert.match(demoPage, /credentials: "same-origin"/);
+  assert.doesNotMatch(demoPage, /headers\.get\("set-cookie"\)|cookie:/);
   const routes = await Promise.all(["contacts","discovery","interview","knowledge","prospecting"].map((name) => readFile(resolve(root, `app/api/${name}/route.ts`), "utf8")));
   for (const route of routes) assert.match(route, /runtimeIdentity/);
 });

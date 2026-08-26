@@ -6,6 +6,7 @@ paid services.
 
 ```sh
 npm ci
+cp .dev.vars.example .dev.vars # only if .dev.vars is absent
 npm run db:local:reset
 npm run dev
 ```
@@ -15,7 +16,26 @@ npm run dev
 keys. The directory is ignored by Git and may be deleted at any time. It never
 points at a hosted database.
 
-The browser server uses local Miniflare bindings. It intentionally stays
-unauthorized without the platform identity boundary; owner-authenticated
-workflow smoke coverage remains in the synthetic local test harness. Do not
-weaken that production identity boundary merely for local convenience.
+The browser server uses local Miniflare bindings. The ignored `.dev.vars` file
+is the supported local Worker-binding mechanism for the Cloudflare Vite plugin.
+For the disposable demo it contains only `LOCAL_DEMO=1`, the fixed
+`.invalid` demo owner email, and a local-only pepper. It is never read by a
+hosted deployment and must never contain a real owner email, credential, or
+hosted secret.
+
+Open `http://localhost:8788/local-demo` (or the port reported by Vite) and
+choose **Initialize local interview**. The browser supplies the HttpOnly
+same-origin CSRF cookie itself; the page never reads or forwards it. The demo
+identity is admitted only in Vite development on loopback. Cross-origin
+mutations and ordinary/hosted paths remain denied.
+
+Run the disposable end-to-end assertion with:
+
+```sh
+npm run demo:local:smoke
+```
+
+It uses its own ignored `.local/local-demo-smoke-state` database, proves the
+loopback page and interview bootstrap, and proves a hostile-origin mutation is
+rejected. It starts and stops its own local server and makes no network or
+provider request.

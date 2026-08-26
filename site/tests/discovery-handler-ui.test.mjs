@@ -126,7 +126,7 @@ test("D-12 route is trusted-binding wiring only", async () => {
     "../app/api/discovery/route.ts",
     "the discovery API route does not exist",
   );
-  assert.match(source, /getChatGPTUser/);
+  assert.match(source, /runtimeIdentity/);
   assert.match(source, /handleDiscoveryGet/);
   assert.match(source, /handleDiscoveryPost/);
   for (const binding of ["DB", "PILOT_OWNER_EMAIL", "OWNER_SUBJECT_PEPPER"])

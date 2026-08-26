@@ -1,0 +1,5 @@
+# Copy this file to .dev.vars for the disposable localhost demo only.
+# Never use these values in a hosted environment.
+LOCAL_DEMO=1
+PILOT_OWNER_EMAIL=local-owner@prospector.invalid
+OWNER_SUBJECT_PEPPER=local-demo-only-owner-subject-pepper-2026-08-26
