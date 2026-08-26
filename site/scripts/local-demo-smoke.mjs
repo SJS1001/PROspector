@@ -59,6 +59,12 @@ try {
   const workspaceHtml = await workspace.text();
   assert.match(workspaceHtml, /Private pilot boundary/);
   assert.doesNotMatch(workspaceHtml, /Private workspace unavailable/);
+
+  const knowledge = await fetch(`${base}/?view=knowledge`);
+  assert.equal(knowledge.status, 200);
+  const knowledgeHtml = await knowledge.text();
+  assert.match(knowledgeHtml, /Loading authoritative knowledge/);
+  assert.doesNotMatch(knowledgeHtml, /Private pilot boundary/);
   process.stdout.write("local demo smoke passed\n");
 } finally {
   stopProcessGroup(server);

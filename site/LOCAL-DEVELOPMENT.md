@@ -26,7 +26,8 @@ hosted secret.
 Open `http://localhost:8788/local-demo` (or `http://[::1]:8788/local-demo`
 when Vite reports the IPv6 loopback address) and
 choose **Initialize local interview**. When the disposable interview is ready,
-choose **Open owner workspace** to continue into the product. Returning to the
+choose **Open Consensus Knowledge** to continue into the product's first usable
+local workflow. Returning to the
 setup page shows the workspace action immediately instead of initializing the
 same interview again. The browser supplies the HttpOnly
 same-origin CSRF cookie itself; the page never reads or forwards it. The demo
@@ -34,8 +35,10 @@ identity is admitted only in Vite development on loopback. Cross-origin
 mutations and ordinary/hosted paths remain denied.
 
 The page should render a centered **Local demo interview** card with two clear
-steps. After initialization, step one is marked complete and **Open owner
-workspace** becomes the primary action. Safari receives a separate non-Secure local-only
+steps. After initialization, step one is marked complete and **Open Consensus
+Knowledge** becomes the primary action. Workspace views use a `?view=` URL, so
+direct links, reload, and browser Back preserve the selected top-level view.
+Safari receives a separate non-Secure local-only
 CSRF cookie because it rejects `Secure` cookies over plain HTTP; all ordinary
 and hosted paths retain the `Secure` `__Host-` cookie. If a Safari tab was open
 while the development server restarted, use a full reload or open the URL in a

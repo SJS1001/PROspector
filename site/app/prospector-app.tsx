@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { KnowledgeWorkspace } from "./knowledge/knowledge-workspace";
 import { DiscoveryWorkspace } from "./discovery/discovery-workspace";
 import {
   ProspectingWorkspace,
   type ProspectingProjection,
 } from "./prospecting/prospecting-workspace";
+import {
+  WORKSPACE_VIEWS,
+  workspaceViewFromParam,
+  workspaceViewParam,
+  type WorkspaceView,
+} from "./workspace-view";
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
 type CapabilityItem = {
@@ -25,18 +31,6 @@ export type CapabilityApiState = {
   overallStatus: CapabilityStatus;
   capabilities: CapabilityItem[];
 };
-type View = "Pilot Status" | "Morning Brief" | "Knowledge" | "Market Discovery" | "Review Queue" | "Prospects" | "Exports & History";
-
-const views: { label: View; key: string }[] = [
-  { label: "Pilot Status", key: "01" },
-  { label: "Morning Brief", key: "02" },
-  { label: "Knowledge", key: "03" },
-  { label: "Market Discovery", key: "04" },
-  { label: "Review Queue", key: "05" },
-  { label: "Prospects", key: "06" },
-  { label: "Exports & History", key: "07" },
-];
-
 const TORONTO_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Toronto",
   year: "numeric",
@@ -63,12 +57,12 @@ export function ProspectorApp({
   initialCapabilityState = null,
   initialProspectingProjection = EMPTY_PROSPECTING_PROJECTION,
 }: {
-  initialView?: View;
+  initialView?: WorkspaceView;
   initialAccess?: "authorized" | "unauthorized";
   initialCapabilityState?: CapabilityApiState | null;
   initialProspectingProjection?: ProspectingProjection;
 } = {}) {
-  const [view, setView] = useState<View>(initialView);
+  const [view, setView] = useState<WorkspaceView>(initialView);
   const [access, setAccess] = useState(initialAccess);
   const [profile, setProfile] = useState("Operating sites");
   const [query, setQuery] = useState("");
@@ -76,6 +70,25 @@ export function ProspectorApp({
     () => setAccess("unauthorized"),
     [],
   );
+  const navigateToView = useCallback((nextView: WorkspaceView) => {
+    setView(nextView);
+    const url = new URL(window.location.href);
+    const parameter = workspaceViewParam(nextView);
+    if (parameter) url.searchParams.set("view", parameter);
+    else url.searchParams.delete("view");
+    const destination = `${url.pathname}${url.search}${url.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (destination !== current) window.history.pushState(null, "", destination);
+  }, []);
+
+  useEffect(() => {
+    const restoreView = () => {
+      const parameter = new URL(window.location.href).searchParams.get("view");
+      setView(workspaceViewFromParam(parameter));
+    };
+    window.addEventListener("popstate", restoreView);
+    return () => window.removeEventListener("popstate", restoreView);
+  }, []);
 
   const filteredSignals = useMemo(
     () => signals.filter((item) => `${item.company} ${item.target} ${item.signal}`.toLowerCase().includes(query.toLowerCase())),
@@ -98,8 +111,8 @@ export function ProspectorApp({
         </div>
 
         <nav>
-          {views.map((item) => (
-            <button key={item.label} type="button" className={view === item.label ? "active" : ""} onClick={() => setView(item.label)}>
+          {WORKSPACE_VIEWS.map((item) => (
+            <button key={item.label} type="button" className={view === item.label ? "active" : ""} aria-current={view === item.label ? "page" : undefined} onClick={() => navigateToView(item.label)}>
               <span>{item.key}</span>{item.label}
             </button>
           ))}
@@ -107,7 +120,7 @@ export function ProspectorApp({
 
         <div className="rail-foot">
           <div className="runner"><i /><div><b>Codex runner</b><span>Not connected · fixture mode</span></div></div>
-          <button type="button" onClick={() => setView("Pilot Status")}>Pilot settings <span>→</span></button>
+          <button type="button" onClick={() => navigateToView("Pilot Status")}>Pilot settings <span>→</span></button>
         </div>
       </aside>
 
@@ -128,7 +141,7 @@ export function ProspectorApp({
 
         <div className="content">
           {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
-          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={setView} />}
+          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={navigateToView} />}
           {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} />}
           {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
           {(view === "Review Queue" || view === "Prospects") && (
@@ -427,7 +440,7 @@ async function fetchCapabilityState(): Promise<
   };
 }
 
-function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: View) => void }) {
+function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: WorkspaceView) => void }) {
   return <>
     <PageHeading eyebrow="WEDNESDAY · 29 JULY · SYNTHETIC FIXTURE" title="Good morning, Steven." copy="A non-operational example of how evidence-backed work will be separated from decisions." action={<button className="primary" type="button" disabled title="Available after Wave 0">Prospecting disabled</button>} />
 

@@ -8,9 +8,16 @@ import {
   ProspectorApp,
   type CapabilityApiState,
 } from "./prospector-app";
+import { workspaceViewFromParam } from "./workspace-view";
 
-export default async function Home() {
+type HomeProps = {
+  searchParams?: Promise<{ view?: string | string[] }>;
+};
+
+export default async function Home({ searchParams }: HomeProps = {}) {
   const bindings = env as unknown as CapabilityBindings;
+  const requestedView = searchParams ? (await searchParams).view : undefined;
+  const initialView = workspaceViewFromParam(requestedView);
   let initialAccess: "authorized" | "unauthorized" = "unauthorized";
   let initialCapabilityState: CapabilityApiState | null = null;
   try {
@@ -29,6 +36,7 @@ export default async function Home() {
     <ProspectorApp
       initialAccess={initialAccess}
       initialCapabilityState={initialCapabilityState}
+      initialView={initialView}
     />
   );
 }

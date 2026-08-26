@@ -29,9 +29,9 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(demoPage, /Local demo interview/);
   assert.match(demoPage, /Local demo setup steps/);
   assert.match(demoPage, /demoState === "active"/);
-  assert.match(demoPage, /Open owner workspace/);
+  assert.match(demoPage, /Open Consensus Knowledge/);
   assert.match(demoPage, /import Link from "next\/link"/);
-  assert.match(demoPage, /href="\/"/);
+  assert.match(demoPage, /href="\/\?view=knowledge"/);
   assert.match(demoPage, /aria-live="polite"/);
   assert.doesNotMatch(demoPage, /headers\.get\("set-cookie"\)|cookie:/);
   const styles = await readFile(resolve(root, "app/globals.css"), "utf8");

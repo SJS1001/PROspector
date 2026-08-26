@@ -90,13 +90,13 @@ export default function LocalDemo() {
             <small>Creates local-only working data.</small>
           </li>
           <li className={demoState === "active" ? "current" : "pending"}>
-            <b>Open owner workspace</b>
-            <small>Review the product using the disposable interview.</small>
+            <b>Open Consensus Knowledge</b>
+            <small>Continue with the disposable interview in the owner workspace.</small>
           </li>
         </ol>
         <div className="local-demo-actions">
           {demoState === "active" ? (
-            <Link className="local-demo-primary" href="/">Open owner workspace <span aria-hidden="true">→</span></Link>
+            <Link className="local-demo-primary" href="/?view=knowledge">Open Consensus Knowledge <span aria-hidden="true">→</span></Link>
           ) : (
             <button type="button" disabled={busy} onClick={() => void bootstrap()}>
               {busy ? "Checking local interview…" : demoState === "uninitialized" ? "Initialize local interview" : "Retry local setup"}
