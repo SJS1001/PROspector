@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 6 isolated synthetic approval/suppression preparation verified; Plan 02-99 remains a deferred future-target checkpoint; no runtime provider or effect composed
-last_updated: "2026-08-27T15:07:41Z"
+stopped_at: Phase 6 synthetic canonical Package/Message artifact and invalidation preparation verified; Plan 02-99 remains deferred; no runtime provider or effect composed
+last_updated: "2026-08-27T15:15:22Z"
 last_activity: 2026-08-27
 progress:
   total_phases: 7
@@ -104,6 +104,7 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Phase 05]: Bounded local preparation checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` is pushed and passed a clean isolated Mac Studio full test/lint/build gate plus independent exact-source and persistence/security re-reviews with no blocker, high, or medium finding. Runtime provider composition and activation remain reject-only; this evidence completes no Phase 5 plan and grants no hosted/provider/spend authority.
 - [Phase 06]: Thirteen checked plans exist; execution has not started and remains dependency-gated.
 - [Phase 06 greenfield preparation]: `06-PREPARATION.md` authorizes only local synthetic fail-closed preparation while Plan 06-11 remains blocked. The static composition guard and isolated approval/suppression state machine are verified: Package and Message approvals remain separate, all six suppression scopes are append-only, effective suppression defeats later eligibility, hostile/non-synthetic inputs fail closed, runtime imports are prohibited, and all effect counters remain zero. No Phase 6 plan summary, provider, credential, send, call, export, hosted action, or completion credit is authorized.
+- [Phase 06 greenfield preparation]: A separate canonical artifact contract now binds every synthetic Outreach Package and Message approval field, derives the call script, hashes deterministic immutable snapshots, and projects digest/authority invalidation. Runtime composition is prohibited and all effect counters remain zero; this does not persist, approve, export, compose, send, call, execute Plan 06-03, or earn Phase 6 credit.
 - [Deferred adapters]: The unselected greenfield target and providers are explicit placeholders rather than global local-work blockers. Continue bounded synthetic/reject-by-default preparation autonomously, but stop before target selection/provisioning, credentials, provider composition, real data, export, or outbound effects.
 - [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
@@ -137,5 +138,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-27
-Stopped at: Phase 6 synthetic approval/suppression preparation verified; target/provider adapters remain deferred; no hosted write or external effect; draft PR `#2` remains open
-Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/06-governed-outreach-and-suppression/06-PREPARATION.md`, `site/preparation/outreach-approval-suppression.ts`, and `site/tests/outreach-preparation-state-machine.test.mjs`
+Stopped at: Phase 6 canonical synthetic Outreach Package/Message artifact and invalidation preparation verified; target/provider adapters remain deferred; no hosted write or external effect; draft PR `#2` remains open
+Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/06-governed-outreach-and-suppression/06-PREPARATION.md`, `site/preparation/outreach-artifacts.ts`, `site/preparation/outreach-approval-suppression.ts`, and their focused tests

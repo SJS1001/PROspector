@@ -20,6 +20,12 @@ domain services, adapters, routes, workers, and local runtime do not import or
 compose it. It models future authority and prohibitions without creating
 runtime authority, persistence, an outbox, a contact action, or an effect.
 
+The third preparation slice adds a separate canonical synthetic Outreach
+Package and Message artifact builder. It freezes every future approval-bearing
+field, derives the call script from package authority, computes deterministic
+SHA-256 digests, and projects exact invalidation reasons. It remains outside
+runtime composition and has no persistence, export, provider, or outbound seam.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -39,7 +45,7 @@ runtime authority, persistence, an outbox, a contact action, or an effect.
 
 `site/tests/outreach-preparation-boundary.test.mjs` rejects direct Gmail or
 telephony packages/endpoints/bindings, static mail/call effects, and any
-runtime import of the preparation state machine.
+runtime import of every module under `site/preparation/`.
 
 ### Synthetic approval and suppression state machine
 
@@ -61,6 +67,33 @@ runtime import of the preparation state machine.
 This is preparation evidence only. It does not satisfy Plan 06-11, execute
 Plans 06-01, 06-03, or 06-04, or authorize the application to import this
 module.
+
+### Canonical synthetic Outreach Package and Message artifacts
+
+`site/preparation/outreach-artifacts.ts` and its focused suite prove:
+
+- an Outreach Package digest binds the exact workspace, Company, prospect,
+  Contact, Profile configuration and digest, qualification/source hashes,
+  recommended angle, claim guardrail versions, selected verified synthetic
+  contact points, complete Message version set, and creation time;
+- the package-derived call script binds the opening, deduplicated evidence
+  hashes, and claim guardrail versions without accepting a caller-supplied
+  script;
+- a Message digest binds its package/configuration, sender, recipients,
+  subject, text and HTML bodies, links, attachments, thread/reply identity,
+  intended send time, and timezone; edits and rescheduling change the digest;
+- current package/message recomputation names digest drift, stale or withdrawn
+  authority, high-risk drift, suppression, revoked dependencies, and approval
+  expiry as fail-closed invalidations;
+- only `.invalid` recipients/links, fictional 555-01xx numbers, synthetic IDs,
+  safe content and closed plain-data shapes are admitted; forged artifact
+  copies and hostile accessors fail closed; and
+- artifacts, derived script, and projections are deeply immutable and retain
+  literal zero effect counters.
+
+This is an artifact and invalidation contract only. It does not persist an
+artifact, approve one, compose a provider payload, create a draft/outbox,
+export data, send, call, execute Plan 06-03, or grant Phase 6 completion credit.
 
 ## Deferred adapters and exact external decision
 

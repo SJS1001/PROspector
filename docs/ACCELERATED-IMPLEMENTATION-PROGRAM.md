@@ -82,7 +82,11 @@ The absence of a selected host is a deferred-adapter boundary, not a global
 local-work blocker. The Phase 6 preparation lane now includes an isolated pure
 approval/suppression state machine that no runtime file imports. It proves
 future authority transitions and append-only prohibitions while all effect
-counters remain zero; it executes no Phase 6 plan and earns no phase credit.
+counters remain zero. A separate isolated builder now canonicalizes synthetic
+Outreach Package and Message approval artifacts, derives the call script,
+computes complete immutable digests, and reports exact invalidation reasons.
+No runtime file imports either preparation module; neither slice executes a
+Phase 6 plan or earns phase credit.
 
 ## External handoff checklist
 

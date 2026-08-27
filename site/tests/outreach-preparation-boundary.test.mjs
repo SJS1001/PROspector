@@ -37,7 +37,7 @@ test("greenfield production composition has no direct outreach provider or stati
   }
   for (const file of runtimeFiles) {
     const source = await readFile(file, "utf8");
-    assert.doesNotMatch(source, /preparation\/outreach-approval-suppression/u, `${file} must not compose the preparation-only state machine`);
+    assert.doesNotMatch(source, /(?:^|["'/])preparation\//mu, `${file} must not compose any preparation-only module`);
   }
 });
 
