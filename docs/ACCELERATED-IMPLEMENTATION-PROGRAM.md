@@ -85,8 +85,11 @@ future authority transitions and append-only prohibitions while all effect
 counters remain zero. A separate isolated builder now canonicalizes synthetic
 Outreach Package and Message approval artifacts, derives the call script,
 computes complete immutable digests, and reports exact invalidation reasons.
-No runtime file imports either preparation module; neither slice executes a
-Phase 6 plan or earns phase credit.
+A third isolated contract now models the final current-state/lease fence that
+would precede a future provider call while explicitly granting no invocation
+authority and retaining literal zero effects. No runtime file imports any
+preparation module; none of these slices executes a Phase 6 plan or earns phase
+credit.
 
 ## External handoff checklist
 

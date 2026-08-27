@@ -26,6 +26,13 @@ field, derives the call script from package authority, computes deterministic
 SHA-256 digests, and projects exact invalidation reasons. It remains outside
 runtime composition and has no persistence, export, provider, or outbound seam.
 
+The fourth preparation slice adds a minimized synthetic final-dispatch
+recheck and lease-decision contract. It binds the complete current scope,
+artifact, approval, sender, policy, suppression/stop dependency, dispatch-key,
+outbox-item, and lease-fence tuple. It can describe that a future boundary
+would pass, but explicitly grants no provider-invocation authority and performs
+no state transition or effect.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -94,6 +101,34 @@ module.
 This is an artifact and invalidation contract only. It does not persist an
 artifact, approve one, compose a provider payload, create a draft/outbox,
 export data, send, call, execute Plan 06-03, or grant Phase 6 completion credit.
+
+### Synthetic final-dispatch recheck and lease decision
+
+`site/preparation/outreach-dispatch-decision.ts` and its focused suite prove:
+
+- the candidate digest binds exact workspace/Company/prospect/Contact scope,
+  outbox identity, dispatch key, Profile configuration, Package/Message
+  artifacts, separate approval IDs/expiries, sender connection/identity,
+  unsubscribe/compliance/basis authority, suppression and stop dependency
+  sets, and a short monotonic lease generation/holder/window;
+- the final projection independently compares the current candidate, scope,
+  artifacts, approvals, sender and policy authorities, dependency sets, and
+  exact lease fence;
+- expired or swapped leases, invalid/expired approvals, stale artifacts,
+  unavailable Profile/Prospect/Contact/sender/unsubscribe/compliance/basis,
+  pause or availability loss, high-risk drift, suppression, a stop rule,
+  missing approval consumption, any prior provider attempt, or any non-fresh
+  delivery state yields a named rejection;
+- malformed, duplicate, sparse, accessor-backed, forged, non-synthetic, and
+  extra-field inputs fail closed; and
+- even a complete current tuple returns
+  `synthetic_recheck_passed_no_authority` with
+  `providerInvocationAuthorized: false` and literal zero effect counters.
+
+This contract creates no outbox row, lease claim, dispatching transition,
+provider envelope, capability, persistence, reconciliation record, send, call,
+or export. It does not execute Plan 06-06 and grants no Phase 6 completion
+credit.
 
 ## Deferred adapters and exact external decision
 

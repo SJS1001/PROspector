@@ -162,9 +162,11 @@ fail-closed boundary work. The static provider/effect guard and isolated
 approval/suppression state machine are verified. A separate canonical
 synthetic Package/Message builder binds every future approval-bearing field,
 derives the call script, hashes immutable snapshots, and projects exact
-invalidation. Runtime code imports no preparation module and every effect
-counter is zero. This does not satisfy Plan 06-11, execute a Phase 6 plan,
-enable a provider/effect, or earn completion credit.
+invalidation. A minimized synthetic final-dispatch recheck/lease decision binds
+the complete current authority and fence tuple while always denying provider
+invocation authority. Runtime code imports no preparation module and every
+effect counter is zero. This does not satisfy Plan 06-11, execute a Phase 6
+plan, enable a provider/effect, or earn completion credit.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  
