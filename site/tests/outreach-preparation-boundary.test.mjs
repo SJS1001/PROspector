@@ -12,10 +12,14 @@ test("greenfield production composition has no direct outreach provider or stati
     assert.equal(dependencies[packageName], undefined, `${packageName} must remain absent before provider authorization`);
   }
 
-  const productionFiles = [
+  const runtimeFiles = [
     ...(await sourceFiles(join(root, "app"))),
     ...(await sourceFiles(join(root, "domain"))),
     ...(await sourceFiles(join(root, "adapters"))),
+  ];
+  const productionFiles = [
+    ...runtimeFiles,
+    ...(await sourceFiles(join(root, "preparation"))),
     join(root, "wrangler.local.jsonc"),
   ];
   const forbidden = [
@@ -30,6 +34,10 @@ test("greenfield production composition has no direct outreach provider or stati
     for (const pattern of forbidden) {
       assert.doesNotMatch(source, pattern, `${file} must remain provider/effect free`);
     }
+  }
+  for (const file of runtimeFiles) {
+    const source = await readFile(file, "utf8");
+    assert.doesNotMatch(source, /preparation\/outreach-approval-suppression/u, `${file} must not compose the preparation-only state machine`);
   }
 });
 

@@ -78,6 +78,12 @@ suppression/approval tests with disabled adapters; Phase 7 CSV/archive tests;
 independent security, privacy, accessibility, and documentation reviews.
 Each lane must use synthetic fixtures and preserve disabled external adapters.
 
+The absence of a selected host is a deferred-adapter boundary, not a global
+local-work blocker. The Phase 6 preparation lane now includes an isolated pure
+approval/suppression state machine that no runtime file imports. It proves
+future authority transitions and append-only prohibitions while all effect
+counters remain zero; it executes no Phase 6 plan and earns no phase credit.
+
 ## External handoff checklist
 
 Before any real provider or outbound capability is enabled, the owner must

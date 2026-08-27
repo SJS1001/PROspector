@@ -67,13 +67,13 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - Phase 3 Plans 03-09 through 03-11 require explicit owner authorization, controlled hosted proof, and owner lifecycle acceptance. They remain incomplete and cannot be replaced by local evidence.
 - Phase 4 context/research/UI/validation and 12 checked plans are committed. Wave 1 is underway: RED contracts and additive profile-prospecting persistence are committed, but no Phase 4 plan summary exists.
 - Phase 5 has 9 checked plans and a bounded local-only preparation lane. Checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` is pushed, independently reviewed clean, and verified by full test/lint/build on an isolated non-CI Mac Studio checkout. Provider composition and activation remain reject-only; no Phase 5 plan is complete.
-- Phase 6 preparation and 13 checked plans are committed; execution has not started.
+- Phase 6 preparation and 13 checked plans are committed; execution has not started. The preparation lane includes a static provider/effect guard and an isolated synthetic approval/suppression state machine that runtime code does not import.
 - Phase 7 preparation was integrated at `fc3f46f` and `e39ef11`.
 - The guarded disposable local runtime is verified through checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f`: a real loopback browser can initialize the interview, enter the URL-addressable Knowledge workspace, submit an answer, and separately confirm it into a Knowledge Version. This enables no hosted, provider, prospecting, enrichment, export, or outbound effect.
 - On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`. Draft PR `#2` is open for the post-PR-1 changes and remains explicitly gated; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
 - The same release-hygiene gate advanced only the transitive `nanoid` lockfile resolution from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - On 2026-08-27 the owner permanently retired the inaccessible original target, waived its missing migration/provenance evidence, and selected the verified clean local baseline as the authoritative greenfield starting point. No hosted state changed.
-- Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority.
+- Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority. An unselected host is a deferred adapter boundary, so bounded local synthetic/reject-by-default work may continue without selecting or provisioning it.
 - Plan 02-22 is complete. Safe resume is one bounded synthetic preparation unit under its checked preparation contract; Plan 02-99 stays blocked until separately authorized future-target evidence exists. The old incident collector remains historical code and must not be run against the original target.
 
 Use these existing artifacts rather than restating product decisions:
@@ -115,7 +115,8 @@ Use these existing artifacts rather than restating product decisions:
 ## Safe next action
 
 Keep all external effects disabled and take one checked synthetic preparation
-unit. Phase 6 currently permits only the fail-closed composition guard recorded
-in `06-PREPARATION.md`; it does not execute a Phase 6 plan. Do not access the
-original target or provision a new one. New terminal Plan 02-99 remains the
-future greenfield target acceptance gate and performs no hosted action itself.
+unit under the applicable preparation contract. The Phase 6 static guard and
+isolated approval/suppression state machine are complete local preparation;
+they do not execute a Phase 6 plan. Do not access the original target or
+provision a new one. New terminal Plan 02-99 remains the future greenfield
+target acceptance gate and performs no hosted action itself.
