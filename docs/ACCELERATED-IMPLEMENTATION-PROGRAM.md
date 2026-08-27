@@ -88,8 +88,11 @@ computes complete immutable digests, and reports exact invalidation reasons.
 A third isolated contract now models the final current-state/lease fence that
 would precede a future provider call while explicitly granting no invocation
 authority and retaining literal zero effects. No runtime file imports any
-preparation module; none of these slices executes a Phase 6 plan or earns phase
-credit.
+preparation module. A fourth contract now classifies only pre-resolved
+synthetic reply/bounce events and projects which matching follow-ups would
+cancel or pause; its authentication flag is modeled input rather than provider
+evidence, and it grants neither persistence nor cancellation authority. None
+of these slices executes a Phase 6 plan or earns phase credit.
 
 ## External handoff checklist
 

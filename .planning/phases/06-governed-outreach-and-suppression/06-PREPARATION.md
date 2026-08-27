@@ -33,6 +33,13 @@ outbox-item, and lease-fence tuple. It can describe that a future boundary
 would pass, but explicitly grants no provider-invocation authority and performs
 no state transition or effect.
 
+The fifth preparation slice adds a minimized synthetic originated-event and
+stop-rule decision contract. It classifies an already-resolved reply or bounce,
+binds it to one known synthetic originated message/thread and current
+connection/dependency authority, and describes which matching email follow-ups
+would cancel or pause. It never reads a mailbox, authenticates an event, finds
+work, records a stop rule, cancels work, or performs an effect.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -129,6 +136,34 @@ This contract creates no outbox row, lease claim, dispatching transition,
 provider envelope, capability, persistence, reconciliation record, send, call,
 or export. It does not execute Plan 06-06 and grants no Phase 6 completion
 credit.
+
+### Synthetic originated-event and stop-rule decision
+
+`site/preparation/originated-stop-decision.ts` and its focused suite prove:
+
+- a minimized event digest binds exact workspace/Company/Contact,
+  connection/connection-subject, known originated message/thread, event kind,
+  synthetic sender or bounce class, subject/excerpt digests, suppression/stop
+  dependency sets, and occurrence time;
+- a confirmed reply or hard/soft bounce describes cancellation of matching
+  email follow-ups, while an ambiguous reply describes a pause for review;
+- only matching pending work and leases that have not crossed the recorded
+  pre-call/provider-attempt fence are eligible; later leased/dispatching work is
+  reported separately and terminal work is never presented as cancellable;
+- changed events or authority, inactive/unpinned connections, unknown
+  originated identity, changed dependency sets, duplicates, future events,
+  malformed or hostile plain-data shapes, and forged artifacts fail closed;
+- the `eventAuthenticationValid` field is only a synthetic pre-resolved input
+  to this pure contract. It is not provider evidence and this module performs
+  no mailbox/provider authentication or discovery; and
+- every result keeps `persistenceAuthorized` and `cancellationAuthorized`
+  false with literal zero effect counters.
+
+This contract receives a bounded caller-supplied synthetic work set and only
+describes `wouldCancel`/`wouldPause` identifiers. It creates no event, stop
+rule, suppression, pause, cancellation, audit, lease transition, provider
+request, send, call, or export. Runtime code may not import it. It does not
+execute Plans 06-04 or 06-06 and grants no Phase 6 completion credit.
 
 ## Deferred adapters and exact external decision
 
