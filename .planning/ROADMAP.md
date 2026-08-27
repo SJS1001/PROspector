@@ -53,7 +53,7 @@ Plans:
   3. Reloads, retries, stale tabs, and concurrent answers converge on one authoritative active question and never create duplicate answers, confirmations, or hidden overwrites.
   4. Uploads, imports, research, edits, and reusable knowledge enter as Proposed Knowledge with provenance; the owner can review and promote them without creating unauthorized Runs, Accounts, Contacts, or Prospects.
   5. The owner can inspect drift impact, activate immutable replacement configurations, preserve historical snapshots, invalidate affected approvals, and pause only high-risk outbound reached by the recorded dependency graph.
-**Plans**: 15 active plans / 32 tasks; 7 obsolete hosted-release plans preserved as retired history outside executor discovery
+**Plans**: 14 active plans; incident Plans 02-13 through 02-21 and the old recovery Plan 02-99 are preserved as retired history outside executor discovery
 **UI hint**: yes
 
 Plans:
@@ -69,30 +69,26 @@ Plans:
 - [x] `02-10-PLAN.md` — Compose and style the authoritative Knowledge workspace while preserving disabled effects.
 - [x] `02-11-PLAN.md` — Build fixed hosted preflight/gate tooling and a blocked release ledger.
 - [x] `02-12-PLAN.md` — Accept real-principal isolation and the read-only old-schema baseline.
-- [ ] `02-13-PLAN.md` — **INCIDENT-BLOCKED:** the 2026-08-24 forensic report invalidates the prior acceptance because the live schema-0003/no-migration premise is contradicted and the deployed source was not the reviewed Phase 2 lineage. Its historical summary is retained but earns no completion credit.
-- [ ] `02-21-PLAN.md` — **NEXT INCIDENT PLAN; NO HOSTED WRITES:** finish the target-bound read-only provenance bundle, verify obsolete release plans are outside executor discovery, draft and independently review one design-only recovery contract, and require a new exact owner decision before a future checked execution plan may be drafted.
-- [ ] `02-99-PLAN.md` — **TERMINAL ACCEPTANCE BARRIER:** remains incomplete after Plan 02-21 and until a separately checked recovery/replacement release sequence executes, fresh exact-target Phase 2 verification passes, and the owner accepts the exact artifact/target/evidence tuple. Future planning must atomically move its dependency/wave after the replacement sequence's terminal successor.
+- [ ] `02-13-PLAN.md` — **RETIRED INCIDENT HISTORY:** its prior acceptance is invalidated and earns no completion credit.
+- [x] `02-22-PLAN.md` — Recorded the owner-directed greenfield reset and proved a fresh disposable local baseline from the checked migration chain without claiming anything about the original target.
+- [ ] `02-99-PLAN.md` — **FUTURE GREENFIELD TARGET BARRIER:** requires separately authorized evidence from a new empty target and cannot be completed by local fixtures.
 
 Retired incident history (not active plans; GSD executor discovery must omit them):
 
 - `02-14-PLAN.retired.md` — Original clean-schema-0003-to-reviewed-0004 contract; permanently invalid for the current target.
 - `02-15-PLAN.retired.md` through `02-20-PLAN.retired.md` — Original review/deploy/activation/lifecycle sequence; preserve only as evidence of the invalidated release design and never execute.
+- `02-21-PLAN.retired.md` and `02-99-RECOVERY-PLAN.retired.md` — Original-target provenance/recovery sequence; permanently superseded by the owner-directed greenfield baseline.
 
-**Incident disposition (updated 2026-08-25):** Owner-authorized read-only
-inspection produced a constrained `partial/mixed/unknown` classification with
-strong evidence of a superseded pre-`e66dbf0` schema family; it rules out a
-complete reviewed `b93c71d…` 0004 but does not prove an exact migration,
-journal, trigger/index/FK set, actor, mechanism, or time. All hosted writes
-remain frozen and the hosted gate must remain absent. Plan 02-21 permits only
-the remaining provider-supported read-only evidence, structural retirement of
-obsolete executor plans, one local design-only recovery contract, independent
-design review, and a separate decision that may authorize only drafting a
-future checked plan. Canonical Plan 02-99 prevents Plan 02-21 from falsely
-completing the phase and performs no hosted action. No executable recovery artifact, rehearsal, provider
-recovery environment, restore drill, destructive rollback, forward repair,
-restore, deployment, or gate action is authorized. See
-`.planning/forensics/report-20260824-140458.md` and
-`02-INCIDENT-RECONCILIATION.md`.
+**Incident disposition (updated 2026-08-27):** The owner permanently retired
+the inaccessible original target and intentionally waived its missing journal,
+schema, and provider provenance because none of its state will be reused. This
+does not claim that any migration occurred or accept any historical schema.
+The checked repository plus a freshly created empty local database is the new
+authoritative starting point. All future environments must be greenfield and
+must prove their own exact source, migration, privacy, and zero-effect state.
+No hosted write, target provisioning, provider, credential, production data,
+export, or outbound effect is authorized. See `docs/GREENFIELD-BASELINE.md` and
+ADR-0006; the forensic and reconciliation files remain historical evidence.
 
 ### Phase 3: Product Readiness and Market Discovery
 **Goal**: The owner can make a Product Ready from complete confirmed policy and receive bounded, replayable Market Play proposals without activating prospecting.  
@@ -161,6 +157,10 @@ Plans:
 Plans:
 - [ ] `06-01-PLAN.md` through `06-13-PLAN.md` — Checked predecessor acceptance, governed-outreach, Gmail composition, manual-call, suppression, and release sequence; execution has not started.
 
+**Greenfield preparation:** `06-PREPARATION.md` authorizes only local synthetic
+fail-closed boundary work. It does not satisfy Plan 06-11, execute a Phase 6
+plan, enable a provider/effect, or earn completion credit.
+
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  
 **Depends on**: Phase 6  
@@ -184,7 +184,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Private Pilot Boundary | 5/5 | Complete   | 2026-07-30 |
-| 2. Consensus Knowledge and Commercial Model | 12/15 active | Plan 02-21 is blocked at incomplete read-only provenance; Plan 02-99 is the terminal acceptance barrier; retired 02-14..20 are outside discovery and no recovery implementation/write is authorized | - |
+| 2. Consensus Knowledge and Commercial Model | 13/14 active | Plan 02-22 verified the greenfield local baseline; new Plan 02-99 preserves future greenfield target acceptance; original-target recovery plans are retired | - |
 | 3. Product Readiness and Market Discovery | 8/11 | Local plans complete; blocked on Phase 2 acceptance and 03-09..11 external gates | - |
 | 4. Profile Readiness and Evidence-Based Prospecting | 0/12 | Wave 1 underway; dependency-gated | - |
 | 5. Controlled Enrichment and Verified Contacts | 0/9 | Planned; dependency-gated | - |

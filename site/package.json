@@ -15,6 +15,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:local:reset": "node scripts/local-bootstrap.mjs --reset",
+    "baseline:greenfield": "node scripts/greenfield-baseline.mjs --reset",
     "demo:local:smoke": "node scripts/local-demo-smoke.mjs"
   },
   "dependencies": {

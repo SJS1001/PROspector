@@ -2,11 +2,13 @@
 
 ## Scope and boundary
 
-This program applies only to the fresh, isolated, owner-only PROspector pilot.
-Its non-secret controller identity is recorded in
-[`DEPLOYMENT-OWNERSHIP.md`](DEPLOYMENT-OWNERSHIP.md). The original deployment
-and database are historical and must not be accessed, copied, restored, or
-changed by this program.
+This program applies to the checked repository and fresh disposable local
+state described in [`GREENFIELD-BASELINE.md`](GREENFIELD-BASELINE.md). No
+hosted target is selected. The inaccessible original deployment and failed
+pilot are retired history and must not be resolved, accessed, copied,
+restored, migrated, or changed by this program. Missing original journal,
+schema, and provenance evidence is intentionally waived because no old state
+will be reused; this makes no claim that a migration occurred.
 
 The objective is a usable governed product: confirmed commercial knowledge,
 evidence-backed discovery and qualification, controlled enrichment, governed
@@ -19,10 +21,9 @@ or credentials are activated by implementation work alone.
 - The application builds, lints, and its local suite passes.
 - Phase 1 and the local portions of Phases 2 and 3 are implemented; Phase 4
   has foundation work; later phases are planned.
-- The first fresh private release failed before publishing because its database
-  migration importer returned `incomplete input: SQLITE_ERROR`.
-- Local SQLite and Miniflare-style migration tests accept the chain, but they
-  do not prove compatibility with the Sites migration importer.
+- The checked migration chain can build a fresh empty disposable local
+  database. This is the authoritative implementation baseline, not hosted
+  evidence and not evidence about either retired environment.
 - The repository now has a disposable local SQLite bootstrap at
   `site/scripts/local-bootstrap.mjs`; it applies the complete chain only to
   ignored local state and verifies foreign keys. It creates no operational,
@@ -39,14 +40,13 @@ or credentials are activated by implementation work alone.
 
 ## Dependency-ordered master plan
 
-1. **Release-foundation repair.** Add a Sites-compatible migration-boundary
-   contract; normalize the fresh migration chain; inspect the failed fresh
-   database only through supported read-only views to establish whether it is
-   empty/transactionally rolled back or partial; then save and privately
-   deploy a reviewed replacement version. Never alter the original system.
-2. **Private-boundary acceptance.** Configure the owner-only runtime values in
-   Sites, prove owner admission and neutral denial with controlled synthetic
-   data, and retain no secrets or private evidence in Git.
+1. **Greenfield local foundation.** Rebuild a disposable empty database from
+   the checked migration chain, prove foreign-key integrity and zero authority
+   or operational rows, and keep the attestation free of hosted claims.
+2. **Future private-boundary acceptance.** Only after a separate owner decision
+   selects and authorizes a new empty target, configure its owner-only runtime,
+   prove owner admission and neutral denial with synthetic data, and retain no
+   secrets or private evidence in Git. Until then, perform no hosted action.
 3. **Commercial-model acceptance.** Complete the confirmed-knowledge,
    hierarchy, drift, and activation checks against the fresh target. Keep the
    consensus gate absent until its exact authorization requirements pass.
@@ -71,8 +71,8 @@ or credentials are activated by implementation work alone.
 
 ## Parallel work lanes
 
-While the release-foundation repair is underway, these non-overlapping local
-lanes may proceed: migration compatibility tests; Phase 4 qualification and
+While the greenfield local foundation is maintained, these non-overlapping local
+lanes may proceed: migration integrity tests; Phase 4 qualification and
 UI contracts; Phase 5 verification/freshness and budget tests; Phase 6
 suppression/approval tests with disabled adapters; Phase 7 CSV/archive tests;
 independent security, privacy, accessibility, and documentation reviews.

@@ -2,16 +2,32 @@
 
 This ledger is status-only evidence. It **never grants authority**, changes a gate, authorizes a deployment, or substitutes for a human decision. `human_needed` is a pause and never completes a task.
 
+## Controlling greenfield disposition — 2026-08-27
+
+The owner permanently retired the inaccessible original project and prohibited
+all further access attempts. Its journal, schema, and provider provenance are
+intentionally waived because no original state will be reused. This waiver is
+not proof that a migration occurred and does not accept any historical schema.
+
+Active work starts from the checked repository plus a new empty local database
+under Plan 02-22. The incident reconciliation, Plan 02-21, and the old recovery
+Plan 02-99 are retired history. New Plan 02-99 separately blocks any future
+hosted acceptance until a newly provisioned greenfield target proves its own
+empty baseline, exact checked source/migrations, private boundary, and zero
+effects. No hosted write or target provisioning is authorized now.
+
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
+| Greenfield local baseline | status: **Plan 02-22 complete; local only** | Reproduced an empty disposable database from the checked migration chain and explicitly recorded no original-project migration claim. |
+| Future greenfield target | status: **not provisioned; Plan 02-99 blocked** | A later separately authorized new empty target must provide its own evidence. Local proof cannot satisfy this row. |
 | Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
 | Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
 | Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |
-| Read-only incident reconciliation | status: **constrained classification recorded; provenance incomplete** | Owner-approved read-only inspection confirms version 11/source `e07e3f9`, an empty gate, and live column signatures that rule out complete reviewed `b93c71d…` 0004 and align with a superseded pre-`e66dbf0` family. A checked local incident-only collector is now ready, but it has not run against the target; protected/audit digests, exact journal/schema comparison, deployment-to-D1 binding, mechanism, actor, and time remain external, so classification remains `partial/mixed/unknown`. |
-| Recovery design and independent review | status: Plan 02-21; read-only/design work only | Finish the target-bound journal/schema/provider-audit bundle, preserve Plans 02-14..20 outside executor discovery, select one design path, and independently review the design. No executable artifact, rehearsal, provider recovery environment, restore drill, future execution plan, or hosted write is authorized. |
+| Read-only incident reconciliation | status: **retired incomplete history** | The partial observations remain historical; missing provenance is waived because no original state will be reused. Do not resume collection. |
+| Recovery design and independent review | status: **retired** | Plan 02-21 is outside executor discovery. Original-target recovery is permanently abandoned. |
 | Recovery plan drafting authorization | status: **not authorized** | A new exact owner decision naming the classified target, design path/digest, backup/restore requirements, intended actor, review, and stop conditions may authorize only drafting and checking a future path-specific plan. It cannot authorize that uncreated plan to run. |
 | Recovery write authorization | status: **not authorized** | A future checked plan must require a separate artifact-bound owner checkpoint after implementation, local rehearsal, backup/restore proof, and independent exact-artifact review. |
-| Terminal Phase 2 verification and acceptance | status: **Plan 02-99 Tasks 1-2 incomplete** | Plan 02-21 completion cannot complete the phase. Future planning must atomically move Plan 02-99 after the replacement sequence's terminal successor. Task 1 then creates fresh independent `02-VERIFICATION.md` from checked/redacted evidence only; Task 2 consumes a passed report for exact owner acceptance. Plan 02-99 performs no hosted action and cannot summarize until both tasks pass. |
+| Terminal Phase 2 verification and acceptance | status: **new Plan 02-99 incomplete** | Requires separately authorized evidence from one future new empty greenfield target. It performs no hosted action and cannot summarize from local proof. |
 | Additive 0004 | status: **permanently non-executable for current target** | The clean schema-0003 premise is false for the current target. Do not apply either known 0004 file over the live state. |
 | Post-migration proof | status: non-executable; replan required | Plans 02-15 through 02-20 require a new exact baseline after an authorized recovery and cannot resume from Plan 02-14's original contract. |
 | Independent review | status: non-executable | No reconciled source/schema artifact exists for review. |
@@ -21,7 +37,7 @@ This ledger is status-only evidence. It **never grants authority**, changes a ga
 | Gate activation | status: non-executable; gate absent | Preserve the absent gate. No gate writer or activation is authorized. |
 | Owner lifecycle | status: non-executable | Upstream release and activation stages are unaccepted. |
 
-The existing private Sites project must be reused without clone, replace, delete, rename, or public exposure. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after the later exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
+The original project must not be accessed or reused. No replacement target is selected or provisioned. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after a future target's exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
 
 No automated test, local fixture, status row, deployment record, digest, or text in this ledger can satisfy an absent human evidence requirement.
 
@@ -45,20 +61,12 @@ ran, whether it ran completely, what the migration journal records, or which
 actor or mechanism wrote the schema. The exact applied migration digest and
 actor therefore remain unknown.
 
-Plan 02-13 is incident-blocked and earns no completion credit. Plans 02-14
-through 02-20 are non-executable. All hosted writes remain frozen: do not
-deploy, migrate, compensate, drop or rebuild tables, run a gate writer, alter
-access, modify secrets, or improvise a destructive rollback. The only
-permissible hosted action is completion of the owner-authorized read-only
-schema, migration-journal, and provider-audit bundle on the same existing
-private project. Local incident documentation, recovery design, independent
-design review, and a plan-drafting decision may proceed under Plan 02-21. The
-obsolete Plans 02-14 through 02-20 are preserved only as `*.retired.md` history
-outside GSD executor discovery. No executable recovery artifact, rehearsal,
-provider recovery environment, restore drill, future execution plan, or
-recovery write is authorized. Plan 02-99 remains the canonical terminal
-acceptance barrier after Plan 02-21 and grants no authority. See `.planning/forensics/report-20260824-140458.md` and
-`02-INCIDENT-RECONCILIATION.md`.
+Plans 02-13 through 02-21 and the old recovery Plan 02-99 are now retired and
+earn no completion credit. Their former original-target recovery steps are
+non-executable. All hosted writes remain frozen: do not deploy, migrate,
+compensate, restore, alter access, modify secrets, or provision a target. See
+`docs/GREENFIELD-BASELINE.md` for the controlling decision; the forensic report
+and `02-INCIDENT-RECONCILIATION.md` remain historical evidence only.
 
 ## 2026-08-25 constrained read-only classification
 
