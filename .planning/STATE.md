@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 2 Plan 02-21 read-only provenance checkpoint; checked local incident collector ready but not run against target; partial/mixed/unknown classification and recovery freeze retained; Plan 02-99 pending
-last_updated: "2026-08-25T11:15:23Z"
-last_activity: 2026-08-25
+stopped_at: Phase 2 Plan 02-21 read-only provenance checkpoint; current account cannot resolve the exact original private Sites project; local gate green at efbb3a7 and draft PR 2 open; recovery freeze retained; Plan 02-99 pending
+last_updated: "2026-08-27T13:52:47Z"
+last_activity: 2026-08-27
 progress:
   total_phases: 7
   completed_phases: 1
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 Phase: 2 (Consensus Knowledge and Commercial Model) — HOSTED SCHEMA/SOURCE INCIDENT
 Plan: 02-21 (14th of 15 active Phase 2 plans; blocked at incomplete read-only provenance; 02-99 is the terminal barrier)
 Status: Constrained partial/mixed/unknown live-schema classification recorded; remaining read-only journal/schema/provider evidence is incomplete and recovery is not authorized
-Last activity: 2026-08-25
+Last activity: 2026-08-27
 
 Progress: [███░░░░░░░] 33% of active plans (25/75 completion credits; Plan 02-13 excluded and retired 02-14..20 are not active plans)
 
@@ -100,6 +100,10 @@ Decisions are logged in `PROJECT.md` and the five locked ADRs. Recent decisions 
 - [Phase 04/05]: Immutable local Phase 4 candidate `71b3a7b08d42af8edfa44ded7ecdba7426aebf2e` passed the isolated full test/lint/build gate and fresh independent source/security/UI audits with zero findings. This satisfies only the Phase 5 local-preparation precondition; Phase 4 hosted/human acceptance and every Phase 5 plan dependency remain incomplete.
 - [Phase 05]: Bounded local preparation checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` is pushed and passed a clean isolated Mac Studio full test/lint/build gate plus independent exact-source and persistence/security re-reviews with no blocker, high, or medium finding. Runtime provider composition and activation remain reject-only; this evidence completes no Phase 5 plan and grants no hosted/provider/spend authority.
 - [Phase 06]: Thirteen checked plans exist; execution has not started and remains dependency-gated.
+- [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
+- [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
+- [Maintenance]: The 2026-08-27 release-hygiene gate advanced only the transitive lockfile resolution for `nanoid` from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
+- [Phase 02 account classification]: On 2026-08-27 this Codex account performed only the allowed read-only resolution check for the exact original Sites project and received `project not found`. It is a local-work account for this checkpoint. No substitute project was discovered or created and no hosted state changed.
 
 ### Pending Todos
 
@@ -130,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-25
-Stopped at: Plan 02-21 Task 1; checked local incident collector ready but not run against the target, remaining owner-held/provider provenance unavailable, recovery not authorized; Plan 02-99 remains the terminal barrier
+Last session: 2026-08-27
+Stopped at: Plan 02-21 Task 1; current account cannot resolve the exact original private Sites project, the local gate is green at `efbb3a77193fba2068008fbfe9b29235ab2ad93f`, and draft PR `#2` is open; remaining owner-held/provider provenance is unavailable, recovery is not authorized, and Plan 02-99 remains the terminal barrier
 Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-INCIDENT-RECONCILIATION.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-21-PLAN.md`, and `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`
