@@ -187,8 +187,13 @@ atomic-receipt contract binds identity transition, suppression-index
 preservation, eligibility invalidation, audit append, and transaction
 completion into one deterministic hash chain; empty state describes the whole
 future write and only an exact complete set replays, while every partial or
-transplanted view rejects. This does not satisfy Plan 06-11, execute a Phase 6
-plan, enable persistence/provider/effect authority, or earn completion credit.
+transplanted view rejects. A suppression-retention contract then projects an
+exact delete/import/export/archive/restore lineage that keeps the complete
+subject, alias, deletion-tombstone, and non-contactable suppression-manifest
+union across every boundary. Empty or partial views authorize nothing. This
+does not satisfy Plan 06-11, execute a Phase 6 or Phase 7 plan, enable
+persistence/export/archive/restore/provider/effect authority, or earn
+completion credit.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  

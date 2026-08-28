@@ -63,6 +63,14 @@ verification/source digests, and rechecks exact current authority. It can
 describe bounded outcome and `do_not_call` ordering, but it creates no phone
 target, activity, suppression, cancellation, follow-up, or effect.
 
+A further preparation slice adds a synthetic suppression-retention manifest
+across delete, import, export, archive, and restore boundaries. It carries the
+complete subject, alias, and deletion-tombstone union through one exact
+lineage and requires export/archive/restore suppression manifests to retain
+every non-contactable subject. It describes neither a real lifecycle operation
+nor permission to persist, export, archive, restore, contact, or invoke a
+provider.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -409,6 +417,42 @@ Validation recorded on 2026-08-28: the focused atomic-receipt suite passed
 `npm test` (including the production build) and `npm run lint` passed, and
 `npm audit --omit=dev` reported zero production vulnerabilities on Node.js
 `v24.16.0`. This is local preparation evidence only.
+
+### Synthetic suppression retention across lifecycle boundaries
+
+`site/preparation/suppression-retention-manifest.ts` and its focused suite
+prove:
+
+- one canonical synthetic intent binds an identity/suppression receipt digest,
+  workspace and Company scope, source snapshot, source subjects and aliases,
+  pre-existing deletion tombstones, one append-only deletion event, one import
+  bundle, and future export/archive/restore identifiers;
+- the projected lineage is exactly delete, import, export, archive, then
+  restore. Delete preserves existing subjects, aliases, and tombstones while
+  adding its new tombstone; import takes a strict union; every later boundary
+  retains the complete union;
+- export, archive, and restore each carry the full subject set in a separate
+  non-contactable suppression manifest. Omission, addition, reorder,
+  duplication, transplant, scope/lineage mismatch, stale material, broken hash
+  chain, or invalid time rejects;
+- empty observation only describes the required complete future lineage. Only
+  the exact five-record hash chain verifies as already observed; no partial
+  operation can resume or acquire authority; and
+- every artifact and decision keeps deletion, import, export, archive,
+  restore, persistence, contactable-export, restore-release, and provider
+  authority false with literal zero effect counters.
+
+The contract contains only synthetic IDs, SHA-256 digests, bounded lifecycle
+kinds, and timestamps. It creates no database row, deletion, import, export,
+archive, restore, suppression mutation, identity data, contactable file,
+provider request, send, call, or runtime seam. It does not execute Plan 06-04,
+Plan 06-11, or any Phase 7 plan and grants no phase-completion credit.
+
+Validation recorded on 2026-08-28: the focused retention suite passed 14/14,
+the aggregate Phase 6 preparation suites passed 115/115, canonical `npm test`
+(including the production build) and `npm run lint` passed, and `npm audit
+--omit=dev` reported zero production vulnerabilities on Node.js `v24.16.0`.
+This is local preparation evidence only.
 
 ## Deferred adapters and exact external decision
 

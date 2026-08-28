@@ -114,7 +114,12 @@ index projection, eligibility invalidation, minimized audit append, and
 transaction completion into one deterministic synthetic receipt hash chain.
 It rejects every partial, reordered, transplanted, stale, or ambiguous durable
 view and grants no identity, suppression, audit, persistence, provider, or
-effect authority.
+effect authority. An eleventh contract projects one exact synthetic
+delete/import/export/archive/restore hash chain, retaining the complete
+subject, alias, and deletion-tombstone union and a non-contactable suppression
+manifest across every later boundary. Empty or partial observations never
+authorize an operation, and deletion, import, export, archive, restore,
+persistence, provider, and every effect authority remain false.
 
 ## External handoff checklist
 
