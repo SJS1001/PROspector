@@ -172,10 +172,13 @@ originated-message observations while denying persistence, reconciliation,
 retry, and provider authority. A suppression-before-success contract binds
 synthetic unsubscribe/explicit-opt-out intent and proves exact tombstone,
 cancellation, source, and success receipt ordering while denying persistence,
-cancellation, response, and provider authority. Runtime code imports no
-preparation module and every effect counter is zero. This does not satisfy Plan
-06-11, execute a Phase 6 plan, enable a provider/effect, or earn completion
-credit.
+cancellation, response, and provider authority. A manual-call contract binds a
+fresh fictional source-verified phone and Package-derived script, rechecks
+eligibility, and proves bounded outcome plus `do_not_call` ordering while
+creating no phone target, activity, suppression, follow-up, or effect. Runtime
+code imports no preparation module and every effect counter is zero. This does
+not satisfy Plan 06-11, execute a Phase 6 plan, enable a provider/effect, or
+earn completion credit.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  

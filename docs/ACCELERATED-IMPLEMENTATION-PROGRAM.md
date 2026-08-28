@@ -98,8 +98,11 @@ observations; it never authorizes persistence, reconciliation, retry, or
 provider invocation. A sixth contract binds synthetic public-unsubscribe and
 explicit-email-opt-out intent and proves tombstone/cancellation/source/success
 receipt ordering while authorizing no persistence, cancellation, response, or
-provider action. None of these slices executes a Phase 6 plan or earns phase
-credit.
+provider action. A seventh contract binds a fictional source-verified business
+phone and Package-derived script, rechecks exact manual-call eligibility, and
+proves bounded outcome plus `do_not_call` ordering while creating no target,
+activity, suppression, follow-up, or phone effect. None of these slices
+executes a Phase 6 plan or earns phase credit.
 
 ## External handoff checklist
 

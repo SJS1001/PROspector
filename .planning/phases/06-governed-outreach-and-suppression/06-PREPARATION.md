@@ -56,6 +56,13 @@ set, and time. It can describe the required durable ordering and exact replay,
 but it never resolves a real token or event, writes a tombstone, cancels work,
 reports success, or performs an effect.
 
+The eighth preparation slice adds a synthetic manual-call eligibility and
+outcome-ordering contract. It derives its immutable script from the canonical
+Package, binds a fresh fictional source-verified business phone and its
+verification/source digests, and rechecks exact current authority. It can
+describe bounded outcome and `do_not_call` ordering, but it creates no phone
+target, activity, suppression, cancellation, follow-up, or effect.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -256,6 +263,48 @@ the aggregate Phase 6 preparation suites passed 50/50, canonical `npm test`
 (including the production build) and `npm run lint` passed, and
 `npm audit --omit=dev` reported zero production vulnerabilities on Node.js
 `v24.16.0`. This is local preparation evidence only.
+
+### Synthetic manual-call eligibility and outcome decision
+
+`site/preparation/manual-call-decision.ts` and its focused suite prove:
+
+- the canonical candidate derives the non-editable script from an exact
+  synthetic Outreach Package and binds Package digest/approval, Profile
+  configuration, Company/Organization/Contact/Prospect scope, suppression
+  subjects, matching work, cancellation dependencies, and advisory
+  acknowledgement;
+- only the selected fictional `source_verified` business phone with exact
+  `authoritative_source_reconfirmed` method, verification-evidence digest,
+  authoritative-source digest, verification time, and unexpired freshness may
+  form the candidate;
+- current eligibility rechecks every scope, artifact, approval, script, phone,
+  advisory, freshness, availability, drift, suppression, pause/archive, and
+  stop predicate. Exact expiry boundaries fail closed, and even a complete
+  tuple projects no phone target or activity;
+- outcomes are exactly `connected`, `voicemail`, `no_answer`, `wrong_number`,
+  `do_not_call`, and `follow_up`, with bounded synthetic notes represented only
+  by a digest in the projected activity. Contact-like or credential-like text
+  fails closed;
+- ordinary outcome replay requires one exact intent-bound activity record.
+  `do_not_call` requires exact-phone suppression, exact pending-work
+  cancellation (including an empty set), then the activity record in that
+  order; partial, stale, future, mismatched, and out-of-order records reject;
+- an earlier branded eligible projection is required before any outcome can be
+  modeled. A later stop may not erase a historical non-follow-up outcome, but
+  `follow_up` rechecks all current stop predicates and only requires a wholly
+  new Message version and approval; and
+- every candidate and decision keeps phone-target, activity-persistence,
+  suppression-persistence, follow-up-creation, and phone-effect authority false
+  with literal zero effect counters.
+
+This contract creates no browser target, phone action, call claim, activity,
+note record, suppression, cancellation, follow-up, audit, provider request,
+send, export, or durable mutation. Runtime code may not import it. It does not
+execute Plan 06-07 and grants no Phase 6 completion credit. On 2026-08-28 its
+focused suite passed 15/15, the aggregate preparation suites passed 65/65,
+canonical `npm test` (including the production build) and `npm run lint`
+passed, and `npm audit --omit=dev` reported zero production vulnerabilities on
+Node.js `v24.16.0`. This is local preparation evidence only.
 
 ## Deferred adapters and exact external decision
 
