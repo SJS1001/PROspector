@@ -119,7 +119,13 @@ delete/import/export/archive/restore hash chain, retaining the complete
 subject, alias, and deletion-tombstone union and a non-contactable suppression
 manifest across every later boundary. Empty or partial observations never
 authorize an operation, and deletion, import, export, archive, restore,
-persistence, provider, and every effect authority remain false.
+persistence, provider, and every effect authority remain false. A twelfth
+contract binds all twelve verified preparation boundaries into one canonical
+synthetic ID/digest-only DAG. It preserves separate email-dispatch,
+stop/suppression, manual-call, and identity/retention branches with two
+terminal references, expressly claims no branch occurrence or simultaneous
+execution, and grants no runtime, persistence, export, archive, restore,
+provider, phase-execution, or effect authority.
 
 ## External handoff checklist
 

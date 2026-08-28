@@ -454,6 +454,40 @@ the aggregate Phase 6 preparation suites passed 115/115, canonical `npm test`
 --omit=dev` reported zero production vulnerabilities on Node.js `v24.16.0`.
 This is local preparation evidence only.
 
+### Synthetic cross-contract outreach invariant bundle
+
+`site/preparation/outreach-invariant-bundle.ts` and its focused suite prove:
+
+- one canonical synthetic graph binds the twelve already-verified preparation
+  boundaries by synthetic ID and SHA-256 digest only, from Package and Message
+  artifacts through approval, dispatch, stop/delivery/suppression/manual-call,
+  audit, identity receipts, and suppression retention;
+- the graph preserves four independent branches and two terminal references.
+  It explicitly makes no claim that any modeled branch occurred, that all
+  branches occur together, or that a referenced digest is provider,
+  persistence, provenance, or lifecycle evidence;
+- every required node kind, status, dependency edge, scope, subject, and
+  digest must match the exact canonical DAG. Missing, duplicate, extra,
+  reordered, transplanted, stale, hostile, raw-identity, and forged inputs
+  fail closed;
+- current evaluation separately rechecks all twelve preparation-state
+  categories plus the external-effects-disabled fence and rejects any bundle
+  digest change; and
+- every bundle and evaluation keeps phase execution, runtime composition,
+  persistence, export, archive, restore, provider invocation, and all effect
+  authority false with literal zero effect counters.
+
+The bundle contains no runtime import, database, logger, network, provider,
+identity value, file, export, archive, restore, or effect seam. It does not
+execute Plan 06-09, Plan 06-11, any other Phase 6 plan, or any Phase 7 plan and
+grants no plan or phase-completion credit.
+
+Validation recorded on 2026-08-28: the focused invariant-bundle suite passed
+13/13, the aggregate Phase 6 preparation suites passed 128/128, canonical
+`npm test` (including the production build) and `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. This is local preparation evidence only.
+
 ## Deferred adapters and exact external decision
 
 The unselected greenfield host and provider are explicit deferred adapters,

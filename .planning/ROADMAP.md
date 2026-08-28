@@ -193,7 +193,12 @@ subject, alias, deletion-tombstone, and non-contactable suppression-manifest
 union across every boundary. Empty or partial views authorize nothing. This
 does not satisfy Plan 06-11, execute a Phase 6 or Phase 7 plan, enable
 persistence/export/archive/restore/provider/effect authority, or earn
-completion credit.
+completion credit. A final cross-contract preparation bundle binds the twelve
+verified boundaries by synthetic ID and digest in one exact DAG while keeping
+email dispatch, stop/suppression, manual call, and identity/retention as
+separate modeled branches. Its two terminal references are compatibility
+metadata only: it claims no branch occurred, grants no runtime or effect
+authority, and earns no plan or phase credit.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  
