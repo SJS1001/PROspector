@@ -127,6 +127,15 @@ terminal references, expressly claims no branch occurrence or simultaneous
 execution, and grants no runtime, persistence, export, archive, restore,
 provider, phase-execution, or effect authority.
 
+Phase 7 now has a separately bounded greenfield preparation lane because its
+checked plans remain gated by missing Plan 06-10 and later archive/target
+evidence. The first pure candidate computes a synthetic weekly outcome from
+each Prospect's earliest supplied Export-ready transition in a supplied IANA
+timezone, preserves DST-local dates and offsets, keeps all funnel losses
+separate, excludes Draft profiles, and proves a second generic hierarchy. It
+claims no real outcome or history provenance and grants no runtime, schedule,
+runner, persistence, CSV/export, provider, phase, or effect authority.
+
 ## External handoff checklist
 
 Before any real provider or outbound capability is enabled, the owner must

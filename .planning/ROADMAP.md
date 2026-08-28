@@ -216,6 +216,17 @@ authority, and earns no plan or phase credit.
 Plans:
 - [ ] `07-01-PLAN.md` through `07-10-PLAN.md` — Checked Mining pilot handoff, CRM CSV, encrypted archive, and clean-restore sequence; execution has not started.
 
+**Greenfield preparation:** `07-PREPARATION.md` authorizes only local synthetic
+fail-closed boundary work while Plan 06-10 and every Phase 7 dependency remain
+incomplete. Its first pure candidate models a supplied IANA-timezone
+Monday-Sunday week, counts each stable Prospect only at its earliest supplied
+Export-ready transition, keeps ten funnel-loss categories separate, excludes
+Draft profiles, and proves generic non-Mining scope. Modeled transitions are
+not outcome or provenance evidence, runtime code imports no preparation
+module, and schedule, runner, persistence, CSV/export, provider, plan, and all
+effect authority remain false/zero. This executes no Phase 7 plan and earns no
+completion credit.
+
 ## Progress
 
 **Execution Order:** Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7
