@@ -109,7 +109,12 @@ authorizing no logger, persistence, external sink, provider, or effect. A ninth
 contract binds synthetic merge/split topology to complete scoped suppression
 references, unions every merge source, and conservatively carries the union to
 both split results while authorizing no identity, tombstone, persistence, or
-provider mutation.
+provider mutation. A tenth contract binds the identity transition, suppression
+index projection, eligibility invalidation, minimized audit append, and
+transaction completion into one deterministic synthetic receipt hash chain.
+It rejects every partial, reordered, transplanted, stale, or ambiguous durable
+view and grants no identity, suppression, audit, persistence, provider, or
+effect authority.
 
 ## External handoff checklist
 

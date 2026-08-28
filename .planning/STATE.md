@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 6 identity-change suppression resolver fully verified; Plan 02-99 remains deferred; no identity, tombstone, persistence, provider authority, or effect composed
-last_updated: "2026-08-28T15:39:43Z"
+stopped_at: Phase 6 atomic identity/suppression receipt contract fully verified; Plan 02-99 remains deferred; no identity, suppression, audit, persistence, provider authority, or effect composed
+last_updated: "2026-08-28T16:04:19Z"
 last_activity: 2026-08-28
 progress:
   total_phases: 7
@@ -116,6 +116,8 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Phase 06 greenfield preparation]: On 2026-08-28 the minimized audit-envelope candidate passed its 12-case focused suite, the 77-case aggregate preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, logger, persistence, hosted, provider, or effect authority.
 - [Phase 06 greenfield preparation]: A synthetic identity-change suppression resolver binds exact merge/split topology, Company and source-identity subject scope, tombstone/digest/effective-time references, and association partitions. Merge unions every source plus Company suppression onto the survivor; split conservatively carries the complete union to both results. Transplant, omission, orphan, duplicate, collision, overlap, stale authority, raw value, and hostile object shapes fail closed. Identity, suppression, tombstone-deletion, persistence, provider, and all effect authority remain false/zero. It performs no runtime import, mutation, Plan 06-04 execution, or Phase 6 credit.
 - [Phase 06 greenfield preparation]: On 2026-08-28 the identity-change suppression candidate passed its 12-case focused suite, the 89-case aggregate preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, identity, tombstone, persistence, hosted, provider, or effect authority.
+- [Phase 06 greenfield preparation]: A synthetic atomic receipt contract binds identity transition, suppression-index preservation, eligibility invalidation, minimized audit append, and transaction completion into one deterministic five-record hash chain. Empty durable state only describes the complete future atomic write; exact complete replay is accepted, while every partial, reordered, transplanted, stale, re-digested, or ambiguous view rejects. Identity, suppression, audit, persistence, provider, and all effect authority remain false/zero. It performs no runtime import, write, Plan 06-04/06-11 execution, or Phase 6 credit.
+- [Phase 06 greenfield preparation]: On 2026-08-28 the atomic identity/suppression receipt candidate passed its 12-case focused suite, the 101-case aggregate preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, identity, suppression, audit, persistence, hosted, provider, or effect authority.
 - [Deferred adapters]: The unselected greenfield target and providers are explicit placeholders rather than global local-work blockers. Continue bounded synthetic/reject-by-default preparation autonomously, but stop before target selection/provisioning, credentials, provider composition, real data, export, or outbound effects.
 - [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
@@ -149,5 +151,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-28
-Stopped at: Phase 6 identity-change suppression resolver fully verified; target/provider adapters remain deferred; no hosted write, identity/tombstone mutation, persistence, provider authority, or external effect; draft PR `#2` remains open
+Stopped at: Phase 6 atomic identity/suppression receipt contract fully verified; target/provider adapters remain deferred; no hosted write, identity/suppression/audit mutation, persistence, provider authority, or external effect; draft PR `#2` remains open
 Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/06-governed-outreach-and-suppression/06-PREPARATION.md`, all modules under `site/preparation/`, and their focused tests

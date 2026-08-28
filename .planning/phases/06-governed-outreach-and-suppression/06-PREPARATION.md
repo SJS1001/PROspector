@@ -374,6 +374,42 @@ canonical `npm test` (including the production build) and `npm run lint`
 passed, and `npm audit --omit=dev` reported zero production vulnerabilities on
 Node.js `v24.16.0`. This is local preparation evidence only.
 
+### Synthetic atomic identity/suppression receipt decision
+
+`site/preparation/suppression-identity-receipts.ts` and its focused suite
+prove:
+
+- one canonical synthetic intent binds the exact operation, workspace,
+  Company, identity-change candidate, transition, preserved suppression
+  references, destination identities, affected associations, and commit time;
+- the projected transaction is exactly five ordered records: identity
+  transition, suppression-index preservation, eligibility invalidation,
+  minimized audit append, then transaction completion. Every record binds the
+  complete scope and is chained to its predecessor digest;
+- empty durable state describes only the complete future atomic write without
+  authorizing it. Only the exact complete five-record set replays as durable;
+  every prefix, subset, duplicate, reorder, extra record, cross-transaction
+  transplant, changed binding, stale digest, broken chain, or invalid time
+  rejects rather than resuming a partial operation;
+- current identity resolution, suppression union, append-only tombstones,
+  audit availability, intent digest, and evaluation/commit time are rechecked
+  for both new and replay classifications; and
+- every artifact and decision keeps identity-mutation, suppression-mutation,
+  audit-persistence, general persistence, and provider-invocation authority
+  false with literal zero effect counters.
+
+This contract contains only synthetic IDs, SHA-256 digests, bounded record
+kinds, and timestamps. It creates no identity transition, tombstone, index,
+eligibility, audit, transaction, database, provider request, send, call,
+export, or durable mutation. Runtime code may not import it. It does not
+execute Plan 06-04 or 06-11 and grants no Phase 6 completion credit.
+
+Validation recorded on 2026-08-28: the focused atomic-receipt suite passed
+12/12, the aggregate Phase 6 preparation suites passed 101/101, canonical
+`npm test` (including the production build) and `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. This is local preparation evidence only.
+
 ## Deferred adapters and exact external decision
 
 The unselected greenfield host and provider are explicit deferred adapters,
