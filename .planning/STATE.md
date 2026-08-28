@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 6 synthetic originated-event/stop-rule cancellation projection verified; Plan 02-99 remains deferred; no persistence, cancellation authority, or effect composed
-last_updated: "2026-08-27T16:38:21Z"
-last_activity: 2026-08-27
+stopped_at: Phase 6 synthetic DeliveryUnknown/manual-reconciliation classification verified; Plan 02-99 remains deferred; no persistence, reconciliation, retry, provider authority, or effect composed
+last_updated: "2026-08-28T13:05:11Z"
+last_activity: 2026-08-28
 progress:
   total_phases: 7
   completed_phases: 1
@@ -107,6 +107,7 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Phase 06 greenfield preparation]: A separate canonical artifact contract now binds every synthetic Outreach Package and Message approval field, derives the call script, hashes deterministic immutable snapshots, and projects digest/authority invalidation. Runtime composition is prohibited and all effect counters remain zero; this does not persist, approve, export, compose, send, call, execute Plan 06-03, or earn Phase 6 credit.
 - [Phase 06 greenfield preparation]: The minimized synthetic final-dispatch recheck/lease decision binds current scope, artifacts, approvals, sender/policy authority, dependency sets, dispatch identity, and a monotonic lease fence. Even a complete tuple grants no provider invocation and every result has literal zero effects. It does not persist, lease, transition, reconcile, send, execute Plan 06-06, or earn Phase 6 credit.
 - [Phase 06 greenfield preparation]: The pure synthetic originated-event/stop-rule classifier binds a pre-resolved reply or bounce to known originated identity, current connection/dependency authority, and a bounded synthetic work set. It describes matching follow-ups that would cancel or pause while keeping persistence and cancellation authority false and all effect counters zero. Its authentication field is modeled input, not provider evidence; it performs no mailbox discovery/authentication, runtime import, mutation, send, or Phase 06-04/06-06 execution and earns no Phase 6 credit.
+- [Phase 06 greenfield preparation]: The canonical synthetic DeliveryUnknown/manual-reconciliation classifier binds exactly one ambiguous provider attempt to the current dispatch, Message artifact, connection, originated message/thread pair, RFC Message-ID and marker digests, reconciliation dependencies, and lease generation. Only an exact pre-resolved originated match can describe a future Sent resolution; absence, conflict, or connection unavailability remains DeliveryUnknown and requires owner review. Its authentication/origin fields are modeled inputs rather than provider evidence, and persistence, reconciliation, automatic retry, provider invocation, and every effect counter remain false/zero. It performs no runtime import, mutation, provider discovery, send, or Plan 06-06 execution and earns no Phase 6 credit.
 - [Deferred adapters]: The unselected greenfield target and providers are explicit placeholders rather than global local-work blockers. Continue bounded synthetic/reject-by-default preparation autonomously, but stop before target selection/provisioning, credentials, provider composition, real data, export, or outbound effects.
 - [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
@@ -139,6 +140,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-27
-Stopped at: Phase 6 synthetic originated-event/stop-rule cancellation projection verified; target/provider adapters remain deferred; no hosted write, persistence/cancellation authority, or external effect; draft PR `#2` remains open
+Last session: 2026-08-28
+Stopped at: Phase 6 synthetic DeliveryUnknown/manual-reconciliation classification verified; target/provider adapters remain deferred; no hosted write, persistence/reconciliation/retry/provider authority, or external effect; draft PR `#2` remains open
 Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/06-governed-outreach-and-suppression/06-PREPARATION.md`, all modules under `site/preparation/`, and their focused tests

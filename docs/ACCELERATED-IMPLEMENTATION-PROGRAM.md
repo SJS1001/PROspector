@@ -91,8 +91,12 @@ authority and retaining literal zero effects. No runtime file imports any
 preparation module. A fourth contract now classifies only pre-resolved
 synthetic reply/bounce events and projects which matching follow-ups would
 cancel or pause; its authentication flag is modeled input rather than provider
-evidence, and it grants neither persistence nor cancellation authority. None
-of these slices executes a Phase 6 plan or earns phase credit.
+evidence, and it grants neither persistence nor cancellation authority. A
+fifth contract canonicalizes one ambiguous synthetic provider attempt as
+DeliveryUnknown and classifies only exact, pre-resolved originated-message
+observations; it never authorizes persistence, reconciliation, retry, or
+provider invocation. None of these slices executes a Phase 6 plan or earns
+phase credit.
 
 ## External handoff checklist
 

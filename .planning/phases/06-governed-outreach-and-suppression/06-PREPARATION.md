@@ -40,6 +40,14 @@ connection/dependency authority, and describes which matching email follow-ups
 would cancel or pause. It never reads a mailbox, authenticates an event, finds
 work, records a stop rule, cancels work, or performs an effect.
 
+The sixth preparation slice adds a minimized synthetic DeliveryUnknown and
+manual-reconciliation decision contract. It binds one ambiguous provider
+attempt to the exact synthetic dispatch, message artifact, connection,
+originated message/thread, reconciliation dependencies, marker digests, and
+lease generation. It can describe how a later pre-resolved observation would
+classify the item, but it never reads a provider, records the observation,
+changes delivery state, retries, or performs an effect.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -164,6 +172,39 @@ describes `wouldCancel`/`wouldPause` identifiers. It creates no event, stop
 rule, suppression, pause, cancellation, audit, lease transition, provider
 request, send, call, or export. Runtime code may not import it. It does not
 execute Plans 06-04 or 06-06 and grants no Phase 6 completion credit.
+
+### Synthetic DeliveryUnknown and reconciliation decision
+
+`site/preparation/delivery-unknown-decision.ts` and its focused suite prove:
+
+- the canonical DeliveryUnknown artifact binds the exact synthetic workspace,
+  Company, prospect, Contact, outbox/dispatch, Message artifact, connection and
+  subject, originated message/thread pair, RFC Message-ID and marker digests,
+  reconciliation dependency set, lease generation, ambiguity class, one
+  provider attempt, and observation time;
+- accepted-response loss, unknown request transmission, and post-acceptance
+  persistence failure all remain `delivery_unknown` and can never authorize an
+  automatic retry or another provider invocation;
+- only an exact pre-resolved observation of the stored originated message and
+  thread can describe a future `sent` resolution. Absence, conflicting
+  evidence, or an unavailable connection remains `delivery_unknown` and
+  requires owner review and a new Message version before any future
+  transmission;
+- every current scope, artifact, connection, digest, dependency set, lease
+  generation, recorded-state, one-attempt/zero-retry, connection-authority,
+  observation-origin, replay, and time condition is rechecked; cross-paired,
+  stale, malformed, duplicate, accessor-backed, forged, non-synthetic, and
+  extra-field inputs fail closed;
+- `observationAuthenticated` and `observationOriginRestricted` are only
+  synthetic pre-resolved inputs. They are not provider evidence and this
+  module performs no mailbox/provider discovery or authentication; and
+- every result keeps persistence, reconciliation, automatic-retry, and
+  provider-invocation authority false with literal zero effect counters.
+
+This contract creates no DeliveryUnknown row, reconciliation observation,
+audit, delivery-state transition, retry, provider request, send, call, or
+export. Runtime code may not import it. It does not execute Plan 06-06 and
+grants no Phase 6 completion credit.
 
 ## Deferred adapters and exact external decision
 
