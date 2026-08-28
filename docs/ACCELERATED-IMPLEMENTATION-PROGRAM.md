@@ -95,8 +95,11 @@ evidence, and it grants neither persistence nor cancellation authority. A
 fifth contract canonicalizes one ambiguous synthetic provider attempt as
 DeliveryUnknown and classifies only exact, pre-resolved originated-message
 observations; it never authorizes persistence, reconciliation, retry, or
-provider invocation. None of these slices executes a Phase 6 plan or earns
-phase credit.
+provider invocation. A sixth contract binds synthetic public-unsubscribe and
+explicit-email-opt-out intent and proves tombstone/cancellation/source/success
+receipt ordering while authorizing no persistence, cancellation, response, or
+provider action. None of these slices executes a Phase 6 plan or earns phase
+credit.
 
 ## External handoff checklist
 

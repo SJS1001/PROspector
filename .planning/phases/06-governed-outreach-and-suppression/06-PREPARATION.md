@@ -48,6 +48,14 @@ lease generation. It can describe how a later pre-resolved observation would
 classify the item, but it never reads a provider, records the observation,
 changes delivery state, retries, or performs an effect.
 
+The seventh preparation slice adds a minimized synthetic unsubscribe and
+explicit-email-opt-out suppression-before-success decision. It binds the
+pre-resolved source to an exact synthetic message, originated identity,
+suppression scope, tombstone/receipt identities, matching work, dependency
+set, and time. It can describe the required durable ordering and exact replay,
+but it never resolves a real token or event, writes a tombstone, cancels work,
+reports success, or performs an effect.
+
 ## Mandatory safeguards
 
 1. Use synthetic data and local files only. Do not use real prospects,
@@ -205,6 +213,49 @@ This contract creates no DeliveryUnknown row, reconciliation observation,
 audit, delivery-state transition, retry, provider request, send, call, or
 export. Runtime code may not import it. It does not execute Plan 06-06 and
 grants no Phase 6 completion credit.
+
+### Synthetic suppression-before-success decision
+
+`site/preparation/suppression-success-decision.ts` and its focused suite prove:
+
+- the canonical intent binds either an opaque synthetic unsubscribe-token
+  digest or a pre-resolved explicit-email-opt-out event ID/digest to the exact
+  workspace, Company, Contact, Organization, Message artifact, originated
+  message/thread, normalized `.invalid` email, selected suppression subject,
+  tombstone/source-receipt identities, matching work, cancellation dependency
+  set, and occurrence time;
+- public unsubscribe may select exact-email, owner-confirmed equivalent email
+  domain, Contact, Organization, or Company email suppression only. The
+  complete confirmed-domain set is digest-bound; raw tokens, phone scope,
+  provider-derived alias folklore, real addresses, and caller-selected
+  cross-scope subjects fail closed;
+- a new valid intent describes the strict future order `append tombstone ->
+  record exact pending/unleased-work cancellation set -> record source
+  processing -> report generic public success or complete opt-out ingestion`;
+- exact durable replay requires intent-bound tombstone, cancellation, and
+  source receipts with timestamps proving that order. An optional public
+  success receipt must follow them; partial, mismatched, stale, future, or
+  out-of-order receipts reject, including when the matching-work set is empty;
+- unknown or mismatched public token binding projects the same generic response
+  class without disclosing validity, while granting no response authority;
+- explicit-opt-out authentication, origin restriction, and intent detection
+  are only synthetic pre-resolved inputs. They are not provider evidence and
+  this module performs no token lookup, rate limiting, mailbox discovery, or
+  event authentication; and
+- every artifact and decision keeps persistence, cancellation, success-
+  acknowledgement, and provider-invocation authority false with literal zero
+  effect counters.
+
+This contract creates no endpoint, token record, tombstone, cancellation,
+receipt, response, audit, provider request, send, call, or export. Runtime code
+may not import it. It does not execute Plan 06-04 and grants no Phase 6
+completion credit.
+
+Validation recorded on 2026-08-28: the focused suppression suite passed 15/15,
+the aggregate Phase 6 preparation suites passed 50/50, canonical `npm test`
+(including the production build) and `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. This is local preparation evidence only.
 
 ## Deferred adapters and exact external decision
 
