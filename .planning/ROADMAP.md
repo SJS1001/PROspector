@@ -179,9 +179,12 @@ creating no phone target, activity, suppression, follow-up, or effect. Runtime
 code imports no preparation module and every effect counter is zero. A
 minimized synthetic audit-envelope contract binds the eight closed preparation
 decisions to exact actor/subject/fence shapes and projects append or exact
-replay without creating a logger or persistence seam. This does not satisfy
-Plan 06-11, execute a Phase 6 plan, enable a provider/effect, or earn completion
-credit.
+replay without creating a logger or persistence seam. A synthetic
+identity-change suppression resolver unions all merge-source reach and carries
+the complete scoped union to both split results, rejecting subject transplant
+or topology ambiguity without mutating identities or tombstones. This does not
+satisfy Plan 06-11, execute a Phase 6 plan, enable a provider/effect, or earn
+completion credit.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  

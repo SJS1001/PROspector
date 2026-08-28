@@ -105,7 +105,11 @@ activity, suppression, follow-up, or phone effect. None of these slices
 executes a Phase 6 plan or earns phase credit. An eighth contract canonicalizes
 only the eight closed synthetic preparation decisions into minimized
 ID/digest/code/time audit envelopes and projects append or exact replay while
-authorizing no logger, persistence, external sink, provider, or effect.
+authorizing no logger, persistence, external sink, provider, or effect. A ninth
+contract binds synthetic merge/split topology to complete scoped suppression
+references, unions every merge source, and conservatively carries the union to
+both split results while authorizing no identity, tombstone, persistence, or
+provider mutation.
 
 ## External handoff checklist
 

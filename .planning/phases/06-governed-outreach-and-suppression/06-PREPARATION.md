@@ -338,6 +338,42 @@ Validation recorded on 2026-08-28: the focused audit-envelope suite passed
 `npm audit --omit=dev` reported zero production vulnerabilities on Node.js
 `v24.16.0`. This is local preparation evidence only.
 
+### Synthetic identity-change suppression resolution
+
+`site/preparation/suppression-identity-resolution.ts` and its focused suite
+prove:
+
+- merge candidates bind the exact synthetic transition, source identities,
+  associations, Company scope, subject bindings, tombstones, effective times,
+  and digests, then union every applicable Company and identity suppression
+  reference onto the surviving identity;
+- split candidates bind the exact source, new identity, retained/moved
+  association partition, and prior suppression reach, then conservatively
+  carry the complete applicable suppression union to both resulting identities
+  instead of guessing which branch is safe;
+- every Company subject is bound to the exact synthetic Company and every
+  Organization, Contact, email, confirmed-domain, or phone subject is bound to
+  the exact source identity that owns its reference. Cross-Company/identity
+  transplant, orphan, duplicate, missing, overlapping, and foreign references
+  fail closed;
+- future-effective tombstones remain in the preserved union and become
+  blocking exactly at their effective boundary. Active all/email/phone
+  subjects project the corresponding `NonContactable` result; and
+- every candidate and projection keeps identity mutation, suppression
+  mutation, tombstone deletion, persistence, and provider authority false with
+  literal zero effect counters.
+
+This contract contains no raw email, phone, alias, contact, provider, or
+credential value; creates no identity/tombstone/index/projection mutation; and
+has no database, logger, network, export, or runtime-composition seam. It does
+not execute Plan 06-04 and grants no Phase 6 completion credit.
+
+Validation recorded on 2026-08-28: the focused identity-change suppression
+suite passed 12/12, the aggregate Phase 6 preparation suites passed 89/89,
+canonical `npm test` (including the production build) and `npm run lint`
+passed, and `npm audit --omit=dev` reported zero production vulnerabilities on
+Node.js `v24.16.0`. This is local preparation evidence only.
+
 ## Deferred adapters and exact external decision
 
 The unselected greenfield host and provider are explicit deferred adapters,
