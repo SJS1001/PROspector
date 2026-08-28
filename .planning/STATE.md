@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 6 synthetic manual-call eligibility/outcome ordering verified; Plan 02-99 remains deferred; no phone target, activity, suppression, follow-up, persistence, provider authority, or effect composed
-last_updated: "2026-08-28T14:09:48Z"
+stopped_at: Phase 6 minimized synthetic audit envelope candidate fully verified; Plan 02-99 remains deferred; no logger, persistence, provider authority, or effect composed
+last_updated: "2026-08-28T14:54:49Z"
 last_activity: 2026-08-28
 progress:
   total_phases: 7
@@ -112,6 +112,8 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Phase 06 greenfield preparation]: On 2026-08-28 the suppression-before-success candidate passed its 15-case focused suite, the 50-case aggregate preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, hosted, provider, or effect authority.
 - [Phase 06 greenfield preparation]: The synthetic manual-call contract binds the exact Package-derived script, Package approval/configuration, fictional source-verified phone plus verification/source digests and freshness, advisory acknowledgement, suppression subjects, matching work, dependencies, and current availability. It projects no phone target or activity, admits exactly six bounded outcomes, requires exact-phone suppression then cancellation then activity for `do_not_call`, and requires a new version/approval for `follow_up`. All phone-target, persistence, suppression, follow-up, and phone-effect authority remains false with zero effects. It performs no runtime import, browser action, activity, phone claim, mutation, provider call, or Plan 06-07 execution and earns no Phase 6 credit.
 - [Phase 06 greenfield preparation]: On 2026-08-28 the manual-call candidate passed its 15-case focused suite, the 65-case aggregate preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, hosted, provider, phone, or effect authority.
+- [Phase 06 greenfield preparation]: A minimized synthetic audit envelope now admits only the eight closed preparation decisions with exact actor/subject/fence bindings, stores only synthetic IDs, digests, bounded codes, policy/dependency/fence data, and timestamps, and projects append or exact replay without a logger or persistence seam. Audit-persistence, logger, external-sink, provider, and all effect authority remain false/zero. It performs no runtime import, mutation, audit write, provider action, Plan 06-02/06-09 execution, or Phase 6 credit.
+- [Phase 06 greenfield preparation]: On 2026-08-28 the minimized audit-envelope candidate passed its 12-case focused suite, the 77-case aggregate preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, logger, persistence, hosted, provider, or effect authority.
 - [Deferred adapters]: The unselected greenfield target and providers are explicit placeholders rather than global local-work blockers. Continue bounded synthetic/reject-by-default preparation autonomously, but stop before target selection/provisioning, credentials, provider composition, real data, export, or outbound effects.
 - [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
@@ -145,5 +147,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-28
-Stopped at: Phase 6 synthetic manual-call eligibility/outcome ordering verified; target/provider adapters remain deferred; no hosted write, phone target, activity, suppression, follow-up, persistence/provider authority, or external effect; draft PR `#2` remains open
+Stopped at: Phase 6 minimized synthetic audit envelope candidate fully verified; target/provider adapters remain deferred; no hosted write, logger, audit persistence, provider authority, or external effect; draft PR `#2` remains open
 Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/06-governed-outreach-and-suppression/06-PREPARATION.md`, all modules under `site/preparation/`, and their focused tests

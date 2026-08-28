@@ -306,6 +306,38 @@ canonical `npm test` (including the production build) and `npm run lint`
 passed, and `npm audit --omit=dev` reported zero production vulnerabilities on
 Node.js `v24.16.0`. This is local preparation evidence only.
 
+### Synthetic minimized audit envelope and append decision
+
+`site/preparation/outreach-audit-envelope.ts` and its focused suite prove:
+
+- the only admitted actions are the eight closed preparation decisions, each
+  bound to its exact subject kind, synthetic actor kind, and required or
+  prohibited dispatch fence;
+- canonical immutable envelopes contain only synthetic IDs, SHA-256 digests,
+  bounded result/reason codes, policy binding, optional before/after digests,
+  dependency digests, fence data, and timestamps. Raw bodies, notes, contacts,
+  credentials, provider data, extra fields, duplicate sets, and hostile object
+  shapes fail closed;
+- a current-authority recheck compares the complete scope, actor, subject,
+  action, result/reason, state, decision, operation, policy, dependency, fence,
+  availability, authorization, currency, and time tuple;
+- new decisions project only a minimized future audit row, while exact durable
+  replay requires the same record ID, envelope digest, workspace, action,
+  subject, and valid record time; partial or mismatched replay rejects; and
+- every envelope and decision keeps audit-persistence, logger, external-sink,
+  and provider-invocation authority false with literal zero effect counters.
+
+This contract creates no logger, audit row, database seam, external sink,
+provider request, send, call, export, or durable mutation. Runtime code may not
+import it. It does not execute Plans 06-02 or 06-09 and grants no Phase 6
+completion credit.
+
+Validation recorded on 2026-08-28: the focused audit-envelope suite passed
+12/12, the aggregate Phase 6 preparation suites passed 77/77, canonical
+`npm test` (including the production build) and `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. This is local preparation evidence only.
+
 ## Deferred adapters and exact external decision
 
 The unselected greenfield host and provider are explicit deferred adapters,

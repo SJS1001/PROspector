@@ -67,12 +67,13 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - Phase 3 Plans 03-09 through 03-11 require explicit owner authorization, controlled hosted proof, and owner lifecycle acceptance. They remain incomplete and cannot be replaced by local evidence.
 - Phase 4 context/research/UI/validation and 12 checked plans are committed. Wave 1 is underway: RED contracts and additive profile-prospecting persistence are committed, but no Phase 4 plan summary exists.
 - Phase 5 has 9 checked plans and a bounded local-only preparation lane. Checkpoint `c3233abf4e752afb5ca4e9d0a588852a4aaae07f` is pushed, independently reviewed clean, and verified by full test/lint/build on an isolated non-CI Mac Studio checkout. Provider composition and activation remain reject-only; no Phase 5 plan is complete.
-- Phase 6 preparation and 13 checked plans are committed; execution has not started. The preparation lane includes a static provider/effect guard, an isolated synthetic approval/suppression state machine, a canonical synthetic Package/Message artifact plus invalidation contract, a minimized synthetic final-dispatch recheck/lease decision that grants no invocation authority, a pure originated reply/bounce stop classifier that grants no persistence or cancellation authority, a canonical synthetic DeliveryUnknown/manual-reconciliation classifier that grants no persistence, reconciliation, retry, or provider authority, a synthetic unsubscribe/explicit-opt-out suppression-before-success classifier that grants no persistence, cancellation, response, or provider authority, and a synthetic manual-call eligibility/outcome classifier that grants no phone target, activity, suppression, follow-up, persistence, or phone-effect authority. Runtime code imports none of these preparation modules.
+- Phase 6 preparation and 13 checked plans are committed; execution has not started. The preparation lane includes a static provider/effect guard, an isolated synthetic approval/suppression state machine, a canonical synthetic Package/Message artifact plus invalidation contract, a minimized synthetic final-dispatch recheck/lease decision that grants no invocation authority, a pure originated reply/bounce stop classifier that grants no persistence or cancellation authority, a canonical synthetic DeliveryUnknown/manual-reconciliation classifier that grants no persistence, reconciliation, retry, or provider authority, a synthetic unsubscribe/explicit-opt-out suppression-before-success classifier that grants no persistence, cancellation, response, or provider authority, a synthetic manual-call eligibility/outcome classifier that grants no phone target, activity, suppression, follow-up, persistence, or phone-effect authority, and a minimized audit-envelope/append classifier that grants no logger, persistence, external-sink, or provider authority. Runtime code imports none of these preparation modules.
 - Phase 7 preparation was integrated at `fc3f46f` and `e39ef11`.
 - The guarded disposable local runtime is verified through checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f`: a real loopback browser can initialize the interview, enter the URL-addressable Knowledge workspace, submit an answer, and separately confirm it into a Knowledge Version. This enables no hosted, provider, prospecting, enrichment, export, or outbound effect.
 - On 2026-08-27 the guarded local-runtime checkpoint passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - On 2026-08-28 the suppression-before-success candidate passed its 15-case focused suite, the 50-case aggregate Phase 6 preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. Draft PR `#2` is open for the post-PR-1 changes and remains explicitly gated; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
 - On 2026-08-28 the manual-call candidate passed its 15-case focused suite, the 65-case aggregate Phase 6 preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This remains local preparation only; draft PR `#2` remains gated and no hosted/provider/phone authority changed.
+- On 2026-08-28 the minimized audit-envelope candidate passed its 12-case focused suite, the 77-case aggregate Phase 6 preparation suite, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This remains local preparation only; draft PR `#2` remains gated and no logger, persistence, hosted, provider, or effect authority changed.
 - The same release-hygiene gate advanced only the transitive `nanoid` lockfile resolution from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - On 2026-08-27 the owner permanently retired the inaccessible original target, waived its missing migration/provenance evidence, and selected the verified clean local baseline as the authoritative greenfield starting point. No hosted state changed.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority. An unselected host is a deferred adapter boundary, so bounded local synthetic/reject-by-default work may continue without selecting or provisioning it.
@@ -122,14 +123,14 @@ isolated approval/suppression and canonical artifact/invalidation contracts are
 complete local preparation. The synthetic final-dispatch recheck/lease decision
 and the originated-event/stop-rule cancellation projection are also complete;
 the DeliveryUnknown/manual-reconciliation, unsubscribe/explicit-opt-out
-suppression-before-success, and manual-call eligibility/outcome classifiers
-are complete as well. Collectively they grant no invocation, persistence,
+suppression-before-success, manual-call eligibility/outcome, and minimized
+audit-envelope/append classifiers are complete as well. Collectively they grant no invocation, persistence,
 reconciliation, retry, cancellation, response, phone-target, activity,
-follow-up, or phone-effect authority, and none executes a Phase 6 plan. A next
-safe unit may model a pure synthetic audit/minimization envelope for these
-preparation decisions, but it must remain outside runtime composition, accept
-only digests/bounded reason codes, contain no raw body, note, contact,
-credential, provider, or private data, create no logger or persistence seam,
-and retain literal zero effects. Do not access the original target or provision
-a new one. New terminal Plan 02-99 remains the future greenfield target
-acceptance gate and performs no hosted action itself.
+follow-up, logger, external-sink, or phone-effect authority, and none executes a
+Phase 6 plan. A next safe unit may model pure synthetic suppression-subject
+resolution across identity merge/split inputs, but it must remain outside
+runtime composition, preserve the most restrictive applicable suppression,
+accept no real identity data, mutate no identity or tombstone, and retain
+literal zero effects. Do not access the original target or provision a new one.
+New terminal Plan 02-99 remains the future greenfield target acceptance gate
+and performs no hosted action itself.

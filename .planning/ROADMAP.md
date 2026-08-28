@@ -176,9 +176,12 @@ cancellation, response, and provider authority. A manual-call contract binds a
 fresh fictional source-verified phone and Package-derived script, rechecks
 eligibility, and proves bounded outcome plus `do_not_call` ordering while
 creating no phone target, activity, suppression, follow-up, or effect. Runtime
-code imports no preparation module and every effect counter is zero. This does
-not satisfy Plan 06-11, execute a Phase 6 plan, enable a provider/effect, or
-earn completion credit.
+code imports no preparation module and every effect counter is zero. A
+minimized synthetic audit-envelope contract binds the eight closed preparation
+decisions to exact actor/subject/fence shapes and projects append or exact
+replay without creating a logger or persistence seam. This does not satisfy
+Plan 06-11, execute a Phase 6 plan, enable a provider/effect, or earn completion
+credit.
 
 ### Phase 7: Mining Pilot Handoff and Recovery
 **Goal**: The owner can operate the seeded ONE for Mining workflow through auditable CRM handoff and prove that the complete private workspace is portable and recoverable.  

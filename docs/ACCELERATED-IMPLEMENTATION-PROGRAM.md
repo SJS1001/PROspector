@@ -102,7 +102,10 @@ provider action. A seventh contract binds a fictional source-verified business
 phone and Package-derived script, rechecks exact manual-call eligibility, and
 proves bounded outcome plus `do_not_call` ordering while creating no target,
 activity, suppression, follow-up, or phone effect. None of these slices
-executes a Phase 6 plan or earns phase credit.
+executes a Phase 6 plan or earns phase credit. An eighth contract canonicalizes
+only the eight closed synthetic preparation decisions into minimized
+ID/digest/code/time audit envelopes and projects append or exact replay while
+authorizing no logger, persistence, external sink, provider, or effect.
 
 ## External handoff checklist
 
