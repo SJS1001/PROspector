@@ -129,9 +129,10 @@ test("D-12 route is trusted-binding wiring only", async () => {
   assert.match(source, /runtimeIdentity/);
   assert.match(source, /handleDiscoveryGet/);
   assert.match(source, /handleDiscoveryPost/);
-  for (const binding of ["DB", "PILOT_OWNER_EMAIL", "OWNER_SUBJECT_PEPPER"])
+  for (const binding of ["DB", "PILOT_OWNER_EMAIL", "OWNER_SUBJECT_PEPPER", "TRUSTED_IDENTITY_PROVIDER"])
     assert.match(source, new RegExp(`\\b${binding}\\b`));
-  assert.doesNotMatch(source, /fetch\(|provider|runner|scheduler|workspaceId\s*[:=]|ownerSubject\s*[:=]/i);
+  const effectSurface = source.replaceAll("TRUSTED_IDENTITY_PROVIDER", "");
+  assert.doesNotMatch(effectSurface, /fetch\(|provider|runner|scheduler|workspaceId\s*[:=]|ownerSubject\s*[:=]/i);
 });
 
 test("D-12 private synthetic proof binds immutable server authority and one consumption winner", async () => {

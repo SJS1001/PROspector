@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Retired failed-pilot target identity removed, generated D1 migration path bound to the checked chain, and runtime font CDN removed; regression proof and Vinext compatibility are green; Plan 02-99 still requires a separately authorized target and identity adapter; no hosted write or effect occurred
-last_updated: "2026-09-02T16:58:12Z"
+stopped_at: Target-neutral Cloudflare Access JWT verification and fail-closed provider selection implemented locally; Plan 02-99 still requires a separately authorized target, configuration, real-principal proof, and human acceptance; no hosted write or effect occurred
+last_updated: "2026-09-02T18:06:30Z"
 last_activity: 2026-09-02
 progress:
   total_phases: 7
@@ -144,6 +144,9 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
 - [Maintenance]: The 2026-08-27 release-hygiene gate advanced only the transitive lockfile resolution for `nanoid` from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - [Greenfield deployment hygiene]: On 2026-09-02 checked deployable metadata was detached from the retired failed Sites pilot. It now carries only the `DB`/`FILES` binding names, the generated D1 migration path resolves to the checked `drizzle/` chain, and the hosted shell has no runtime font-CDN dependency; generated all-zero/placeholder resource identities remain non-deployable build sentinels. A regression test rejects any `appgprj_` or `project_id` dependency, verifies the complete 0000-0009 chain is reachable, and prevents reintroduction of `next/font/google`. `vinext check` reports 100% compatibility.
+- [Greenfield identity hygiene]: A server-only Cloudflare Access adapter now verifies RS256 signature, configured issuer/audience, dates, and bounded normalized email using the team JWKS. One explicit identity-provider mode is required; missing, unknown, partial, or conflicting configuration denies access, and Cloudflare mode disables Sites-header and `LOCAL_DEMO` fallback. Tests use generated local keys and mocked JWKS only; no target, principal, credential, provider account, network call, hosted write, or acceptance evidence exists.
+- [Greenfield identity review]: Independent adversarial review found and verified closure of raw Sites-header fallback, local-demo cross-mode/exact-origin bypass, JWKS refresh amplification and same-key rotation, and indefinitely renewed stale-key trust. Final review is clean at high and medium severity; failed refreshes cannot move the fixed hard stale deadline.
+- [Greenfield identity validation]: The target-neutral identity slice passes the complete canonical `npm test` gate (including production build), canonical `npm run lint`, `npm audit --omit=dev` with zero production vulnerabilities, and `vinext check` at 100% compatibility. The real target and principal acceptance evidence remain absent and are not implied by these local gates.
 - [Phase 02 greenfield authority]: Original-project access is now prohibited for every account. The prior `project not found` result is historical only; no future work may wait for or attempt that target.
 
 ### Pending Todos
@@ -173,5 +176,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-02
-Stopped at: Deployable metadata is target-independent, the retired failed-pilot identifier and runtime font CDN are absent, the generated D1 migration path reaches the checked 0000-0009 chain, and Vinext reports 100% compatibility; Plan 02-99 remains the next non-substitutable gate, and direct Cloudflare hosting additionally requires a separately authorized trusted-identity adapter and real greenfield binding injection; no hosted write or external effect occurred; draft PR `#2` remains open
-Resume files: `docs/GREENFIELD-BASELINE.md`, `docs/DEPLOYMENT-OWNERSHIP.md`, `docs/CLOUDFLARE-GREENFIELD-READINESS.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `site/.openai/hosting.json`, and `site/tests/greenfield-deployment-independence.test.mjs`
+Stopped at: Target-neutral Cloudflare Access JWT verification and fail-closed provider selection are locally implemented and tested; Plan 02-99 remains the next non-substitutable gate and still requires separately authorized target provisioning/configuration, real owner/non-owner proof, exact-source/D1/R2 evidence, and human acceptance; no hosted write or external effect occurred; draft PR `#2` remains open
+Resume files: `docs/CLOUDFLARE-GREENFIELD-READINESS.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `site/app/cloudflare-access.ts`, `site/app/runtime-identity.ts`, and `site/tests/cloudflare-access-identity.test.mjs`

@@ -18,10 +18,10 @@ const tableCount = (output) => {
 test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async () => {
   const source = await readFile(resolve(root, "app/runtime-identity.ts"), "utf8");
   assert.match(source, /import\.meta\.env\.DEV/);
-  assert.match(source, /localDemo !== "1"/);
+  assert.match(source, /TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
   assert.match(source, /local-owner@prospector\.invalid/);
   assert.match(source, /isLoopbackHostname/);
-  assert.match(source, /origin\).*host !== new URL\(request\.url\)\.host/);
+  assert.match(source, /new URL\(origin\)\.origin !== new URL\(request\.url\)\.origin/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);
   const demoPage = await readFile(resolve(root, "app/local-demo/page.tsx"), "utf8");
   assert.match(demoPage, /credentials: "same-origin"/);
@@ -62,15 +62,15 @@ test("LOCAL_DEMO uses a Safari-compatible HTTP cookie only inside the guarded lo
 
     assert.equal(identity.isLocalDemoRequest(
       new Request("http://localhost:8788/api/interview"),
-      "1",
+      { TRUSTED_IDENTITY_PROVIDER: "local-demo", LOCAL_DEMO: "1" },
     ), true);
     assert.equal(identity.isLocalDemoRequest(
       new Request("https://prospector.example/api/interview"),
-      "1",
+      { TRUSTED_IDENTITY_PROVIDER: "local-demo", LOCAL_DEMO: "1" },
     ), false);
     assert.equal(identity.isLocalDemoRequest(
       new Request("http://localhost:8788/api/interview"),
-      "true",
+      { TRUSTED_IDENTITY_PROVIDER: "local-demo", LOCAL_DEMO: "true" },
     ), false);
     assert.equal(
       csrf.csrfCookie(token, "local-demo"),

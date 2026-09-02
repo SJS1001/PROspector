@@ -24,7 +24,10 @@ function dependencies(request: Request): InterviewHandlerDependencies {
     DB?: D1Database;
     OWNER_SUBJECT_PEPPER?: string;
     PILOT_OWNER_EMAIL?: string;
+    TRUSTED_IDENTITY_PROVIDER?: string;
     LOCAL_DEMO?: string;
+    CLOUDFLARE_ACCESS_ISSUER?: string;
+    CLOUDFLARE_ACCESS_AUDIENCE?: string;
   };
   if (
     !bindings.DB ||
@@ -36,11 +39,11 @@ function dependencies(request: Request): InterviewHandlerDependencies {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
-    csrfCookieMode: isLocalDemoRequest(request, bindings.LOCAL_DEMO)
+    csrfCookieMode: isLocalDemoRequest(request, bindings)
       ? "local-demo"
       : "secure",
     getIdentity: async () => {
-      return runtimeIdentity(request, bindings.LOCAL_DEMO);
+      return runtimeIdentity(request, bindings);
     },
   };
 }

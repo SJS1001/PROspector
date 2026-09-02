@@ -8,14 +8,16 @@ import {
 import type { CapabilityHandlerDependencies } from "../../domain/capability-handler";
 import { consumeCsrfToken, issueCsrfToken } from "../../domain/csrf";
 import type { InterviewPrincipal } from "../../domain/interview";
-import { runtimeIdentity } from "../runtime-identity";
+import {
+  runtimeIdentity,
+  type RuntimeIdentityBindings,
+} from "../runtime-identity";
 
-export type CapabilityBindings = {
+export type CapabilityBindings = RuntimeIdentityBindings & {
   DB: D1Database;
   FILES?: R2Bucket;
   OWNER_SUBJECT_PEPPER: string;
   PILOT_OWNER_EMAIL: string;
-  LOCAL_DEMO?: string;
 };
 
 export function capabilityDependencies(
@@ -26,7 +28,7 @@ export function capabilityDependencies(
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     getIdentity: async () => {
-      return runtimeIdentity(undefined, bindings.LOCAL_DEMO);
+      return runtimeIdentity(undefined, bindings);
     },
     getWorkspace: (principal) => workspaceFor(bindings.DB, principal),
     readEvidence: (workspaceId) => readEvidence(bindings.DB, workspaceId),

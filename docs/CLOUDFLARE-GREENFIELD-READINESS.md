@@ -14,8 +14,9 @@ project remains retired and is not an input to this path.
 
 ## Decision summary
 
-A direct Cloudflare target is feasible, but two repository blockers must be
-closed before any reachable version is uploaded:
+A direct Cloudflare target is feasible, but the target configuration and
+external acceptance gates must be closed before any reachable version is
+uploaded:
 
 1. **A real target configuration does not yet exist.** The application has
    target-neutral `DB` and `FILES` binding names and the generated manifest now
@@ -24,11 +25,18 @@ closed before any reachable version is uploaded:
    injects an invalid all-zero D1 UUID and `site-creator-*` placeholder names,
    so `dist/server/wrangler.json` remains a non-deployable build sentinel until
    a separately authorized target supplies its own identities.
-2. **Cloudflare owner identity is not implemented.** The ordinary runtime
-   accepts Sites-specific `oai-authenticated-user-*` headers; the only fallback
-   is the tightly guarded loopback `LOCAL_DEMO` identity. Cloudflare Access
-   does not emit the Sites headers. A reachable direct deployment would either
-   deny the real owner or tempt an unsafe raw-header fallback.
+2. **Cloudflare owner identity is implemented but not target-proven.** The
+   server-only adapter verifies the Access JWT signature against the configured
+   team's rotating JWKS plus exact issuer, audience, dates, and bounded email.
+   `TRUSTED_IDENTITY_PROVIDER=cloudflare-access` selects that path; missing,
+   unknown, partial, or conflicting mode/configuration denies identity. Sites
+   headers and `LOCAL_DEMO` cannot grant identity in Cloudflare mode. No real
+   Access policy, issuer, audience, owner, or non-owner principal has been
+   configured or proven. An independent adversarial code review is clean after
+   requiring explicit provider mode, exact local-demo origin, single-flight
+   JWKS refresh, same-key rotation, and a non-renewable stale-key deadline.
+   The complete canonical test and lint gates, production dependency audit,
+   and `vinext check` are green for this target-neutral code.
 
 Do not use Wrangler's automatic framework detection to paper over these gaps.
 Cloudflare documents that running `wrangler deploy` without a Wrangler file can
@@ -48,7 +56,7 @@ Cloudflare account:
 | Worker entry | `site/worker/index.ts` is an ES-module Worker entry and Vinext router; the build currently emits `site/dist/server/wrangler.json`. | A reviewed production config must drive the build, and the generated config must be inspected before upload. The Vite plugin generates a deployment `wrangler.json` with the built asset directory. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)) |
 | D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | A new real D1 binding and target-bound Wrangler file are absent. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so a Wrangler file is required. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
 | R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | A fresh private R2 bucket and `FILES` binding are absent. `.openai/hosting.json` is not a Cloudflare target manifest. |
-| Identity | `site/app/chatgpt-auth.ts` reads Sites-specific headers; `site/app/runtime-identity.ts` otherwise admits only `LOCAL_DEMO=1` in Vite development on loopback. | A Cloudflare Access JWT adapter is a blocking code change. `LOCAL_DEMO` must never be set in a hosted environment. |
+| Identity | `site/app/cloudflare-access.ts` verifies Access RS256 JWTs against the configured team JWKS, issuer, audience, dates, and email. `site/app/runtime-identity.ts` requires one explicit provider mode and denies missing, unknown, partial, or conflicting configuration, so Sites headers and `LOCAL_DEMO` cannot become a hosted fallback. | The local code blocker is closed. A real target still needs exact Access configuration, independent review, owner/non-owner proof, and `LOCAL_DEMO` must remain absent. |
 | Secrets | Runtime requires `OWNER_SUBJECT_PEPPER` and `PILOT_OWNER_EMAIL`. The ignored `.dev.vars` contains only disposable localhost values. | Hosted values must be installed through Cloudflare bindings, never copied from `.dev.vars`, Git, logs, screenshots, or evidence files. |
 | Effects | Runner ingress passes `runnerIngressEnabled: false`; profile/discovery schedules remain `blocked_missing_capability`; no Gmail or telephony adapter is composed. | Preserve these fail-closed states. Binding D1/R2 and proving owner access must not activate a schedule, provider, export, enrichment call, email, or phone action. |
 | Migration proof | `npm run baseline:greenfield` proves only a disposable local database and explicitly makes no hosted claim. | It is necessary regression evidence, but it cannot prove a future D1 target is empty, migrated, private, or isolated. |
@@ -173,8 +181,8 @@ Workers with Static Assets execute behind an internal router that does not pass
 when the input config omits them. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/),
 [Cloudflare Access limitations](https://developers.cloudflare.com/workers/configuration/cloudflare-access/))
 
-Before upload, implement and test a server-only Cloudflare identity adapter
-that:
+The checked server-only Cloudflare identity adapter and adversarial local tests
+now enforce the following contract:
 
 - requires `Cf-Access-Jwt-Assertion` on every ordinary hosted request;
 - verifies the signature against the Access team's rotating JWKS and verifies
@@ -206,8 +214,9 @@ Required final bindings are:
 | `FILES` | R2 binding | New private greenfield bucket only. |
 | `PILOT_OWNER_EMAIL` | Privacy-sensitive configuration | Prefer a Cloudflare secret even though it is not an authentication credential; never record its value in Git/evidence. |
 | `OWNER_SUBJECT_PEPPER` | Secret | At least 32 random characters; never reveal it. Do not rotate without an explicit subject/workspace migration. |
-| Access team domain | Non-secret target configuration | Exact HTTPS issuer used by the JWT verifier. |
-| Access application audience | Non-secret target configuration | Exact audience used by the JWT verifier. |
+| `TRUSTED_IDENTITY_PROVIDER` | Non-secret target configuration | Must be exactly `cloudflare-access` for this target; missing, unknown, `sites`, or `local-demo` denies the Cloudflare path. |
+| `CLOUDFLARE_ACCESS_ISSUER` | Non-secret target configuration | Exact `https://<team>.cloudflareaccess.com` issuer used by the JWT verifier. |
+| `CLOUDFLARE_ACCESS_AUDIENCE` | Non-secret target configuration | Exact Access application audience used by the JWT verifier. |
 | `LOCAL_DEMO` | Forbidden hosted binding | Must be absent, not `0`, `false`, or another sentinel. |
 | Provider, Gmail, telephony, runner, model, export, and contact-attestation values | Deferred | Must be absent until their owning plans are separately authorized. |
 
@@ -295,8 +304,8 @@ reports 100% compatibility. The direct Cloudflare path is ready for a
 separately authorized Plan 02-99 run
 only when all of the following are true:
 
-- the Access JWT identity adapter and adversarial tests are committed and
-  independently reviewed;
+- the checked Access JWT identity adapter and adversarial tests are committed
+  and independently reviewed;
 - a production Wrangler config contains no placeholder, retired-project,
   Sites-only, local-demo, provider, route, preview, or trigger ambiguity;
 - `vinext check`, canonical tests, lint, audit, build, and Wrangler dry-run pass

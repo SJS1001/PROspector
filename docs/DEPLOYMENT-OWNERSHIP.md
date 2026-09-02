@@ -25,3 +25,11 @@ placeholder resource names; it is build input only and must never be deployed.
 A separately authorized control plane must inject the new target's own D1/R2
 identities and secret values outside Git, then satisfy Plan 02-99 before the
 target is accepted.
+
+The checked runtime also contains a target-neutral Cloudflare Access adapter.
+It requires `TRUSTED_IDENTITY_PROVIDER=cloudflare-access`, both
+`CLOUDFLARE_ACCESS_ISSUER` and
+`CLOUDFLARE_ACCESS_AUDIENCE`, verifies the signed JWT rather than trusting a
+raw identity header, and rejects missing, unknown, partial, or conflicting
+identity configuration. These names contain no target value and grant no
+deployment authority. A future target must supply and prove its own values.

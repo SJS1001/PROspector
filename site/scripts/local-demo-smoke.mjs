@@ -78,6 +78,7 @@ async function assertLocalDemoBindings() {
     const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
     return match ? [[match[1], match[2]]] : [];
   }));
+  assert.equal(entries.get("TRUSTED_IDENTITY_PROVIDER"), "local-demo");
   assert.equal(entries.get("LOCAL_DEMO"), "1");
   assert.equal(entries.get("PILOT_OWNER_EMAIL"), "local-owner@prospector.invalid");
   assert.ok((entries.get("OWNER_SUBJECT_PEPPER")?.length ?? 0) >= 32);
