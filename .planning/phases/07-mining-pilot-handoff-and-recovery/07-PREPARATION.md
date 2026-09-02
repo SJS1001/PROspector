@@ -110,6 +110,41 @@ the production build) and canonical `npm run lint` passed, and
 `v24.16.0`. Targeted runtime-import, persistence, CSV-byte, provider, delivery,
 and effect-seam scans were clean. This is local preparation evidence only.
 
+### Synthetic immutable handoff request/version decision
+
+`site/preparation/phase7-handoff-request-version.ts` and its focused suite
+prove:
+
+- one request binds only synthetic scope, the exact eligibility candidate
+  ID/digest, Profile configuration ID/digest, export-definition ID/digest,
+  request ID, idempotency key, and request time;
+- empty history projects version one, while a current history head projects
+  exactly its next bounded version number. Neither result creates a version;
+- an exact request receipt and matching immutable history entry project replay
+  of the original version reference with no new-version requirement;
+- same-key changes to request identity or semantics reject as an idempotency
+  conflict, while changed eligibility under a new request/key projects a new
+  immutable version rather than rewriting history;
+- candidate, scope, eligibility, configuration, export-definition, clock,
+  receipt, history-head, chronology, and external-effects-disabled drift fail
+  closed; and
+- future, conflicting, malformed, raw-value, sparse/accessor/proxy, extra, and
+  forged material cannot grant a version or effect.
+
+The decision contains no rows, values, bytes, checksum, persisted record,
+delivery reference, download capability, or provider handle. It cannot create
+or mutate history, serialize CSV, persist, deliver, download, export, invoke a
+provider, execute Plan 07-02, or earn Phase 7 credit. Runtime code imports no
+preparation module.
+
+Validation recorded on 2026-09-02: the focused request/version suite passed
+13/13, all preparation suites passed 165/165, canonical `npm test` (including
+the production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, persistence, CSV-byte, provider, delivery,
+download, export, and effect-seam scans were clean. This is local preparation
+evidence only.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,

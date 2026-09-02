@@ -141,6 +141,12 @@ contact-row count, deduplicates stable Prospect plus contact-point identity,
 and records fail-closed exclusions and non-contactable suppression references.
 It cannot serialize CSV bytes, persist, deliver, download, export, invoke a
 provider, or execute a Phase 7 plan.
+A third pure candidate binds only synthetic request, eligibility,
+configuration, and export-definition references to first/next immutable
+version projection and exact idempotent replay. Same-key changes and
+history/receipt conflicts fail closed. It grants no version creation, history
+mutation, serialization, persistence, delivery, download, export, provider,
+phase, or effect authority.
 
 ## External handoff checklist
 
