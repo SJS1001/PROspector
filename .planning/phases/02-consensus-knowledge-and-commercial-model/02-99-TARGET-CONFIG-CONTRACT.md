@@ -3,8 +3,8 @@
 **Captured:** 2026-09-02
 
 **Status:** owner-approved CLI seam implemented; Stage 2 migration stopped
-after `0007`; repaired source passed local preflight and awaits a regenerated
-candidate, read-only reinspection, and separate resume authority
+after `0007`; repaired candidate/no-upload dry run/read-only reinspection are
+green and separate resume authority is pending
 
 ## Purpose
 
@@ -115,7 +115,9 @@ partial `0008` objects. R2 remained empty and private.
 The old ignored candidate is stale because the reviewed `0008` and `0009`
 bytes have since been normalized at checked source
 `46d082e962c4acc1771e92ad300d61913d50ead4`. It must never be reused. A new
-candidate, dry run, canonical preflight, independent review, and explicit
-remote-resume authorization are required before applying the two pending
-migrations. No Worker, upload, route, Access, secret, deployment, application
-request, provider, export, or outbound effect is authorized.
+candidate at source `886b48b31119f76382535a06d4535e04aa049097`, dry run,
+canonical preflight, fresh mapping-bound read-only evidence, and independent
+review are green. Explicit remote-resume authorization remains required before
+applying the two pending migrations. No Worker, upload, route, Access, secret,
+deployment, application request, provider, export, or outbound effect is
+authorized.
