@@ -3,14 +3,16 @@
 **Assessment date:** 2026-09-02
 **Scope:** Direct deployment of the checked PROspector repository to a new
 Cloudflare Workers, D1, and R2 environment
-**Disposition:** **Not ready to deploy unchanged**
+**Disposition:** **Stage 1 resources provisioned; not ready to deploy**
 
-This is a readiness specification, not deployment authority. It records no
-Cloudflare account, target, resource identifier, hostname, owner email, Access
-audience, credential, or secret. It does not authorize or perform an account
-login, resource creation, migration, upload, route change, Access-policy
-change, version promotion, or application request. The inaccessible original
-project remains retired and is not an input to this path.
+This is a readiness specification, not deployment authority. On 2026-09-02 the
+owner authorized Stage 1 creation of exactly one fresh D1 database and one
+private R2 bucket in Eastern North America. Their exact account/resource
+identities remain outside Git. Stage 1 performed no migration, upload,
+target-bound configuration, Worker/version creation, route change,
+Access-policy change, secret write, promotion, or application request. The
+inaccessible original project remains retired and was not an input to this
+path.
 
 ## Decision summary
 
@@ -18,13 +20,16 @@ A direct Cloudflare target is feasible, but the target configuration and
 external acceptance gates must be closed before any reachable version is
 uploaded:
 
-1. **A real target configuration does not yet exist.** The application has
+1. **Fresh target resources now exist, but a real target configuration does
+   not.** The application has
    target-neutral `DB` and `FILES` binding names and the generated manifest now
    resolves migrations to the checked `drizzle/` chain, but no reviewed
    production Wrangler configuration exists. The Vite config deliberately
    injects an invalid all-zero D1 UUID and `site-creator-*` placeholder names,
    so `dist/server/wrangler.json` remains a non-deployable build sentinel until
-   a separately authorized target supplies its own identities.
+   a separately authorized configuration step supplies the new resources'
+   identities. Sanitized Stage 1 proof records an empty D1 with no migration
+   journal, an empty R2 bucket, and disabled R2 public access.
 2. **Cloudflare owner identity is implemented but not target-proven.** The
    server-only adapter verifies the Access JWT signature against the configured
    team's rotating JWKS plus exact issuer, audience, dates, and bounded email.
@@ -54,8 +59,8 @@ Cloudflare account:
 |---|---|---|
 | Framework | `site/package.json` pins Next.js 16, Vinext, Vite, the Cloudflare Vite plugin, and Wrangler; `site/vite.config.ts` composes Vinext and the Cloudflare plugin. `vinext check` reports 100% compatibility (7 supported, 0 partial, 0 issues) after removal of the runtime Google-font CDN dependency. | The architecture matches Cloudflare's recommended Next.js-on-Workers direction. Vinext remains beta, so repeat the compatibility check against the exact release candidate. ([Cloudflare Next.js guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)) |
 | Worker entry | `site/worker/index.ts` is an ES-module Worker entry and Vinext router; the build currently emits `site/dist/server/wrangler.json`. | A reviewed production config must drive the build, and the generated config must be inspected before upload. The Vite plugin generates a deployment `wrangler.json` with the built asset directory. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)) |
-| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | A new real D1 binding and target-bound Wrangler file are absent. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so a Wrangler file is required. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
-| R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | A fresh private R2 bucket and `FILES` binding are absent. `.openai/hosting.json` is not a Cloudflare target manifest. |
+| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | One owner-authorized empty greenfield D1 now exists outside Git, but its binding and target-bound Wrangler file are absent. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so a reviewed Wrangler file is required. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
+| R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized empty private R2 bucket now exists outside Git, with no custom domain and `r2.dev` disabled, but its `FILES` binding is absent. `.openai/hosting.json` is not a Cloudflare target manifest. |
 | Identity | `site/app/cloudflare-access.ts` verifies Access RS256 JWTs against the configured team JWKS, issuer, audience, dates, and email. `site/app/runtime-identity.ts` requires one explicit provider mode and denies missing, unknown, partial, or conflicting configuration, so Sites headers and `LOCAL_DEMO` cannot become a hosted fallback. | The local code blocker is closed. A real target still needs exact Access configuration, independent review, owner/non-owner proof, and `LOCAL_DEMO` must remain absent. |
 | Secrets | Runtime requires `OWNER_SUBJECT_PEPPER` and `PILOT_OWNER_EMAIL`. The ignored `.dev.vars` contains only disposable localhost values. | Hosted values must be installed through Cloudflare bindings, never copied from `.dev.vars`, Git, logs, screenshots, or evidence files. |
 | Effects | Runner ingress passes `runnerIngressEnabled: false`; profile/discovery schedules remain `blocked_missing_capability`; no Gmail or telephony adapter is composed. | Preserve these fail-closed states. Binding D1/R2 and proving owner access must not activate a schedule, provider, export, enrichment call, email, or phone action. |
@@ -63,9 +68,9 @@ Cloudflare account:
 
 ## Required production configuration
 
-Before authenticating Wrangler or creating anything, add and independently
-review a dedicated greenfield Wrangler configuration (or an equivalent
-generated config with a checked `configPath`). It must contain only the new
+Before any migration, upload, Worker/version creation, or secret write, add
+and independently review a dedicated greenfield Wrangler configuration (or an
+equivalent generated config with a checked `configPath`). It must contain only the new
 target's values and, at minimum:
 
 - a new Worker name, explicit `main`, compatibility date, and
@@ -109,8 +114,9 @@ ordered SQL files, records applied names in `d1_migrations`, and supports a
 custom `migrations_dir` and `migrations_pattern`. ([D1 getting started](https://developers.cloudflare.com/d1/get-started/),
 [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/))
 
-After separate provisioning authorization, the operator must use one new D1
-database and capture sanitized evidence in this order:
+Stage 1 created one new D1 database and completed steps 1-2 below. A separately
+authorized migration stage must continue this evidence order without replacing
+or recreating that database:
 
 1. Record the authenticated Cloudflare account identity and new database
    identity outside Git, without tokens or secrets.
@@ -148,9 +154,10 @@ not database rollback evidence. ([Workers versions and deployments](https://deve
 
 ## R2 creation, binding, and proof contract
 
-Create one fresh bucket and bind it as `FILES`. R2 buckets are private by
-default; keep both the `r2.dev` development URL and any bucket custom domain
-disabled. ([Create R2 buckets](https://developers.cloudflare.com/r2/buckets/create-buckets/),
+Stage 1 created one fresh bucket but did not bind it. It has zero objects, no
+custom domain, and disabled `r2.dev` access. Keep both public mechanisms
+disabled when it is later bound as `FILES`. R2 buckets are private by default.
+([Create R2 buckets](https://developers.cloudflare.com/r2/buckets/create-buckets/),
 [public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/))
 
 Bucket existence is not emptiness evidence. Before upload, after upload, after
@@ -237,10 +244,11 @@ test fixtures, evidence JSON, or this repository.
 This is the required evidence order after the code/config blockers are closed
 and the owner separately authorizes each external action:
 
-1. Authenticate the intended Cloudflare account and confirm it before any
-   create command; do not use a temporary/claim deployment.
-2. Create the new D1 and R2 resources, prove both empty, and apply/verify the
-   exact migration chain as above.
+1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
+   create command; no temporary/claim deployment was used.
+2. **Partially complete:** create one new D1 and one new R2 resource and prove
+   both empty/private. Applying and verifying the exact migration chain remains
+   separately gated.
 3. Build, run `vinext check`, run canonical test/lint/audit, inspect the
    generated Wrangler config, and run Wrangler dry-run. These steps perform no
    hosted application write.
@@ -276,8 +284,9 @@ outbound request, identity ambiguity, migration failure, or log gap is a stop.
 
 No default is inferred for these external choices:
 
-1. **Cloudflare account and operator:** which account owns the new resources,
-   and which named human may execute the control-plane steps.
+1. **Cloudflare account and operator:** resolved for Stage 1 by the owner's
+   explicit account confirmation; exact identity remains outside Git. Any
+   additional operator still requires explicit authority.
 2. **Private URL:** a custom domain with `workers_dev: false`, or an Access-
    protected `workers.dev` URL. Custom domain is the safer production default;
    either choice must be private before promotion.
@@ -286,8 +295,9 @@ No default is inferred for these external choices:
 4. **Configuration custody:** whether the non-secret target config is committed
    or generated from an owner-controlled release manifest. Secret values are
    never committed in either case.
-5. **Data location:** D1 location hint and R2 location/jurisdiction, including
-   any Canadian residency or contractual requirement.
+5. **Data location:** Stage 1 used Eastern North America for both resources.
+   Any Canadian residency or contractual requirement must still be decided
+   before migration or real data.
 6. **First reachable scope:** Plan 02-99 empty-target/read-only acceptance only,
    or a later separately reviewed bootstrap. This document recommends the
    empty read-only checkpoint first.
@@ -316,5 +326,6 @@ only when all of the following are true:
 - the owner explicitly authorizes the named greenfield target and accepts the
   sanitized evidence tuple.
 
-Until then, the only accurate status is **Cloudflare architecture identified;
-direct deployment blocked before external write**.
+Until then, the only accurate status is **Stage 1 greenfield resources are
+empty and private; migration, configuration, identity, and deployment remain
+blocked before their separately authorized external writes**.

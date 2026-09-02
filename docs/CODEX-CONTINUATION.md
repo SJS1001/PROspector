@@ -10,7 +10,9 @@
 
 The original hosted project is inaccessible and permanently outside the
 execution path. Read [`GREENFIELD-BASELINE.md`](GREENFIELD-BASELINE.md) before
-planning or implementation. No future target has been selected or provisioned.
+planning or implementation. Cloudflare Stage 1 resources have now been
+provisioned, but no target configuration, migration, Worker, route, Access
+policy, secret, version, or deployment exists.
 
 ## Resume from another Codex account
 
@@ -40,7 +42,7 @@ Use Codex accounts sequentially, with Git as the shared memory. Do not run two w
 
 1. Start every account by fetching and fast-forwarding `codex/generic-prospector-pilot`; require a clean worktree and read the committed state before selecting work.
 2. Do not inspect or resolve the original hosted project from any account. It has no remaining execution role.
-3. Treat all accounts as local-work accounts unless a later owner decision separately authorizes a named new greenfield target. Never infer hosted evidence from account access.
+3. Treat all accounts as local-work accounts unless the owner separately authorizes that account for the provisioned greenfield target and the exact bounded stage. Never infer hosted evidence or continuing write authority from account access or the Stage 1 record.
 4. Take one bounded executable plan or maintenance unit per account. Use subagents only for independent implementation/review work with non-overlapping ownership.
 5. When roughly one quarter of that account's usable context remains, stop accepting new scope. Finish verification, update truthful state/evidence references, commit atomically, and push.
 6. End every baton turn with a clean worktree, the full pushed SHA, and the exact next executable or blocked plan. Never leave another account dependent on chat history, a local stash, an uncommitted diff, or a task ID.
@@ -93,7 +95,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - The same release-hygiene gate advanced only the transitive `nanoid` lockfile resolution from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - On 2026-08-27 the owner permanently retired the inaccessible original target, waived its missing migration/provenance evidence, and selected the verified clean local baseline as the authoritative greenfield starting point. No hosted state changed.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority. An unselected host is a deferred adapter boundary, so bounded local synthetic/reject-by-default work may continue without selecting or provisioning it.
-- Plan 02-22 is complete. Safe resume is one bounded synthetic preparation unit under its checked preparation contract; Plan 02-99 stays blocked until separately authorized future-target evidence exists. The old incident collector remains historical code and must not be run against the original target.
+- Plan 02-22 is complete. On 2026-09-02 owner-authorized Cloudflare Stage 1 created one fresh D1 and one private R2 resource in Eastern North America. Sanitized proof shows both empty, D1 integrity clean, and both R2 public exposure mechanisms disabled. No target config, migration, Worker/version, Access policy, route, secret, deployment, application request, or effect occurred. Plan 02-99 remains incomplete pending separately authorized configuration/migration and later principal/deployment/human evidence. The old incident collector remains historical code and must not be run against the original target.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -107,11 +109,11 @@ Use these existing artifacts rather than restating product decisions:
 ## Hosting and external authority
 
 - The original project and URL are retired historical references. Do not access or use them.
-- No future host or target is selected. Provisioning requires a later explicit owner decision and must create a new empty greenfield target.
+- Cloudflare is selected for the greenfield Stage 1 resources. Exact account/resource identities remain outside Git. Further configuration, migration, Access, Worker/version, route, secret, deployment, and application actions require their next explicit authorization.
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- No hosted write is authorized in the current lane. A future target must prove its own empty pre-bootstrap state, exact checked source/migrations, owner-only boundary, zero effects, and independent review.
+- Stage 1 resource creation is complete and no further hosted write is authorized in the current lane. The provisioned target must next prove exact checked configuration/migrations, owner-only boundary, zero effects, and independent review.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
 ## Safety boundaries

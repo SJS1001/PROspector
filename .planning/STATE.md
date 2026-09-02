@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Target-neutral Cloudflare Access JWT verification and fail-closed provider selection implemented locally; Plan 02-99 still requires a separately authorized target, configuration, real-principal proof, and human acceptance; no hosted write or effect occurred
+stopped_at: Owner-authorized Cloudflare Stage 1 created one empty D1 and one empty private R2 resource; Plan 02-99 still requires separately authorized configuration/migration, real-principal proof, exact-source deployment evidence, and human acceptance; no Worker, migration, application request, or effect occurred
 last_updated: "2026-09-02T18:06:30Z"
 last_activity: 2026-09-02
 progress:
@@ -27,8 +27,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 
 Phase: 2 (Consensus Knowledge and Commercial Model) — GREENFIELD RESET
 Plan: 02-99 (14th of 14 active Phase 2 plans; future greenfield target barrier)
-Status: Plan 02-22 passed locally; Plan 02-99 is blocked until a separately authorized new empty target supplies non-substitutable evidence; no hosted write is authorized
-Last activity: 2026-08-27
+Status: Plan 02-22 passed locally; Plan 02-99 Stage 1 provisioning/zero-state proof passed, while configuration, migration, Access, deployment, real-principal, and human-acceptance evidence remain separately gated
+Last activity: 2026-09-02
 
 Progress: [████░░░░░░] 35% of active plans (26/74 completion credits; incident Plans 02-13 through 02-21 and the old recovery Plan 02-99 are retired)
 
@@ -147,6 +147,7 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Greenfield identity hygiene]: A server-only Cloudflare Access adapter now verifies RS256 signature, configured issuer/audience, dates, and bounded normalized email using the team JWKS. One explicit identity-provider mode is required; missing, unknown, partial, or conflicting configuration denies access, and Cloudflare mode disables Sites-header and `LOCAL_DEMO` fallback. Tests use generated local keys and mocked JWKS only; no target, principal, credential, provider account, network call, hosted write, or acceptance evidence exists.
 - [Greenfield identity review]: Independent adversarial review found and verified closure of raw Sites-header fallback, local-demo cross-mode/exact-origin bypass, JWKS refresh amplification and same-key rotation, and indefinitely renewed stale-key trust. Final review is clean at high and medium severity; failed refreshes cannot move the fixed hard stale deadline.
 - [Greenfield identity validation]: The target-neutral identity slice passes the complete canonical `npm test` gate (including production build), canonical `npm run lint`, `npm audit --omit=dev` with zero production vulnerabilities, and `vinext check` at 100% compatibility. The real target and principal acceptance evidence remain absent and are not implied by these local gates.
+- [Cloudflare Stage 1]: On 2026-09-02 the owner confirmed the current Cloudflare account and authorized exactly one new D1 database and one new private R2 bucket in Eastern North America. Sanitized read-only proof shows zero D1 application objects, no D1 migration journal, `quick_check=ok`, zero foreign-key violations, zero R2 objects, no R2 custom domain, and disabled `r2.dev` access. No target config, migration, Worker/version, Access policy, route, secret, deployment, bootstrap, provider, export, schedule, or outbound effect was created. Exact account/resource identities remain outside Git. This is partial Plan 02-99 evidence, not completion.
 - [Phase 02 greenfield authority]: Original-project access is now prohibited for every account. The prior `project not found` result is historical only; no future work may wait for or attempt that target.
 
 ### Pending Todos
@@ -156,7 +157,7 @@ None yet.
 ### Blockers/Concerns
 
 - The original schema/source incident remains historical evidence explaining abandonment. Its missing provenance is waived, not solved, and no migration occurrence may be claimed.
-- Plan 02-22 proved a reproducible fresh empty local baseline. New Plan 02-99 is a deferred external checkpoint until a separately authorized future greenfield target proves its own exact source, migrations, privacy, real-principal denial, and zero-effect state; it does not block unrelated local preparation.
+- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 1 now proves provisioned empty/private D1/R2 resources, but the terminal checkpoint remains incomplete until separately authorized configuration/migrations prove exact source, privacy, real-principal denial, and zero-effect state.
 - Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
 - Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.
@@ -176,5 +177,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-02
-Stopped at: Target-neutral Cloudflare Access JWT verification and fail-closed provider selection are locally implemented and tested; Plan 02-99 remains the next non-substitutable gate and still requires separately authorized target provisioning/configuration, real owner/non-owner proof, exact-source/D1/R2 evidence, and human acceptance; no hosted write or external effect occurred; draft PR `#2` remains open
-Resume files: `docs/CLOUDFLARE-GREENFIELD-READINESS.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `site/app/cloudflare-access.ts`, `site/app/runtime-identity.ts`, and `site/tests/cloudflare-access-identity.test.mjs`
+Stopped at: Cloudflare Stage 1 greenfield resources are provisioned and proved empty/private; Plan 02-99 still requires separately authorized target-bound configuration and D1 migrations, then Access/Worker/version/principal/zero-effect evidence and human acceptance; no migration, Worker, application request, or external effect occurred; draft PR `#2` remains open
+Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE1-EVIDENCE.md`, `docs/CLOUDFLARE-GREENFIELD-READINESS.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `site/app/cloudflare-access.ts`, and `site/app/runtime-identity.ts`

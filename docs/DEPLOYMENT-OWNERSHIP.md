@@ -11,20 +11,26 @@ access either retired environment, or authority for a future host.
 
 ## Current state
 
-No deployment target or hosting provider is selected. The checked repository
-and fresh disposable local state are authoritative under
+Cloudflare is the owner-authorized greenfield provider for Stage 1. Exactly one
+fresh D1 database and one private R2 bucket were created there on 2026-09-02;
+their exact account and resource identities remain outside Git. No Worker,
+migration, binding, target configuration, Access application, route, secret,
+version, deployment, or application request was created. The checked repository
+and fresh disposable local state remain authoritative under
 [`GREENFIELD-BASELINE.md`](GREENFIELD-BASELINE.md). Any future deployment must
-be a new empty greenfield target with separately recorded owner authority,
-private-boundary acceptance, runtime-secret handling, and exact-source
-evidence. Neither retired environment may be accessed or used as a source.
+use only these empty greenfield resources with separately recorded owner
+authority, private-boundary acceptance, runtime-secret handling, and
+exact-source evidence. Neither retired environment may be accessed or used as
+a source.
 
 Deployable source metadata contains binding names only (`DB` and `FILES`) and
 contains no project identifier from either retired environment. The generated
 local build configuration deliberately retains an invalid all-zero D1 ID and
 placeholder resource names; it is build input only and must never be deployed.
-A separately authorized control plane must inject the new target's own D1/R2
-identities and secret values outside Git, then satisfy Plan 02-99 before the
-target is accepted.
+A separately authorized control-plane step must inject the new resources'
+D1/R2 identities and secret values outside Git, then satisfy Plan 02-99 before
+the target is accepted. Sanitized Stage 1 evidence is recorded in
+`.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE1-EVIDENCE.md`.
 
 The checked runtime also contains a target-neutral Cloudflare Access adapter.
 It requires `TRUSTED_IDENTITY_PROVIDER=cloudflare-access`, both
