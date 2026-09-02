@@ -251,6 +251,40 @@ suite passed 13/13, all preparation suites passed 204/204, canonical `npm test`
 CSV-byte, checksum, provider, delivery, download, export, and effect-seam scans
 were clean. This is local preparation evidence only.
 
+### Synthetic CSV artifact-version intent
+
+`site/preparation/phase7-csv-artifact-version-intent.ts` and its focused suite
+prove:
+
+- one intent binds only the synthetic materialization-precondition, handoff
+  request, version-intent, manifest-intent, and CSV-policy-definition
+  IDs/digests plus a bounded intended version number and creation time;
+- evaluation independently rechecks each dependency, intended-version and
+  history-head currency, chronology, and the external-effects-disabled
+  boundary;
+- every dependency reference, intended version, and creation time changes the
+  intent digest, while a completely current tuple projects only a current
+  zero-authority intent;
+- intended versions are positive safe integers capped at one billion; and
+- malformed identifiers/digests/versions/times, raw email/phone values, rows,
+  bytes, checksums, persisted IDs, provider handles, forged brands, hostile
+  objects, accessors, proxies, symbols, extra or missing fields, and
+  non-boolean authority predicates reject.
+
+The intent contains no contact value, row, materialized byte, CSV checksum,
+persisted version, delivery/download capability, or provider handle. It cannot
+create or mutate history, read rows, serialize CSV, create bytes or a checksum,
+persist, deliver, download, export, invoke a provider, execute Plan 07-02, or
+earn Phase 7 credit. Runtime code imports no preparation module.
+
+Validation recorded on 2026-09-02: the focused artifact-version-intent suite
+passed 13/13, all preparation suites passed 217/217, canonical `npm test`
+(including the production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, history-mutation, raw-value, row-access,
+persistence, CSV-byte, checksum, provider, delivery, download, export, and
+effect-seam scans were clean. This is local preparation evidence only.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,

@@ -246,8 +246,12 @@ manifest-intent and CSV-policy IDs/digests and rechecks eligibility,
 request/version, configuration, export-definition, suppression, and
 external-effects-disabled predicates. Even a current projection grants no row
 access, serialization, byte/checksum creation, persistence, delivery,
-download, export, or provider authority. These candidates execute no Phase 7
-plan and earn no completion credit.
+download, export, or provider authority. A seventh candidate binds the
+materialization-precondition, request/version, manifest-intent, and CSV-policy
+IDs/digests plus one bounded intended version number. It can project only a
+current version intent and cannot create history, access rows, materialize
+bytes/checksums, persist, deliver, download, export, or invoke a provider.
+These candidates execute no Phase 7 plan and earn no completion credit.
 
 ## Progress
 

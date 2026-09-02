@@ -165,6 +165,11 @@ request/version, configuration, export-definition, suppression, chronology,
 and external-effects-disabled predicates. A current result still grants no row
 access, serialization, byte/checksum creation, persistence, delivery,
 download, export, provider, phase, or effect authority.
+A seventh pure candidate binds only the synthetic materialization-precondition,
+handoff request/version, manifest-intent, and CSV-policy IDs/digests plus one
+bounded intended version number. A current projection grants no version or
+history mutation, row access, byte/checksum creation, persistence, delivery,
+download, export, provider, phase, or effect authority.
 
 ## External handoff checklist
 

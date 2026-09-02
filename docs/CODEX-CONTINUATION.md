@@ -84,6 +84,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - On 2026-09-02 a pure Phase 7 handoff manifest intent passed its 13-case focused suite, all 178 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It binds only synthetic eligibility, request/version, configuration/export-definition, exclusion-ledger, non-contactable-manifest, schema, and aggregate-count material. It accepts no raw contact value, row, CSV byte, checksum, or provider handle and grants no manifest/checksum, version/history mutation, plan, runtime, persistence, serialization, delivery, download, export, hosted, provider, or effect authority.
 - On 2026-09-02 a pure Phase 7 canonical CSV schema/policy definition passed its 13-case focused suite, all 191 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It fixes the generic 22-field launch order, stable Prospect/Contact/contact-point sort order, and UTF-8/no-BOM/CRLF/single-header/RFC-4180/empty-null/formula-neutralization labels. It accepts no row value or materialized byte and grants no operational policy, CSV artifact/checksum, plan, runtime, persistence, serialization, delivery, download, export, hosted, provider, or effect authority.
 - On 2026-09-02 a pure Phase 7 CSV materialization-precondition decision passed its 13-case focused suite, all 204 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It binds only the manifest-intent and CSV-policy-definition IDs/digests and independently rechecks current eligibility, request/version, configuration, export definition, suppression, chronology, and disabled effects. It grants no row access, CSV artifact/checksum, plan, runtime, persistence, serialization, byte creation, delivery, download, export, hosted, provider, or effect authority.
+- On 2026-09-02 a pure Phase 7 CSV artifact-version intent passed its 13-case focused suite, all 217 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It binds only the materialization-precondition, handoff request/version, manifest-intent, and CSV-policy IDs/digests plus one bounded intended version number and rechecks current history/dependencies. It grants no version/history mutation, row access, CSV artifact/checksum, plan, runtime, persistence, serialization, byte creation, delivery, download, export, hosted, provider, or effect authority.
 - The same release-hygiene gate advanced only the transitive `nanoid` lockfile resolution from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - On 2026-08-27 the owner permanently retired the inaccessible original target, waived its missing migration/provenance evidence, and selected the verified clean local baseline as the authoritative greenfield starting point. No hosted state changed.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority. An unselected host is a deferred adapter boundary, so bounded local synthetic/reject-by-default work may continue without selecting or provisioning it.
@@ -146,13 +147,14 @@ phone-effect authority, and none executes a Phase 6 plan. The Phase 7
 dependency audit and bounded preparation authority are now complete, as is its
 weekly-outcome, current-eligibility, immutable handoff request/version,
 digest-only handoff manifest intent, canonical CSV schema/policy-definition,
-and CSV materialization-precondition candidates. The next safe unit may model
-one pure synthetic artifact-version intent that binds only the materialization-
-precondition, handoff request/version, manifest-intent, and policy-definition
-IDs/digests plus a bounded intended version number and creation time. It must
-not create history, access rows, materialize bytes or checksums, persist,
-deliver, download, export, or invoke a provider, and a passing projection must
-grant no such authority.
+CSV materialization-precondition, and CSV artifact-version-intent candidates.
+The final safe preparation unit may model one pure synthetic Phase 7 handoff
+invariant bundle over those exact branded candidate IDs/digests and closed
+dependency edges. It must reject missing, duplicate, reordered, extra,
+cross-dependency, stale, or forged material and grant no plan, runtime,
+history, row, byte/checksum, persistence, delivery, download, export, provider,
+or effect authority. After that bundle, stop this preparation line before any
+Plan 07-02 execution or operational handoff work.
 Do not execute a Phase 7 plan or create its plan tests. Do not access the
 original target or provision a new one. New terminal Plan 02-99 remains the
 future greenfield target acceptance gate and performs no hosted action itself.
