@@ -251,7 +251,11 @@ materialization-precondition, request/version, manifest-intent, and CSV-policy
 IDs/digests plus one bounded intended version number. It can project only a
 current version intent and cannot create history, access rows, materialize
 bytes/checksums, persist, deliver, download, export, or invoke a provider.
-These candidates execute no Phase 7 plan and earn no completion credit.
+An eighth capstone canonicalizes the exact six-node handoff dependency graph,
+rejects malformed nodes or edges, and claims neither candidate occurrence nor
+runtime reachability. These candidates and the capstone execute no Phase 7
+plan and earn no completion credit. The bounded safe preparation line is then
+complete; do not extend it as a substitute for the gated Phase 7 plans.
 
 ## Progress
 

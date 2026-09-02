@@ -170,6 +170,12 @@ handoff request/version, manifest-intent, and CSV-policy IDs/digests plus one
 bounded intended version number. A current projection grants no version or
 history mutation, row access, byte/checksum creation, persistence, delivery,
 download, export, provider, phase, or effect authority.
+An eighth pure capstone canonicalizes the exact closed six-node handoff graph,
+rejects malformed nodes and dependency edges, and authenticates no candidate
+occurrence. It remains runtime-unreachable and grants no plan, history, row,
+byte/checksum, persistence, delivery, download, export, provider, or effect
+authority. This completes the bounded safe Phase 7 preparation line; further
+progress must satisfy the actual greenfield target and operational gates.
 
 ## External handoff checklist
 

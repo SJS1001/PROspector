@@ -285,6 +285,47 @@ passed 13/13, all preparation suites passed 217/217, canonical `npm test`
 persistence, CSV-byte, checksum, provider, delivery, download, export, and
 effect-seam scans were clean. This is local preparation evidence only.
 
+### Synthetic Phase 7 handoff invariant-bundle capstone
+
+`site/preparation/phase7-handoff-invariant-bundle.ts` and its focused suite
+prove:
+
+- one closed six-node graph links eligibility to request/version and manifest
+  intent, combines the manifest intent with the canonical CSV policy at the
+  materialization-precondition boundary, and terminates at the artifact-version
+  intent;
+- unordered node and dependency input canonicalizes deterministically, while
+  missing, duplicate, extra, wrong-kind, wrong-artifact-kind, or wrong-edge
+  graphs reject;
+- node IDs and digests are unique, every dependency is exact, the eligibility
+  and policy nodes are the only roots, and the artifact-version intent is the
+  only terminal;
+- evaluation independently rechecks all six candidate classes, the dependency
+  graph, chronology, and the external-effects-disabled boundary; and
+- drift, hostile shapes, accessors, proxies, sparse arrays, raw email/phone
+  values, rows, bytes, persisted IDs, provider handles, forged bundle copies,
+  extra or missing fields, and non-boolean authority predicates fail closed.
+
+The capstone explicitly authenticates no candidate occurrence and marks the
+graph runtime-unreachable. It contains no contact value, row, materialized
+byte, CSV checksum, persisted version, delivery/download capability, or
+provider handle. It cannot execute a plan, create or mutate history, read rows,
+serialize CSV, create bytes or a checksum, persist, deliver, download, export,
+or invoke a provider. Runtime code imports no preparation module.
+
+Validation recorded on 2026-09-02: the focused handoff-invariant-bundle suite
+passed 13/13, all preparation suites passed 230/230, canonical `npm test`
+(including the production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, history-mutation, raw-value, row-access,
+persistence, CSV-byte, checksum, provider, delivery, download, export, and
+effect-seam scans were clean. This is local preparation evidence only.
+
+This capstone completes the bounded safe Phase 7 preparation line. Do not add
+more synthetic preparation modules as a substitute for actual Plan 07-02 or
+later execution. Further Phase 7 progress must satisfy its real greenfield
+target, human, persistence, and operational gates.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
