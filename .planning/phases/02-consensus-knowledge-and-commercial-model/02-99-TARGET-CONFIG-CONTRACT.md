@@ -84,6 +84,10 @@ On 2026-09-02 the owner authorized this Stage 2 seam. The repository command is
 same ignored root, and prints only the sanitized receipt. It never invokes
 Wrangler or changes Cloudflare.
 
+The source identity is the authoritative outer PROspector repository HEAD.
+The nested `site/.git` development checkout is never accepted as release
+provenance.
+
 The implementation rejects symlink escapes, loose mapping permissions,
 placeholder identity, stale source identity, any byte or nested-shape change to
 the reviewed generated target-neutral config, altered expected-schema

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
+const repositoryRoot = resolve(root, "..");
 const script = resolve(root, "scripts/greenfield-target-config.mjs");
 
 test("the approved CLI seam prepares one private fail-closed target candidate", async () => {
@@ -13,7 +14,7 @@ test("the approved CLI seam prepares one private fail-closed target candidate", 
   const mappingPath = resolve(directory, "mapping.json");
   const outputPath = resolve(directory, "candidate.json");
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
+    cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
   const mapping = {
@@ -133,7 +134,7 @@ test("the CLI rejects a resource mapping readable by group or other users", asyn
   const mappingPath = resolve(directory, "mapping.json");
   const outputPath = resolve(directory, "candidate.json");
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
+    cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
   const mapping = {
@@ -180,7 +181,7 @@ test("the CLI never overwrites an existing target candidate", async () => {
   const outputPath = resolve(directory, "candidate.json");
   const sentinel = "existing-private-candidate-must-survive\n";
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
+    cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
 
@@ -222,7 +223,7 @@ test("the CLI rejects the target-neutral placeholder database UUID", async () =>
   const mappingPath = resolve(directory, "mapping.json");
   const outputPath = resolve(directory, "candidate.json");
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
+    cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
 
@@ -264,7 +265,7 @@ test("the CLI rejects an additional SQL migration outside the checked chain", as
   const outputPath = resolve(directory, "candidate.json");
   const extraMigration = resolve(root, `drizzle/9999_unchecked_${nonce}.sql`);
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
+    cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
 

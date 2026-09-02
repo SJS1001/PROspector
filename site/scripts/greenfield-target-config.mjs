@@ -6,6 +6,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "..");
+const REPOSITORY_ROOT = resolve(ROOT, "..");
 const PRIVATE_ROOT = resolve(ROOT, ".wrangler");
 const BUILD_PATH = resolve(ROOT, "dist/server/wrangler.json");
 const MIGRATION_ROOT = resolve(ROOT, "drizzle");
@@ -318,7 +319,10 @@ async function walkBuildDirectory(directory, records) {
 }
 
 function currentSourceCommit() {
-  const value = execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+  const value = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8",
+  }).trim();
   if (!SAFE_COMMIT.test(value)) throw new Error("source_commit_invalid");
   return value;
 }
