@@ -142,7 +142,10 @@ or recreating that database:
    names; expected application tables/triggers/indexes; `PRAGMA quick_check`
    returns `ok`; `PRAGMA foreign_key_check` is empty; and every application
    table has zero rows except any specifically reviewed migration-owned static
-   metadata. At minimum the count set must cover `workspaces`,
+   metadata. The checked local expected counts and canonical digests are in
+   `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md`;
+   they are comparison material, not hosted proof. At minimum the remote count
+   set must cover `workspaces`,
    `phase_activation_gates`, `product_discovery_runs`, all prospect/run/
    schedule/assignment tables, enrichment grants/reservations/receipts,
    contact observations, suppressions, CSRF tokens, audit events, and every
