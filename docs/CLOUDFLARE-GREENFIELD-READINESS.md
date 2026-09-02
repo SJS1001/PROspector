@@ -59,8 +59,8 @@ Cloudflare account:
 |---|---|---|
 | Framework | `site/package.json` pins Next.js 16, Vinext, Vite, the Cloudflare Vite plugin, and Wrangler; `site/vite.config.ts` composes Vinext and the Cloudflare plugin. `vinext check` reports 100% compatibility (7 supported, 0 partial, 0 issues) after removal of the runtime Google-font CDN dependency. | The architecture matches Cloudflare's recommended Next.js-on-Workers direction. Vinext remains beta, so repeat the compatibility check against the exact release candidate. ([Cloudflare Next.js guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)) |
 | Worker entry | `site/worker/index.ts` is an ES-module Worker entry and Vinext router; the build currently emits `site/dist/server/wrangler.json`. | A reviewed production config must drive the build, and the generated config must be inspected before upload. The Vite plugin generates a deployment `wrangler.json` with the built asset directory. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)) |
-| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | One owner-authorized empty greenfield D1 now exists outside Git, but its binding and target-bound Wrangler file are absent. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so a reviewed Wrangler file is required. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
-| R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized empty private R2 bucket now exists outside Git, with no custom domain and `r2.dev` disabled, but its `FILES` binding is absent. `.openai/hosting.json` is not a Cloudflare target manifest. |
+| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | One owner-authorized empty greenfield D1 exists outside Git. The checked CLI can now generate one ignored target-bound candidate from its owner-private mapping, but no remote migration evidence exists yet. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so the generated candidate must be used only through the staged runbook. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
+| R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized empty private R2 bucket exists outside Git. The checked CLI can bind it as `FILES` in one ignored candidate while preserving disabled public exposure; no object or hosted binding has been created. `.openai/hosting.json` is not a Cloudflare target manifest. |
 | Identity | `site/app/cloudflare-access.ts` verifies Access RS256 JWTs against the configured team JWKS, issuer, audience, dates, and email. `site/app/runtime-identity.ts` requires one explicit provider mode and denies missing, unknown, partial, or conflicting configuration, so Sites headers and `LOCAL_DEMO` cannot become a hosted fallback. | The local code blocker is closed. A real target still needs exact Access configuration, independent review, owner/non-owner proof, and `LOCAL_DEMO` must remain absent. |
 | Secrets | Runtime requires `OWNER_SUBJECT_PEPPER` and `PILOT_OWNER_EMAIL`. The ignored `.dev.vars` contains only disposable localhost values. | Hosted values must be installed through Cloudflare bindings, never copied from `.dev.vars`, Git, logs, screenshots, or evidence files. |
 | Effects | Runner ingress passes `runnerIngressEnabled: false`; profile/discovery schedules remain `blocked_missing_capability`; no Gmail or telephony adapter is composed. | Preserve these fail-closed states. Binding D1/R2 and proving owner access must not activate a schedule, provider, export, enrichment call, email, or phone action. |
@@ -75,7 +75,8 @@ target's values and, at minimum:
 
 The closed input/output and fail-closed rules are now pinned in
 `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md`.
-The document defines no executable interface and grants no external authority.
+The document defines the owner-approved local CLI seam. The implementation
+still grants no external authority and never invokes Wrangler itself.
 
 - a new Worker name, explicit `main`, compatibility date, and
   `nodejs_compat` flag;
@@ -336,5 +337,6 @@ only when all of the following are true:
   sanitized evidence tuple.
 
 Until then, the only accurate status is **Stage 1 greenfield resources are
-empty and private; migration, configuration, identity, and deployment remain
-blocked before their separately authorized external writes**.
+empty and private; the Stage 2 local target-candidate seam is validated, while
+remote migration evidence and every later identity/deployment write remain
+pending their exact staged authority**.

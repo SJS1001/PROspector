@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Status:** checked local design; interface/seam still requires owner confirmation
+**Status:** owner-approved CLI seam implemented and locally validated; remote Stage 2 evidence pending
 
 ## Purpose
 
@@ -53,8 +53,8 @@ The emitted candidate must satisfy all of these conditions at once:
 9. The candidate is valid under the pinned Wrangler 4.116.0 schema and a
    Wrangler dry run completes without upload, resource creation, route change,
    trigger change, or other hosted mutation.
-10. The verification result contains only a source digest, candidate digest,
-    migration-manifest digest, expected-schema digest, fixed status/code, and
+10. The verification result contains only source, built-artifact, candidate,
+    migration-manifest, and expected-schema digests plus fixed status/code and
     boolean/count projections. It never emits the mapping, identifiers, paths,
     environment, child-process output, or secrets.
 
@@ -75,9 +75,21 @@ owner-authorized stage. Worker version upload, Access configuration, secrets,
 route attachment, deployment, and application requests are later separate
 stages. No stage inherits authorization from an earlier one.
 
-## Pending interface decision
+## Approved interface
 
-The proposed seam is one fail-closed CLI command that reads an ignored
-`.wrangler/` mapping file, writes an ignored candidate, and prints only the
-sanitized result. Its tests cannot be written until the owner confirms that
-interface, as required by the repository's TDD workflow.
+On 2026-09-02 the owner authorized this Stage 2 seam. The repository command is
+`npm run greenfield:target:prepare -- prepare --mapping <ignored-json> --output
+<ignored-json>`. It reads only a closed, owner-private mapping beneath
+`site/.wrangler/`, writes one new non-overwriting private candidate beneath the
+same ignored root, and prints only the sanitized receipt. It never invokes
+Wrangler or changes Cloudflare.
+
+The implementation rejects symlink escapes, loose mapping permissions,
+placeholder identity, stale source identity, any byte or nested-shape change to
+the reviewed generated target-neutral config, altered expected-schema
+authority, missing/additional/renamed/reordered or digest-mismatched SQL, and
+candidate overwrite. The receipt binds the complete built server/client tree
+by digest so the operator can prove the same bytes survive dry run. Its focused six-case suite,
+canonical `npm test` (including the production build), canonical lint, and
+production dependency audit pass locally. These results authorize no remote
+action and are not Plan 02-99 acceptance evidence.
