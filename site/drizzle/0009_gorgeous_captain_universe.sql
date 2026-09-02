@@ -155,7 +155,7 @@ CREATE INDEX `runner_budget_account_month_idx` ON `runner_budget_accounts` (`wor
 PRAGMA foreign_keys=ON;
 --> statement-breakpoint
 CREATE TRIGGER contact_verification_receipt_scope_guard BEFORE INSERT ON contact_verification_receipts BEGIN
-  SELECT CASE WHEN NEW.role NOT IN ('champion','economic_buyer','general')
+  SELECT RAISE(ABORT, 'invalid contact verification receipt') WHERE NEW.role NOT IN ('champion','economic_buyer','general')
     OR NEW.kind NOT IN ('email','phone')
     OR NEW.verification_class NOT IN ('suggested','domain_valid','mailbox_verified','source_verified','invalid')
     OR NEW.method NOT IN ('pattern_inference','domain_validation','mailbox_verification','authoritative_source_reconfirmed')
@@ -181,12 +181,11 @@ CREATE TRIGGER contact_verification_receipt_scope_guard BEFORE INSERT ON contact
             AND json_extract(assigned.value,'$.contactId')=a.contact_id
             AND json_extract(assigned.value,'$.role')=a.role
         )
-    )
-    THEN RAISE(ABORT, 'invalid contact verification receipt') END;
+    );
 END;
 --> statement-breakpoint
 CREATE TRIGGER contact_observation_scope_guard BEFORE INSERT ON contact_point_observations BEGIN
-  SELECT CASE WHEN NEW.kind NOT IN ('email','phone') OR NEW.verification_class NOT IN ('suggested','domain_valid','mailbox_verified','source_verified','invalid')
+  SELECT RAISE(ABORT, 'invalid contact observation') WHERE NEW.kind NOT IN ('email','phone') OR NEW.verification_class NOT IN ('suggested','domain_valid','mailbox_verified','source_verified','invalid')
     OR NEW.method NOT IN ('pattern_inference','domain_validation','mailbox_verification','authoritative_source_reconfirmed')
     OR instr(NEW.contact_point_reference, '@') > 0 OR substr(NEW.contact_point_reference, 1, 1) = '+'
     OR (NEW.verification_class = 'suggested' AND (NEW.method <> 'pattern_inference' OR NEW.verified_at IS NOT NULL OR NEW.verifier_id IS NOT NULL))
@@ -225,12 +224,11 @@ CREATE TRIGGER contact_observation_scope_guard BEFORE INSERT ON contact_point_ob
     ))
     OR (NEW.parent_observation_id IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM contact_point_observations p WHERE p.id = NEW.parent_observation_id AND p.workspace_id = NEW.workspace_id AND p.contact_id = NEW.contact_id
-    ))
-    THEN RAISE(ABORT, 'invalid contact observation') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibility_snapshots BEGIN
-  SELECT CASE WHEN NEW.state NOT IN ('ContactReady','ContactSuggestion','NeedsReview','NonContactable')
+  SELECT RAISE(ABORT, 'invalid contact eligibility snapshot') WHERE NEW.state NOT IN ('ContactReady','ContactSuggestion','NeedsReview','NonContactable')
     OR NEW.eligible NOT IN (0,1) OR (NEW.eligible = 1 AND NEW.state <> 'ContactReady')
     OR (NEW.state = 'ContactReady' AND NEW.eligible <> 1)
     OR NOT EXISTS (SELECT 1 FROM contacts c JOIN profile_prospects p ON p.id = NEW.prospect_id AND p.workspace_id = c.workspace_id
@@ -273,8 +271,7 @@ CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibil
             AND parent.observed_at <= o.observed_at
         ))
       )
-    ))
-    THEN RAISE(ABORT, 'invalid contact eligibility snapshot') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER immutable_contact_verification_receipts_update BEFORE UPDATE ON contact_verification_receipts BEGIN SELECT RAISE(ABORT, 'immutable contact verification receipt'); END;
@@ -282,7 +279,7 @@ CREATE TRIGGER immutable_contact_verification_receipts_update BEFORE UPDATE ON c
 CREATE TRIGGER immutable_contact_verification_receipts_delete BEFORE DELETE ON contact_verification_receipts BEGIN SELECT RAISE(ABORT, 'immutable contact verification receipt'); END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_reservations BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid enrichment reservation authority') WHERE NOT EXISTS (
     SELECT 1 FROM enrichment_grants g
     JOIN workspaces w ON w.id = g.workspace_id
     JOIN typed_configurations c ON c.id = g.configuration_id AND c.workspace_id = g.workspace_id
@@ -291,8 +288,8 @@ CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_re
       AND g.max_cost_minor = NEW.reserved_cost_minor AND g.currency = NEW.currency AND g.expires_at = NEW.expires_at
       AND g.expires_at > NEW.created_at AND c.active = 1 AND c.digest = g.configuration_digest
       AND c.revision = g.configuration_revision AND w.revision = g.source_revision
-  ) THEN RAISE(ABORT, 'invalid enrichment reservation authority') END;
-  SELECT CASE WHEN NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'stale enrichment prospect authority') WHERE NOT EXISTS (
     SELECT 1 FROM enrichment_grant_prospects gp
     WHERE gp.grant_id = NEW.grant_id AND gp.workspace_id = NEW.workspace_id
   ) OR EXISTS (
@@ -308,11 +305,11 @@ CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_re
         OR qa.configuration_id <> gp.configuration_id OR qa.configuration_digest <> gp.configuration_digest
         OR qa.outcome <> 'Passed' OR g.configuration_id <> gp.configuration_id
         OR g.configuration_digest <> gp.configuration_digest)
-  ) THEN RAISE(ABORT, 'stale enrichment prospect authority') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_reservation_events BEGIN
-  SELECT CASE WHEN NEW.state NOT IN ('reserved','invoking','settled','released','needs_reconciliation')
+  SELECT RAISE(ABORT, 'invalid enrichment reservation lifecycle') WHERE NEW.state NOT IN ('reserved','invoking','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
     OR (NEW.state IN ('reserved','invoking') AND (
       NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL
@@ -376,18 +373,17 @@ CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_re
         AND ((prior.state = 'reserved' AND NEW.state IN ('invoking','released'))
           OR (prior.state = 'invoking' AND NEW.state IN ('settled','released','needs_reconciliation'))
           OR (prior.state = 'needs_reconciliation' AND NEW.state IN ('settled','released')))
-    )) THEN RAISE(ABORT, 'invalid enrichment reservation lifecycle') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_suggestion_shape_guard BEFORE INSERT ON identity_suggestions BEGIN
-  SELECT CASE WHEN json_valid(NEW.candidate_revisions_json) <> 1
+  SELECT RAISE(ABORT, 'invalid identity suggestion json') WHERE json_valid(NEW.candidate_revisions_json) <> 1
     OR json_valid(NEW.source_lineage_ids_json) <> 1
     OR json_valid(NEW.retained_identity_lineage_ids_json) <> 1
     OR json_valid(NEW.retained_aliases_json) <> 1
     OR json_valid(NEW.retained_suppression_subject_refs_json) <> 1
-    OR (NEW.proposed_partition_json IS NOT NULL AND json_valid(NEW.proposed_partition_json) <> 1)
-    THEN RAISE(ABORT, 'invalid identity suggestion json') END;
-  SELECT CASE WHEN json_type(NEW.candidate_revisions_json) IS NOT 'object'
+    OR (NEW.proposed_partition_json IS NOT NULL AND json_valid(NEW.proposed_partition_json) <> 1);
+  SELECT RAISE(ABORT, 'invalid identity suggestion shape') WHERE json_type(NEW.candidate_revisions_json) IS NOT 'object'
     OR json_type(NEW.source_lineage_ids_json) IS NOT 'array'
     OR json_type(NEW.retained_identity_lineage_ids_json) IS NOT 'array'
     OR json_type(NEW.retained_aliases_json) IS NOT 'array'
@@ -404,9 +400,8 @@ CREATE TRIGGER identity_suggestion_shape_guard BEFORE INSERT ON identity_suggest
       JOIN json_each(NEW.candidate_revisions_json) next
         ON next.id=(SELECT min(later.id) FROM json_each(NEW.candidate_revisions_json) later WHERE later.id>current.id)
       WHERE current.key >= next.key)
-    OR NEW.revision <> (SELECT coalesce(sum(CAST(value AS integer)),0) FROM json_each(NEW.candidate_revisions_json))
-    THEN RAISE(ABORT, 'invalid identity suggestion shape') END;
-  SELECT CASE WHEN json_array_length(NEW.source_lineage_ids_json) NOT BETWEEN 1 AND 2048
+    OR NEW.revision <> (SELECT coalesce(sum(CAST(value AS integer)),0) FROM json_each(NEW.candidate_revisions_json));
+  SELECT RAISE(ABORT, 'invalid identity suggestion retention') WHERE json_array_length(NEW.source_lineage_ids_json) NOT BETWEEN 1 AND 2048
     OR json_array_length(NEW.retained_identity_lineage_ids_json) NOT BETWEEN 1 AND 2048
     OR json_array_length(NEW.retained_aliases_json) NOT BETWEEN 0 AND 2048
     OR json_array_length(NEW.retained_suppression_subject_refs_json) NOT BETWEEN 0 AND 2048
@@ -427,16 +422,15 @@ CREATE TRIGGER identity_suggestion_shape_guard BEFORE INSERT ON identity_suggest
     ))
     OR EXISTS (SELECT 1 FROM json_each(NEW.candidate_revisions_json) candidate WHERE NOT EXISTS (
       SELECT 1 FROM json_each(NEW.source_lineage_ids_json) retained WHERE retained.value=candidate.key
-    ))
-    THEN RAISE(ABORT, 'invalid identity suggestion retention') END;
-  SELECT CASE WHEN (NEW.kind='merge' AND (
+    ));
+  SELECT RAISE(ABORT, 'invalid identity suggestion cardinality') WHERE (NEW.kind='merge' AND (
       (SELECT count(*) FROM json_each(NEW.candidate_revisions_json)) NOT BETWEEN 2 AND 16
       OR NEW.proposed_partition_json IS NOT NULL
     )) OR (NEW.kind='split' AND (
       (SELECT count(*) FROM json_each(NEW.candidate_revisions_json)) <> 1
       OR NEW.proposed_partition_json IS NULL
-    )) THEN RAISE(ABORT, 'invalid identity suggestion cardinality') END;
-  SELECT CASE WHEN NEW.kind='split' AND (
+    ));
+  SELECT RAISE(ABORT, 'invalid identity split partition') WHERE NEW.kind='split' AND (
       json_type(NEW.proposed_partition_json) IS NOT 'object'
       OR json(NEW.proposed_partition_json) <> NEW.proposed_partition_json
       OR (SELECT count(*) FROM json_each(NEW.proposed_partition_json)) <> 3
@@ -454,22 +448,22 @@ CREATE TRIGGER identity_suggestion_shape_guard BEFORE INSERT ON identity_suggest
       OR EXISTS (SELECT 1 FROM json_each(NEW.proposed_partition_json,'$.moveAssociationIds') current
         JOIN json_each(NEW.proposed_partition_json,'$.moveAssociationIds') next ON next.key=current.key+1
         WHERE current.value >= next.value)
-    ) THEN RAISE(ABORT, 'invalid identity split partition') END;
+    );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_candidate_shape_guard BEFORE INSERT ON identity_suggestion_candidates BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid identity candidate shape') WHERE NOT EXISTS (
     SELECT 1 FROM identity_suggestions s
     WHERE s.id=NEW.suggestion_id AND s.workspace_id=NEW.workspace_id
       AND EXISTS (SELECT 1 FROM json_each(s.candidate_revisions_json) candidate
         WHERE candidate.key=NEW.subject_id AND candidate.type='integer'
           AND CAST(candidate.value AS integer)=NEW.candidate_revision)
       AND NEW.ordinal=(SELECT count(*) FROM json_each(s.candidate_revisions_json) prior WHERE prior.key < NEW.subject_id)
-  ) THEN RAISE(ABORT, 'invalid identity candidate shape') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_impact_scope_guard BEFORE INSERT ON identity_suggestion_impacts BEGIN
-  SELECT CASE WHEN NEW.scope <> 'market_play' OR NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid identity impact scope') WHERE NEW.scope <> 'market_play' OR NOT EXISTS (
     SELECT 1 FROM identity_suggestions s
     JOIN identity_suggestion_candidates candidate
       ON candidate.suggestion_id=s.id AND candidate.workspace_id=s.workspace_id
@@ -484,19 +478,18 @@ CREATE TRIGGER identity_impact_scope_guard BEFORE INSERT ON identity_suggestion_
         WHERE account.id=NEW.association_id AND account.workspace_id=NEW.workspace_id
           AND account.organization_id=NEW.subject_id AND account.play_id=NEW.relevance_id
       )))
-  ) THEN RAISE(ABORT, 'invalid identity impact scope') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_decision_shape_guard BEFORE INSERT ON identity_decisions BEGIN
-  SELECT CASE WHEN json_valid(NEW.decision_json) <> 1
+  SELECT RAISE(ABORT, 'invalid identity decision json') WHERE json_valid(NEW.decision_json) <> 1
     OR json_valid(NEW.retained_source_lineage_ids_json) <> 1
     OR json_valid(NEW.retained_identity_lineage_ids_json) <> 1
     OR json_valid(NEW.retained_aliases_json) <> 1
     OR json_valid(NEW.retained_suppression_subject_refs_json) <> 1
     OR json_valid(NEW.repointed_association_ids_json) <> 1
-    OR json_valid(NEW.invalidations_json) <> 1
-    THEN RAISE(ABORT, 'invalid identity decision json') END;
-  SELECT CASE WHEN json_type(NEW.decision_json) IS NOT 'object'
+    OR json_valid(NEW.invalidations_json) <> 1;
+  SELECT RAISE(ABORT, 'invalid identity decision shape') WHERE json_type(NEW.decision_json) IS NOT 'object'
     OR json_type(NEW.retained_source_lineage_ids_json) IS NOT 'array'
     OR json_type(NEW.retained_identity_lineage_ids_json) IS NOT 'array'
     OR json_type(NEW.retained_aliases_json) IS NOT 'array'
@@ -509,9 +502,8 @@ CREATE TRIGGER identity_decision_shape_guard BEFORE INSERT ON identity_decisions
     OR json(NEW.retained_aliases_json) <> NEW.retained_aliases_json
     OR json(NEW.retained_suppression_subject_refs_json) <> NEW.retained_suppression_subject_refs_json
     OR json(NEW.repointed_association_ids_json) <> NEW.repointed_association_ids_json
-    OR json(NEW.invalidations_json) <> NEW.invalidations_json
-    THEN RAISE(ABORT, 'invalid identity decision shape') END;
-  SELECT CASE WHEN json_array_length(NEW.retained_source_lineage_ids_json) NOT BETWEEN 1 AND 2048
+    OR json(NEW.invalidations_json) <> NEW.invalidations_json;
+  SELECT RAISE(ABORT, 'invalid identity decision retention') WHERE json_array_length(NEW.retained_source_lineage_ids_json) NOT BETWEEN 1 AND 2048
     OR json_array_length(NEW.retained_identity_lineage_ids_json) NOT BETWEEN 1 AND 2048
     OR json_array_length(NEW.retained_aliases_json) NOT BETWEEN 0 AND 2048
     OR json_array_length(NEW.retained_suppression_subject_refs_json) NOT BETWEEN 0 AND 2048
@@ -530,9 +522,8 @@ CREATE TRIGGER identity_decision_shape_guard BEFORE INSERT ON identity_decisions
     OR EXISTS (SELECT 1 FROM json_each(NEW.retained_identity_lineage_ids_json) current JOIN json_each(NEW.retained_identity_lineage_ids_json) next ON next.key=current.key+1 WHERE current.value >= next.value)
     OR EXISTS (SELECT 1 FROM json_each(NEW.retained_aliases_json) current JOIN json_each(NEW.retained_aliases_json) next ON next.key=current.key+1 WHERE current.value >= next.value)
     OR EXISTS (SELECT 1 FROM json_each(NEW.retained_suppression_subject_refs_json) current JOIN json_each(NEW.retained_suppression_subject_refs_json) next ON next.key=current.key+1 WHERE current.value >= next.value)
-    OR EXISTS (SELECT 1 FROM json_each(NEW.repointed_association_ids_json) current JOIN json_each(NEW.repointed_association_ids_json) next ON next.key=current.key+1 WHERE current.value >= next.value)
-    THEN RAISE(ABORT, 'invalid identity decision retention') END;
-  SELECT CASE WHEN NOT EXISTS (
+    OR EXISTS (SELECT 1 FROM json_each(NEW.repointed_association_ids_json) current JOIN json_each(NEW.repointed_association_ids_json) next ON next.key=current.key+1 WHERE current.value >= next.value);
+  SELECT RAISE(ABORT, 'invalid identity decision authority') WHERE NOT EXISTS (
     SELECT 1 FROM identity_suggestions s
     WHERE s.id=NEW.suggestion_id AND s.workspace_id=NEW.workspace_id AND s.kind=NEW.kind
       AND NEW.retained_source_lineage_ids_json=s.source_lineage_ids_json
@@ -578,8 +569,8 @@ CREATE TRIGGER identity_decision_shape_guard BEFORE INSERT ON identity_decisions
         AND json_extract(NEW.decision_json,'$.sourceId')=json_extract(s.proposed_partition_json,'$.sourceId')
         AND json_extract(NEW.decision_json,'$.newIdentityId')=json_extract(s.proposed_partition_json,'$.newIdentityId')
         AND json_extract(NEW.decision_json,'$.moveAssociationIds')=json_extract(s.proposed_partition_json,'$.moveAssociationIds')))
-  ) THEN RAISE(ABORT, 'invalid identity decision authority') END;
-  SELECT CASE WHEN json_array_length(NEW.invalidations_json) <> json_array_length(NEW.repointed_association_ids_json)
+  );
+  SELECT RAISE(ABORT, 'invalid identity decision invalidations') WHERE json_array_length(NEW.invalidations_json) <> json_array_length(NEW.repointed_association_ids_json)
     OR EXISTS (
       SELECT 1 FROM json_each(NEW.invalidations_json) invalidation
       JOIN json_each(NEW.repointed_association_ids_json) repointed ON repointed.key=invalidation.key
@@ -589,28 +580,26 @@ CREATE TRIGGER identity_decision_shape_guard BEFORE INSERT ON identity_decisions
         OR json_type(invalidation.value,'$.projection') IS NOT 'text'
         OR json_extract(invalidation.value,'$.associationId') <> repointed.value
         OR json_extract(invalidation.value,'$.projection') <> CASE NEW.kind WHEN 'merge' THEN 'NeedsReview' ELSE 'NonContactable' END
-    ) THEN RAISE(ABORT, 'invalid identity decision invalidations') END;
+    );
 END;
 --> statement-breakpoint
 CREATE UNIQUE INDEX identity_lineage_edge_unique ON identity_lineage
   (workspace_id,decision_id,relationship,source_subject_id,target_subject_id);
 --> statement-breakpoint
 CREATE TRIGGER identity_lineage_shape_guard BEFORE INSERT ON identity_lineage BEGIN
-  SELECT CASE WHEN json_valid(NEW.retained_source_lineage_ids_json) <> 1
+  SELECT RAISE(ABORT, 'invalid identity lineage json') WHERE json_valid(NEW.retained_source_lineage_ids_json) <> 1
     OR json_valid(NEW.retained_identity_lineage_ids_json) <> 1
     OR json_valid(NEW.retained_aliases_json) <> 1
-    OR json_valid(NEW.retained_suppression_subject_refs_json) <> 1
-    THEN RAISE(ABORT, 'invalid identity lineage json') END;
-  SELECT CASE WHEN json_type(NEW.retained_source_lineage_ids_json) IS NOT 'array'
+    OR json_valid(NEW.retained_suppression_subject_refs_json) <> 1;
+  SELECT RAISE(ABORT, 'invalid identity lineage shape') WHERE json_type(NEW.retained_source_lineage_ids_json) IS NOT 'array'
     OR json_type(NEW.retained_identity_lineage_ids_json) IS NOT 'array'
     OR json_type(NEW.retained_aliases_json) IS NOT 'array'
     OR json_type(NEW.retained_suppression_subject_refs_json) IS NOT 'array'
     OR json(NEW.retained_source_lineage_ids_json) <> NEW.retained_source_lineage_ids_json
     OR json(NEW.retained_identity_lineage_ids_json) <> NEW.retained_identity_lineage_ids_json
     OR json(NEW.retained_aliases_json) <> NEW.retained_aliases_json
-    OR json(NEW.retained_suppression_subject_refs_json) <> NEW.retained_suppression_subject_refs_json
-    THEN RAISE(ABORT, 'invalid identity lineage shape') END;
-  SELECT CASE WHEN NOT EXISTS (
+    OR json(NEW.retained_suppression_subject_refs_json) <> NEW.retained_suppression_subject_refs_json;
+  SELECT RAISE(ABORT, 'invalid identity lineage authority') WHERE NOT EXISTS (
     SELECT 1 FROM identity_decisions d
     WHERE d.id=NEW.decision_id AND d.workspace_id=NEW.workspace_id AND d.subject_kind=NEW.subject_kind
       AND NEW.retained_source_lineage_ids_json=d.retained_source_lineage_ids_json
@@ -623,12 +612,11 @@ CREATE TRIGGER identity_lineage_shape_guard BEFORE INSERT ON identity_lineage BE
       OR (d.kind='split' AND NEW.relationship='split_from'
         AND NEW.source_subject_id=json_extract(d.decision_json,'$.sourceId')
         AND NEW.target_subject_id=json_extract(d.decision_json,'$.newIdentityId')))
-  ) OR NEW.source_subject_id=NEW.target_subject_id
-  THEN RAISE(ABORT, 'invalid identity lineage authority') END;
+  ) OR NEW.source_subject_id=NEW.target_subject_id;
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_spend_grant_scope_guard BEFORE INSERT ON runner_spend_grants BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid runner spend grant scope') WHERE NOT EXISTS (
     SELECT 1 FROM workspaces w
     JOIN authority_commands command ON command.id=NEW.authority_command_id AND command.workspace_id=w.id
       AND command.command_type='runner_spend.grant.issue' AND command.status='accepted'
@@ -639,11 +627,11 @@ CREATE TRIGGER runner_spend_grant_scope_guard BEFORE INSERT ON runner_spend_gran
       AND audit.action='runner_spend.grant.issued' AND audit.subject_type='runner_spend_grant'
       AND audit.subject_id=NEW.id
     WHERE w.id=NEW.workspace_id AND w.owner_subject=NEW.owner_subject AND w.revision=NEW.source_revision
-  ) THEN RAISE(ABORT, 'invalid runner spend grant scope') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_budget_account_scope_guard BEFORE INSERT ON runner_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.scope NOT IN ('runner_per_run','runner_monthly')
+  SELECT RAISE(ABORT, 'invalid or duplicate runner budget account') WHERE NEW.scope NOT IN ('runner_per_run','runner_monthly')
     OR NEW.actual_cost_minor <> 0 OR NEW.reserved_cost_minor <> 0 OR NEW.revision <> 1
     OR NOT EXISTS (
       SELECT 1 FROM runner_spend_grants g
@@ -661,11 +649,11 @@ CREATE TRIGGER runner_budget_account_scope_guard BEFORE INSERT ON runner_budget_
       SELECT 1 FROM runner_budget_accounts a WHERE a.workspace_id = NEW.workspace_id AND a.scope = 'runner_per_run'
         AND a.owner_subject = NEW.owner_subject AND a.provider_id = NEW.provider_id AND a.scope_id = NEW.scope_id
         AND a.attempt_number = NEW.attempt_number AND a.operation_key = NEW.operation_key AND a.currency = NEW.currency
-    )) THEN RAISE(ABORT, 'invalid or duplicate runner budget account') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.scope <> OLD.scope
+  SELECT RAISE(ABORT, 'invalid runner budget mutation') WHERE NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.scope <> OLD.scope
     OR NEW.owner_subject <> OLD.owner_subject OR NEW.provider_id <> OLD.provider_id OR NEW.scope_id <> OLD.scope_id
     OR NEW.period IS NOT OLD.period OR NEW.attempt_number IS NOT OLD.attempt_number OR NEW.operation_key IS NOT OLD.operation_key
     OR NEW.currency <> OLD.currency OR NEW.max_cost_minor <> OLD.max_cost_minor OR NEW.created_at <> OLD.created_at
@@ -721,12 +709,11 @@ CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget
                  AND (terminal_r.per_run_account_id = OLD.id OR terminal_r.monthly_account_id = OLD.id)
                  AND terminal_e.state IN ('failed_retryable','settled','released'))
       )
-    )
-    THEN RAISE(ABORT, 'invalid runner budget mutation') END;
+    );
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_reservations BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid runner reservation authority') WHERE NOT EXISTS (
     SELECT 1 FROM runner_spend_grants g
     JOIN workspaces w ON w.id=g.workspace_id
     WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id AND g.provider_id = NEW.provider_id
@@ -741,8 +728,8 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
       AND json_array_length(NEW.previous_operation_keys_json) = NEW.attempt_number
       AND ((NEW.attempt_number = 0 AND NEW.previous_outcome = 'none')
         OR (NEW.attempt_number > 0 AND NEW.previous_outcome = 'failed_retryable'))
-  ) THEN RAISE(ABORT, 'invalid runner reservation authority') END;
-  SELECT CASE WHEN NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'invalid runner reservation accounts') WHERE NOT EXISTS (
     SELECT 1 FROM runner_spend_grants g
     JOIN runner_budget_accounts pr ON pr.id = NEW.per_run_account_id AND pr.workspace_id = g.workspace_id
     JOIN runner_budget_accounts mo ON mo.id = NEW.monthly_account_id AND mo.workspace_id = g.workspace_id
@@ -758,8 +745,8 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
       AND mo.revision = NEW.monthly_account_expected_revision
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= mo.max_cost_minor
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= g.monthly_cost_minor
-  ) THEN RAISE(ABORT, 'invalid runner reservation accounts') END;
-  SELECT CASE WHEN EXISTS (
+  );
+  SELECT RAISE(ABORT, 'invalid runner retry lineage') WHERE EXISTS (
     SELECT 1 FROM json_each(NEW.previous_operation_keys_json) history
     WHERE NOT EXISTS (
       SELECT 1 FROM runner_spend_reservations prior
@@ -769,7 +756,7 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
         AND ev.durable_revision = (SELECT max(e2.durable_revision) FROM runner_spend_reservation_events e2 WHERE e2.reservation_id = prior.id)
         AND ev.state = 'failed_retryable'
     )
-  ) THEN RAISE(ABORT, 'invalid runner retry lineage') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_apply AFTER INSERT ON runner_spend_reservations BEGIN
@@ -779,7 +766,7 @@ CREATE TRIGGER runner_reservation_apply AFTER INSERT ON runner_spend_reservation
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spend_reservation_events BEGIN
-  SELECT CASE WHEN NEW.state NOT IN ('reserved','assigned','failed_retryable','settled','released','needs_reconciliation')
+  SELECT RAISE(ABORT, 'invalid runner reservation lifecycle') WHERE NEW.state NOT IN ('reserved','assigned','failed_retryable','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM runner_spend_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
     OR (NEW.state IN ('reserved','assigned') AND (
       NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL
@@ -829,7 +816,7 @@ CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spen
         AND ((prior.state = 'reserved' AND NEW.state IN ('assigned','released'))
           OR (prior.state = 'assigned' AND NEW.state IN ('failed_retryable','settled','released','needs_reconciliation'))
           OR (prior.state = 'needs_reconciliation' AND NEW.state IN ('settled','released')))
-    )) THEN RAISE(ABORT, 'invalid runner reservation lifecycle') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_terminal_apply AFTER INSERT ON runner_spend_reservation_events

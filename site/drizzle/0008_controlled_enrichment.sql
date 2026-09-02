@@ -490,11 +490,11 @@ CREATE UNIQUE INDEX `runner_spend_reservation_operation_unique` ON `runner_spend
 CREATE UNIQUE INDEX `runner_spend_reservation_attempt_digest_unique` ON `runner_spend_reservations` (`workspace_id`,`grant_id`,`attempt_digest`);
 --> statement-breakpoint
 CREATE TRIGGER provider_quotes_scope_guard BEFORE INSERT ON provider_quotes BEGIN
-  SELECT CASE WHEN NEW.operation <> 'business_contact_lookup/v1' OR NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id) THEN RAISE(ABORT, 'invalid provider quote scope') END;
+  SELECT RAISE(ABORT, 'invalid provider quote scope') WHERE NEW.operation <> 'business_contact_lookup/v1' OR NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id);
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_grants_scope_guard BEFORE INSERT ON enrichment_grants BEGIN
-  SELECT CASE WHEN NEW.status <> 'issued' OR NEW.operation <> 'business_contact_lookup/v1' OR NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid enrichment grant authority') WHERE NEW.status <> 'issued' OR NEW.operation <> 'business_contact_lookup/v1' OR NOT EXISTS (
     SELECT 1 FROM workspaces w
     JOIN provider_quotes q ON q.id = NEW.quote_id AND q.workspace_id = w.id
     JOIN typed_configurations c ON c.id = NEW.configuration_id AND c.workspace_id = w.id
@@ -505,11 +505,11 @@ CREATE TRIGGER enrichment_grants_scope_guard BEFORE INSERT ON enrichment_grants 
       AND q.catalog_ref = NEW.catalog_ref AND q.revision = NEW.quote_revision
       AND q.unit_cost_minor = NEW.quote_unit_cost_minor AND q.expires_at = NEW.quote_expires_at
       AND q.currency = NEW.currency AND q.operation = NEW.operation
-  ) THEN RAISE(ABORT, 'invalid enrichment grant authority') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_grant_prospects_scope_guard BEFORE INSERT ON enrichment_grant_prospects BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid enrichment prospect authority') WHERE NOT EXISTS (
     SELECT 1 FROM enrichment_grants g
     JOIN profile_prospects p ON p.id = NEW.prospect_id AND p.workspace_id = g.workspace_id
     JOIN typed_configurations c ON c.id = NEW.configuration_id AND c.workspace_id = g.workspace_id
@@ -522,25 +522,24 @@ CREATE TRIGGER enrichment_grant_prospects_scope_guard BEFORE INSERT ON enrichmen
       AND p.revision = NEW.prospect_revision AND g.configuration_id = NEW.configuration_id
       AND g.configuration_digest = NEW.configuration_digest AND c.digest = NEW.configuration_digest
       AND c.revision = g.configuration_revision AND c.active = 1
-  ) THEN RAISE(ABORT, 'invalid enrichment prospect authority') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_issuance_scope_guard BEFORE INSERT ON enrichment_grant_issuance_events BEGIN
-  SELECT CASE WHEN NEW.action <> 'enrichment.grant.issued' OR NEW.bounded_reason <> 'issued' OR NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid enrichment issuance event') WHERE NEW.action <> 'enrichment.grant.issued' OR NEW.bounded_reason <> 'issued' OR NOT EXISTS (
     SELECT 1 FROM enrichment_grants g WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id
       AND g.owner_subject = NEW.actor_subject AND g.operation_key = NEW.operation_key AND g.request_digest = NEW.request_digest
-  ) THEN RAISE(ABORT, 'invalid enrichment issuance event') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_insert_guard BEFORE INSERT ON enrichment_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.authority_type <> 'enrichment' OR NEW.scope NOT IN ('grant','profile','workspace','provider')
+  SELECT RAISE(ABORT, 'invalid enrichment budget account') WHERE NEW.authority_type <> 'enrichment' OR NEW.scope NOT IN ('grant','profile','workspace','provider')
     OR NEW.actual_units <> 0 OR NEW.reserved_units <> 0 OR NEW.actual_cost_minor <> 0 OR NEW.reserved_cost_minor <> 0
-    OR NEW.revision <> 1
-    THEN RAISE(ABORT, 'invalid enrichment budget account') END;
+    OR NEW.revision <> 1;
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_update_guard BEFORE UPDATE ON enrichment_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.authority_type <> OLD.authority_type
+  SELECT RAISE(ABORT, 'invalid enrichment budget mutation') WHERE NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.authority_type <> OLD.authority_type
     OR NEW.scope <> OLD.scope OR NEW.entity_id <> OLD.entity_id OR NEW.currency <> OLD.currency
     OR NEW.max_units <> OLD.max_units OR NEW.max_cost_minor <> OLD.max_cost_minor OR NEW.created_at <> OLD.created_at
     OR NEW.revision <> OLD.revision + 1 OR NEW.reserved_units < 0 OR NEW.reserved_cost_minor < 0
@@ -599,12 +598,11 @@ CREATE TRIGGER enrichment_budget_update_guard BEFORE UPDATE ON enrichment_budget
                WHERE terminal_be.account_id = OLD.id AND terminal_be.workspace_id = OLD.workspace_id
                  AND terminal_e.state IN ('settled','released'))
       )
-    )
-    THEN RAISE(ABORT, 'invalid enrichment budget mutation') END;
+    );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_reservations BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid enrichment reservation authority') WHERE NOT EXISTS (
     SELECT 1 FROM enrichment_grants g
     JOIN typed_configurations c ON c.id = g.configuration_id AND c.workspace_id = g.workspace_id
     WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id
@@ -612,8 +610,8 @@ CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_re
       AND g.max_cost_minor = NEW.reserved_cost_minor AND g.currency = NEW.currency AND g.expires_at = NEW.expires_at
       AND g.expires_at > NEW.created_at AND c.active = 1 AND c.digest = g.configuration_digest
       AND c.revision = g.configuration_revision
-  ) THEN RAISE(ABORT, 'invalid enrichment reservation authority') END;
-  SELECT CASE WHEN NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'stale enrichment prospect authority') WHERE NOT EXISTS (
     SELECT 1 FROM enrichment_grant_prospects gp
     WHERE gp.grant_id = NEW.grant_id AND gp.workspace_id = NEW.workspace_id
   ) OR EXISTS (
@@ -629,11 +627,11 @@ CREATE TRIGGER enrichment_reservation_scope_guard BEFORE INSERT ON enrichment_re
         OR qa.configuration_id <> gp.configuration_id OR qa.configuration_digest <> gp.configuration_digest
         OR qa.outcome <> 'Passed' OR g.configuration_id <> gp.configuration_id
         OR g.configuration_digest <> gp.configuration_digest)
-  ) THEN RAISE(ABORT, 'stale enrichment prospect authority') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_entry_guard BEFORE INSERT ON enrichment_reservation_budget_entries BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'enrichment budget exceeded or stale') WHERE NOT EXISTS (
     SELECT 1 FROM enrichment_reservations r JOIN enrichment_grants g ON g.id = r.grant_id AND g.workspace_id = r.workspace_id
     JOIN enrichment_budget_accounts a ON a.id = NEW.account_id
     WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id AND a.workspace_id = NEW.workspace_id
@@ -643,7 +641,7 @@ CREATE TRIGGER enrichment_budget_entry_guard BEFORE INSERT ON enrichment_reserva
       AND NEW.reserved_units = r.reserved_units AND NEW.reserved_cost_minor = r.reserved_cost_minor
       AND a.actual_units + a.reserved_units + NEW.reserved_units <= a.max_units
       AND a.actual_cost_minor + a.reserved_cost_minor + NEW.reserved_cost_minor <= a.max_cost_minor
-  ) THEN RAISE(ABORT, 'enrichment budget exceeded or stale') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_budget_entry_apply AFTER INSERT ON enrichment_reservation_budget_entries BEGIN
@@ -654,7 +652,7 @@ CREATE TRIGGER enrichment_budget_entry_apply AFTER INSERT ON enrichment_reservat
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_reservation_events BEGIN
-  SELECT CASE WHEN NEW.state NOT IN ('reserved','invoking','settled','released','needs_reconciliation')
+  SELECT RAISE(ABORT, 'invalid enrichment reservation lifecycle') WHERE NEW.state NOT IN ('reserved','invoking','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM enrichment_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
     OR (NEW.state IN ('reserved','invoking') AND (
       NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL
@@ -716,7 +714,7 @@ CREATE TRIGGER enrichment_reservation_event_guard BEFORE INSERT ON enrichment_re
         AND ((prior.state = 'reserved' AND NEW.state IN ('invoking','released'))
           OR (prior.state = 'invoking' AND NEW.state IN ('settled','released','needs_reconciliation'))
           OR (prior.state = 'needs_reconciliation' AND NEW.state IN ('settled','released')))
-    )) THEN RAISE(ABORT, 'invalid enrichment reservation lifecycle') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER enrichment_reservation_terminal_apply AFTER INSERT ON enrichment_reservation_events
@@ -733,7 +731,7 @@ WHEN NEW.state IN ('settled','released') BEGIN
 END;
 --> statement-breakpoint
 CREATE TRIGGER contact_assignment_scope_guard BEFORE INSERT ON contact_evidence_assignments BEGIN
-  SELECT CASE WHEN NEW.role NOT IN ('champion','economic_buyer','general') OR NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid contact evidence assignment') WHERE NEW.role NOT IN ('champion','economic_buyer','general') OR NOT EXISTS (
     SELECT 1 FROM enrichment_grants g
     JOIN enrichment_grant_prospects gp ON gp.grant_id = g.id AND gp.prospect_id = NEW.prospect_id
     JOIN contacts c ON c.id = NEW.contact_id AND c.workspace_id = g.workspace_id
@@ -742,11 +740,11 @@ CREATE TRIGGER contact_assignment_scope_guard BEFORE INSERT ON contact_evidence_
       AND g.configuration_id = NEW.configuration_id AND g.configuration_digest = NEW.configuration_digest
       AND g.provider_id = NEW.provider_id AND g.provider_version = NEW.provider_version
       AND g.catalog_ref = NEW.catalog_ref AND g.quote_revision = NEW.quote_revision
-  ) THEN RAISE(ABORT, 'invalid contact evidence assignment') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER contact_observation_scope_guard BEFORE INSERT ON contact_point_observations BEGIN
-  SELECT CASE WHEN NEW.kind NOT IN ('email','phone') OR NEW.verification_class NOT IN ('suggested','domain_valid','mailbox_verified','source_verified','invalid')
+  SELECT RAISE(ABORT, 'invalid contact observation') WHERE NEW.kind NOT IN ('email','phone') OR NEW.verification_class NOT IN ('suggested','domain_valid','mailbox_verified','source_verified','invalid')
     OR NEW.method NOT IN ('pattern_inference','domain_validation','mailbox_verification','authoritative_source_reconfirmed')
     OR instr(NEW.contact_point_reference, '@') > 0 OR substr(NEW.contact_point_reference, 1, 1) = '+'
     OR (NEW.verification_class = 'suggested' AND (NEW.method <> 'pattern_inference' OR NEW.verified_at IS NOT NULL OR NEW.verifier_id IS NOT NULL))
@@ -765,12 +763,11 @@ CREATE TRIGGER contact_observation_scope_guard BEFORE INSERT ON contact_point_ob
       (NEW.verified_at IS NULL OR NEW.verifier_id IS NULL OR NEW.verifier_version IS NULL OR NEW.verdict_reference IS NULL OR NEW.verdict_digest IS NULL))
     OR (NEW.parent_observation_id IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM contact_point_observations p WHERE p.id = NEW.parent_observation_id AND p.workspace_id = NEW.workspace_id AND p.contact_id = NEW.contact_id
-    ))
-    THEN RAISE(ABORT, 'invalid contact observation') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibility_snapshots BEGIN
-  SELECT CASE WHEN NEW.state NOT IN ('ContactReady','ContactSuggestion','NeedsReview','NonContactable')
+  SELECT RAISE(ABORT, 'invalid contact eligibility snapshot') WHERE NEW.state NOT IN ('ContactReady','ContactSuggestion','NeedsReview','NonContactable')
     OR NEW.eligible NOT IN (0,1) OR (NEW.eligible = 1 AND NEW.state <> 'ContactReady')
     OR (NEW.state = 'ContactReady' AND NEW.eligible <> 1)
     OR NOT EXISTS (SELECT 1 FROM contacts c JOIN profile_prospects p ON p.id = NEW.prospect_id AND p.workspace_id = c.workspace_id
@@ -813,13 +810,11 @@ CREATE TRIGGER contact_eligibility_scope_guard BEFORE INSERT ON contact_eligibil
             AND parent.observed_at <= o.observed_at
         ))
       )
-    ))
-    THEN RAISE(ABORT, 'invalid contact eligibility snapshot') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER contact_eligibility_json_guard BEFORE INSERT ON contact_eligibility_snapshots BEGIN
-  SELECT CASE WHEN
-    json_valid(NEW.observation_ids_json) <> 1 OR json_type(NEW.observation_ids_json) <> 'array'
+  SELECT RAISE(ABORT, 'invalid contact eligibility json') WHERE json_valid(NEW.observation_ids_json) <> 1 OR json_type(NEW.observation_ids_json) <> 'array'
     OR json(NEW.observation_ids_json) <> NEW.observation_ids_json
     OR json_valid(NEW.reason_codes_json) <> 1 OR json_type(NEW.reason_codes_json) <> 'array'
     OR json(NEW.reason_codes_json) <> NEW.reason_codes_json
@@ -851,50 +846,47 @@ CREATE TRIGGER contact_eligibility_json_guard BEFORE INSERT ON contact_eligibili
       SELECT 1 FROM json_each(NEW.preserved_suppression_refs_json) current
       JOIN json_each(NEW.preserved_suppression_refs_json) next ON next.key = current.key + 1
       WHERE current.value >= next.value
-    )
-    THEN RAISE(ABORT, 'invalid contact eligibility json') END;
+    );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_suggestion_scope_guard BEFORE INSERT ON identity_suggestions BEGIN
-  SELECT CASE WHEN NEW.subject_kind NOT IN ('contact','organization') OR NEW.kind NOT IN ('merge','split')
-    OR NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id AND w.owner_subject = NEW.owner_subject)
-    THEN RAISE(ABORT, 'invalid identity suggestion') END;
+  SELECT RAISE(ABORT, 'invalid identity suggestion') WHERE NEW.subject_kind NOT IN ('contact','organization') OR NEW.kind NOT IN ('merge','split')
+    OR NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id AND w.owner_subject = NEW.owner_subject);
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_candidate_scope_guard BEFORE INSERT ON identity_suggestion_candidates BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid identity candidate kind or scope') WHERE NOT EXISTS (
     SELECT 1 FROM identity_suggestions s WHERE s.id = NEW.suggestion_id AND s.workspace_id = NEW.workspace_id
       AND ((s.subject_kind = 'contact' AND EXISTS (SELECT 1 FROM contacts c WHERE c.id = NEW.subject_id AND c.workspace_id = NEW.workspace_id))
         OR (s.subject_kind = 'organization' AND EXISTS (SELECT 1 FROM organizations o WHERE o.id = NEW.subject_id AND o.workspace_id = NEW.workspace_id)))
-  ) THEN RAISE(ABORT, 'invalid identity candidate kind or scope') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_impact_scope_guard BEFORE INSERT ON identity_suggestion_impacts BEGIN
-  SELECT CASE WHEN NEW.scope NOT IN ('market_play','customer_profile') OR NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid identity impact scope') WHERE NEW.scope NOT IN ('market_play','customer_profile') OR NOT EXISTS (
     SELECT 1 FROM identity_suggestions s WHERE s.id = NEW.suggestion_id AND s.workspace_id = NEW.workspace_id
-  ) THEN RAISE(ABORT, 'invalid identity impact scope') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_decision_scope_guard BEFORE INSERT ON identity_decisions BEGIN
-  SELECT CASE WHEN NEW.subject_kind NOT IN ('contact','organization') OR NEW.kind NOT IN ('merge','split') OR NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid identity decision') WHERE NEW.subject_kind NOT IN ('contact','organization') OR NEW.kind NOT IN ('merge','split') OR NOT EXISTS (
     SELECT 1 FROM identity_suggestions s JOIN workspaces w ON w.id = s.workspace_id
     WHERE s.id = NEW.suggestion_id AND s.workspace_id = NEW.workspace_id AND s.owner_subject = NEW.owner_subject
       AND s.subject_kind = NEW.subject_kind AND s.kind = NEW.kind AND w.owner_subject = NEW.owner_subject
-  ) THEN RAISE(ABORT, 'invalid identity decision') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER identity_lineage_scope_guard BEFORE INSERT ON identity_lineage BEGIN
-  SELECT CASE WHEN NEW.subject_kind NOT IN ('contact','organization') OR NEW.relationship NOT IN ('merged_into','split_from','association_repointed')
+  SELECT RAISE(ABORT, 'invalid identity lineage') WHERE NEW.subject_kind NOT IN ('contact','organization') OR NEW.relationship NOT IN ('merged_into','split_from','association_repointed')
     OR NOT EXISTS (SELECT 1 FROM identity_decisions d WHERE d.id = NEW.decision_id AND d.workspace_id = NEW.workspace_id AND d.subject_kind = NEW.subject_kind)
     OR (NEW.subject_kind = 'contact' AND (NOT EXISTS (SELECT 1 FROM contacts c WHERE c.id = NEW.source_subject_id AND c.workspace_id = NEW.workspace_id)
       OR NOT EXISTS (SELECT 1 FROM contacts c WHERE c.id = NEW.target_subject_id AND c.workspace_id = NEW.workspace_id)))
     OR (NEW.subject_kind = 'organization' AND (NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = NEW.source_subject_id AND o.workspace_id = NEW.workspace_id)
-      OR NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = NEW.target_subject_id AND o.workspace_id = NEW.workspace_id)))
-    THEN RAISE(ABORT, 'invalid identity lineage') END;
+      OR NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = NEW.target_subject_id AND o.workspace_id = NEW.workspace_id)));
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_budget_account_scope_guard BEFORE INSERT ON runner_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.scope NOT IN ('runner_per_run','runner_monthly')
+  SELECT RAISE(ABORT, 'invalid or duplicate runner budget account') WHERE NEW.scope NOT IN ('runner_per_run','runner_monthly')
     OR NEW.actual_cost_minor <> 0 OR NEW.reserved_cost_minor <> 0 OR NEW.revision <> 1 OR
     (NEW.scope = 'runner_monthly' AND EXISTS (
       SELECT 1 FROM runner_budget_accounts a WHERE a.workspace_id = NEW.workspace_id AND a.scope = 'runner_monthly'
@@ -905,16 +897,15 @@ CREATE TRIGGER runner_budget_account_scope_guard BEFORE INSERT ON runner_budget_
       SELECT 1 FROM runner_budget_accounts a WHERE a.workspace_id = NEW.workspace_id AND a.scope = 'runner_per_run'
         AND a.owner_subject = NEW.owner_subject AND a.provider_id = NEW.provider_id AND a.scope_id = NEW.scope_id
         AND a.attempt_number = NEW.attempt_number AND a.operation_key = NEW.operation_key AND a.currency = NEW.currency
-    )) THEN RAISE(ABORT, 'invalid or duplicate runner budget account') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_spend_grant_scope_guard BEFORE INSERT ON runner_spend_grants BEGIN
-  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id AND w.owner_subject = NEW.owner_subject)
-    THEN RAISE(ABORT, 'invalid runner spend grant scope') END;
+  SELECT RAISE(ABORT, 'invalid runner spend grant scope') WHERE NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.id = NEW.workspace_id AND w.owner_subject = NEW.owner_subject);
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget_accounts BEGIN
-  SELECT CASE WHEN NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.scope <> OLD.scope
+  SELECT RAISE(ABORT, 'invalid runner budget mutation') WHERE NEW.id <> OLD.id OR NEW.workspace_id <> OLD.workspace_id OR NEW.scope <> OLD.scope
     OR NEW.owner_subject <> OLD.owner_subject OR NEW.provider_id <> OLD.provider_id OR NEW.scope_id <> OLD.scope_id
     OR NEW.period IS NOT OLD.period OR NEW.attempt_number IS NOT OLD.attempt_number OR NEW.operation_key IS NOT OLD.operation_key
     OR NEW.currency <> OLD.currency OR NEW.max_cost_minor <> OLD.max_cost_minor OR NEW.created_at <> OLD.created_at
@@ -968,12 +959,11 @@ CREATE TRIGGER runner_budget_account_update_guard BEFORE UPDATE ON runner_budget
                  AND (terminal_r.per_run_account_id = OLD.id OR terminal_r.monthly_account_id = OLD.id)
                  AND terminal_e.state IN ('failed_retryable','settled','released'))
       )
-    )
-    THEN RAISE(ABORT, 'invalid runner budget mutation') END;
+    );
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_reservations BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'invalid runner reservation authority') WHERE NOT EXISTS (
     SELECT 1 FROM runner_spend_grants g
     WHERE g.id = NEW.grant_id AND g.workspace_id = NEW.workspace_id AND g.provider_id = NEW.provider_id
       AND g.model = NEW.model AND g.catalog_ref = NEW.catalog_ref AND g.scope_id = NEW.scope_id
@@ -986,8 +976,8 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
       AND json_array_length(NEW.previous_operation_keys_json) = NEW.attempt_number
       AND ((NEW.attempt_number = 0 AND NEW.previous_outcome = 'none')
         OR (NEW.attempt_number > 0 AND NEW.previous_outcome = 'failed_retryable'))
-  ) THEN RAISE(ABORT, 'invalid runner reservation authority') END;
-  SELECT CASE WHEN NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'invalid runner reservation accounts') WHERE NOT EXISTS (
     SELECT 1 FROM runner_spend_grants g
     JOIN runner_budget_accounts pr ON pr.id = NEW.per_run_account_id AND pr.workspace_id = g.workspace_id
     JOIN runner_budget_accounts mo ON mo.id = NEW.monthly_account_id AND mo.workspace_id = g.workspace_id
@@ -1001,8 +991,8 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
       AND mo.revision = NEW.monthly_account_expected_revision
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= mo.max_cost_minor
       AND mo.actual_cost_minor + mo.reserved_cost_minor + NEW.reserved_cost_minor <= g.monthly_cost_minor
-  ) THEN RAISE(ABORT, 'invalid runner reservation accounts') END;
-  SELECT CASE WHEN EXISTS (
+  );
+  SELECT RAISE(ABORT, 'invalid runner retry lineage') WHERE EXISTS (
     SELECT 1 FROM json_each(NEW.previous_operation_keys_json) history
     WHERE NOT EXISTS (
       SELECT 1 FROM runner_spend_reservations prior
@@ -1012,7 +1002,7 @@ CREATE TRIGGER runner_reservation_scope_guard BEFORE INSERT ON runner_spend_rese
         AND ev.durable_revision = (SELECT max(e2.durable_revision) FROM runner_spend_reservation_events e2 WHERE e2.reservation_id = prior.id)
         AND ev.state = 'failed_retryable'
     )
-  ) THEN RAISE(ABORT, 'invalid runner retry lineage') END;
+  );
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_apply AFTER INSERT ON runner_spend_reservations BEGIN
@@ -1022,7 +1012,7 @@ CREATE TRIGGER runner_reservation_apply AFTER INSERT ON runner_spend_reservation
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spend_reservation_events BEGIN
-  SELECT CASE WHEN NEW.state NOT IN ('reserved','assigned','failed_retryable','settled','released','needs_reconciliation')
+  SELECT RAISE(ABORT, 'invalid runner reservation lifecycle') WHERE NEW.state NOT IN ('reserved','assigned','failed_retryable','settled','released','needs_reconciliation')
     OR NOT EXISTS (SELECT 1 FROM runner_spend_reservations r WHERE r.id = NEW.reservation_id AND r.workspace_id = NEW.workspace_id)
     OR (NEW.state IN ('reserved','assigned') AND (
       NEW.terminal_reason IS NOT NULL OR NEW.settlement_digest IS NOT NULL OR NEW.documented_cost_minor IS NOT NULL
@@ -1072,7 +1062,7 @@ CREATE TRIGGER runner_reservation_event_scope_guard BEFORE INSERT ON runner_spen
         AND ((prior.state = 'reserved' AND NEW.state IN ('assigned','released'))
           OR (prior.state = 'assigned' AND NEW.state IN ('failed_retryable','settled','released','needs_reconciliation'))
           OR (prior.state = 'needs_reconciliation' AND NEW.state IN ('settled','released')))
-    )) THEN RAISE(ABORT, 'invalid runner reservation lifecycle') END;
+    ));
 END;
 --> statement-breakpoint
 CREATE TRIGGER runner_reservation_terminal_apply AFTER INSERT ON runner_spend_reservation_events
