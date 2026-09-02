@@ -127,9 +127,11 @@ or recreating that database:
    internal tables; they must be identified as provider-owned rather than
    misreported as application state. D1 supports schema inspection and
    `PRAGMA foreign_key_check` through Wrangler. ([D1 SQL statements](https://developers.cloudflare.com/d1/sql-api/sql-statements/))
-3. Compute and independently review SHA-256 digests for the exact checked
-   `0000`-`0009` files. The D1 journal records migration names, not the review
-   digest, so retain a separate sanitized release manifest.
+3. **Locally complete:** the checked `0000`-`0009` SHA-256 digests are retained
+   in `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md`.
+   Recompute and independently review them against the exact release candidate
+   before any remote apply. The D1 journal records migration names, not the
+   review digest, so the manifest remains separate evidence.
 4. List unapplied migrations, then apply them by the immutable database name
    with `wrangler d1 migrations apply <database-name> --remote` using the
    reviewed config. A failed migration rolls back that migration while earlier
