@@ -180,6 +180,43 @@ the production build) and canonical `npm run lint` passed, and
 delivery, download, export, and effect-seam scans were clean. This is local
 preparation evidence only.
 
+### Synthetic canonical CSV schema/policy definition
+
+`site/preparation/phase7-csv-policy-definition.ts` and its focused suite
+prove:
+
+- the generic launch handoff has one closed, ordered 22-field schema covering
+  stable hierarchy, Prospect, Contact/contact-point, channel/value,
+  verification, qualification/evidence, Offer/Package, activity, source, and
+  manifest-reference identifiers without embedding a row value;
+- canonical sort policy is stable Prospect ID, Contact ID, then contact-point
+  ID, independent of company, product, or market labels;
+- encoding is UTF-8 without a byte-order mark, records are CRLF-delimited,
+  one header row is required, RFC 4180 double-quote policy is fixed, null is an
+  empty field, and cells beginning with `=`, `+`, `-`, or `@` require the fixed
+  apostrophe-prefix neutralization policy;
+- schema version, field order, sort order, and every policy label are closed;
+  removal, reordering, duplication, extension, or policy substitution rejects;
+  and
+- every current-policy predicate, time regression, candidate drift, forged
+  brand, hostile object/array, accessor, proxy, sparse field list, raw value,
+  row, byte, checksum, provider handle, or extra field fails closed.
+
+The definition contains identifiers and policy labels only. It contains no
+contact value, row, materialized byte, checksum, persisted record,
+delivery/download capability, or provider handle. It cannot serialize CSV,
+calculate a checksum, persist, deliver, download, export, invoke a provider,
+execute Plan 07-02, or earn Phase 7 credit. Runtime code imports no preparation
+module.
+
+Validation recorded on 2026-09-02: the focused CSV-policy suite passed 13/13,
+all preparation suites passed 191/191, canonical `npm test` (including the
+production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, raw-value, persistence, CSV-byte, checksum,
+provider, delivery, download, export, and effect-seam scans were clean. This is
+local preparation evidence only.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,

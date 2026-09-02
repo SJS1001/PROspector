@@ -153,6 +153,12 @@ counts, exclusion and non-contactable-manifest digests, and one bounded schema
 version. It expressly claims neither a manifest nor checksum, admits no raw
 values or rows, and grants no history mutation, serialization, persistence,
 delivery, download, export, provider, phase, or effect authority.
+A fifth pure candidate fixes the generic 22-field launch schema, stable
+Prospect/Contact/contact-point ordering, and UTF-8/no-BOM/CRLF/single-header/
+RFC-4180/empty-null/formula-neutralization policy labels. It admits no row
+value or materialized byte and grants no operational policy, CSV artifact,
+checksum, serialization, persistence, delivery, download, export, provider,
+phase, or effect authority.
 
 ## External handoff checklist
 

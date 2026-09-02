@@ -236,8 +236,13 @@ provider. A fourth candidate binds only synthetic eligibility, request,
 version-intent, configuration, export-definition, exclusion-ledger, and
 non-contactable-manifest references plus bounded schema and aggregate counts.
 It is not a manifest or checksum and cannot create a version, mutate history,
-serialize, persist, deliver, download, export, or invoke a provider. These
-candidates execute no Phase 7 plan and earn no completion credit.
+serialize, persist, deliver, download, export, or invoke a provider. A fifth
+candidate fixes the generic 22-field launch schema, stable
+Prospect/Contact/contact-point ordering, and the closed text-safety policy
+labels without accepting a row value or materializing bytes. It cannot claim
+an operational policy or CSV artifact/checksum, serialize, persist, deliver,
+download, export, or invoke a provider. These candidates execute no Phase 7
+plan and earn no completion credit.
 
 ## Progress
 
