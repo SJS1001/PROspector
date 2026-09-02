@@ -147,6 +147,12 @@ version projection and exact idempotent replay. Same-key changes and
 history/receipt conflicts fail closed. It grants no version creation, history
 mutation, serialization, persistence, delivery, download, export, provider,
 phase, or effect authority.
+A fourth pure candidate binds the synthetic eligibility and request/version
+lineage to configuration/export-definition digests, distinct Prospect/row
+counts, exclusion and non-contactable-manifest digests, and one bounded schema
+version. It expressly claims neither a manifest nor checksum, admits no raw
+values or rows, and grants no history mutation, serialization, persistence,
+delivery, download, export, provider, phase, or effect authority.
 
 ## External handoff checklist
 

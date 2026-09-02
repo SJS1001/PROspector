@@ -232,8 +232,12 @@ deliver, download, export, or invoke a provider. A third candidate models only
 immutable request/version semantics: first/next version projection, exact
 idempotent replay, and fail-closed same-key/history conflicts. It cannot create
 or mutate history, serialize, persist, deliver, download, export, or invoke a
-provider. These candidates execute no Phase 7 plan and earn no completion
-credit.
+provider. A fourth candidate binds only synthetic eligibility, request,
+version-intent, configuration, export-definition, exclusion-ledger, and
+non-contactable-manifest references plus bounded schema and aggregate counts.
+It is not a manifest or checksum and cannot create a version, mutate history,
+serialize, persist, deliver, download, export, or invoke a provider. These
+candidates execute no Phase 7 plan and earn no completion credit.
 
 ## Progress
 

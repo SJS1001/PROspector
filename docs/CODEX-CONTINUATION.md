@@ -81,6 +81,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - On 2026-08-28 the Phase 7 weekly-outcome candidate passed its 12-case focused suite, all 140 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This remains local preparation only; future events fail closed, no modeled transition is real outcome evidence, draft PR `#2` remains gated, and no plan, runtime, schedule, runner, persistence, CSV/export, hosted, provider, or effect authority changed.
 - On 2026-09-02 a pure Phase 7 current-eligibility handoff candidate passed its 12-case focused suite, all 152 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It separates unique Prospect and eligible contact-row counts, deduplicates only stable Prospect plus contact-point identity, records exact fail-closed exclusions, and exposes suppression only through labelled non-contactable synthetic references. It accepts no raw identities and grants no operational handoff, plan, runtime, persistence, CSV serialization/delivery, export, hosted, provider, or effect authority.
 - On 2026-09-02 a pure Phase 7 immutable handoff request/version decision passed its 13-case focused suite, all 165 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It projects first/next immutable version numbers or exact idempotent replay from synthetic IDs/digests only; same-key semantic changes, authority drift, and history/receipt conflicts fail closed. It grants no version creation, history mutation, plan, runtime, persistence, CSV serialization, delivery, download, export, hosted, provider, or effect authority.
+- On 2026-09-02 a pure Phase 7 handoff manifest intent passed its 13-case focused suite, all 178 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. It binds only synthetic eligibility, request/version, configuration/export-definition, exclusion-ledger, non-contactable-manifest, schema, and aggregate-count material. It accepts no raw contact value, row, CSV byte, checksum, or provider handle and grants no manifest/checksum, version/history mutation, plan, runtime, persistence, serialization, delivery, download, export, hosted, provider, or effect authority.
 - The same release-hygiene gate advanced only the transitive `nanoid` lockfile resolution from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - On 2026-08-27 the owner permanently retired the inaccessible original target, waived its missing migration/provenance evidence, and selected the verified clean local baseline as the authoritative greenfield starting point. No hosted state changed.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority. An unselected host is a deferred adapter boundary, so bounded local synthetic/reject-by-default work may continue without selecting or provisioning it.
@@ -142,13 +143,13 @@ follow-up, logger, external-sink, identity-mutation, tombstone-deletion, or
 phone-effect authority, and none executes a Phase 6 plan. The Phase 7
 dependency audit and bounded preparation authority are now complete, as is its
 weekly-outcome, current-eligibility, and immutable handoff request/version
-candidates. The next safe unit may model one pure synthetic handoff manifest
-intent that binds only the eligibility and request/version IDs/digests,
-configuration/export-definition digests, distinct Prospect/row counts, bounded
-schema version, and non-contactable manifest digest. It must contain no raw
-values, CSV bytes, checksum claim, persisted record, delivery/download
-capability, or provider handle and remain unable to serialize, persist,
-deliver, download, export, or invoke a provider. Do not execute a Phase 7 plan
-or create its plan tests. Do not access the original target or provision a new
-one. New terminal Plan 02-99 remains the future greenfield target acceptance
-gate and performs no hosted action itself.
+candidates and digest-only handoff manifest intent. The next safe unit may
+model one pure canonical CSV schema/policy-definition digest: fixed generic
+field identifiers and order, stable sort-key identifiers, UTF-8/RFC 4180
+policy labels, newline policy, and spreadsheet-formula neutralization policy.
+It must contain no row or contact value, materialized byte, checksum claim,
+persisted record, delivery/download capability, or provider handle and remain
+unable to serialize, persist, deliver, download, export, or invoke a provider.
+Do not execute a Phase 7 plan or create its plan tests. Do not access the
+original target or provision a new one. New terminal Plan 02-99 remains the
+future greenfield target acceptance gate and performs no hosted action itself.

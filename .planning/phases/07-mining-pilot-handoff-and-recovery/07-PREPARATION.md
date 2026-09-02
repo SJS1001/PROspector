@@ -145,6 +145,41 @@ the production build) and canonical `npm run lint` passed, and
 download, export, and effect-seam scans were clean. This is local preparation
 evidence only.
 
+### Synthetic handoff manifest intent
+
+`site/preparation/phase7-handoff-manifest-intent.ts` and its focused suite
+prove:
+
+- one intent binds only synthetic eligibility, handoff-request, version-intent,
+  Profile-configuration, and export-definition IDs/digests plus bounded schema,
+  Prospect, row, exclusion, and non-contactable-reference counts;
+- unique Prospect count remains distinct from eligible contact-row count, and
+  a zero-row intent is valid while a Prospect count greater than its row count
+  rejects;
+- every bound ID, digest, count, or creation time changes the intent digest,
+  while schema version is fixed at the sole currently modeled version;
+- current scope, eligibility, request/version, configuration,
+  export-definition, counts, exclusion ledger, non-contactable manifest,
+  time, and external-effects-disabled predicates each fail closed; and
+- forged brands, hostile objects, accessors, proxies, raw email/phone values,
+  rows, CSV bytes, checksum claims, provider handles, extra fields, malformed
+  counts, and malformed digests reject.
+
+The candidate is expressly an intent, not a manifest or checksum. It contains
+no contact value, row, CSV byte, checksum, persisted record, delivery/download
+capability, or provider handle. It cannot create a version or manifest, mutate
+history, serialize CSV, persist, deliver, download, export, invoke a provider,
+execute Plan 07-02, or earn Phase 7 credit. Runtime code imports no preparation
+module.
+
+Validation recorded on 2026-09-02: the focused manifest-intent suite passed
+13/13, all preparation suites passed 178/178, canonical `npm test` (including
+the production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, persistence, CSV-byte, checksum, provider,
+delivery, download, export, and effect-seam scans were clean. This is local
+preparation evidence only.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
