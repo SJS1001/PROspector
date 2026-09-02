@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Checked source:** `8b28210bf78d0b50e93c3df8f820810d9b7865f9`
+**Checked source:** `46d082e962c4acc1771e92ad300d61913d50ead4`
 
 **Algorithm:** SHA-256
 
@@ -18,8 +18,8 @@
 | 0005 | `0005_even_mastermind.sql` | `a6854e0c123ae8aa6086dab9089f5a74cf469e0484c3671af3345e4937ec88c9` |
 | 0006 | `0006_private-proof-run-binding.sql` | `c195583cffa7507cd8b52f76894abef431912683a98d9b0b8f225a2441d5ff4d` |
 | 0007 | `0007_profile_prospecting.sql` | `ed769453ae7d13b1a2bbbfadb26152a2e32468f7f19b9a33eceab496c5254638` |
-| 0008 | `0008_controlled_enrichment.sql` | `c56fc8e67fe08ffa69853dfabb5e38db396b99d037edba0ef64fa50bcbb97690` |
-| 0009 | `0009_gorgeous_captain_universe.sql` | `5bb2599bbf04792617d93740af0b1a40ca980ef4700b96aef9de7d24842c04d3` |
+| 0008 | `0008_controlled_enrichment.sql` | `32089363b5668f8b43c01f8bee936da6f384bfe37615d9fd3790e7cc9847f9c6` |
+| 0009 | `0009_gorgeous_captain_universe.sql` | `e139a0bd7dee8c7395f9403b569fcc12f6610bb531f3439f42918419b025a548` |
 
 ## Verification contract
 
@@ -32,3 +32,11 @@ This manifest proves only the checked local migration bytes. It does not prove
 that any migration was applied, that a target uses these files, or that the
 resulting schema or data is correct. Those remain separately authorized and
 externally evidenced Plan 02-99 checkpoints.
+
+The `0008` and `0009` bytes at this source normalize trigger guards from nested
+`SELECT CASE ... END;` expressions to equivalent `SELECT RAISE ... WHERE`
+expressions. This preserves SQLite false/true/NULL behavior and leaves the
+expected schema inventory unchanged while ensuring each trigger statement has
+only its one outer `END;` compound terminator. The changed bytes have not been
+applied remotely. Canonical preflight and a new target candidate remain
+required before any separately authorized resume.

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Owner-authorized Cloudflare Stage 1 created one empty D1 and one empty private R2 resource; Plan 02-99 still requires separately authorized configuration/migration, real-principal proof, exact-source deployment evidence, and human acceptance; no Worker, migration, application request, or effect occurred
-last_updated: "2026-09-02T18:06:30Z"
+stopped_at: Cloudflare Stage 2 migration stopped safely after 0007; repaired 0008/0009 source is focused-tested and independently reviewed, while canonical preflight and remote resume remain explicitly held
+last_updated: "2026-09-02T22:30:00Z"
 last_activity: 2026-09-02
 progress:
   total_phases: 7
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-29)
 
 Phase: 2 (Consensus Knowledge and Commercial Model) — GREENFIELD RESET
 Plan: 02-99 (14th of 14 active Phase 2 plans; future greenfield target barrier)
-Status: Plan 02-22 passed locally; Plan 02-99 Stage 1 provisioning/zero-state proof passed, while configuration, migration, Access, deployment, real-principal, and human-acceptance evidence remain separately gated
+Status: Plan 02-22 passed locally; Plan 02-99 Stage 2 is paused at remote migration 0007 with clean zero-row state and a local-only repair candidate; held preflight, remote resume, Access, deployment, real-principal, and human acceptance remain separately gated
 Last activity: 2026-09-02
 
 Progress: [████░░░░░░] 35% of active plans (26/74 completion credits; incident Plans 02-13 through 02-21 and the old recovery Plan 02-99 are retired)
@@ -148,9 +148,11 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Greenfield identity review]: Independent adversarial review found and verified closure of raw Sites-header fallback, local-demo cross-mode/exact-origin bypass, JWKS refresh amplification and same-key rotation, and indefinitely renewed stale-key trust. Final review is clean at high and medium severity; failed refreshes cannot move the fixed hard stale deadline.
 - [Greenfield identity validation]: The target-neutral identity slice passes the complete canonical `npm test` gate (including production build), canonical `npm run lint`, `npm audit --omit=dev` with zero production vulnerabilities, and `vinext check` at 100% compatibility. The real target and principal acceptance evidence remain absent and are not implied by these local gates.
 - [Cloudflare Stage 1]: On 2026-09-02 the owner confirmed the current Cloudflare account and authorized exactly one new D1 database and one new private R2 bucket in Eastern North America. Sanitized read-only proof shows zero D1 application objects, no D1 migration journal, `quick_check=ok`, zero foreign-key violations, zero R2 objects, no R2 custom domain, and disabled `r2.dev` access. No target config, migration, Worker/version, Access policy, route, secret, deployment, bootstrap, provider, export, schedule, or outbound effect was created. Exact account/resource identities remain outside Git. This is partial Plan 02-99 evidence, not completion.
-- [Cloudflare migration release evidence]: The exact local `0000`-`0009` SQL chain now has an ordered SHA-256 manifest bound to checked source `8b28210bf78d0b50e93c3df8f820810d9b7865f9`. This closes only the local byte-manifest prerequisite. It does not prove a remote apply, target binding, resulting schema/data, independent review, or Plan 02-99 acceptance.
-- [Cloudflare expected schema evidence]: Wrangler 4.116.0 applied the exact checked chain to fresh disposable local D1 state. The resulting 92 application tables, 206 explicit indexes, 149 triggers, ten-row migration journal, zero application rows, clean integrity pragmas, and canonical inventory digests are recorded in `02-99-EXPECTED-SCHEMA.md`. This is expected-local comparison material only; it does not prove the provisioned remote target was migrated or bound.
+- [Cloudflare migration release evidence]: The exact repaired local `0000`-`0009` SQL chain has an ordered SHA-256 manifest bound to checked source `46d082e962c4acc1771e92ad300d61913d50ead4`. This closes only the local byte-manifest prerequisite. The changed `0008`/`0009` bytes are not remote evidence and require held preflight plus independent review before a new candidate.
+- [Cloudflare expected schema evidence]: Focused Miniflare D1 fixtures and an independent SQLite inventory cross-check replayed the exact repaired chain in fresh disposable state. The resulting 92 application tables, 206 explicit indexes, 149 triggers, ten-row migration journal, zero application rows, clean integrity pragmas, and canonical inventory digests are recorded in `02-99-EXPECTED-SCHEMA.md`. This expected-local material does not prove the pending remote migrations were applied.
 - [Cloudflare target configuration contract]: `02-99-TARGET-CONFIG-CONTRACT.md` fixes the closed input, private custody, exactly-one `DB`/`FILES` binding, migration resolution, public-exposure denial, zero-trigger/effect rules, Wrangler-schema/dry-run requirement, and sanitized result contract. The owner-approved local CLI seam is implemented and validated: it emits one ignored, private, non-overwriting candidate plus source/build/candidate/manifest digests; rejects symlink/custody, placeholder, build-shape, expected-schema, and exact-SQL-inventory drift; and never invokes Wrangler. This is local preparation only, not remote evidence or Plan 02-99 completion.
+- [Cloudflare Stage 2]: The ignored candidate and no-upload Wrangler dry run passed. Remote D1 migration committed `0000` through `0007`, then `0008` failed before journaling with `incomplete input`; no retry occurred. Read-only inspection proves exactly eight journal rows, 71 application tables, 151 indexes, 77 triggers, zero application rows, `quick_check=ok`, zero foreign-key violations, and no partial `0008` schema. R2 remains at zero objects with no custom domain and disabled `r2.dev`. No Worker, upload, route, Access policy, secret, deployment, application request, provider, export, or outbound effect occurred.
+- [Cloudflare Stage 2 repair]: Checked source `46d082e962c4acc1771e92ad300d61913d50ead4` normalizes the `0008` and pending `0009` trigger guards so each trigger has one outer `END;` terminator. The 22-case enrichment persistence suite, three migration-upgrade cases, focused importer regression, exact schema inventory cross-check, and independent review are green. This is an un-deployed repair candidate. The old ignored candidate is stale; canonical preflight is held by owner direction, and remote resume requires a regenerated candidate, re-inspection, and explicit authorization.
 - [Phase 02 greenfield authority]: Original-project access is now prohibited for every account. The prior `project not found` result is historical only; no future work may wait for or attempt that target.
 
 ### Pending Todos
@@ -160,7 +162,7 @@ None yet.
 ### Blockers/Concerns
 
 - The original schema/source incident remains historical evidence explaining abandonment. Its missing provenance is waived, not solved, and no migration occurrence may be claimed.
-- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 1 now proves provisioned empty/private D1/R2 resources, but the terminal checkpoint remains incomplete until separately authorized configuration/migrations prove exact source, privacy, real-principal denial, and zero-effect state.
+- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 2 is incomplete: the greenfield D1 is clean and empty at migration `0007`, the repaired `0008`/`0009` candidate is local only, and terminal acceptance still requires held preflight, separately authorized remote resume, exact post-chain evidence, deployment, privacy, real-principal denial, and zero-effect proof.
 - Phase 1 still requires the plan's non-substitutable second real principal for hosted isolation and zero-state-delta proof.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
 - Fresh independent Phase 2 code and security re-audits report no open local implementation findings. Rendered UI human review remains distinct from hosted activation evidence.
@@ -180,5 +182,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-02
-Stopped at: Stage 2 is authorized and its local target-candidate CLI is validated; next create the ignored candidate for the existing empty/private Stage 1 resources, complete a no-upload Wrangler dry run, apply only checked migrations `0000`-`0009`, and record exact D1/R2 integrity evidence; no migration, Worker, application request, or external effect has yet occurred; draft PR `#2` remains open
-Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE1-EVIDENCE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md`, and `docs/CLOUDFLARE-GREENFIELD-READINESS.md`
+Stopped at: Stage 2 remote D1 migration committed `0000`-`0007` and stopped safely on importer-incompatible `0008`; local repair source `46d082e962c4acc1771e92ad300d61913d50ead4` is focused-tested and independently reviewed, but canonical preflight is held by owner direction; do not regenerate a candidate or retry remotely until the hold is released and explicit resume authority is given; draft PR `#2` remains open
+Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE2-EVIDENCE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md`, and `docs/CLOUDFLARE-GREENFIELD-READINESS.md`

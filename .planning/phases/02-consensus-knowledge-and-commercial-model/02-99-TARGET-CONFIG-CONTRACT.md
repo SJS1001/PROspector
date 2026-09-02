@@ -2,7 +2,9 @@
 
 **Captured:** 2026-09-02
 
-**Status:** owner-approved CLI seam implemented and locally validated; remote Stage 2 evidence pending
+**Status:** owner-approved CLI seam implemented; Stage 2 migration stopped
+after `0007`; repaired candidate awaits held preflight and separate resume
+authority
 
 ## Purpose
 
@@ -93,7 +95,27 @@ placeholder identity, stale source identity, any byte or nested-shape change to
 the reviewed generated target-neutral config, altered expected-schema
 authority, missing/additional/renamed/reordered or digest-mismatched SQL, and
 candidate overwrite. The receipt binds the complete built server/client tree
-by digest so the operator can prove the same bytes survive dry run. Its focused six-case suite,
-canonical `npm test` (including the production build), canonical lint, and
-production dependency audit pass locally. These results authorize no remote
-action and are not Plan 02-99 acceptance evidence.
+by digest so the operator can prove the same bytes survive dry run. At the
+pre-repair CLI checkpoint, its focused six-case suite, canonical `npm test`
+(including the production build), canonical lint, and production dependency
+audit passed locally. For repaired source
+`46d082e962c4acc1771e92ad300d61913d50ead4`, only the current six-case target
+configuration suite plus the focused migration, persistence, and inventory
+checks recorded below have run; canonical preflight remains held. These
+results authorize no remote action and are not Plan 02-99 acceptance evidence.
+
+## Stage 2 incident boundary
+
+The first Stage 2 candidate passed the no-upload Wrangler dry run. Remote D1
+migration then applied `0000` through `0007` and stopped on `0008` with
+`incomplete input`. No retry occurred. Read-only inspection showed exactly
+eight journal rows, clean integrity checks, zero application rows, and no
+partial `0008` objects. R2 remained empty and private.
+
+The old ignored candidate is stale because the reviewed `0008` and `0009`
+bytes have since been normalized at checked source
+`46d082e962c4acc1771e92ad300d61913d50ead4`. It must never be reused. A new
+candidate, dry run, canonical preflight, independent review, and explicit
+remote-resume authorization are required before applying the two pending
+migrations. No Worker, upload, route, Access, secret, deployment, application
+request, provider, export, or outbound effect is authorized.

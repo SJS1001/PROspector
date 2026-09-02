@@ -2,16 +2,19 @@
 
 **Captured:** 2026-09-02
 
-**Checked source:** `5bc8e6c1846ef46bfc626844fa053959c39a4347`
+**Checked source:** `46d082e962c4acc1771e92ad300d61913d50ead4`
 
-**Runtime:** Wrangler 4.116.0 local D1, fresh disposable state
+**Runtime:** Miniflare D1 focused fixtures plus SQLite inventory cross-check,
+fresh disposable state
 
 ## Construction
 
-Wrangler applied the exact checked `0000`-`0009` chain from
-`dist/server/wrangler.json` to a newly created local D1 persistence directory.
-All ten migrations reported success. The source migration digests are recorded
-separately in `02-99-MIGRATION-MANIFEST.md`.
+The exact checked `0000`-`0009` chain was replayed against fresh disposable
+local D1 fixtures and a separate SQLite inventory cross-check. The focused
+upgrade tests also replayed `0008` and `0009` over a prior-`0007` database and
+kept pre-existing rows unchanged. The source migration digests are recorded
+separately in `02-99-MIGRATION-MANIFEST.md`. Canonical preflight is currently
+held by owner direction and is not claimed here.
 
 The application inventory excludes `sqlite_%`, `_cf_%`, and the provider-owned
 `d1_migrations` journal. Canonical inventory lines are UTF-8

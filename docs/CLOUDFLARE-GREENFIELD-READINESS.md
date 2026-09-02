@@ -3,7 +3,7 @@
 **Assessment date:** 2026-09-02
 **Scope:** Direct deployment of the checked PROspector repository to a new
 Cloudflare Workers, D1, and R2 environment
-**Disposition:** **Stage 1 resources provisioned; not ready to deploy**
+**Disposition:** **Stage 2 migration paused safely after `0007`; not ready to deploy**
 
 This is a readiness specification, not deployment authority. On 2026-09-02 the
 owner authorized Stage 1 creation of exactly one fresh D1 database and one
@@ -12,7 +12,12 @@ identities remain outside Git. Stage 1 performed no migration, upload,
 target-bound configuration, Worker/version creation, route change,
 Access-policy change, secret write, promotion, or application request. The
 inaccessible original project remains retired and was not an input to this
-path.
+path. Stage 2 later created an ignored target candidate, passed a no-upload dry
+run, and applied migrations `0000` through `0007`; `0008` failed before
+journaling with `incomplete input`, so the release stopped without retrying.
+Read-only evidence shows clean integrity, zero application rows, no partial
+`0008` schema, and R2 still empty/private. The repaired migration candidate is
+local only, and canonical preflight is held by owner direction.
 
 ## Decision summary
 
@@ -20,16 +25,18 @@ A direct Cloudflare target is feasible, but the target configuration and
 external acceptance gates must be closed before any reachable version is
 uploaded:
 
-1. **Fresh target resources now exist, but a real target configuration does
-   not.** The application has
+1. **Fresh target resources now exist and one private candidate was tested,
+   but that candidate is stale.** The application has
    target-neutral `DB` and `FILES` binding names and the generated manifest now
    resolves migrations to the checked `drizzle/` chain, but no reviewed
    production Wrangler configuration exists. The Vite config deliberately
    injects an invalid all-zero D1 UUID and `site-creator-*` placeholder names,
    so `dist/server/wrangler.json` remains a non-deployable build sentinel until
    a separately authorized configuration step supplies the new resources'
-   identities. Sanitized Stage 1 proof records an empty D1 with no migration
-   journal, an empty R2 bucket, and disabled R2 public access.
+   identities. Sanitized Stage 2 proof records D1 at exact migration `0007`
+   with zero application rows and clean integrity, an empty R2 bucket, and
+   disabled R2 public access. The prior candidate must not be reused because
+   the checked `0008`/`0009` bytes changed during the importer repair.
 2. **Cloudflare owner identity is implemented but not target-proven.** The
    server-only adapter verifies the Access JWT signature against the configured
    team's rotating JWKS plus exact issuer, audience, dates, and bounded email.
@@ -59,7 +66,7 @@ Cloudflare account:
 |---|---|---|
 | Framework | `site/package.json` pins Next.js 16, Vinext, Vite, the Cloudflare Vite plugin, and Wrangler; `site/vite.config.ts` composes Vinext and the Cloudflare plugin. `vinext check` reports 100% compatibility (7 supported, 0 partial, 0 issues) after removal of the runtime Google-font CDN dependency. | The architecture matches Cloudflare's recommended Next.js-on-Workers direction. Vinext remains beta, so repeat the compatibility check against the exact release candidate. ([Cloudflare Next.js guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)) |
 | Worker entry | `site/worker/index.ts` is an ES-module Worker entry and Vinext router; the build currently emits `site/dist/server/wrangler.json`. | A reviewed production config must drive the build, and the generated config must be inspected before upload. The Vite plugin generates a deployment `wrangler.json` with the built asset directory. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)) |
-| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | One owner-authorized empty greenfield D1 exists outside Git. The checked CLI can now generate one ignored target-bound candidate from its owner-private mapping, but no remote migration evidence exists yet. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so the generated candidate must be used only through the staged runbook. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
+| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | The owner-authorized greenfield D1 is at exact migration `0007`, with clean integrity and zero application rows. The repaired `0008`/`0009` bytes require a new ignored target-bound candidate after held preflight; the prior candidate is stale. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so only the staged runbook may resume it. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
 | R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized empty private R2 bucket exists outside Git. The checked CLI can bind it as `FILES` in one ignored candidate while preserving disabled public exposure; no object or hosted binding has been created. `.openai/hosting.json` is not a Cloudflare target manifest. |
 | Identity | `site/app/cloudflare-access.ts` verifies Access RS256 JWTs against the configured team JWKS, issuer, audience, dates, and email. `site/app/runtime-identity.ts` requires one explicit provider mode and denies missing, unknown, partial, or conflicting configuration, so Sites headers and `LOCAL_DEMO` cannot become a hosted fallback. | The local code blocker is closed. A real target still needs exact Access configuration, independent review, owner/non-owner proof, and `LOCAL_DEMO` must remain absent. |
 | Secrets | Runtime requires `OWNER_SUBJECT_PEPPER` and `PILOT_OWNER_EMAIL`. The ignored `.dev.vars` contains only disposable localhost values. | Hosted values must be installed through Cloudflare bindings, never copied from `.dev.vars`, Git, logs, screenshots, or evidence files. |
@@ -119,9 +126,10 @@ ordered SQL files, records applied names in `d1_migrations`, and supports a
 custom `migrations_dir` and `migrations_pattern`. ([D1 getting started](https://developers.cloudflare.com/d1/get-started/),
 [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/))
 
-Stage 1 created one new D1 database and completed steps 1-2 below. A separately
-authorized migration stage must continue this evidence order without replacing
-or recreating that database:
+Stage 1 created one new D1 database and completed steps 1-2 below. Stage 2
+completed step 3 and partially completed step 4: `0000` through `0007` are
+journaled, while `0008` failed and rolled back. The repaired chain must resume
+this evidence order without replacing or recreating that database:
 
 1. Record the authenticated Cloudflare account identity and new database
    identity outside Git, without tokens or secrets.
@@ -137,11 +145,14 @@ or recreating that database:
    Recompute and independently review them against the exact release candidate
    before any remote apply. The D1 journal records migration names, not the
    review digest, so the manifest remains separate evidence.
-4. List unapplied migrations, then apply them by the immutable database name
+4. **Partially complete:** list unapplied migrations, then apply them by the immutable database name
    with `wrangler d1 migrations apply <database-name> --remote` using the
    reviewed config. A failed migration rolls back that migration while earlier
    successful migrations remain; therefore any failure stops the release and
-   requires a complete journal/schema inspection before another attempt.
+   requires a complete journal/schema inspection before another attempt. That
+   inspection is recorded in `02-99-STAGE2-EVIDENCE.md`; canonical preflight,
+   a regenerated candidate, re-inspection, and explicit resume authority are
+   still required before pending `0008` and `0009` may run.
    ([D1 Wrangler commands](https://developers.cloudflare.com/workers/wrangler/commands/d1/))
 5. After apply, prove: no unapplied files; the exact expected migration-journal
    names; expected application tables/triggers/indexes; `PRAGMA quick_check`
@@ -336,7 +347,8 @@ only when all of the following are true:
 - the owner explicitly authorizes the named greenfield target and accepts the
   sanitized evidence tuple.
 
-Until then, the only accurate status is **Stage 1 greenfield resources are
-empty and private; the Stage 2 local target-candidate seam is validated, while
-remote migration evidence and every later identity/deployment write remain
-pending their exact staged authority**.
+Until then, the only accurate status is **Stage 2 is paused safely at remote
+migration `0007`; the D1 has clean integrity and zero application rows, R2 is
+empty/private, and the local repaired `0008`/`0009` candidate awaits held
+preflight plus explicit remote-resume authority. Every later identity or
+deployment write remains separately gated**.

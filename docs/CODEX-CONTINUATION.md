@@ -10,9 +10,11 @@
 
 The original hosted project is inaccessible and permanently outside the
 execution path. Read [`GREENFIELD-BASELINE.md`](GREENFIELD-BASELINE.md) before
-planning or implementation. Cloudflare Stage 1 resources have now been
-provisioned, but no target configuration, migration, Worker, route, Access
-policy, secret, version, or deployment exists.
+planning or implementation. Cloudflare Stage 1 resources have been
+provisioned, and Stage 2 committed D1 migrations `0000` through `0007` before
+stopping safely on `0008`. A repaired `0008`/`0009` candidate exists only in
+Git; canonical preflight and remote resume are held. No Worker, route, Access
+policy, secret, version, deployment, application request, or effect exists.
 
 ## Resume from another Codex account
 
@@ -95,10 +97,10 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - The same release-hygiene gate advanced only the transitive `nanoid` lockfile resolution from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
 - On 2026-08-27 the owner permanently retired the inaccessible original target, waived its missing migration/provenance evidence, and selected the verified clean local baseline as the authoritative greenfield starting point. No hosted state changed.
 - Later-phase local preparation does not satisfy Phase 2 or Phase 3 hosted/human gates and grants no operational authority. An unselected host is a deferred adapter boundary, so bounded local synthetic/reject-by-default work may continue without selecting or provisioning it.
-- Plan 02-22 is complete. On 2026-09-02 owner-authorized Cloudflare Stage 1 created one fresh D1 and one private R2 resource in Eastern North America. Sanitized proof shows both empty, D1 integrity clean, and both R2 public exposure mechanisms disabled. No target config, migration, Worker/version, Access policy, route, secret, deployment, application request, or effect occurred. Plan 02-99 remains incomplete pending separately authorized configuration/migration and later principal/deployment/human evidence. The old incident collector remains historical code and must not be run against the original target.
-- The exact checked `0000`-`0009` migration bytes now have an ordered SHA-256 manifest at `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md`, bound to source `8b28210bf78d0b50e93c3df8f820810d9b7865f9`. It is local byte evidence only and must be recomputed plus independently reviewed before remote apply.
-- A fresh disposable Wrangler local-D1 migration now records the exact expected post-chain shape in `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md`: 92 application tables, 206 explicit indexes, 149 triggers, ten journal rows, zero application rows, clean integrity pragmas, and canonical inventory digests. It is comparison material only and cannot substitute for remote evidence.
-- The checked target-configuration contract at `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md` fixes the closed resource inputs, private custody, exact bindings/migration resolution, public-exposure and effect denial, Wrangler validation/dry-run, and sanitized output invariants. The owner-approved `greenfield:target:prepare` CLI now implements that local seam, binds the authoritative outer repository HEAD (never the nested `site/.git` checkout), exact built bytes, and checked manifests by digest, rejects extra SQL and unsafe private paths, and never invokes Wrangler. Its focused suite, canonical tests/build, lint, and production audit pass; no remote migration evidence is implied.
+- Plan 02-22 is complete. On 2026-09-02 owner-authorized Cloudflare Stage 1 created one fresh D1 and one private R2 resource in Eastern North America. Stage 2 then prepared an ignored private candidate, passed a no-upload dry run, and committed D1 migrations `0000` through `0007`. Migration `0008` failed before journaling with `incomplete input`; no retry occurred. Post-failure D1 integrity is clean with zero application rows and no partial `0008` schema, while R2 remains empty/private. No Worker/version, Access policy, route, secret, deployment, application request, or effect occurred. Plan 02-99 remains incomplete. The old incident collector remains historical code and must not be run against the original target.
+- The exact repaired `0000`-`0009` migration bytes now have an ordered SHA-256 manifest at `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md`, bound to source `46d082e962c4acc1771e92ad300d61913d50ead4`. `0008` and pending `0009` use importer-safe trigger guards with one outer `END;` terminator. This is local byte evidence only; the prior ignored candidate is stale and the changed bytes have not been applied remotely.
+- Focused Miniflare D1 fixtures and a separate SQLite inventory cross-check record the repaired chain's expected post-chain shape in `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md`: 92 application tables, 206 explicit indexes, 149 triggers, ten journal rows, zero application rows, clean integrity pragmas, and unchanged canonical inventory digests. It is comparison material only and cannot substitute for remote evidence or held canonical preflight.
+- The checked target-configuration contract at `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md` fixes the closed resource inputs, private custody, exact bindings/migration resolution, public-exposure and effect denial, Wrangler validation/dry-run, and sanitized output invariants. The owner-approved `greenfield:target:prepare` CLI implements that local seam, binds the authoritative outer repository HEAD (never the nested `site/.git` checkout), exact built bytes, and checked manifests by digest, rejects extra SQL and unsafe private paths, and never invokes Wrangler. The pre-repair CLI checkpoint passed canonical tests/build, lint, and audit. Current repaired source `46d082e962c4acc1771e92ad300d61913d50ead4` has passed only the six-case target-config suite and focused migration/persistence/inventory checks; canonical preflight is held and no remote migration evidence is implied.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -112,11 +114,11 @@ Use these existing artifacts rather than restating product decisions:
 ## Hosting and external authority
 
 - The original project and URL are retired historical references. Do not access or use them.
-- Cloudflare is selected for the greenfield resources. Exact account/resource identities remain outside Git. Stage 2 authorizes only the ignored target candidate, no-upload dry run, exact `0000`-`0009` D1 apply, and post-apply D1/R2 integrity evidence; Access, Worker/version, route, secret, deployment, and application actions remain unauthorized.
+- Cloudflare is selected for the greenfield resources. Exact account/resource identities remain outside Git. Stage 2 is paused after `0007`: the repaired `0008`/`0009` source is local only, canonical preflight is held by owner direction, and remote resume needs a regenerated ignored candidate plus explicit authorization. Access, Worker/version, route, secret, deployment, and application actions remain unauthorized.
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- Stage 1 resource creation is complete and no further hosted write is authorized in the current lane. The provisioned target must next prove exact checked configuration/migrations, owner-only boundary, zero effects, and independent review.
+- No further hosted write is authorized in the current lane. The provisioned D1 is clean and empty at migration `0007`; do not retry `0008` or reuse the stale candidate. After the owner releases the preflight lane, run the exact sequence in `02-99-STAGE2-EVIDENCE.md` and obtain explicit remote-resume authority.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
 ## Safety boundaries
