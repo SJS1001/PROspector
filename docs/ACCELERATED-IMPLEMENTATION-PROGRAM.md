@@ -159,6 +159,12 @@ RFC-4180/empty-null/formula-neutralization policy labels. It admits no row
 value or materialized byte and grants no operational policy, CSV artifact,
 checksum, serialization, persistence, delivery, download, export, provider,
 phase, or effect authority.
+A sixth pure candidate binds only the synthetic handoff-manifest-intent and
+CSV-policy-definition IDs/digests and rechecks current eligibility,
+request/version, configuration, export-definition, suppression, chronology,
+and external-effects-disabled predicates. A current result still grants no row
+access, serialization, byte/checksum creation, persistence, delivery,
+download, export, provider, phase, or effect authority.
 
 ## External handoff checklist
 

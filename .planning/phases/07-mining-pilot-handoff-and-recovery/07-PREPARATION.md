@@ -217,6 +217,40 @@ production build) and canonical `npm run lint` passed, and
 provider, delivery, download, export, and effect-seam scans were clean. This is
 local preparation evidence only.
 
+### Synthetic CSV materialization-precondition decision
+
+`site/preparation/phase7-csv-materialization-precondition.ts` and its focused
+suite prove:
+
+- one candidate binds only the synthetic handoff-manifest-intent and
+  canonical CSV-policy-definition IDs/digests plus its creation time;
+- evaluation independently rechecks the manifest intent, CSV policy,
+  eligibility, request/version, Profile configuration, export definition,
+  suppression state, chronology, and external-effects-disabled boundary;
+- a completely current tuple projects only that its preconditions are current,
+  while every operational authority and every effect counter remains false or
+  zero;
+- candidate identity, either bound digest, or creation-time drift fails closed;
+  and
+- malformed identifiers/digests/times, raw email/phone values, rows, bytes,
+  checksums, persisted IDs, provider handles, forged brands, hostile objects,
+  accessors, proxies, symbols, extra or missing fields, and non-boolean
+  authority predicates reject.
+
+The candidate and decision contain no contact value, row, materialized byte,
+CSV checksum, persisted record, delivery/download capability, or provider
+handle. They cannot read rows, serialize CSV, create bytes or a checksum,
+persist, deliver, download, export, invoke a provider, execute Plan 07-02, or
+earn Phase 7 credit. Runtime code imports no preparation module.
+
+Validation recorded on 2026-09-02: the focused materialization-precondition
+suite passed 13/13, all preparation suites passed 204/204, canonical `npm test`
+(including the production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, raw-value, row-access, persistence,
+CSV-byte, checksum, provider, delivery, download, export, and effect-seam scans
+were clean. This is local preparation evidence only.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
