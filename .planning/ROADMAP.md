@@ -224,8 +224,12 @@ Export-ready transition, keeps ten funnel-loss categories separate, excludes
 Draft profiles, and proves generic non-Mining scope. Modeled transitions are
 not outcome or provenance evidence, runtime code imports no preparation
 module, and schedule, runner, persistence, CSV/export, provider, plan, and all
-effect authority remain false/zero. This executes no Phase 7 plan and earns no
-completion credit.
+effect authority remain false/zero. A second pure candidate models only the
+current handoff eligibility projection: stable Prospect plus contact-point
+identity, distinct unique-Prospect/contact-row counts, exact exclusion reasons,
+and suppression-only non-contactable references. It cannot serialize, persist,
+deliver, download, export, or invoke a provider. These candidates execute no
+Phase 7 plan and earn no completion credit.
 
 ## Progress
 

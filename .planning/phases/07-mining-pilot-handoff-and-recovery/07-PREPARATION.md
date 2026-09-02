@@ -74,6 +74,42 @@ the production build) and `npm run lint` passed, and `npm audit --omit=dev`
 reported zero production vulnerabilities on Node.js `v24.16.0`. This is local
 preparation evidence only.
 
+### Synthetic current-eligibility handoff candidate
+
+`site/preparation/phase7-handoff-eligibility.ts` and its focused suite prove:
+
+- one stable synthetic Prospect with multiple currently eligible contact-point
+  identities contributes one unique Prospect and multiple eligible contact
+  rows, keeping the weekly outcome metric and handoff row count separate;
+- row identity is only stable Prospect ID plus stable contact-point ID. Exact
+  repeats collapse with an explicit duplicate reason, while conflicting reuse
+  of the same identity rejects rather than guessing;
+- non-Export-ready, disqualified, deleted, drifted, configuration-stale,
+  package-stale/unapproved/expired, identity-stale, verification-ineligible,
+  verification-expired, cross-scope, missing-Prospect, and suppressed inputs
+  produce no eligible row;
+- freshness and package approval expire exactly at the evaluation boundary,
+  and only `mailbox_verified` or `source_verified` projections are eligible;
+- suppression wins and may project only separately labelled synthetic
+  non-contactable references. No raw email, phone, display name, CRM ID, or
+  provider value is accepted or emitted; and
+- candidate or authority drift, hostile objects, sparse/accessor/proxy input,
+  raw identity values, forged artifacts, future evidence, and extra fields fail
+  closed.
+
+The candidate consumes only bounded synthetic upstream projection material and
+produces stable IDs, digests, reason codes, and counts. It does not serialize
+CSV bytes, persist a snapshot, create an artifact, deliver or download a file,
+invoke a CRM/provider, execute Plan 07-02, or earn Phase 7 credit. Runtime code
+imports no preparation module.
+
+Validation recorded on 2026-09-02: the focused handoff-eligibility suite passed
+12/12, all preparation suites passed 152/152, canonical `npm test` (including
+the production build) and canonical `npm run lint` passed, and
+`npm audit --omit=dev` reported zero production vulnerabilities on Node.js
+`v24.16.0`. Targeted runtime-import, persistence, CSV-byte, provider, delivery,
+and effect-seam scans were clean. This is local preparation evidence only.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,

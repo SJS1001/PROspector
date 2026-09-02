@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 7 synthetic weekly-outcome candidate fully verified; Plan 02-99 remains deferred; no runtime, schedule, runner, persistence, CSV/export, provider authority, plan execution, or effect composed
-last_updated: "2026-08-28T19:04:00Z"
-last_activity: 2026-08-28
+stopped_at: Phase 7 synthetic current-eligibility handoff candidate fully verified; Plan 02-99 remains deferred; no runtime, persistence, CSV serialization/delivery, export, provider authority, plan execution, or effect composed
+last_updated: "2026-09-02T14:14:29Z"
+last_activity: 2026-09-02
 progress:
   total_phases: 7
   completed_phases: 1
@@ -125,6 +125,8 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Phase 07]: Ten checked plans exist; execution has not started. Plans 07-01 through 07-03 depend on incomplete Plan 06-10, and later plans additionally depend on Phase 7 predecessors or the non-substitutable archive/clean-target capability gate. No `07-xx-SUMMARY.md` exists or is authorized from local preparation.
 - [Phase 07 greenfield preparation]: `07-PREPARATION.md` authorizes only bounded local synthetic fail-closed work. Its first pure weekly-outcome candidate projects a supplied IANA-timezone Monday-Sunday week, counts each stable Prospect only at its earliest supplied Export-ready transition, preserves DST-local date/offset references, keeps ten funnel-loss categories separate, excludes Draft profiles, and proves a second generic hierarchy. Future, cross-Profile, duplicate, hostile, raw-identity, and forged inputs fail closed. Real outcome/history provenance, phase execution, runtime, schedule, runner, persistence, CSV/export, provider, and every effect authority remain false/zero. It performs no Plan 07-01/07-05 execution or Phase 7 credit.
 - [Phase 07 greenfield preparation]: On 2026-08-28 the weekly-outcome candidate passed its 12-case focused suite, all 140 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, outcome provenance, runtime, schedule, runner, persistence, CSV/export, hosted, provider, or effect authority.
+- [Phase 07 greenfield preparation]: A pure current-eligibility handoff candidate consumes bounded synthetic Phase 4-6 projection material, deduplicates only stable Prospect plus contact-point identity, keeps unique Prospect and eligible contact-row counts separate, records exact exclusion reasons, and exposes suppressed points only as labelled non-contactable synthetic references. Package/configuration/identity/verification/suppression drift, expiry boundaries, missing or cross-scope authority, conflicts, raw identity values, hostile shapes, and forged artifacts fail closed. Operational handoff, plan execution, runtime, persistence, CSV serialization/delivery, export, provider, and every effect authority remain false/zero. It performs no Plan 07-02 execution or Phase 7 credit.
+- [Phase 07 greenfield preparation]: On 2026-09-02 the handoff-eligibility candidate passed its 12-case focused suite, all 152 preparation cases, canonical `npm test` (including the production build), canonical `npm run lint`, targeted runtime/effect scans, and `npm audit --omit=dev` with zero production vulnerabilities on Node.js `v24.16.0`. This is local preparation evidence only and changes no plan, phase, runtime, persistence, CSV materialization/delivery, hosted, provider, export, or effect authority.
 - [Deferred adapters]: The unselected greenfield target and providers are explicit placeholders rather than global local-work blockers. Continue bounded synthetic/reject-by-default preparation autonomously, but stop before target selection/provisioning, credentials, provider composition, real data, export, or outbound effects.
 - [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
@@ -157,6 +159,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-28
-Stopped at: Phase 7 synthetic weekly-outcome candidate fully verified; target/provider adapters remain deferred; no hosted write, runtime composition, schedule/runner action, persistence, CSV/export/archive/restore mutation, provider authority, plan execution, or external effect; draft PR `#2` remains open
+Last session: 2026-09-02
+Stopped at: Phase 7 synthetic current-eligibility handoff candidate fully verified; target/provider adapters remain deferred; no hosted write, runtime composition, persistence, CSV serialization/delivery, export/archive/restore mutation, provider authority, plan execution, or external effect; draft PR `#2` remains open
 Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/07-mining-pilot-handoff-and-recovery/07-PREPARATION.md`, all modules under `site/preparation/`, and their focused tests

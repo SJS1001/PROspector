@@ -135,6 +135,12 @@ timezone, preserves DST-local dates and offsets, keeps all funnel losses
 separate, excludes Draft profiles, and proves a second generic hierarchy. It
 claims no real outcome or history provenance and grants no runtime, schedule,
 runner, persistence, CSV/export, provider, phase, or effect authority.
+The second pure candidate projects current handoff eligibility from bounded
+synthetic upstream material, separates unique Prospect count from eligible
+contact-row count, deduplicates stable Prospect plus contact-point identity,
+and records fail-closed exclusions and non-contactable suppression references.
+It cannot serialize CSV bytes, persist, deliver, download, export, invoke a
+provider, or execute a Phase 7 plan.
 
 ## External handoff checklist
 
