@@ -17,7 +17,9 @@ run, and applied migrations `0000` through `0007`; `0008` failed before
 journaling with `incomplete input`, so the release stopped without retrying.
 Read-only evidence shows clean integrity, zero application rows, no partial
 `0008` schema, and R2 still empty/private. The repaired migration candidate is
-local only, and canonical preflight is held by owner direction.
+local only. Canonical local preflight is green; regenerated candidate,
+no-upload dry-run, fresh read-only target evidence, and explicit remote-resume
+authority remain pending.
 
 ## Decision summary
 
@@ -66,7 +68,7 @@ Cloudflare account:
 |---|---|---|
 | Framework | `site/package.json` pins Next.js 16, Vinext, Vite, the Cloudflare Vite plugin, and Wrangler; `site/vite.config.ts` composes Vinext and the Cloudflare plugin. `vinext check` reports 100% compatibility (7 supported, 0 partial, 0 issues) after removal of the runtime Google-font CDN dependency. | The architecture matches Cloudflare's recommended Next.js-on-Workers direction. Vinext remains beta, so repeat the compatibility check against the exact release candidate. ([Cloudflare Next.js guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)) |
 | Worker entry | `site/worker/index.ts` is an ES-module Worker entry and Vinext router; the build currently emits `site/dist/server/wrangler.json`. | A reviewed production config must drive the build, and the generated config must be inspected before upload. The Vite plugin generates a deployment `wrangler.json` with the built asset directory. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)) |
-| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | The owner-authorized greenfield D1 is at exact migration `0007`, with clean integrity and zero application rows. The repaired `0008`/`0009` bytes require a new ignored target-bound candidate after held preflight; the prior candidate is stale. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so only the staged runbook may resume it. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
+| D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | The owner-authorized greenfield D1 is at exact migration `0007`, with clean integrity and zero application rows. Canonical local preflight is green, but the repaired `0008`/`0009` bytes still require a new ignored target-bound candidate, no-upload dry run, and fresh read-only reinspection; the prior candidate is stale. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so only the staged runbook may resume it. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
 | R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized empty private R2 bucket exists outside Git. The checked CLI can bind it as `FILES` in one ignored candidate while preserving disabled public exposure; no object or hosted binding has been created. `.openai/hosting.json` is not a Cloudflare target manifest. |
 | Identity | `site/app/cloudflare-access.ts` verifies Access RS256 JWTs against the configured team JWKS, issuer, audience, dates, and email. `site/app/runtime-identity.ts` requires one explicit provider mode and denies missing, unknown, partial, or conflicting configuration, so Sites headers and `LOCAL_DEMO` cannot become a hosted fallback. | The local code blocker is closed. A real target still needs exact Access configuration, independent review, owner/non-owner proof, and `LOCAL_DEMO` must remain absent. |
 | Secrets | Runtime requires `OWNER_SUBJECT_PEPPER` and `PILOT_OWNER_EMAIL`. The ignored `.dev.vars` contains only disposable localhost values. | Hosted values must be installed through Cloudflare bindings, never copied from `.dev.vars`, Git, logs, screenshots, or evidence files. |
@@ -349,6 +351,7 @@ only when all of the following are true:
 
 Until then, the only accurate status is **Stage 2 is paused safely at remote
 migration `0007`; the D1 has clean integrity and zero application rows, R2 is
-empty/private, and the local repaired `0008`/`0009` candidate awaits held
-preflight plus explicit remote-resume authority. Every later identity or
+empty/private, and the local repaired `0008`/`0009` source awaits a regenerated
+candidate, no-upload dry run, fresh read-only reinspection, and explicit
+remote-resume authority. Every later identity or
 deployment write remains separately gated**.

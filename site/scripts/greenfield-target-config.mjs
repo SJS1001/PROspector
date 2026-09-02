@@ -18,7 +18,7 @@ const EXPECTED_SCHEMA_PATH = resolve(
   ROOT,
   "../.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md",
 );
-const EXPECTED_SCHEMA_DIGEST = "bb15f8a327b216dccebbc543ee3d5d5098fb1e375d99cfdf614f1f4d1fe7a22c";
+const EXPECTED_SCHEMA_DIGEST = "be56cec622b4a893d865bbee10d1dc5790cc1339bf40feb6212471f3f2dbe7e8";
 const REVIEWED_COMPATIBILITY_DATE = "2026-07-30";
 const TARGET_NEUTRAL_BUILD_CONFIG_DIGEST = "928dc72d08e8031e6d970cff7b1676b4724967d06a1c82dc70e37b2ad73b3530";
 const SAFE_NAME = /^[a-z0-9](?:[a-z0-9_-]{0,94}[a-z0-9])?$/u;

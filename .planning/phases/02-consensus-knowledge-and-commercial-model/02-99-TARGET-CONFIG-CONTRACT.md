@@ -3,8 +3,8 @@
 **Captured:** 2026-09-02
 
 **Status:** owner-approved CLI seam implemented; Stage 2 migration stopped
-after `0007`; repaired candidate awaits held preflight and separate resume
-authority
+after `0007`; repaired source passed local preflight and awaits a regenerated
+candidate, read-only reinspection, and separate resume authority
 
 ## Purpose
 
@@ -98,11 +98,11 @@ candidate overwrite. The receipt binds the complete built server/client tree
 by digest so the operator can prove the same bytes survive dry run. At the
 pre-repair CLI checkpoint, its focused six-case suite, canonical `npm test`
 (including the production build), canonical lint, and production dependency
-audit passed locally. For repaired source
-`46d082e962c4acc1771e92ad300d61913d50ead4`, only the current six-case target
-configuration suite plus the focused migration, persistence, and inventory
-checks recorded below have run; canonical preflight remains held. These
-results authorize no remote action and are not Plan 02-99 acceptance evidence.
+audit passed locally. For the repaired tree, canonical build/tests, lint,
+production audit, Vinext compatibility, the six-case target-configuration
+suite against the refreshed expected-schema pin, and the focused
+migration/persistence/inventory checks are green. These results authorize no
+remote action and are not Plan 02-99 acceptance evidence.
 
 ## Stage 2 incident boundary
 
