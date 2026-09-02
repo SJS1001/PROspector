@@ -14,7 +14,8 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-// Packages Sites metadata and migrations after Vite finishes compiling.
+// Packages target-neutral binding metadata and migrations after Vite finishes
+// compiling. A deployment control plane must inject its own target identity.
 export function sites(): Plugin {
   let root = process.cwd();
 

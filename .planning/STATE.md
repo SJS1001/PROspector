@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 7 synthetic handoff invariant-bundle capstone fully verified and bounded safe preparation line complete; Plan 02-99 remains deferred; no candidate occurrence, version/history mutation, row access, CSV artifact/checksum claim, runtime, persistence, serialization/delivery/download, export, provider authority, plan execution, or effect composed
-last_updated: "2026-09-02T16:49:07Z"
+stopped_at: Retired failed-pilot target identity removed, generated D1 migration path bound to the checked chain, and runtime font CDN removed; regression proof and Vinext compatibility are green; Plan 02-99 still requires a separately authorized target and identity adapter; no hosted write or effect occurred
+last_updated: "2026-09-02T16:58:12Z"
 last_activity: 2026-09-02
 progress:
   total_phases: 7
@@ -143,6 +143,7 @@ Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions
 - [Local runtime]: Checkpoint `efbb3a77193fba2068008fbfe9b29235ab2ad93f` completes the guarded disposable `LOCAL_DEMO` interview-to-confirmed-Knowledge flow without enabling hosted, provider, prospecting, enrichment, export, or outbound effects. On 2026-08-27 the current checkout passed `npm test`, `npm run lint`, and `npm run build` with Node.js `v24.16.0`.
 - [Review handoff]: Draft PR `#2` carries the post-PR-1 changes for review. It is explicitly not a production activation or phase-completion claim; the repository has no GitHub Actions workflow, and no CI or protected-governance change was made.
 - [Maintenance]: The 2026-08-27 release-hygiene gate advanced only the transitive lockfile resolution for `nanoid` from `3.3.16` to patched `3.3.18`, within PostCSS's existing range. A fresh `npm ci` resolves the patched version and `npm audit --omit=dev` reports zero production vulnerabilities.
+- [Greenfield deployment hygiene]: On 2026-09-02 checked deployable metadata was detached from the retired failed Sites pilot. It now carries only the `DB`/`FILES` binding names, the generated D1 migration path resolves to the checked `drizzle/` chain, and the hosted shell has no runtime font-CDN dependency; generated all-zero/placeholder resource identities remain non-deployable build sentinels. A regression test rejects any `appgprj_` or `project_id` dependency, verifies the complete 0000-0009 chain is reachable, and prevents reintroduction of `next/font/google`. `vinext check` reports 100% compatibility.
 - [Phase 02 greenfield authority]: Original-project access is now prohibited for every account. The prior `project not found` result is historical only; no future work may wait for or attempt that target.
 
 ### Pending Todos
@@ -172,5 +173,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-02
-Stopped at: Phase 7 synthetic handoff invariant-bundle capstone fully verified and safe preparation line complete; target/provider adapters remain deferred; no hosted write, candidate occurrence, version/history mutation, row access, CSV artifact/checksum claim, runtime composition, persistence, serialization/delivery/download, export/archive/restore mutation, provider authority, plan execution, or external effect; draft PR `#2` remains open
-Resume files: `docs/GREENFIELD-BASELINE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `.planning/phases/07-mining-pilot-handoff-and-recovery/07-PREPARATION.md`, all modules under `site/preparation/`, and their focused tests
+Stopped at: Deployable metadata is target-independent, the retired failed-pilot identifier and runtime font CDN are absent, the generated D1 migration path reaches the checked 0000-0009 chain, and Vinext reports 100% compatibility; Plan 02-99 remains the next non-substitutable gate, and direct Cloudflare hosting additionally requires a separately authorized trusted-identity adapter and real greenfield binding injection; no hosted write or external effect occurred; draft PR `#2` remains open
+Resume files: `docs/GREENFIELD-BASELINE.md`, `docs/DEPLOYMENT-OWNERSHIP.md`, `docs/CLOUDFLARE-GREENFIELD-READINESS.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-PLAN.md`, `site/.openai/hosting.json`, and `site/tests/greenfield-deployment-independence.test.mjs`

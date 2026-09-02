@@ -17,3 +17,11 @@ and fresh disposable local state are authoritative under
 be a new empty greenfield target with separately recorded owner authority,
 private-boundary acceptance, runtime-secret handling, and exact-source
 evidence. Neither retired environment may be accessed or used as a source.
+
+Deployable source metadata contains binding names only (`DB` and `FILES`) and
+contains no project identifier from either retired environment. The generated
+local build configuration deliberately retains an invalid all-zero D1 ID and
+placeholder resource names; it is build input only and must never be deployed.
+A separately authorized control plane must inject the new target's own D1/R2
+identities and secret values outside Git, then satisfy Plan 02-99 before the
+target is accepted.

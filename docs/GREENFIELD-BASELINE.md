@@ -21,6 +21,8 @@ authoritative starting point. Every future environment must be greenfield:
 
 - create no dependency on an original-project identifier, row, object, backup,
   migration journal, deployment, secret, or evidence reference;
+- keep checked deployable metadata target-neutral; generated placeholder
+  resource identities are local build sentinels and are not deployable;
 - apply the checked migration chain only to a new empty target;
 - verify the new target independently before treating it as usable;
 - keep gates, schedules, providers, enrichment, Gmail, calling, exports, and
