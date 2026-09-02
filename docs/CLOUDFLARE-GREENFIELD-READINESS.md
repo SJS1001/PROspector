@@ -73,6 +73,10 @@ and independently review a dedicated greenfield Wrangler configuration (or an
 equivalent generated config with a checked `configPath`). It must contain only the new
 target's values and, at minimum:
 
+The closed input/output and fail-closed rules are now pinned in
+`.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md`.
+The document defines no executable interface and grants no external authority.
+
 - a new Worker name, explicit `main`, compatibility date, and
   `nodejs_compat` flag;
 - `DB` mapped to one newly created D1 `database_name` and `database_id`;
