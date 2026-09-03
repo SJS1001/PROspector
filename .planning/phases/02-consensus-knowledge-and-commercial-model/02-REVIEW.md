@@ -26,8 +26,15 @@ target. Active release evidence is now owned exclusively by greenfield Plan
 02-99: exact checked source/migrations on the fresh target, private
 owner/non-owner identity proof, negative-mutation and zero-delta proof,
 disabled effects, fresh exact-release review, and explicit owner acceptance.
-Stages 1–2 have only established the fresh D1/R2 migration baseline. This does
-not change the clean local-code verdict or complete any requirement.
+Stages 1–2 established the exact empty D1/R2 baseline. Revised Stage 3A then
+created one bootstrap Worker version/deployment and authenticated read-only
+evidence proved production and preview routing disabled, no custom
+route/domain, zero Cron, and zero D1/R2 delta. That is an accepted unreachable
+shell checkpoint, not a private identity boundary or terminal release. Access,
+secrets, a final runtime version, real-principal denial, authenticated negative
+mutations, secret/log hygiene, fresh exact-release review, and owner acceptance
+remain absent. This does not change the clean local-code verdict or complete
+any requirement.
 
 The final independent re-review after `2e879dc` and `45bcdc1` found no open local code findings. It verified CR-09 through CR-11 and WR-07 closed:
 

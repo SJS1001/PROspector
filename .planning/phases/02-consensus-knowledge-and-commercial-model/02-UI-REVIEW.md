@@ -24,8 +24,10 @@ current source revision.** This re-review does not replace the separate Phase
 The Plan 02-12/Sites-specific hosted checks below are historical only because
 that release is retired. The current rendered-browser and hosted identity
 checks must be performed against the exact greenfield release under Plan
-02-99, after its separately authorized Worker/Access stages. Local UI evidence
-does not satisfy that gate.
+02-99. Revised Stage 3A has verified an unreachable Worker shell, but Access,
+the final runtime version, route activation, and real-principal browser checks
+remain separately gated. Local UI evidence and the unreachable shell do not
+satisfy the rendered release gate.
 
 ## Closed findings
 
