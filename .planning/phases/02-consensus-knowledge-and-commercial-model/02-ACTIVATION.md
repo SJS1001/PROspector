@@ -23,14 +23,18 @@ one private R2 bucket, and Stage 2 applied the checked `0000`–`0009` migration
 chain. Read-only evidence records the exact ten-row journal and expected schema,
 zero application rows, clean integrity, and zero completed R2 objects. No
 Worker/version, Access policy, secret, route, deployment, application request,
-provider, export, or outbound effect exists. Stage 3 remains unexecuted and
-requires a separate explicit owner authorization; this partial target is not
-Plan 02-99 acceptance.
+provider, export, or outbound effect exists. The owner authorized Stage 3 on
+2026-09-03, but Cloudflare rejected its one `versions upload` bootstrap attempt
+before creation because a new Worker requires a first deployment. No retry
+occurred; immediate read-only evidence found zero Worker, version, deployment,
+route, request, or D1/R2 delta. Stage 3 is blocked pending a reviewed
+deployment-aware replan and new exact owner authorization. This partial target
+is not Plan 02-99 acceptance.
 
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
 | Greenfield local baseline | status: **Plan 02-22 complete; local only** | Reproduced an empty disposable database from the checked migration chain and explicitly recorded no original-project migration claim. |
-| Future greenfield target | status: **partially provisioned; Stage 2 complete; Plan 02-99 blocked before Stage 3** | The fresh D1/R2 target has exact migration and zero-data evidence. Worker/Access/version/deployment/principal/zero-effect/owner-acceptance evidence remains absent. |
+| Future greenfield target | status: **partially provisioned; Stage 2 complete; Stage 3 blocked safely at 3A** | The fresh D1/R2 target has exact migration and zero-data evidence. The single authorized bootstrap attempt was provider-rejected before creation; Worker/Access/version/deployment/principal/zero-effect/owner-acceptance evidence remains absent. |
 | Phase 1 real-principal prerequisite | status: historical evidence only; fresh greenfield proof required | The 2026-08-01 redacted evidence belonged to the retired Sites release. It cannot satisfy Plan 02-99; the new target must prove owner/non-owner isolation and zero state delta independently. |
 | Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
 | Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |

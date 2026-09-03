@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Status:** checked operator procedure; execution requires separate owner authorization
+**Status:** blocked at 3A after one provider-rejected attempt; requires a reviewed replan and new owner authorization
 
 ## Scope
 
@@ -42,6 +42,17 @@ Before starting, require all of the following:
 Any mismatch stops with no Access, secret, or Worker write.
 
 ## 3A — Create the unreachable Worker shell
+
+> **2026-09-03 execution stop:** The owner authorized this runbook and the
+> entry gates passed, but Cloudflare rejected the one permitted command before
+> creating a Worker. A new Worker cannot be created with `versions upload`;
+> Cloudflare requires C3 or `wrangler deploy` for the first upload, and that
+> creates a deployment prohibited by this runbook. No retry occurred and
+> read-only proof found zero Workers, versions, deployments, routes, requests,
+> or D1/R2 changes. See `02-99-STAGE3-EVIDENCE.md`. The command below is retained
+> as the reviewed historical procedure and **must not be retried**. Steps 3B-3F
+> are blocked until a revised deployment-aware runbook and a new exact owner
+> authorization exist.
 
 From the exact reviewed source and target-only candidate, first complete the
 canonical local gates and a no-upload dry run. Then, under the explicit Stage 3

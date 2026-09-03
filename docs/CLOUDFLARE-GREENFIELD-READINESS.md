@@ -301,6 +301,15 @@ digest-only receipt; dashboard exposure/Access and D1/R2 checks remain
 independent. Route enablement, deployment, application requests, and
 real-principal proof are a later Stage 4 authority.
 
+**2026-09-03 provider stop:** All Stage 3 entry gates passed, but Cloudflare
+rejected the one permitted first `versions upload` before Worker creation.
+Current provider behavior requires C3 or `wrangler deploy` for the first
+Worker upload, and that creates a deployment prohibited by this sequence. The
+command was not retried. Read-only checks proved zero Worker, versions,
+deployments, routes, requests, or D1/R2 delta. Steps 4 onward below are blocked
+historical procedure until a deployment-aware replacement and new exact owner
+authorization exist; see `02-99-STAGE3-EVIDENCE.md`.
+
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
    create command; no temporary/claim deployment was used.
 2. **Complete through Stage 2:** create one new D1 and one new R2 resource,
@@ -396,6 +405,9 @@ Until then, the only accurate status is **Stage 2 D1 migration is complete and
 exactly verified at `0009`; the D1 has clean integrity and zero application
 rows, R2 has zero completed objects and private exposure while incomplete
 multipart state remains unverified, no migration remains pending, and the local
-private-runtime candidate generator is verified. No target-specific runtime
-candidate exists. Every later Access, secret, Worker/version, route, deployment,
-application, real-principal, or effect action remains separately gated**.
+private-runtime candidate generator is verified. Stage 3 is blocked before
+Worker creation because the provider requires an initial deployment that was
+not authorized; its one upload attempt was not retried and created no hosted
+state. No target-specific runtime candidate exists. Every later Access,
+secret, Worker/version, route, deployment, application, real-principal, or
+effect action remains separately gated**.
