@@ -288,6 +288,13 @@ test fixtures, evidence JSON, or this repository.
 This is the required evidence order after the code/config blockers are closed
 and the owner separately authorizes each external action:
 
+The executable Stage 3 subset is pinned in
+`.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-RUNBOOK.md`.
+It creates Access first on an un-routed hostname, generates and reviews the
+target-specific runtime candidate, runs local no-upload gates, then permits at
+most one unreachable undeployed version upload. Route attachment, deployment,
+application requests, and real-principal proof are a later Stage 4 authority.
+
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
    create command; no temporary/claim deployment was used.
 2. **Complete through Stage 2:** create one new D1 and one new R2 resource,
@@ -297,14 +304,15 @@ and the owner separately authorizes each external action:
 3. Build, run `vinext check`, run canonical test/lint/audit, inspect the
    generated Wrangler config, and run Wrangler dry-run. These steps perform no
    hosted application write.
-4. Create or upload an **undeployed** version with `workers_dev`, preview URLs,
-   routes, and Cron triggers disabled. Cloudflare distinguishes version upload
-   from deployment; `wrangler deploy` instead creates a version and immediately
-   sends it to 100% of traffic. ([Workers versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/))
-5. Install required secrets through the non-promoting versions workflow, then
-   upload the exact final version if that changes its version identity.
-6. Create the exact-owner Access application/policy and independently review
-   it. Keep the Worker unreachable while this is incomplete.
+4. Create and independently review the exact-owner Access application/policy
+   on the selected hostname while that hostname remains un-routed.
+5. Generate the target-specific runtime candidate, then run all local gates and
+   a no-upload Wrangler dry run with owner-held secret values outside Git.
+6. Upload one **undeployed** version with the required secrets supplied through
+   the non-promoting `versions upload --secrets-file` path and with
+   `workers_dev`, preview URLs, routes, and Cron triggers disabled. Cloudflare
+   distinguishes version upload from deployment; `wrangler deploy` instead
+   creates a version and immediately sends it to 100% of traffic. ([Workers versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/))
 7. Attach only the reviewed private route, promote only the reviewed version,
    and capture its version/deployment ID and source/config digest. Leave
    previews, public `workers.dev`, and Cron triggers disabled.
