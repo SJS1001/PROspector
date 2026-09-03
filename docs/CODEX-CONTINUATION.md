@@ -61,7 +61,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 
 ## Current state
 
-- Phase 1 automated build is complete; real second-principal and control-plane proof remains non-substitutable and must not be fabricated.
+- Phase 1 automated build is complete. Its four Sites-version-10 human checks were never performed and are now explicitly superseded historical evidence because that release is retired; they are not passed or waived proof and must not be attempted against it. Equivalent real-principal, authenticated negative-mutation/zero-delta, secret/log, and exact-release review evidence remains non-substitutable under greenfield Plan 02-99.
 - Phase 2 retains Plans 02-01 through 02-12 completion credit. Plans 02-13 through 02-21 and the old recovery Plan 02-99 are retired incident history and earn no new credit. Plan 02-22 establishes the verified greenfield local baseline; the new terminal Plan 02-99 keeps future hosted acceptance separate.
 - Phase 2 local implementation includes Wave 0 RED contracts, exact `uuid@14.0.1` approval, the reviewed `0004_consensus_knowledge.sql` file, commercial hierarchy authority, and Proposed/Confirmed Knowledge authority. The local migration file is not evidence of what ran against hosted D1.
 - Phase 2 Plan 02-12 records the owner-accepted redacted real-principal denial/zero-state-delta proof and read-only hosted D1 baseline available on 2026-08-01. It does not classify the current live schema or repair the later incident.
