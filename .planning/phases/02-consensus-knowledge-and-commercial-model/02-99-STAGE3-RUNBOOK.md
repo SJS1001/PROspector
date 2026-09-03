@@ -163,7 +163,27 @@ and R2 read-only first.
 
 Immediately prove and record only sanitized evidence for the exact tuple:
 
-- the bootstrap and final version IDs plus source/config/build digests;
+Create an owner-only mode-0600 expectation file below `site/.wrangler/` with
+exactly `sourceCommit` and `runtimeCandidateDigest`, then run:
+
+```sh
+npm run greenfield:stage3:verify -- verify \
+  --config .wrangler/<exact-runtime-candidate>.json \
+  --expectation .wrangler/<exact-stage3-expectation>.json
+```
+
+The verifier double-reads only `wrangler versions list --json` and `wrangler
+deployments list --json`. It requires exactly the ordered bootstrap/final
+Wrangler-upload lineage and zero deployments, rejects cross-read drift and any
+reachable/effect-capable candidate, and emits only source/config/version
+inventory digests and counts. It never emits version IDs, authors, provider
+stderr, paths, resource identities, Access values, or secrets. It does not
+prove routes, Access policy state, D1, or R2; those remain independent dashboard
+and read-only provider checks below.
+
+- the digest-only verifier receipt for the ordered bootstrap/final lineage and
+  exact source/runtime configuration, plus the independently recorded build
+  digest;
 - zero deployments/traffic for both versions;
 - `workers_dev=false`, `preview_urls=false`, zero routes/custom domains, and
   empty Cron triggers;

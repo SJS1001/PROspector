@@ -18,6 +18,7 @@
     "baseline:greenfield": "node scripts/greenfield-baseline.mjs --reset",
     "greenfield:target:prepare": "node scripts/greenfield-target-config.mjs",
     "greenfield:runtime:prepare": "node scripts/greenfield-runtime-config.mjs",
+    "greenfield:stage3:verify": "node scripts/greenfield-stage3-evidence.mjs",
     "demo:local:smoke": "node scripts/local-demo-smoke.mjs"
   },
   "dependencies": {

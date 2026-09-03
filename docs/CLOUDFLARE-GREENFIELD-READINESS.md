@@ -294,9 +294,12 @@ Because Worker-level Access is configured from an existing Worker's settings,
 it first permits one target-only unreachable undeployed bootstrap version. It
 then enables exact-owner Access while all routes remain disabled, generates
 and reviews the target-specific runtime candidate, runs local no-upload gates,
-and permits one final unreachable undeployed version upload. Route enablement,
-deployment, application requests, and real-principal proof are a later Stage 4
-authority.
+and permits one final unreachable undeployed version upload. The checked
+`greenfield:stage3:verify` command then double-reads only version/deployment
+JSON, requires the exact two-version lineage and zero deployments, and emits a
+digest-only receipt; dashboard exposure/Access and D1/R2 checks remain
+independent. Route enablement, deployment, application requests, and
+real-principal proof are a later Stage 4 authority.
 
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
    create command; no temporary/claim deployment was used.
