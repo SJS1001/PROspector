@@ -159,7 +159,7 @@ test("Stage 3 bootstrap evidence rejects nonexclusive or misrouted traffic", asy
   }
 });
 
-test("Stage 3 bootstrap evidence rejects a provider-enabled version preview", async () => {
+test("Stage 3 bootstrap evidence treats version preview capability as inventory, not route state", async () => {
   const fixture = await createBootstrapFixture("bootstrap-preview");
   const versions = [version(
     "11111111-2222-4333-8444-555555555555",
@@ -168,6 +168,36 @@ test("Stage 3 bootstrap evidence rejects a provider-enabled version preview", as
     "2026-09-03T01:00:00.123456Z",
   )];
   versions[0].metadata.has_preview = true;
+  try {
+    const receipt = await verifyStage3BootstrapEvidence({
+      configPath: fixture.configPath,
+      expectationPath: fixture.expectationPath,
+      runCommand: runner({
+        versions,
+        deployments: [deployment(
+          "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+          versions[0].id,
+          "private-owner@example.invalid",
+          "2026-09-03T01:00:01.654321Z",
+        )],
+      }),
+    });
+    assert.equal(receipt.code, "stage3_unreachable_bootstrap_verified");
+    assert.match(receipt.versionInventoryDigest, /^[a-f0-9]{64}$/u);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("Stage 3 bootstrap evidence rejects malformed version preview metadata", async () => {
+  const fixture = await createBootstrapFixture("bootstrap-preview-malformed");
+  const versions = [version(
+    "11111111-2222-4333-8444-555555555555",
+    bootstrapMessage,
+    "private-owner@example.invalid",
+    "2026-09-03T01:00:00.123456Z",
+  )];
+  versions[0].metadata.has_preview = "false";
   try {
     await assert.rejects(() => verifyStage3BootstrapEvidence({
       configPath: fixture.configPath,
