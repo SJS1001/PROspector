@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Status:** revised 3A exhausted; failed no-preview verification and stopped without retry
+**Status:** revised 3A verified unreachable and stopped before Access without retry
 
 ## Scope
 
@@ -98,9 +98,12 @@ this checkpoint and gives a separate continuation authorization.
 > **2026-09-03 result:** The one command created exactly one bootstrap version
 > and its one 100% deployment, reported no route targets, then returned nonzero
 > because the final empty-schedule PUT was forbidden. It was not retried. The
-> provider reports `has_preview=true`, so the hardened digest-only verifier
-> rejects the state despite the submitted `preview_urls=false`. D1/R2 reads
-> proved zero data delta. Stage 3A authority is exhausted; see
+> provider reports the version as preview-capable, while the authenticated
+> Domains panel reports both production and preview routing disabled, no
+> routes/custom domains, and Settings reports zero Cron triggers. The corrected
+> digest-only verifier accepts that version field as inventory rather than
+> route state. D1/R2 reads proved zero data delta. Stage 3A passed and its
+> authority is exhausted; see
 > `02-99-STAGE3-EVIDENCE.md`.
 
 ## 3B — Create the exact-owner Worker-level Access boundary (not authorized)
@@ -245,10 +248,13 @@ surface, or secret exposure fails Stage 3 and stops the release.
 ## Exit and next authorization
 
 The exhausted Stage 3A checkpoint ended with one deployed bootstrap version,
-no route target, and provider metadata reporting an enabled version preview.
-It therefore failed the unreachable requirement. Its empty schedule update
-was forbidden and was not retried. The operator must remain stopped there. If
-later separately authorized, terminal Stage 3
+both Worker route switches disabled, no route/custom domain, and zero Cron
+triggers. Version metadata reports preview capability, not current preview
+routing; the authenticated Domains panel is authoritative for the disabled
+route state. The empty schedule update was forbidden and was not retried, but
+the read-only Settings panel independently proves zero Cron triggers. The
+operator must remain stopped before Access. If later separately authorized,
+terminal Stage 3
 ends with the bootstrap deployment still pointing only to its first version,
 one additional unreachable undeployed final version, and an independently
 reviewed exact-owner Worker-level Access boundary. It does not complete Plan

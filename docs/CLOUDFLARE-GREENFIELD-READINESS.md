@@ -311,9 +311,11 @@ The owner later authorized the deployment-aware replacement: exactly one
 initial unreachable deployment followed by read-only verification and a stop
 before Access, secrets, or further uploads. That one command is now exhausted:
 it created the one-version/one-deployment shell and no route target, then
-returned nonzero on the forbidden empty-schedule PUT. Provider metadata reports
-the version preview enabled despite `preview_urls=false`, so the hardened
-verifier rejects the private-boundary state; D1/R2 zero-delta reads passed. See
+returned nonzero on the forbidden empty-schedule PUT. Authenticated read-only
+dashboard evidence proves both Worker URL switches disabled, no custom
+route/domain, and zero Cron triggers. Version preview-capability metadata is
+not enabled route state, so the corrected verifier accepts the exact lineage;
+D1/R2 zero-delta reads passed. See
 `02-99-STAGE3-EVIDENCE.md`.
 
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
@@ -412,8 +414,9 @@ The accurate status is **Stage 2 D1 migration is complete and exactly verified
 at `0009`; the D1 has clean integrity and zero application rows, R2 has zero
 completed objects and private exposure while incomplete multipart state
 remains unverified, and no migration remains pending. Revised Stage 3A has
-exhausted its one command and failed with one bootstrap version/deployment, no
-route target, provider-reported preview enabled, and no D1/R2 delta. The
-empty-schedule PUT was forbidden and was not retried. Access, secrets, a
+passed and exhausted its one command with one bootstrap version/deployment,
+production/preview routes disabled, no custom route/domain, zero Cron, and no
+D1/R2 delta. The empty-schedule PUT was forbidden and was not retried; the
+zero-Cron state was independently verified read-only. Access, secrets, a
 runtime candidate, another upload, route enablement, application requests,
 real-principal work, and effects remain separately gated**.

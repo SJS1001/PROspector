@@ -25,9 +25,11 @@ initial unreachable deployment, followed by read-only verification and a stop
 before Access, secrets, or any further upload. That one command has now run: it
 created one bootstrap version and one 100% deployment with no route target,
 then returned nonzero on a forbidden empty-schedule PUT. It was not retried.
-Provider metadata reports the version preview enabled despite the exact
-`preview_urls=false` candidate, so the hardened verifier rejects the state;
-full D1/R2 zero-delta reads still pass.
+Authenticated read-only dashboard evidence proves both production and preview
+routing disabled, no custom route/domain, and zero Cron triggers. Provider
+version metadata records preview capability rather than enabled routing, so
+the corrected verifier accepts the exact lineage; full D1/R2 zero-delta reads
+also pass. Stage 3A is complete and stopped before Access.
 
 ## Resume from another Codex account
 
@@ -119,7 +121,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - The next local configuration seam is now complete: `greenfield:runtime:prepare` accepts only one exact owner-private target candidate and closed Access issuer/audience metadata, binds them to current outer-repository HEAD and target bytes, and emits one non-overwriting mode-0600 runtime candidate. It adds only `cloudflare-access` mode, issuer/audience, and the required secret names; it rejects secret-bearing metadata, public/effect drift, unsafe permissions, symlink escape, stale bindings, and overwrite. Its six focused cases, canonical tests/build, lint, production audit, and Vinext compatibility are green. It did not create Access, read a secret value, upload a version, attach a route, deploy, issue a request, or complete Plan 02-99.
 - A sanitized read-only `wrangler whoami --json` check proves the active CLI profile is authenticated to one account and has the Worker/D1/zone capabilities used through Stage 2, but it has no Access Apps and Policies read/write permission. Cloudflare documents that Access API management requires that separate permission. No credential or account identity was exposed or changed. Do not retry Access through this profile; Stage 3 requires the owner-authenticated dashboard or a separately owner-created least-privilege Access credential.
 - `02-99-STAGE3-RUNBOOK.md` now pins the deployment-aware Stage 3A replacement: one target-only initial `wrangler deploy` with `workers_dev=false`, `preview_urls=false`, zero routes and empty Cron, immediately followed by read-only evidence and a mandatory stop. Access, secrets, runtime-candidate generation, another upload, route enablement, application requests, and principal testing require later separate authorization. Public DNS confirms the repository's published `digitalrain.ai` domain is not Cloudflare-delegated, so the runbook does not change or depend on its DNS.
-- `greenfield:stage3:verify` is the checked Stage 3 version/deployment evidence seam. It accepts only owner-private source/config digest expectations and double-reads fixed Wrangler JSON list commands. Bootstrap mode requires exactly one version, its single 100% deployment, and provider-reported preview disabled; terminal mode preserves that boundary. It rejects drift/public-effect config/custody/provider-shape failures and emits only digests/counts. Its eleven-case focused suite is green; the pre-deploy full canonical build/tests, lint, audit, and Vinext check passed. The final live read correctly blocks on provider-enabled preview. It does not replace route or D1/R2 evidence and performs no write.
+- `greenfield:stage3:verify` is the checked Stage 3 version/deployment evidence seam. It accepts only owner-private source/config digest expectations and double-reads fixed Wrangler JSON list commands. Bootstrap mode requires exactly one version and its single 100% deployment; version preview capability is typed inventory, while enabled production/preview routing is verified independently from authoritative provider state. It rejects drift/public-effect config/custody/provider-shape failures and emits only digests/counts. Its twelve-case focused suite is green; the pre-deploy full canonical build/tests, lint, audit, and Vinext check passed. The final live read accepts the exact lineage alongside authenticated disabled-route evidence. It does not replace route or D1/R2 evidence and performs no write.
 - On 2026-09-03 the owner authorized the original checked Stage 3 sequence. All local and remote entry gates passed, but Wrangler rejected the one permitted first `versions upload` before creating a Worker. Cloudflare requires C3 or `wrangler deploy` for initial Worker creation, and either path creates a deployment prohibited by that authorization. No retry occurred; read-only proof found zero Worker, versions, deployments, routes, requests, or D1/R2 delta. The later revised Stage 3A authorization permitted and exhausted exactly one initial deployment under the stricter stop conditions above; it does not retroactively alter the failed attempt. See `02-99-STAGE3-EVIDENCE.md` for both results.
 
 Use these existing artifacts rather than restating product decisions:
@@ -134,11 +136,11 @@ Use these existing artifacts rather than restating product decisions:
 ## Hosting and external authority
 
 - The original project and URL are retired historical references. Do not access or use them.
-- Cloudflare is selected for the greenfield resources. Exact account/resource identities remain outside Git. Stage 2 D1 migration is complete and exactly verified at `0009`; R2 has zero completed objects and remains private, while incomplete multipart state remains unverified. Revised Stage 3A created one bootstrap version/deployment, but provider-enabled preview caused the private-boundary gate to fail. Access, routes, secrets, later uploads, and application actions remain unauthorized.
+- Cloudflare is selected for the greenfield resources. Exact account/resource identities remain outside Git. Stage 2 D1 migration is complete and exactly verified at `0009`; R2 has zero completed objects and remains private, while incomplete multipart state remains unverified. Revised Stage 3A created one bootstrap version/deployment and authenticated read-only evidence proves production/preview routes disabled, no route/custom domain, and zero Cron. Access, routes, secrets, later uploads, and application actions remain unauthorized.
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- No further hosted write is authorized in the current lane. Revised Stage 3A exhausted its one command and failed the no-preview gate. The provisioned D1 remains empty at exact migration `0009`; R2 remains private and empty; one bootstrap version/deployment exists with no route target but provider-reported preview enabled. Access, secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain blocked.
+- No further hosted write is authorized in the current lane. Revised Stage 3A passed its unreachable bootstrap gate and exhausted its one command. The provisioned D1 remains empty at exact migration `0009`; R2 remains private and empty; one bootstrap version/deployment exists with production/preview routes disabled, no custom route/domain, and zero Cron. Access, secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain blocked pending exact authorization.
 - The current Wrangler credential does not grant Access application/policy management. Never extract, broaden, rotate, or replace it automatically. If Stage 3 is authorized, use the already signed-in owner dashboard or an explicitly owner-created least-privilege Access credential, and keep its value outside Git, chat, logs, screenshots, and evidence.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
@@ -161,10 +163,11 @@ Use these existing artifacts rather than restating product decisions:
 
 ## Safe next action
 
-Keep all external effects disabled. Revised Stage 3A has stopped after its one
-command and read-only verification; do not retry the empty-schedule failure or
-perform another upload. Review `02-99-STAGE3-EVIDENCE.md` and obtain a new exact
-owner authorization before Access or any continuation. Do not enter secrets,
+Keep all external effects disabled. Revised Stage 3A has passed and stopped
+after its one command and read-only verification; do not retry the
+empty-schedule failure or perform another upload. Review
+`02-99-STAGE3-EVIDENCE.md` and obtain a new exact owner authorization for Stage
+3B before creating the exact-owner Access boundary. Do not enter secrets,
 generate a runtime candidate, enable a preview or route, issue an application
 request, access real rows, persist, export, invoke a provider, or perform any
 effect. Do not access the original target. Plan 02-99 remains incomplete and

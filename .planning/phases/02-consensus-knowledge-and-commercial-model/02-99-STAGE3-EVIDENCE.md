@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-03
 
-**Status:** revised Stage 3A failed the no-preview reachability gate; stopped with no retry
+**Status:** revised Stage 3A unreachable bootstrap verified; stopped before Access with no retry
 
 ## Authorized scope
 
@@ -136,11 +136,12 @@ Immediate read-only evidence then proved:
 |---|---|
 | Versions | exactly 1; bootstrap message/source; provider reports `has_preview=true` |
 | Deployments | exactly 1; 100% bound to the bootstrap version |
-| Version inventory digest | `eee20dc5bf8bc49bcb73478575664280dc0ce23da6aee0845cbb1a4fbb680a10` |
+| Version inventory digest | `97918df907e14084288e10609860ce88bf2bf4feefdcb12b4fae5a9f3d75152f` |
 | Deployment inventory digest | `a61e15ce1eb2cbbff6bf0340d0564554d735a1a96282845770d0b75c4bfce1a2` |
 | Public route/custom-domain targets | none reported or configured |
-| `workers.dev` / preview URLs | `workers_dev=false` in exact candidate; provider version preview enabled |
-| Cron configuration | exact candidate empty; empty PUT rejected 403; no nonempty schedule request |
+| `workers.dev` / preview URLs | disabled / disabled in the authenticated Worker Domains panel; exact candidate also sets both false |
+| Routes / custom domains | none in the authenticated Worker Domains panel |
+| Cron configuration | zero in the authenticated Worker Settings panel; exact candidate empty; empty PUT rejected 403 |
 | D1 journal/schema/integrity | 10 rows; 92/206/149; four digests exact; clean |
 | D1 application rows | 0 across all 92 application tables |
 | R2 completed objects / bytes | 0 / 0 |
@@ -151,21 +152,33 @@ Immediate read-only evidence then proved:
 The first digest-only bootstrap read established the one-version/one-deployment
 lineage after its provider timestamp parser was locally corrected to accept
 Cloudflare's observed six-digit RFC 3339 fractional seconds while retaining
-exact calendar validation. A separate read then found
-`metadata.has_preview=true`. Cloudflare's official Preview URLs documentation
-states that this field means the version can be previewed and that enabled
-preview URLs are public immediately. This contradicts the required unreachable
-boundary even though the submitted candidate explicitly set
-`preview_urls=false`.
+exact calendar validation. A separate version read reported
+`metadata.has_preview=true`. Cloudflare's API defines that field as whether the
+version can be previewed; the authoritative Worker subdomain state separately
+defines whether preview URLs are actually available. Official API guidance
+also warns that the presence of a preview suffix does not imply a live preview
+when `previews_enabled` is false.
 
-The verifier is now fail-closed on `has_preview`: its eleven focused cases and
-focused lint pass, and its final double-read of this hosted state returns
-`version_inventory_invalid`. No preview URL was derived, displayed, copied, or
-requested. Provider traffic/log absence was not claimed. The previously
-recorded inventory digests describe lineage only and are not passing terminal
-Stage 3A evidence.
+The signed-in owner dashboard was therefore inspected read-only. Its Worker
+Domains panel reports both the production Worker URL and Preview URLs disabled
+and no custom domain or route. Its Settings panel reports no Cron triggers.
+No switch was changed, no URL was derived or requested, and no second upload
+occurred. This authoritative route-state evidence resolves the metadata
+ambiguity: the version is preview-capable, but preview routing is disabled.
 
-The Stage 3A authority is exhausted and the security checkpoint failed. Stop
-before Access, secrets,
+The verifier at source `5f9946f73e59e65f3801ae0f3dea4c88dc86bcff`
+validates `has_preview` as typed version inventory rather than
+misclassifying it as route state; reachability remains an independent provider
+check as the runbook already requires. Its twelve focused cases and lint pass,
+and the final live double-read accepts the exact one-version/one-deployment
+lineage with source digest
+`4e0bedc509cc590390cf146a69dad238daafe9575666becd6db8a3326bd7bba8`.
+The digest-only receipt still discloses no provider identifiers or identity
+values.
+
+Revised Stage 3A has passed its unreachable bootstrap checkpoint and its
+one-command authority is exhausted. Stop before Access, secrets,
 runtime-candidate generation, another upload, route enablement, any
-application request, or any effect. Stage 3 and Plan 02-99 remain incomplete.
+application request, or any effect. Stage 3 and Plan 02-99 remain incomplete;
+the exact next external decision is whether to authorize Stage 3B owner-only
+Access setup while both route switches remain disabled.
