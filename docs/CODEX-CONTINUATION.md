@@ -107,7 +107,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - On 2026-09-03 the owner authorized one exact pending-migration apply against candidate `886b48b31119f76382535a06d4535e04aa049097`. Pre-apply evidence reproduced the recorded `0007` boundary; Wrangler then applied only `0008` and `0009` once. Immediate remote reads match the expected 10-row journal and all post-chain schema digests, count 92 tables/206 indexes/149 triggers with zero application rows, report clean quick/foreign-key checks and no pending migration, and leave R2 at zero completed objects with private exposure. Incomplete multipart state remains unverified. This is Stage 2 migration evidence only; it is not Worker, Access, deployment, real-principal, or Plan 02-99 acceptance evidence.
 - The next local configuration seam is now complete: `greenfield:runtime:prepare` accepts only one exact owner-private target candidate and closed Access issuer/audience metadata, binds them to current outer-repository HEAD and target bytes, and emits one non-overwriting mode-0600 runtime candidate. It adds only `cloudflare-access` mode, issuer/audience, and the required secret names; it rejects secret-bearing metadata, public/effect drift, unsafe permissions, symlink escape, stale bindings, and overwrite. Its six focused cases, canonical tests/build, lint, production audit, and Vinext compatibility are green. It did not create Access, read a secret value, upload a version, attach a route, deploy, issue a request, or complete Plan 02-99.
 - A sanitized read-only `wrangler whoami --json` check proves the active CLI profile is authenticated to one account and has the Worker/D1/zone capabilities used through Stage 2, but it has no Access Apps and Policies read/write permission. Cloudflare documents that Access API management requires that separate permission. No credential or account identity was exposed or changed. Do not retry Access through this profile; Stage 3 requires the owner-authenticated dashboard or a separately owner-created least-privilege Access credential.
-- `02-99-STAGE3-RUNBOOK.md` now pins the executable next sequence: exact-owner Access on an un-routed hostname; private runtime candidate and owner-held secrets; canonical/no-upload checks; at most one unreachable undeployed version; then read-only D1/R2/exposure evidence. Route attachment, deployment, application requests, and principal testing are excluded until a separate Stage 4 authorization.
+- `02-99-STAGE3-RUNBOOK.md` now pins the executable next sequence: one target-only unreachable undeployed bootstrap version; exact-owner Worker-level Access while every URL remains disabled; private runtime candidate and owner-held secrets; canonical/no-upload checks; one final unreachable undeployed version; then read-only D1/R2/exposure evidence. Public DNS confirms the repository's published `digitalrain.ai` domain is not Cloudflare-delegated, so the runbook does not change or depend on its DNS. Route enablement, deployment, application requests, and principal testing are excluded until a separate Stage 4 authorization.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -151,13 +151,14 @@ Use these existing artifacts rather than restating product decisions:
 Keep all external effects disabled. The bounded Phase 6 and Phase 7 synthetic
 preparation lines, target-only candidate generator, and private-runtime
 candidate generator are complete; do not add more placeholders. The exact next
-procedure is `02-99-STAGE3-RUNBOOK.md`, but it cannot execute without a named
-un-routed hostname and explicit Stage 3 authorization. Stage 3 may create the
-exact-owner Access boundary, generate the target-specific private runtime
-candidate, run no-upload gates, and upload at most one unreachable undeployed
-version. It excludes routes, deployment, application requests, and principal
-testing. Until that authority exists, do not create Access, enter secrets,
-upload a Worker/version, enable a preview or route, deploy, issue application
-requests, access real rows, persist, export, invoke a provider, or perform any
-effect. Do not access the original target. Plan 02-99 remains incomplete and no
-summary may be created.
+procedure is `02-99-STAGE3-RUNBOOK.md`, but it cannot execute without explicit
+Stage 3 authorization. Stage 3 may upload one target-only unreachable bootstrap
+version, enable exact-owner Worker-level Access while every URL remains
+disabled, generate and verify the target-specific private runtime candidate,
+and upload one final unreachable undeployed version. It excludes routes,
+deployment, application requests, principal testing, and any
+`digitalrain.ai` DNS change. Until that authority exists, do not create Access,
+enter secrets, upload a Worker/version, enable a preview or route, deploy,
+issue application requests, access real rows, persist, export, invoke a
+provider, or perform any effect. Do not access the original target. Plan 02-99
+remains incomplete and no summary may be created.

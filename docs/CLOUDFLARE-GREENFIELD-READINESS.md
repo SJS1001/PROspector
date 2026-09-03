@@ -290,10 +290,13 @@ and the owner separately authorizes each external action:
 
 The executable Stage 3 subset is pinned in
 `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-RUNBOOK.md`.
-It creates Access first on an un-routed hostname, generates and reviews the
-target-specific runtime candidate, runs local no-upload gates, then permits at
-most one unreachable undeployed version upload. Route attachment, deployment,
-application requests, and real-principal proof are a later Stage 4 authority.
+Because Worker-level Access is configured from an existing Worker's settings,
+it first permits one target-only unreachable undeployed bootstrap version. It
+then enables exact-owner Access while all routes remain disabled, generates
+and reviews the target-specific runtime candidate, runs local no-upload gates,
+and permits one final unreachable undeployed version upload. Route enablement,
+deployment, application requests, and real-principal proof are a later Stage 4
+authority.
 
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
    create command; no temporary/claim deployment was used.
@@ -304,27 +307,31 @@ application requests, and real-principal proof are a later Stage 4 authority.
 3. Build, run `vinext check`, run canonical test/lint/audit, inspect the
    generated Wrangler config, and run Wrangler dry-run. These steps perform no
    hosted application write.
-4. Create and independently review the exact-owner Access application/policy
-   on the selected hostname while that hostname remains un-routed.
-5. Generate the target-specific runtime candidate, then run all local gates and
+4. Upload one target-only **undeployed** bootstrap version with no route,
+   preview, Access variable, secret declaration, or deployment.
+5. From that Worker's **Settings → Domains & Routes**, enable and independently
+   review exact-owner Access for the production `workers.dev` URL while the URL
+   remains disabled. Stop if Cloudflare requires making it reachable first.
+6. Generate the target-specific runtime candidate, then run all local gates and
    a no-upload Wrangler dry run with owner-held secret values outside Git.
-6. Upload one **undeployed** version with the required secrets supplied through
-   the non-promoting `versions upload --secrets-file` path and with
+7. Upload one final **undeployed** version with the required secrets supplied
+   through the non-promoting `versions upload --secrets-file` path and with
    `workers_dev`, preview URLs, routes, and Cron triggers disabled. Cloudflare
    distinguishes version upload from deployment; `wrangler deploy` instead
    creates a version and immediately sends it to 100% of traffic. ([Workers versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/))
-7. Attach only the reviewed private route, promote only the reviewed version,
-   and capture its version/deployment ID and source/config digest. Leave
+8. Enable only the Access-protected production `workers.dev` route, promote
+   only the reviewed final version, and capture its version/deployment ID and
+   source/config digest. Leave
    previews, public `workers.dev`, and Cron triggers disabled.
-8. Prove an unauthenticated request and a real non-owner principal are denied
+9. Prove an unauthenticated request and a real non-owner principal are denied
    without invoking the application or changing D1/R2.
-9. Perform only the checked owner read-only smoke; do not initialize a
+10. Perform only the checked owner read-only smoke; do not initialize a
    workspace or call mutation/probe routes. Re-run D1 and R2 inventories.
-10. Inspect Workers deployment status and logs for only the expected requests,
+11. Inspect Workers deployment status and logs for only the expected requests,
     no unexpected subrequests, and no scheduled invocation. Workers records
     versions/deployments separately from D1/R2 state. ([deployment status](https://developers.cloudflare.com/workers/wrangler/commands/workers/),
     [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/))
-11. Obtain independent review and the explicit Plan 02-99 human acceptance.
+12. Obtain independent review and the explicit Plan 02-99 human acceptance.
     Only then may a later plan authorize bootstrap or a controlled R2
     durability proof.
 
@@ -340,9 +347,11 @@ No default is inferred for these external choices:
 1. **Cloudflare account and operator:** resolved for Stage 1 by the owner's
    explicit account confirmation; exact identity remains outside Git. Any
    additional operator still requires explicit authority.
-2. **Private URL:** a custom domain with `workers_dev: false`, or an Access-
-   protected `workers.dev` URL. Custom domain is the safer production default;
-   either choice must be private before promotion.
+2. **Private URL:** Stage 3 now defaults to Worker-level Access with every URL
+   disabled, and Stage 4 may enable only the Access-protected production
+   `workers.dev` URL. The repository's published `digitalrain.ai` domain was
+   not Cloudflare-delegated when checked on 2026-09-02, so this work must not
+   change or depend on its DNS. A future custom domain is separate scope.
 3. **Access identity provider:** the IdP that can prove the exact owner and one
    real non-owner negative principal.
 4. **Configuration custody:** whether the non-secret target config is committed
