@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-03
 
-**Status:** revised Stage 3A authorized; one initial deployment not yet performed
+**Status:** revised Stage 3A failed the no-preview reachability gate; stopped with no retry
 
 ## Authorized scope
 
@@ -104,3 +104,68 @@ sanitized read-only evidence.
 The revised ten-case verifier suite, canonical production build and complete
 test suite, lint, production dependency audit with zero findings, and Vinext
 compatibility check at 100% passed before any revised hosted write.
+
+## Revised Stage 3A terminal result
+
+The revised source/runbook/verifier checkpoint was committed and pushed at
+`e899b25bac9597470148339c3d6fcd69b8ce40c4`. A fresh private target candidate
+was regenerated from that exact commit and build. Its digest was
+`e55e9ccb7b62b97503793133fbb952c478146ffa0a3299348206677255c7633f`;
+its mode-0600 expectation bound that digest and exact source. A no-upload
+`wrangler deploy --dry-run` passed before the hosted command.
+
+Entry reads again proved the Worker/version/deployment absent, all four D1
+schema/journal digests exact, all 92 application tables empty, clean D1
+integrity, zero completed R2 objects, disabled R2 public URL, no R2 custom
+domain, CORS, notification, or lock rule, and only the recorded provider
+default incomplete-multipart abort rule.
+
+The operator then invoked exactly one `wrangler deploy` with the reviewed
+target and bootstrap message. No retry occurred. Wrangler uploaded the static
+assets and Worker, created one bootstrap version and its one 100% deployment,
+and reported no deployed route targets. The command returned exit 1 only after
+the upload, when its final PUT of the candidate's empty Cron list to the
+schedule endpoint returned HTTP 403. Wrangler 4.116 constructs that request
+body from `{ crons: [] }` as an empty array. The new Worker had no predecessor
+schedule, and no nonempty Cron request was made; the failed empty update cannot
+be claimed as positive provider schedule enumeration.
+
+Immediate read-only evidence then proved:
+
+| Surface | Result |
+|---|---|
+| Versions | exactly 1; bootstrap message/source; provider reports `has_preview=true` |
+| Deployments | exactly 1; 100% bound to the bootstrap version |
+| Version inventory digest | `eee20dc5bf8bc49bcb73478575664280dc0ce23da6aee0845cbb1a4fbb680a10` |
+| Deployment inventory digest | `a61e15ce1eb2cbbff6bf0340d0564554d735a1a96282845770d0b75c4bfce1a2` |
+| Public route/custom-domain targets | none reported or configured |
+| `workers.dev` / preview URLs | `workers_dev=false` in exact candidate; provider version preview enabled |
+| Cron configuration | exact candidate empty; empty PUT rejected 403; no nonempty schedule request |
+| D1 journal/schema/integrity | 10 rows; 92/206/149; four digests exact; clean |
+| D1 application rows | 0 across all 92 application tables |
+| R2 completed objects / bytes | 0 / 0 |
+| R2 public surfaces/rules | unchanged private; no custom domain, public URL, CORS, notification, or lock rule |
+| Access application, secrets, runtime candidate, later upload | none |
+| Application request, provider/export/schedule/outbound effect | none |
+
+The first digest-only bootstrap read established the one-version/one-deployment
+lineage after its provider timestamp parser was locally corrected to accept
+Cloudflare's observed six-digit RFC 3339 fractional seconds while retaining
+exact calendar validation. A separate read then found
+`metadata.has_preview=true`. Cloudflare's official Preview URLs documentation
+states that this field means the version can be previewed and that enabled
+preview URLs are public immediately. This contradicts the required unreachable
+boundary even though the submitted candidate explicitly set
+`preview_urls=false`.
+
+The verifier is now fail-closed on `has_preview`: its eleven focused cases and
+focused lint pass, and its final double-read of this hosted state returns
+`version_inventory_invalid`. No preview URL was derived, displayed, copied, or
+requested. Provider traffic/log absence was not claimed. The previously
+recorded inventory digests describe lineage only and are not passing terminal
+Stage 3A evidence.
+
+The Stage 3A authority is exhausted and the security checkpoint failed. Stop
+before Access, secrets,
+runtime-candidate generation, another upload, route enablement, any
+application request, or any effect. Stage 3 and Plan 02-99 remain incomplete.

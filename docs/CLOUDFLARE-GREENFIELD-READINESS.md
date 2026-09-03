@@ -71,7 +71,7 @@ Cloudflare account:
 | Framework | `site/package.json` pins Next.js 16, Vinext, Vite, the Cloudflare Vite plugin, and Wrangler; `site/vite.config.ts` composes Vinext and the Cloudflare plugin. `vinext check` reports 100% compatibility (7 supported, 0 partial, 0 issues) after removal of the runtime Google-font CDN dependency. | The architecture matches Cloudflare's recommended Next.js-on-Workers direction. Vinext remains beta, so repeat the compatibility check against the exact release candidate. ([Cloudflare Next.js guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/)) |
 | Worker entry | `site/worker/index.ts` is an ES-module Worker entry and Vinext router; the build currently emits `site/dist/server/wrangler.json`. | A reviewed production config must drive the build, and the generated config must be inspected before upload. The Vite plugin generates a deployment `wrangler.json` with the built asset directory. ([Vite static assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)) |
 | D1 | Runtime code expects `env.DB`; the checked migration chain is `site/drizzle/0000_*.sql` through `0009_*.sql`. The generated manifest resolves `migrations_dir` back to that checked chain, while the local programmatic binding retains an all-zero database ID. | The owner-authorized greenfield D1 is freshly proven at exact migration `0009`, with clean integrity, exact post-chain digests, zero rows across all 92 application tables, and no pending migration. Candidate source `886b48b31119f76382535a06d4535e04aa049097` passed private preparation/no-upload dry run and supplied the exact migration bytes. Programmatic Vite config is not available to resource-oriented commands such as `wrangler d1`, so only the staged runbook may use the private target mapping. ([programmatic configuration](https://developers.cloudflare.com/workers/vite-plugin/reference/programmatic-configuration/)) |
-| R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized private R2 bucket exists outside Git with zero completed objects. Incomplete multipart state is not enumerable through Wrangler and remains unverified until the later R2 write-activation gate. The checked CLI can bind it as `FILES` in one ignored candidate while preserving disabled public exposure; no hosted binding has been created. `.openai/hosting.json` is not a Cloudflare target manifest. |
+| R2 | Runtime code optionally expects `env.FILES`; `.openai/hosting.json` declares only target-neutral binding names. | One owner-authorized private R2 bucket exists outside Git with zero completed objects. Incomplete multipart state is not enumerable through Wrangler and remains unverified until the later R2 write-activation gate. The exhausted Stage 3A bootstrap binds it as `FILES` in one unreachable Worker while preserving disabled public exposure and zero object delta. `.openai/hosting.json` is not a Cloudflare target manifest. |
 | Identity | `site/app/cloudflare-access.ts` verifies Access RS256 JWTs against the configured team JWKS, issuer, audience, dates, and email. `site/app/runtime-identity.ts` requires one explicit provider mode and denies missing, unknown, partial, or conflicting configuration, so Sites headers and `LOCAL_DEMO` cannot become a hosted fallback. | The local code blocker is closed. A real target still needs exact Access configuration, independent review, owner/non-owner proof, and `LOCAL_DEMO` must remain absent. |
 | Secrets | Runtime requires `OWNER_SUBJECT_PEPPER` and `PILOT_OWNER_EMAIL`. The ignored `.dev.vars` contains only disposable localhost values. | Hosted values must be installed through Cloudflare bindings, never copied from `.dev.vars`, Git, logs, screenshots, or evidence files. |
 | Effects | Runner ingress passes `runnerIngressEnabled: false`; profile/discovery schedules remain `blocked_missing_capability`; no Gmail or telephony adapter is composed. | Preserve these fail-closed states. Binding D1/R2 and proving owner access must not activate a schedule, provider, export, enrichment call, email, or phone action. |
@@ -309,7 +309,12 @@ command was not retried. Read-only checks proved zero Worker, versions,
 deployments, routes, requests, or D1/R2 delta. This remains historical evidence.
 The owner later authorized the deployment-aware replacement: exactly one
 initial unreachable deployment followed by read-only verification and a stop
-before Access, secrets, or further uploads; see `02-99-STAGE3-RUNBOOK.md`.
+before Access, secrets, or further uploads. That one command is now exhausted:
+it created the one-version/one-deployment shell and no route target, then
+returned nonzero on the forbidden empty-schedule PUT. Provider metadata reports
+the version preview enabled despite `preview_urls=false`, so the hardened
+verifier rejects the private-boundary state; D1/R2 zero-delta reads passed. See
+`02-99-STAGE3-EVIDENCE.md`.
 
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
    create command; no temporary/claim deployment was used.
@@ -320,7 +325,7 @@ before Access, secrets, or further uploads; see `02-99-STAGE3-RUNBOOK.md`.
 3. Build, run `vinext check`, run canonical test/lint/audit, inspect the
    generated Wrangler config, and run Wrangler dry-run. These steps perform no
    hosted application write.
-4. Deploy one target-only bootstrap version exactly once with no route,
+4. **Complete and stopped:** deploy one target-only bootstrap version exactly once with no route,
    preview, Access variable, secret declaration, or Cron trigger. Verify the
    resulting single 100% deployment and repeat D1/R2/exposure reads, then stop.
 5. **Not currently authorized:** from that Worker's **Settings → Domains & Routes**, enable and independently
@@ -403,13 +408,12 @@ only when all of the following are true:
 - the owner explicitly authorizes the named greenfield target and accepts the
   sanitized evidence tuple.
 
-Until the revised Stage 3A command and its read-only proof finish, the only
-accurate status is **Stage 2 D1 migration is complete and exactly verified at
-`0009`; the D1 has clean integrity and zero application rows, R2 has zero
+The accurate status is **Stage 2 D1 migration is complete and exactly verified
+at `0009`; the D1 has clean integrity and zero application rows, R2 has zero
 completed objects and private exposure while incomplete multipart state
-remains unverified, and no migration remains pending. The original upload
-attempt was not retried and created no hosted state. Exactly one initial
-unreachable deployment is now authorized after revised canonical validation;
-Access, secrets, a runtime candidate, another upload, route enablement,
-application requests, real-principal work, and effects remain separately
-gated**.
+remains unverified, and no migration remains pending. Revised Stage 3A has
+exhausted its one command and failed with one bootstrap version/deployment, no
+route target, provider-reported preview enabled, and no D1/R2 delta. The
+empty-schedule PUT was forbidden and was not retried. Access, secrets, a
+runtime candidate, another upload, route enablement, application requests,
+real-principal work, and effects remain separately gated**.

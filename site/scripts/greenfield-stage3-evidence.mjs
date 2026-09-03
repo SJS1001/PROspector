@@ -174,6 +174,7 @@ function normalizeVersions(value, expectedMessages) {
         || !Number.isSafeInteger(version.number) || version.number < 1
         || !isRecord(version.metadata)
         || version.metadata.source !== "wrangler"
+        || version.metadata.has_preview !== false
         || typeof version.metadata.author_email !== "string"
         || version.metadata.author_email.length < 3 || version.metadata.author_email.length > 320
         || !isExactIsoTimestamp(version.metadata.created_on)
@@ -188,6 +189,7 @@ function normalizeVersions(value, expectedMessages) {
       message: version.annotations["workers/message"],
       createdOn: version.metadata.created_on,
       source: version.metadata.source,
+      hasPreview: false,
     };
   }).sort((left, right) => left.createdOn.localeCompare(right.createdOn));
   if (normalized.some((version, index) => version.message !== expectedMessages[index])
@@ -390,10 +392,13 @@ function isRecord(value) {
 }
 
 function isExactIsoTimestamp(value) {
-  return typeof value === "string"
-    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
-    && Number.isFinite(Date.parse(value))
-    && new Date(value).toISOString() === value;
+  if (typeof value !== "string"
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3,9}Z$/u.test(value)
+      || !Number.isFinite(Date.parse(value))) {
+    return false;
+  }
+  const millisecondPrecision = value.replace(/\.(\d{3})\d*Z$/u, ".$1Z");
+  return new Date(value).toISOString() === millisecondPrecision;
 }
 
 function currentSourceCommit() {

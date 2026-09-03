@@ -25,13 +25,13 @@ test("Stage 3 bootstrap evidence accepts one unreachable deployment tied to its 
     privateVersionId,
     bootstrapMessage,
     privateEmail,
-    "2026-09-03T01:00:00.000Z",
+    "2026-09-03T01:00:00.123456Z",
   )];
   const deployments = [deployment(
     privateDeploymentId,
     privateVersionId,
     privateEmail,
-    "2026-09-03T01:00:01.000Z",
+    "2026-09-03T01:00:01.654321Z",
   )];
   const calls = [];
   try {
@@ -154,6 +154,34 @@ test("Stage 3 bootstrap evidence rejects nonexclusive or misrouted traffic", asy
       expectationPath: fixture.expectationPath,
       runCommand: runner({ versions, deployments: [wrongVersion] }),
     }), { message: "deployment_inventory_invalid" });
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("Stage 3 bootstrap evidence rejects a provider-enabled version preview", async () => {
+  const fixture = await createBootstrapFixture("bootstrap-preview");
+  const versions = [version(
+    "11111111-2222-4333-8444-555555555555",
+    bootstrapMessage,
+    "private-owner@example.invalid",
+    "2026-09-03T01:00:00.123456Z",
+  )];
+  versions[0].metadata.has_preview = true;
+  try {
+    await assert.rejects(() => verifyStage3BootstrapEvidence({
+      configPath: fixture.configPath,
+      expectationPath: fixture.expectationPath,
+      runCommand: runner({
+        versions,
+        deployments: [deployment(
+          "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+          versions[0].id,
+          "private-owner@example.invalid",
+          "2026-09-03T01:00:01.654321Z",
+        )],
+      }),
+    }), { message: "version_inventory_invalid" });
   } finally {
     await fixture.cleanup();
   }
@@ -374,6 +402,7 @@ function version(id, message, authorEmail, createdOn) {
       created_on: createdOn,
       source: "wrangler",
       author_email: authorEmail,
+      has_preview: false,
     },
     annotations: {
       "workers/message": message,
