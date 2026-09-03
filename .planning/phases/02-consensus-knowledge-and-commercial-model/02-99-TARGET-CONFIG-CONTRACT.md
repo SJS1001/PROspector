@@ -2,9 +2,8 @@
 
 **Captured:** 2026-09-02
 
-**Status:** owner-approved CLI seam implemented; Stage 2 migration stopped
-after `0007`; repaired candidate/no-upload dry run/read-only reinspection are
-green and separate resume authority is pending
+**Status:** owner-approved CLI seam implemented; Stage 2 migration completed
+and exactly verified at `0009`; every later hosted stage remains separate
 
 ## Purpose
 
@@ -110,14 +109,18 @@ The first Stage 2 candidate passed the no-upload Wrangler dry run. Remote D1
 migration then applied `0000` through `0007` and stopped on `0008` with
 `incomplete input`. No retry occurred. Read-only inspection showed exactly
 eight journal rows, clean integrity checks, zero application rows, and no
-partial `0008` objects. R2 remained empty and private.
+partial `0008` objects. R2 had zero completed objects and remained private;
+incomplete multipart state was not enumerable through Wrangler.
 
 The old ignored candidate is stale because the reviewed `0008` and `0009`
 bytes have since been normalized at checked source
 `46d082e962c4acc1771e92ad300d61913d50ead4`. It must never be reused. A new
 candidate at source `886b48b31119f76382535a06d4535e04aa049097`, dry run,
 canonical preflight, fresh mapping-bound read-only evidence, and independent
-review are green. Explicit remote-resume authorization remains required before
-applying the two pending migrations. No Worker, upload, route, Access, secret,
-deployment, application request, provider, export, or outbound effect is
-authorized.
+review were green. On 2026-09-03 the owner authorized one exact apply against
+that candidate; Wrangler applied only `0008` and `0009` once. Immediate
+read-only verification matched the complete post-chain manifest, found zero
+application rows and clean integrity, and reported no pending migration. R2
+still had zero completed objects and remained private; incomplete multipart
+state remains unverified. No Worker, upload, route, Access, secret, deployment,
+application request, provider, export, or outbound effect is authorized.

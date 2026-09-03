@@ -2,14 +2,14 @@
 
 **Captured:** 2026-09-02
 
-**Status:** incomplete; repaired candidate/read-only evidence green, remote
-resume authority pending after migration `0007`
+**Status:** Stage 2 D1 migration and immediate read-only verification complete;
+terminal Plan 02-99 hosted/private-principal acceptance remains incomplete
 
 **Repair candidate source:** `46d082e962c4acc1771e92ad300d61913d50ead4`
 
 **Prepared candidate source:** `886b48b31119f76382535a06d4535e04aa049097`
 
-**Read-only reinspection captured:** `2026-09-02T23:30:53Z`
+**Post-chain read-only verification captured:** `2026-09-03T01:07:08Z`
 
 **Tool:** Wrangler 4.116.0
 
@@ -58,17 +58,30 @@ migrated, restored, modified, cloned, or used as evidence.
 | Post-failure D1 application rows | 0 |
 | Post-failure D1 `PRAGMA quick_check` | `ok` |
 | Post-failure foreign-key violation rows | 0 |
-| Post-failure R2 objects | 0 |
+| Post-failure R2 completed objects | 0 |
 | Post-failure R2 custom domains | 0 |
 | Post-failure R2 public `r2.dev` access | disabled |
 | Fresh read-only D1 journal/schema/definition/table digests | exact paused-boundary match |
 | Fresh read-only D1 application tables counted | 71 of 71; all zero rows |
 | Fresh read-only pending migrations | exactly `0008` and `0009` |
-| Fresh read-only R2 objects/custom domains/public URL | 0 / 0 / disabled |
+| Fresh read-only R2 completed objects/custom domains/public URL | 0 / 0 / disabled |
 | Fresh read-only R2 CORS/notification/lock rules | 0 / 0 / 0 |
 | Fresh read-only R2 lifecycle rules | provider default seven-day incomplete-multipart abort only |
 | Incomplete multipart-upload listing | unavailable through Wrangler 4.116.0 management reads; no credential was created |
-| Migration retry or other remote write | none |
+| Migration retry or other remote write before bounded resume | none |
+| Owner-authorized bounded resume | one apply of pending `0008` and `0009` against the exact repaired candidate |
+| Bounded resume result | passed once; no retry |
+| Post-chain D1 journal | 10 rows, exactly `0000` through `0009` |
+| Post-chain D1 application tables/indexes/triggers | 92 / 206 / 149 |
+| Post-chain total application schema objects | 447 |
+| Post-chain application rows | 0 across all 92 application tables |
+| Post-chain `PRAGMA quick_check` | `ok` |
+| Post-chain foreign-key violation rows | 0 |
+| Post-chain pending migrations | 0 |
+| Post-chain inventory/table/definition/journal digests | exact match to `02-99-EXPECTED-SCHEMA.md` |
+| Post-chain R2 completed objects/custom domains/public URL | 0 / 0 / disabled |
+| Post-chain R2 CORS/notification/lock rules | 0 / 0 / 0 |
+| Worker/version, route, Access, secret, deployment, application request, provider, export, or outbound effect | none |
 
 The failed migration did not create a journal entry or leave partial `0008`
 schema. Earlier successful migrations remain applied, which is Wrangler's
@@ -90,7 +103,7 @@ and the still-pending `0009` as equivalent `SELECT RAISE ... WHERE` guards.
 Each marker-delimited trigger now contains exactly one `END;`, its outer
 compound terminator.
 
-Local verification after release of the preflight lane:
+Local verification before the bounded remote resume:
 
 - 22 enrichment persistence and authority tests passed;
 - 3 migration-`0009` upgrade/fail-closed tests passed;
@@ -107,11 +120,12 @@ Local verification after release of the preflight lane:
 - independent review found no remaining high- or medium-severity issue after
   tightening the regression to the exact one-outer-terminator contract.
 
-The repair is local evidence only. The previous ignored candidate is stale,
-and the changed migration bytes have not been applied remotely. The repaired
+The previous ignored candidate is stale and was not reused. The repaired
 candidate is private and ignored; its source, build, candidate, migration
-manifest, and expected-schema digests are held in a sanitized receipt. Raw
-Wrangler logs remain ignored and mode `0600`.
+manifest, and expected-schema digests are held in a sanitized receipt. The
+bounded apply and post-chain reads above tie the remote migration result to
+that exact candidate without committing its private mapping. Raw Wrangler logs
+remain ignored and mode `0600`.
 
 Wrangler's authenticated management surface proved the bucket has zero
 completed objects but does not expose `ListMultipartUploads`. Cloudflare's S3
@@ -121,11 +135,12 @@ The provider-owned seven-day abort rule is recorded rather than misreported as
 an empty upload listing. This limitation does not change the exact D1
 migration boundary, but it must be closed before any later R2 write activation.
 
-## Required resume sequence
+## Completed bounded resume and next gate
 
-The owner released the canonical preflight hold on 2026-09-02. That release
-authorizes the local gates and no-upload/read-only preparation below; it does
-not authorize another remote write.
+The owner released the canonical preflight hold on 2026-09-02, authorizing the
+local gates and no-upload/read-only preparation below. A later explicit
+`continue` authorization released exactly the bounded D1 apply in step 5; it
+did not authorize any other hosted write.
 
 1. **complete** — run the canonical test/build/lint/audit and
    target-preparation gates;
@@ -134,19 +149,28 @@ not authorize another remote write.
 3. **complete** — create a new ignored, private candidate and repeat the
    no-upload dry run;
 4. **complete** — re-read the remote journal/schema/data and R2 privacy state;
-5. **next gate** — obtain explicit authorization to resume this partially
-   migrated database;
-6. apply only pending `0008` and `0009` once; and
-7. collect the exact post-chain D1/R2 evidence before any later stage.
+5. **complete** — the owner authorized one exact apply of pending `0008` and
+   `0009` against candidate digest
+   `e55e9ccb7b62b97503793133fbb952c478146ffa0a3299348206677255c7633f`;
+6. **complete** — Wrangler applied only `0008` and `0009` once, with no retry;
+   and
+7. **complete** — immediate read-only verification matched all four expected
+   post-chain digests, all 92 application tables remained empty, integrity was
+   clean, no migration remained pending, and R2 still had zero completed
+   objects with private exposure. Incomplete multipart state remains
+   unverified.
 
-Any authorization request must bind one apply to candidate digest
-`e55e9ccb7b62b97503793133fbb952c478146ffa0a3299348206677255c7633f`
-and source `886b48b31119f76382535a06d4535e04aa049097`. Immediately before the
-apply, use a clean exact-source worktree and repeat the journal, pending-list,
-schema/data, integrity, mapping-continuity, and R2 privacy reads. Any drift or
-any migration error stops before another write. The authority cannot include
-R2, Worker/version, Access, route, secret, deployment, provider, export, or
-outbound action.
+The apply ran from a clean detached worktree at source
+`886b48b31119f76382535a06d4535e04aa049097` after exact journal,
+pending-list, schema/data, integrity, mapping-continuity, and R2 privacy reads.
+No R2 write, Worker/version, Access, route, secret, deployment, provider,
+export, or outbound action was included.
+
+The next gate is separate authority and evidence for the remaining terminal
+Plan 02-99 tuple: reviewed private runtime configuration, owner-only edge and
+application identity, a reachable version/deployment, real non-owner denial,
+post-version/post-smoke schema and zero-row rechecks, and disabled external
+effects. This Stage 2 record authorizes none of those actions.
 
 This document is not a Plan 02-99 completion summary and grants no later-stage
 authority.
