@@ -167,8 +167,10 @@ Keep all external effects disabled. Revised Stage 3A has passed and Stage 3B0
 has been independently verified complete. Do not retry the empty-schedule
 failure or perform another upload. Review `02-99-STAGE3-EVIDENCE.md` and obtain
 a new exact owner decision for Stage 3B only: create and independently review
-the exact-owner Worker-level Access boundary while both Worker URL switches
-remain disabled. Do not enter secrets, generate a runtime candidate, enable a
+the exact-owner Worker-level **All traffic** Access boundary with a single
+Emails Allow rule, Cloudflare-only login, and one-hour application/policy
+sessions while both Worker URL switches remain disabled. Do not enter secrets,
+generate a runtime candidate, enable a
 preview or route, issue an application request, access real rows, persist,
 export, invoke a provider, or perform any effect. Do not access the original
 target. Plan 02-99 remains incomplete and no summary may be created.

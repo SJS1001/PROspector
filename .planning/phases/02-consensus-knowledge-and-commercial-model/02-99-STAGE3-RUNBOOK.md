@@ -157,21 +157,33 @@ the Worker Access application into one authorization.
 
 In the owner-authenticated Cloudflare dashboard:
 
-1. Open **Workers & Pages**, select the exact new Worker, then open **Settings
-   → Domains & Routes**.
-2. For the production `workers.dev` URL, select **Enable Cloudflare Access**
-   while the `workers.dev` route remains disabled. Do not enable Preview URLs.
-   If Cloudflare requires making either URL reachable before Access can be
-   enabled, stop without changing the route.
-3. Open **Manage Cloudflare Access** and configure one Allow policy whose
-   Include selector is the single exact owner email.
-4. Do not use Everyone, an email domain, all account members, a reusable broad
-   group, Bypass, or Service Auth. Use only an owner-approved identity provider
-   and a bounded pilot session duration. Do not add the future non-owner
-   negative-test principal.
+1. Open **Workers & Pages**, select the exact new Worker, then open its
+   **Access** tab.
+2. Select **Protect this Worker behind Access** and choose **All traffic**.
+   Cloudflare's current Worker-level choices are **Previews only** or **All
+   traffic**; it does not offer a production-only Worker destination. **All
+   traffic** binds Access to both production and preview surfaces without
+   enabling either one. If Cloudflare requires enabling `workers.dev`, Preview
+   URLs, a route, or a custom domain before Access can be applied, stop without
+   changing exposure.
+3. Configure exactly one Allow policy whose Include selector is **Emails** and
+   whose value is the single exact owner email. Select only the already
+   verified Cloudflare identity provider. If the application cannot constrain
+   the login method directly, add **Require → Login Methods → Cloudflare**;
+   never add Login Methods as another Include rule because Include rules are
+   OR conditions.
+4. Set both application and policy session duration to exactly **1 hour**. Do
+   not change the account-wide global session duration. Do not use Everyone,
+   Emails ending in, Cloudflare Account Member, an email domain, a reusable
+   broad group, Bypass, or Service Auth. Do not add the future non-owner
+   negative-test principal. MFA remains outside this checkpoint and must not
+   be claimed from exact-email authorization alone.
 5. Save and independently re-open the Worker and Access application. Verify
-   the exact Worker, production-only protection, single-email Allow rule,
-   policy precedence, session duration, and absence of Bypass/broad rules.
+   the exact Worker, **All traffic** Worker destination, single-email Allow
+   rule, Cloudflare-only login method, policy precedence, one-hour application
+   and policy durations, and absence of Bypass/broad rules. Re-prove that
+   production `workers.dev` and Preview URLs remain disabled, with no route or
+   custom domain.
 6. Record only the non-secret application audience and exact
    `https://<team>.cloudflareaccess.com` issuer in an owner-only mode-0600 JSON
    file below `site/.wrangler/`. Also bind that file to the current outer
@@ -185,6 +197,10 @@ value, or credential in Git, chat, screenshots, logs, or evidence.
 Stop if Access cannot be enabled while the Worker remains unreachable, if the
 application cannot be created without broad access, or if its audience/issuer
 cannot be verified.
+
+Worker-level Access does not support WebSocket upgrades; Cloudflare returns
+`403` for that traffic. The current PROspector pilot has no authorized
+WebSocket surface. Any future real-time feature must re-evaluate this boundary.
 
 ## 3C — Generate and review the private runtime candidate (not authorized)
 

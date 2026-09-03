@@ -333,9 +333,11 @@ D1/R2 zero-delta reads passed. See
 5. **Stage 3B0 complete; Stage 3B not currently authorized:** the approved
    `digitalrain-prospector` Zero Trust Free organization now exists with the
    default Cloudflare identity provider restricted to account members. From
-   that Worker's **Settings → Domains & Routes**, enable and independently
-   review exact-owner Access for the production `workers.dev` URL while the URL
-   remains disabled. Stop if Cloudflare requires making it reachable first.
+   that Worker's **Access** tab, protect **All traffic** and independently
+   review an exact-owner Emails Allow policy with Cloudflare-only login and
+   one-hour application/policy durations while both production and preview
+   URLs remain disabled. Stop if Cloudflare requires making either surface
+   reachable first.
 6. Generate the target-specific runtime candidate, then run all local gates and
    a no-upload Wrangler dry run with owner-held secret values outside Git.
 7. Upload one final **undeployed** version with the required secrets supplied
