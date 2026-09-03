@@ -17,6 +17,17 @@ threats_total: 19
 
 **LOCAL IMPLEMENTATION SECURED; PHASE RELEASE BLOCKED ON EXTERNAL EVIDENCE.**
 
+## Greenfield continuation update — 2026-09-03
+
+T-02-17 and T-02-18 below describe the retired Sites release and are preserved
+only as historical threat evidence. They must not be tested against that
+target. Their active greenfield equivalents remain open under Plan 02-99:
+fresh owner/non-owner isolation with zero delta, and exact checked
+source/migration/integrity evidence for the new target, followed by negative
+mutation, secret/log, zero-effect, and exact-release review evidence. Stages
+1–2 prove only the fresh D1/R2 migration baseline; no Worker, Access policy,
+route, deployment, request, or acceptance exists.
+
 - Authored threats closed: **17/19**.
 - Local implementation threats open: **0**.
 - External hosted threats blocked: **2/19** — T-02-17 and T-02-18.

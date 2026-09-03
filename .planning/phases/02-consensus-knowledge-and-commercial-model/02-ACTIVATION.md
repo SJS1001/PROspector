@@ -16,11 +16,22 @@ hosted acceptance until a newly provisioned greenfield target proves its own
 empty baseline, exact checked source/migrations, private boundary, and zero
 effects. No hosted write or target provisioning is authorized now.
 
+## Current greenfield continuation — 2026-09-03
+
+Under separate owner authorizations, Stage 1 created one fresh D1 database and
+one private R2 bucket, and Stage 2 applied the checked `0000`–`0009` migration
+chain. Read-only evidence records the exact ten-row journal and expected schema,
+zero application rows, clean integrity, and zero completed R2 objects. No
+Worker/version, Access policy, secret, route, deployment, application request,
+provider, export, or outbound effect exists. Stage 3 remains unexecuted and
+requires a separate explicit owner authorization; this partial target is not
+Plan 02-99 acceptance.
+
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
 | Greenfield local baseline | status: **Plan 02-22 complete; local only** | Reproduced an empty disposable database from the checked migration chain and explicitly recorded no original-project migration claim. |
-| Future greenfield target | status: **not provisioned; Plan 02-99 blocked** | A later separately authorized new empty target must provide its own evidence. Local proof cannot satisfy this row. |
-| Phase 1 real-principal prerequisite | status: accepted (owner-confirmed, 2026-08-01) | Redacted operator evidence confirms a separately signed-in principal was denied across the private app and required APIs, with owner-confirmed zero D1/R2/audit delta. |
+| Future greenfield target | status: **partially provisioned; Stage 2 complete; Plan 02-99 blocked before Stage 3** | The fresh D1/R2 target has exact migration and zero-data evidence. Worker/Access/version/deployment/principal/zero-effect/owner-acceptance evidence remains absent. |
+| Phase 1 real-principal prerequisite | status: historical evidence only; fresh greenfield proof required | The 2026-08-01 redacted evidence belonged to the retired Sites release. It cannot satisfy Plan 02-99; the new target must prove owner/non-owner isolation and zero state delta independently. |
 | Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
 | Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |
 | Read-only incident reconciliation | status: **retired incomplete history** | The partial observations remain historical; missing provenance is waived because no original state will be reused. Do not resume collection. |
@@ -37,7 +48,7 @@ effects. No hosted write or target provisioning is authorized now.
 | Gate activation | status: non-executable; gate absent | Preserve the absent gate. No gate writer or activation is authorized. |
 | Owner lifecycle | status: non-executable | Upstream release and activation stages are unaccepted. |
 
-The original project must not be accessed or reused. No replacement target is selected or provisioned. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after a future target's exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
+The original project must not be accessed or reused. The fresh greenfield D1/R2 resources are the only selected target components; no Worker, Access application, route, or deployment exists. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after a future target's exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
 
 No automated test, local fixture, status row, deployment record, digest, or text in this ledger can satisfy an absent human evidence requirement.
 

@@ -19,6 +19,14 @@ status: local_implementation_clean_human_render_pending
 current source revision.** This re-review does not replace the separate Phase
 2 hosted-evidence gate or a human rendered-browser check.
 
+## Greenfield continuation update — 2026-09-03
+
+The Plan 02-12/Sites-specific hosted checks below are historical only because
+that release is retired. The current rendered-browser and hosted identity
+checks must be performed against the exact greenfield release under Plan
+02-99, after its separately authorized Worker/Access stages. Local UI evidence
+does not satisfy that gate.
+
 ## Closed findings
 
 | Prior finding | Current evidence |
@@ -47,9 +55,10 @@ current source revision.** This re-review does not replace the separate Phase
 1. **Human rendered-browser review:** no local dev server was running, so
    responsive balance, contrast, wrapping, and keyboard flow still need a
    human browser review. This is not a code or API blocker.
-2. **Plan 02-12 hosted evidence:** the real second-principal boundary proof
-   and read-only old-schema hosted D1 baseline remain non-substitutable. They
-   are unrelated to, and are not satisfied by, this local re-review.
+2. **Historical Plan 02-12 evidence:** its Sites-specific proof is retired and
+   must not be resumed. Equivalent exact-release browser and identity evidence
+   remains non-substitutable under greenfield Plan 02-99 and is not satisfied
+   by this local re-review.
 
 ## Scope boundary
 
