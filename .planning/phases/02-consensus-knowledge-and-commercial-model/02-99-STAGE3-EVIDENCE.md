@@ -180,5 +180,9 @@ Revised Stage 3A has passed its unreachable bootstrap checkpoint and its
 one-command authority is exhausted. Stop before Access, secrets,
 runtime-candidate generation, another upload, route enablement, any
 application request, or any effect. Stage 3 and Plan 02-99 remain incomplete;
-the exact next external decision is whether to authorize Stage 3B owner-only
-Access setup while both route switches remain disabled.
+the Worker Access panel was inspected read-only after this stop and reports
+that no Zero Trust organization/authentication domain exists. No onboarding
+link was opened. The exact next external decision is Stage 3B0: choose the
+unique team name, Zero Trust plan, and initial identity-provider posture before
+the owner personally completes account onboarding. Stage 3B owner-only Access
+setup follows only after that prerequisite is independently verified.

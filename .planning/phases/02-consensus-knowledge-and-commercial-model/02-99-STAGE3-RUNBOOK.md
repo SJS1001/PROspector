@@ -106,7 +106,43 @@ this checkpoint and gives a separate continuation authorization.
 > authority is exhausted; see
 > `02-99-STAGE3-EVIDENCE.md`.
 
+## 3B0 — Create the account Zero Trust organization (not authorized)
+
+The 2026-09-03 read-only Worker Access panel reports that this Cloudflare
+account has no Zero Trust organization or authentication domain. Cloudflare's
+current onboarding requires an owner-chosen unique team name, a subscription
+plan, and payment details even for the no-charge Free plan. Creating that
+organization is account provisioning, not an implicit part of Stage 3A or the
+Worker Access policy.
+
+Before any Access application or policy action, require a separate exact owner
+decision that names:
+
+1. the non-secret unique team name that will form the
+   `<team>.cloudflareaccess.com` authentication domain;
+2. the selected Zero Trust plan (the Free plan is sufficient for this bounded
+   pilot unless the owner deliberately chooses otherwise); and
+3. whether to retain the new-organization default Cloudflare identity provider,
+   restricted to account members, or configure another explicitly approved
+   provider later.
+
+The owner must personally review the plan and enter any payment details in the
+Cloudflare dashboard. Do not record payment data, create an API credential,
+enable WARP/Gateway/device enrollment, add users, configure DNS, change Worker
+routes, or create an Access application during this onboarding checkpoint.
+After onboarding, stop and verify read-only that the exact team domain and
+default identity provider exist and both Worker route switches remain disabled.
+
+Official prerequisites:
+
+- <https://developers.cloudflare.com/cloudflare-one/setup/>
+- <https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/cloudflare/>
+
 ## 3B — Create the exact-owner Worker-level Access boundary (not authorized)
+
+Run this section only after 3B0 has been separately authorized, completed by
+the owner, and verified. Do not combine Zero Trust organization creation and
+the Worker Access application into one authorization.
 
 In the owner-authenticated Cloudflare dashboard:
 

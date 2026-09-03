@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Revised Stage 3A authority is exhausted after passing the unreachable bootstrap gate; one bootstrap version/deployment exists with both Worker URL switches disabled, zero routes/Cron and zero D1/R2 delta, and no further write is authorized
-last_updated: "2026-09-03T04:11:11Z"
+stopped_at: Revised Stage 3A passed; read-only Access inspection found no Zero Trust organization, so Stage 3B0 awaits the owner's team-name, plan, and identity-provider choices plus owner-completed onboarding
+last_updated: "2026-09-03T04:15:04Z"
 last_activity: 2026-09-03
 progress:
   total_phases: 7
@@ -171,7 +171,7 @@ None yet.
 ### Blockers/Concerns
 
 - The original schema/source incident remains historical evidence explaining abandonment. Its missing provenance is waived, not solved, and no migration occurrence may be claimed.
-- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 2 D1 migration is complete and exact. Revised Stage 3A passed the unreachable bootstrap checkpoint and exhausted its one deployment-aware authority. A new exact owner decision is required before Stage 3B Access setup or any secret, runtime-candidate, or later-version work. Terminal acceptance still requires an exact-owner Access boundary, real-principal denial, repeated zero-row/integrity evidence, zero-effect proof, and owner acceptance.
+- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 2 D1 migration is complete and exact. Revised Stage 3A passed the unreachable bootstrap checkpoint and exhausted its one deployment-aware authority. The read-only Worker Access panel reports that the account has no Zero Trust organization/authentication domain. Stage 3B0 therefore requires an exact owner choice of unique team name, plan, and initial identity-provider posture, followed by owner-entered onboarding/payment details, before Stage 3B Access setup or any secret, runtime-candidate, or later-version work. Terminal acceptance still requires an exact-owner Access boundary, real-principal denial, repeated zero-row/integrity evidence, zero-effect proof, and owner acceptance.
 - The current Wrangler OAuth profile cannot read or write Access applications/policies. Do not retry the Access API with it and do not broaden, extract, or replace its credential automatically. Continue only after the owner authorizes either dashboard-based Access setup or creation/use of a least-privilege Access Apps and Policies credential.
 - The retired Phase 1 Sites release never received its real second-principal, authenticated mutation, secret/log, or fresh exact-release review checks. Those checks are superseded rather than passed; their greenfield equivalents remain non-substitutable Plan 02-99 acceptance gates.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
@@ -192,5 +192,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-03
-Stopped at: Revised Stage 3A ran exactly once and is exhausted after passing unreachable verification; one bootstrap version/deployment exists with production/preview routes disabled, no route/Cron, exact empty D1/R2 state, and no Access/secrets/later upload; draft PR `#2` remains open
+Stopped at: Revised Stage 3A passed; one unreachable bootstrap version/deployment and exact empty D1/R2 state exist, but read-only Access inspection found no Zero Trust organization, so Stage 3B0 awaits the owner's team-name, plan, and identity-provider decisions plus owner-completed onboarding; draft PR `#2` remains open
 Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-EVIDENCE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-RUNBOOK.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE2-EVIDENCE.md`, and `docs/CLOUDFLARE-GREENFIELD-READINESS.md`

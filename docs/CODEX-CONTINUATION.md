@@ -140,7 +140,7 @@ Use these existing artifacts rather than restating product decisions:
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- No further hosted write is authorized in the current lane. Revised Stage 3A passed its unreachable bootstrap gate and exhausted its one command. The provisioned D1 remains empty at exact migration `0009`; R2 remains private and empty; one bootstrap version/deployment exists with production/preview routes disabled, no custom route/domain, and zero Cron. Access, secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain blocked pending exact authorization.
+- No further hosted write is authorized in the current lane. Revised Stage 3A passed its unreachable bootstrap gate and exhausted its one command. The provisioned D1 remains empty at exact migration `0009`; R2 remains private and empty; one bootstrap version/deployment exists with production/preview routes disabled, no custom route/domain, and zero Cron. A subsequent read-only Access-panel check proved that the account has no Zero Trust organization/authentication domain. Stage 3B0 onboarding now requires an exact owner choice of unique team name, plan, and initial identity-provider posture plus owner-entered payment details before any Access application. Access, secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain blocked pending exact authorization.
 - The current Wrangler credential does not grant Access application/policy management. Never extract, broaden, rotate, or replace it automatically. If Stage 3 is authorized, use the already signed-in owner dashboard or an explicitly owner-created least-privilege Access credential, and keep its value outside Git, chat, logs, screenshots, and evidence.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
@@ -166,8 +166,10 @@ Use these existing artifacts rather than restating product decisions:
 Keep all external effects disabled. Revised Stage 3A has passed and stopped
 after its one command and read-only verification; do not retry the
 empty-schedule failure or perform another upload. Review
-`02-99-STAGE3-EVIDENCE.md` and obtain a new exact owner authorization for Stage
-3B before creating the exact-owner Access boundary. Do not enter secrets,
+`02-99-STAGE3-EVIDENCE.md` and obtain a new exact owner decision for Stage 3B0:
+the unique team name, Zero Trust plan, and initial identity-provider posture.
+The owner must personally complete any payment-detail step. Do not combine
+onboarding with the later Stage 3B Access application. Do not enter secrets,
 generate a runtime candidate, enable a preview or route, issue an application
 request, access real rows, persist, export, invoke a provider, or perform any
 effect. Do not access the original target. Plan 02-99 remains incomplete and
