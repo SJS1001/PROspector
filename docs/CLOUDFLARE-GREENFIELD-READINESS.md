@@ -89,6 +89,14 @@ The closed input/output and fail-closed rules are now pinned in
 The document defines the owner-approved local CLI seam. The implementation
 still grants no external authority and never invokes Wrangler itself.
 
+The later private runtime assembly is separately pinned in
+`.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-RUNTIME-CONFIG-CONTRACT.md`.
+Its local generator consumes one exact target candidate and closed non-secret
+Access metadata, then adds only Cloudflare Access mode/issuer/audience and the
+two required secret names. It rejects public/effect drift and never reads a
+secret value or invokes Wrangler. A target-specific runtime candidate does not
+yet exist because Access has not been provisioned.
+
 - a new Worker name, explicit `main`, compatibility date, and
   `nodejs_compat` flag;
 - `DB` mapped to one newly created D1 `database_name` and `database_id`;
@@ -358,6 +366,7 @@ only when all of the following are true:
 Until then, the only accurate status is **Stage 2 D1 migration is complete and
 exactly verified at `0009`; the D1 has clean integrity and zero application
 rows, R2 has zero completed objects and private exposure while incomplete
-multipart state remains unverified, and no migration remains pending. Every later
-identity, secret, Worker/version, Access, route, deployment, application, or
-effect action remains separately gated**.
+multipart state remains unverified, no migration remains pending, and the local
+private-runtime candidate generator is verified. No target-specific runtime
+candidate exists. Every later Access, secret, Worker/version, route, deployment,
+application, real-principal, or effect action remains separately gated**.

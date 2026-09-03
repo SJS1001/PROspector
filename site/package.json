@@ -17,6 +17,7 @@
     "db:local:reset": "node scripts/local-bootstrap.mjs --reset",
     "baseline:greenfield": "node scripts/greenfield-baseline.mjs --reset",
     "greenfield:target:prepare": "node scripts/greenfield-target-config.mjs",
+    "greenfield:runtime:prepare": "node scripts/greenfield-runtime-config.mjs",
     "demo:local:smoke": "node scripts/local-demo-smoke.mjs"
   },
   "dependencies": {

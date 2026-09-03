@@ -16,6 +16,10 @@ This contract defines behavior shared by any eventual interface. It does not
 select the proposed CLI seam, contain a target identifier, or authorize a
 Cloudflare command.
 
+The later, separately reviewed addition of Access issuer/audience metadata and
+required secret names is governed by `02-99-RUNTIME-CONFIG-CONTRACT.md`. It
+cannot relax or replace any invariant in this target-only contract.
+
 ## Input authority
 
 The module may accept only:

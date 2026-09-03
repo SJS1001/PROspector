@@ -105,6 +105,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - Focused Miniflare D1 fixtures and separate SQLite inventory cross-checks record both the paused `0000`-`0007` boundary and the repaired chain's expected post-chain shape in `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE2-EVIDENCE.md` and `02-99-EXPECTED-SCHEMA.md`. Exact object, table, stored-definition, and journal digests supplement the 71/151/77 paused counts and 92/206/149 post-chain counts. They are local comparison material only and cannot substitute for fresh remote evidence.
 - The checked target-configuration contract at `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-TARGET-CONFIG-CONTRACT.md` fixes the closed resource inputs, private custody, exact bindings/migration resolution, public-exposure and effect denial, Wrangler validation/dry-run, and sanitized output invariants. Candidate source `886b48b31119f76382535a06d4535e04aa049097` passed canonical build/tests, lint, the six-case target-config suite, production audit, Vinext compatibility, private byte-stable preparation, and a Wrangler 4.116.0 no-upload dry run. Its immediate pre-apply reads matched the paused `0007` boundary exactly; the next bullet records the bounded remote result.
 - On 2026-09-03 the owner authorized one exact pending-migration apply against candidate `886b48b31119f76382535a06d4535e04aa049097`. Pre-apply evidence reproduced the recorded `0007` boundary; Wrangler then applied only `0008` and `0009` once. Immediate remote reads match the expected 10-row journal and all post-chain schema digests, count 92 tables/206 indexes/149 triggers with zero application rows, report clean quick/foreign-key checks and no pending migration, and leave R2 at zero completed objects with private exposure. Incomplete multipart state remains unverified. This is Stage 2 migration evidence only; it is not Worker, Access, deployment, real-principal, or Plan 02-99 acceptance evidence.
+- The next local configuration seam is now complete: `greenfield:runtime:prepare` accepts only one exact owner-private target candidate and closed Access issuer/audience metadata, binds them to current outer-repository HEAD and target bytes, and emits one non-overwriting mode-0600 runtime candidate. It adds only `cloudflare-access` mode, issuer/audience, and the required secret names; it rejects secret-bearing metadata, public/effect drift, unsafe permissions, symlink escape, stale bindings, and overwrite. Its six focused cases, canonical tests/build, lint, production audit, and Vinext compatibility are green. It did not create Access, read a secret value, upload a version, attach a route, deploy, issue a request, or complete Plan 02-99.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -122,7 +123,7 @@ Use these existing artifacts rather than restating product decisions:
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- No further hosted write is authorized in the current lane. The provisioned D1 is freshly proven clean and empty at migration `0009`; no migration remains pending. The exact next gate is separate authority for reviewed private runtime configuration, Access/owner identity, version/deployment, real-principal denial, repeated zero-row/integrity reads, and disabled-effect proof under terminal Plan 02-99.
+- No further hosted write is authorized in the current lane. The provisioned D1 is freshly proven clean and empty at migration `0009`; no migration remains pending. Local runtime-candidate generation is ready but cannot produce a target-specific candidate until an Access issuer/audience exists. The exact next gate is separate authority for Access provisioning and owner-held configuration/secrets, followed by reviewed private version/deployment, real-principal denial, repeated zero-row/integrity reads, and disabled-effect proof under terminal Plan 02-99.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
 ## Safety boundaries
@@ -144,33 +145,17 @@ Use these existing artifacts rather than restating product decisions:
 
 ## Safe next action
 
-Keep all external effects disabled and take one checked synthetic preparation
-unit under the applicable preparation contract. The Phase 6 static guard and
-isolated approval/suppression and canonical artifact/invalidation contracts are
-complete local preparation. The synthetic final-dispatch recheck/lease decision
-and the originated-event/stop-rule cancellation projection are also complete;
-the DeliveryUnknown/manual-reconciliation, unsubscribe/explicit-opt-out
-suppression-before-success, manual-call eligibility/outcome, minimized
-audit-envelope/append, identity-change suppression, and atomic identity/
-suppression receipt classifiers are complete as well. The synthetic
-suppression-retention manifest across delete/import/export/archive/restore and
-the ID/digest-only cross-contract invariant bundle are also complete.
-Collectively they grant
-no invocation, persistence,
-reconciliation, retry, cancellation, response, phone-target, activity,
-follow-up, logger, external-sink, identity-mutation, tombstone-deletion, or
-phone-effect authority, and none executes a Phase 6 plan. The Phase 7
-dependency audit and bounded preparation authority are now complete, as is its
-weekly-outcome, current-eligibility, immutable handoff request/version,
-digest-only handoff manifest intent, canonical CSV schema/policy-definition,
-CSV materialization-precondition, CSV artifact-version-intent, and handoff
-invariant-bundle capstone. The bounded safe Phase 7 preparation line is now
-complete. Do not add more preparation placeholders. The next executable
-product work requires the actual greenfield target/human/persistence gates,
-beginning with terminal Plan 02-99 acceptance and then dependency-ordered Phase
-7 plan execution. Until separately authorized and evidenced, do not select or
-provision a target, access real rows, create CSV bytes/checksums or history,
-persist, deliver, download, export, invoke a provider, or perform any effect.
-Do not execute a Phase 7 plan or create its plan tests. Do not access the
-original target or provision a new one. New terminal Plan 02-99 remains the
-future greenfield target acceptance gate and performs no hosted action itself.
+Keep all external effects disabled. The bounded Phase 6 and Phase 7 synthetic
+preparation lines, target-only candidate generator, and private-runtime
+candidate generator are complete; do not add more placeholders. The next
+executable product work is the separately authorized external Plan 02-99 gate:
+create and independently review one exact-owner Cloudflare Access application,
+record its non-secret issuer/audience plus the two owner-held secret values
+outside Git, generate and review the exact private runtime candidate, run the
+no-upload gates, then use a separately authorized non-promoting version/private
+deployment sequence to collect owner and real-non-owner evidence. Until that
+authority and evidence exist, do not create Access, enter secrets, upload a
+Worker/version, enable a preview or route, deploy, issue application requests,
+access real rows, persist, export, invoke a provider, or perform any effect.
+Do not access the original target. Plan 02-99 remains incomplete and no summary
+may be created.
