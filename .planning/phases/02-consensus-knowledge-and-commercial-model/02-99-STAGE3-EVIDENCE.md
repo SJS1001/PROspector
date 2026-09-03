@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-03
 
-**Status:** blocked safely at the first hosted-write boundary
+**Status:** revised Stage 3A authorized; one initial deployment not yet performed
 
 ## Authorized scope
 
@@ -73,7 +73,7 @@ The entry D1 inventory had already proved all 92 application tables empty; the
 post-failure sampled zero-row check supplements, rather than replaces, that
 entry evidence.
 
-## Required replan and owner decision
+## Original required replan and owner decision
 
 Stage 3 is incomplete. Do not retry `versions upload`, create Access, enter
 secrets, or continue to runtime-candidate generation.
@@ -89,3 +89,18 @@ sufficient.
 
 This record is partial execution evidence, not a Plan 02-99 summary or Phase 2
 acceptance.
+
+## Revised Stage 3A authorization
+
+Later on 2026-09-03, the owner explicitly authorized updating the runbook and
+verifier and then performing exactly one initial `wrangler deploy` with
+`workers_dev=false`, `preview_urls=false`, no routes, and no Cron triggers.
+The authorization requires an immediate read-only verification stop before
+Access, secrets, runtime-candidate generation, another upload, or any other
+hosted write. The revised procedure is recorded in `02-99-STAGE3-RUNBOOK.md`.
+No revised deployment result is claimed until a later section records its
+sanitized read-only evidence.
+
+The revised ten-case verifier suite, canonical production build and complete
+test suite, lint, production dependency audit with zero findings, and Vinext
+compatibility check at 100% passed before any revised hosted write.

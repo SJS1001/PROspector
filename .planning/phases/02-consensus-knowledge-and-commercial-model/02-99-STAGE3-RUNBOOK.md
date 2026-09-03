@@ -2,22 +2,29 @@
 
 **Captured:** 2026-09-02
 
-**Status:** blocked at 3A after one provider-rejected attempt; requires a reviewed replan and new owner authorization
+**Status:** revised 3A authorized; stop after the single initial deployment and read-only verification
 
 ## Scope
 
-Stage 3 may upload one target-only undeployed bootstrap version to create the
-otherwise unreachable Worker, enable exact-owner Worker-level Cloudflare
-Access, generate one owner-private runtime candidate, and upload one final
-undeployed Worker version with required secrets. It must finish with no route,
-no custom domain attachment, disabled `workers.dev`, disabled preview URLs, no
-deployment, no application request, and no application row or R2 object
-change.
+Stage 3A may perform exactly one initial `wrangler deploy` against the reviewed
+target-only candidate to create the otherwise unreachable Worker. Cloudflare
+will create one version and one 100% deployment, but the candidate must keep
+`workers_dev=false`, `preview_urls=false`, zero routes/custom domains, and
+empty Cron triggers. The operator must then stop and perform only read-only
+verification. With no route, preview URL, or trigger, the deployment has no
+public or scheduled ingress.
 
-This runbook does not authorize its own execution. It does not authorize Stage
-4 routing/deployment, owner or outsider requests, workspace bootstrap, R2
-probe, real data, provider setup, prospecting, enrichment, Gmail, telephony,
-export, schedule, or outbound effect.
+Later Stage 3 steps may enable exact-owner Worker-level Cloudflare Access,
+generate one owner-private runtime candidate, and upload one final undeployed
+Worker version with required secrets, but those steps are not part of the
+current authorization. They require a separate continuation authorization
+after the 3A stop evidence is reviewed.
+
+This runbook records the owner's exact 2026-09-03 revised Stage 3A
+authorization. It does not authorize Access, secrets, another upload, Stage 4
+routing/deployment, owner or outsider requests, workspace bootstrap, R2 probe,
+real data, provider setup, prospecting, enrichment, Gmail, telephony, export,
+schedule, or outbound effect.
 
 ## Entry evidence
 
@@ -32,34 +39,28 @@ Before starting, require all of the following:
    repository's published `digitalrain.ai` domain was delegated to registrar
    nameservers when checked on 2026-09-02, so Stage 3 must not change its DNS or
    depend on a custom hostname.
-4. The owner authorizes **Stage 3** against the exact source and reviewed
-   Worker/resource mapping.
-5. The operator uses the owner-authenticated dashboard or a separately
-   owner-created least-privilege credential with Access Apps and Policies
-   write. The active Wrangler OAuth profile is insufficient and must not be
-   extracted, broadened, rotated, or replaced automatically.
+4. The owner authorizes **revised Stage 3A** against the exact source and
+   reviewed Worker/resource mapping, explicitly naming the one unavoidable
+   initial deployment and the mandatory read-only stop.
+5. The active Wrangler profile can create and inspect the Worker. Access Apps
+   and Policies permission is not required for 3A because Access is explicitly
+   outside this authorization.
 
 Any mismatch stops with no Access, secret, or Worker write.
 
-## 3A — Create the unreachable Worker shell
+## 3A — Create and verify the unreachable Worker shell
 
-> **2026-09-03 execution stop:** The owner authorized this runbook and the
-> entry gates passed, but Cloudflare rejected the one permitted command before
-> creating a Worker. A new Worker cannot be created with `versions upload`;
-> Cloudflare requires C3 or `wrangler deploy` for the first upload, and that
-> creates a deployment prohibited by this runbook. No retry occurred and
-> read-only proof found zero Workers, versions, deployments, routes, requests,
-> or D1/R2 changes. See `02-99-STAGE3-EVIDENCE.md`. The command below is retained
-> as the reviewed historical procedure and **must not be retried**. Steps 3B-3F
-> are blocked until a revised deployment-aware runbook and a new exact owner
-> authorization exist.
+The first zero-deployment `versions upload` attempt was rejected before Worker
+creation and was not retried. Read-only evidence proved that attempt caused no
+hosted change. The owner has now separately authorized the required
+deployment-aware replacement below.
 
-From the exact reviewed source and target-only candidate, first complete the
-canonical local gates and a no-upload dry run. Then, under the explicit Stage 3
-authorization, run exactly one non-promoting upload:
+From the exact reviewed source and regenerated target-only candidate, first
+complete the canonical local gates and a no-upload `wrangler deploy --dry-run`.
+Then run exactly one initial upload command:
 
 ```sh
-npx wrangler versions upload \
+npx wrangler deploy \
   --config .wrangler/<exact-target-candidate>.json \
   --strict \
   --message "Plan 02-99 Stage 3 unreachable bootstrap"
@@ -67,14 +68,34 @@ npx wrangler versions upload \
 
 The target-only candidate has `workers_dev=false`, `preview_urls=false`, no
 routes, empty Cron triggers, no Access variables, and no secret declarations.
-The upload may create the named Worker and one version, but it must create no
-deployment or reachable URL. Do not use `wrangler deploy`, `--preview-alias`,
-the dashboard editor, Quick Edit, or a route/custom-domain action.
+The command may create only the named Worker, one version, and the one required
+100% deployment. It must create no reachable URL or scheduled ingress. Do not
+use `--preview-alias`, the dashboard editor, Quick Edit, a route/custom-domain
+action, or any other write.
 
-If the upload fails or its result is ambiguous, do not retry. Inspect versions,
-deployments, routes, D1, and R2 read-only and stop.
+Immediately create an owner-only mode-0600 expectation file below
+`site/.wrangler/` containing exactly `sourceCommit` and
+`targetCandidateDigest`, then run:
 
-## 3B — Create the exact-owner Worker-level Access boundary
+```sh
+npm run greenfield:stage3:verify -- verify-bootstrap \
+  --config .wrangler/<exact-target-candidate>.json \
+  --expectation .wrangler/<exact-bootstrap-expectation>.json
+```
+
+The verifier double-reads versions and deployments and requires exactly one
+Wrangler-created bootstrap version and exactly one 100% deployment bound to
+that version and message. It emits only digests and counts. Independently
+repeat the D1/R2 zero-state checks and confirm the exact candidate still has
+disabled `workers.dev`, disabled preview URLs, no routes, and empty Cron
+triggers. Do not issue an application request.
+
+Whether the upload succeeds, fails, or is ambiguous, do not retry. Perform
+only read-only diagnosis and stop. Access, secrets, runtime-candidate
+generation, and every later upload remain unauthorized until the owner reviews
+this checkpoint and gives a separate continuation authorization.
+
+## 3B — Create the exact-owner Worker-level Access boundary (not authorized)
 
 In the owner-authenticated Cloudflare dashboard:
 
@@ -107,7 +128,7 @@ Stop if Access cannot be enabled while the Worker remains unreachable, if the
 application cannot be created without broad access, or if its audience/issuer
 cannot be verified.
 
-## 3C — Generate and review the private runtime candidate
+## 3C — Generate and review the private runtime candidate (not authorized)
 
 From `site/`, after rebuilding the exact checked source and regenerating a
 fresh target candidate, run:
@@ -132,7 +153,7 @@ secure randomness and at least 32 random bytes. Never print either value or
 paste it into chat. Do not rotate an existing pepper; this greenfield target
 must receive its first value exactly once.
 
-## 3D — Complete local no-upload gates
+## 3D — Complete local no-upload gates (not authorized)
 
 Against the exact candidate and build, require:
 
@@ -151,10 +172,10 @@ dry-run bundle after its sanitized digests are recorded.
 Any failure, warning about a public route/preview, resource mismatch, secret
 leak, or build drift stops before upload.
 
-## 3E — Upload the final unreachable, undeployed version
+## 3E — Upload the final unreachable, undeployed version (not authorized)
 
-Only under the same explicit Stage 3 authorization, run one command from the
-exact reviewed source and private files:
+Only under a future separate authorization, run one command from the exact
+reviewed source and private files:
 
 ```sh
 npx wrangler versions upload \
@@ -185,17 +206,18 @@ npm run greenfield:stage3:verify -- verify \
 
 The verifier double-reads only `wrangler versions list --json` and `wrangler
 deployments list --json`. It requires exactly the ordered bootstrap/final
-Wrangler-upload lineage and zero deployments, rejects cross-read drift and any
-reachable/effect-capable candidate, and emits only source/config/version
-inventory digests and counts. It never emits version IDs, authors, provider
-stderr, paths, resource identities, Access values, or secrets. It does not
-prove routes, Access policy state, D1, or R2; those remain independent dashboard
-and read-only provider checks below.
+Wrangler-upload lineage and the single initial bootstrap deployment at 100%,
+rejects cross-read drift and any reachable/effect-capable candidate, and emits
+only source/config/version/deployment inventory digests and counts. It never
+emits version or deployment IDs, authors, provider stderr, paths, resource
+identities, Access values, or secrets. It does not prove routes, Access policy
+state, D1, or R2; those remain independent dashboard and read-only provider
+checks below.
 
 - the digest-only verifier receipt for the ordered bootstrap/final lineage and
   exact source/runtime configuration, plus the independently recorded build
   digest;
-- zero deployments/traffic for both versions;
+- exactly one initial bootstrap deployment at 100% and no later deployment;
 - `workers_dev=false`, `preview_urls=false`, zero routes/custom domains, and
   empty Cron triggers;
 - the exact Access application audience/issuer digests and independently
@@ -214,7 +236,11 @@ surface, or secret exposure fails Stage 3 and stops the release.
 
 ## Exit and next authorization
 
-Stage 3 ends with two unreachable undeployed versions and an independently
+The currently authorized Stage 3A checkpoint ends with one unreachable
+deployed bootstrap version, no route/preview/schedule, and read-only evidence.
+The operator must stop there. If later separately authorized, terminal Stage 3
+ends with the bootstrap deployment still pointing only to its first version,
+one additional unreachable undeployed final version, and an independently
 reviewed exact-owner Worker-level Access boundary. It does not complete Plan
 02-99.
 

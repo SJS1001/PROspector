@@ -288,27 +288,28 @@ test fixtures, evidence JSON, or this repository.
 This is the required evidence order after the code/config blockers are closed
 and the owner separately authorizes each external action:
 
-The executable Stage 3 subset is pinned in
+The executable Stage 3A subset is pinned in
 `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-RUNBOOK.md`.
-Because Worker-level Access is configured from an existing Worker's settings,
-it first permits one target-only unreachable undeployed bootstrap version. It
-then enables exact-owner Access while all routes remain disabled, generates
-and reviews the target-specific runtime candidate, runs local no-upload gates,
-and permits one final unreachable undeployed version upload. The checked
-`greenfield:stage3:verify` command then double-reads only version/deployment
-JSON, requires the exact two-version lineage and zero deployments, and emits a
-digest-only receipt; dashboard exposure/Access and D1/R2 checks remain
-independent. Route enablement, deployment, application requests, and
-real-principal proof are a later Stage 4 authority.
+Because Cloudflare will not create a new Worker with `versions upload`, the
+revised procedure permits exactly one initial target-only `wrangler deploy`.
+Its configuration disables `workers.dev`, preview URLs, routes, and Cron, so
+the resulting one-version/one-deployment shell has no public or scheduled
+ingress. The checked `greenfield:stage3:verify -- verify-bootstrap` command
+then double-reads only version/deployment JSON, requires that exact 100%
+bootstrap lineage, and emits a digest-only receipt. The operator must stop
+after independent exposure and D1/R2 reads. Access, secrets, a runtime
+candidate, another upload, route enablement, application requests, and
+real-principal proof remain separately authorized.
 
 **2026-09-03 provider stop:** All Stage 3 entry gates passed, but Cloudflare
 rejected the one permitted first `versions upload` before Worker creation.
 Current provider behavior requires C3 or `wrangler deploy` for the first
 Worker upload, and that creates a deployment prohibited by this sequence. The
 command was not retried. Read-only checks proved zero Worker, versions,
-deployments, routes, requests, or D1/R2 delta. Steps 4 onward below are blocked
-historical procedure until a deployment-aware replacement and new exact owner
-authorization exist; see `02-99-STAGE3-EVIDENCE.md`.
+deployments, routes, requests, or D1/R2 delta. This remains historical evidence.
+The owner later authorized the deployment-aware replacement: exactly one
+initial unreachable deployment followed by read-only verification and a stop
+before Access, secrets, or further uploads; see `02-99-STAGE3-RUNBOOK.md`.
 
 1. **Complete:** authenticate the owner-confirmed Cloudflare account before any
    create command; no temporary/claim deployment was used.
@@ -319,9 +320,10 @@ authorization exist; see `02-99-STAGE3-EVIDENCE.md`.
 3. Build, run `vinext check`, run canonical test/lint/audit, inspect the
    generated Wrangler config, and run Wrangler dry-run. These steps perform no
    hosted application write.
-4. Upload one target-only **undeployed** bootstrap version with no route,
-   preview, Access variable, secret declaration, or deployment.
-5. From that Worker's **Settings → Domains & Routes**, enable and independently
+4. Deploy one target-only bootstrap version exactly once with no route,
+   preview, Access variable, secret declaration, or Cron trigger. Verify the
+   resulting single 100% deployment and repeat D1/R2/exposure reads, then stop.
+5. **Not currently authorized:** from that Worker's **Settings → Domains & Routes**, enable and independently
    review exact-owner Access for the production `workers.dev` URL while the URL
    remains disabled. Stop if Cloudflare requires making it reachable first.
 6. Generate the target-specific runtime candidate, then run all local gates and
@@ -401,13 +403,13 @@ only when all of the following are true:
 - the owner explicitly authorizes the named greenfield target and accepts the
   sanitized evidence tuple.
 
-Until then, the only accurate status is **Stage 2 D1 migration is complete and
-exactly verified at `0009`; the D1 has clean integrity and zero application
-rows, R2 has zero completed objects and private exposure while incomplete
-multipart state remains unverified, no migration remains pending, and the local
-private-runtime candidate generator is verified. Stage 3 is blocked before
-Worker creation because the provider requires an initial deployment that was
-not authorized; its one upload attempt was not retried and created no hosted
-state. No target-specific runtime candidate exists. Every later Access,
-secret, Worker/version, route, deployment, application, real-principal, or
-effect action remains separately gated**.
+Until the revised Stage 3A command and its read-only proof finish, the only
+accurate status is **Stage 2 D1 migration is complete and exactly verified at
+`0009`; the D1 has clean integrity and zero application rows, R2 has zero
+completed objects and private exposure while incomplete multipart state
+remains unverified, and no migration remains pending. The original upload
+attempt was not retried and created no hosted state. Exactly one initial
+unreachable deployment is now authorized after revised canonical validation;
+Access, secrets, a runtime candidate, another upload, route enablement,
+application requests, real-principal work, and effects remain separately
+gated**.

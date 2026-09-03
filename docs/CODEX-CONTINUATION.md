@@ -19,7 +19,10 @@ migration, and R2 at zero completed objects with private exposure; incomplete
 multipart state remains unverified. A separately authorized Stage 3 bootstrap
 attempt was rejected by Cloudflare before Worker creation because a new Worker
 requires a first deployment. It was not retried. No Worker, route, Access
-policy, secret, version, deployment, application request, or effect exists.
+policy, secret, version, deployment, application request, or effect exists at
+that checkpoint. The owner has now authorized exactly one revised Stage 3A
+initial unreachable deployment, followed by read-only verification and a stop
+before Access, secrets, or any further upload.
 
 ## Resume from another Codex account
 
@@ -110,9 +113,9 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 - On 2026-09-03 the owner authorized one exact pending-migration apply against candidate `886b48b31119f76382535a06d4535e04aa049097`. Pre-apply evidence reproduced the recorded `0007` boundary; Wrangler then applied only `0008` and `0009` once. Immediate remote reads match the expected 10-row journal and all post-chain schema digests, count 92 tables/206 indexes/149 triggers with zero application rows, report clean quick/foreign-key checks and no pending migration, and leave R2 at zero completed objects with private exposure. Incomplete multipart state remains unverified. This is Stage 2 migration evidence only; it is not Worker, Access, deployment, real-principal, or Plan 02-99 acceptance evidence.
 - The next local configuration seam is now complete: `greenfield:runtime:prepare` accepts only one exact owner-private target candidate and closed Access issuer/audience metadata, binds them to current outer-repository HEAD and target bytes, and emits one non-overwriting mode-0600 runtime candidate. It adds only `cloudflare-access` mode, issuer/audience, and the required secret names; it rejects secret-bearing metadata, public/effect drift, unsafe permissions, symlink escape, stale bindings, and overwrite. Its six focused cases, canonical tests/build, lint, production audit, and Vinext compatibility are green. It did not create Access, read a secret value, upload a version, attach a route, deploy, issue a request, or complete Plan 02-99.
 - A sanitized read-only `wrangler whoami --json` check proves the active CLI profile is authenticated to one account and has the Worker/D1/zone capabilities used through Stage 2, but it has no Access Apps and Policies read/write permission. Cloudflare documents that Access API management requires that separate permission. No credential or account identity was exposed or changed. Do not retry Access through this profile; Stage 3 requires the owner-authenticated dashboard or a separately owner-created least-privilege Access credential.
-- `02-99-STAGE3-RUNBOOK.md` now pins the executable next sequence: one target-only unreachable undeployed bootstrap version; exact-owner Worker-level Access while every URL remains disabled; private runtime candidate and owner-held secrets; canonical/no-upload checks; one final unreachable undeployed version; then read-only D1/R2/exposure evidence. Public DNS confirms the repository's published `digitalrain.ai` domain is not Cloudflare-delegated, so the runbook does not change or depend on its DNS. Route enablement, deployment, application requests, and principal testing are excluded until a separate Stage 4 authorization.
-- `greenfield:stage3:verify` is the checked Stage 3 version/deployment evidence seam. It accepts only owner-private source/config digest expectations, double-reads fixed Wrangler JSON list commands, requires exactly the ordered bootstrap/final upload lineage and zero deployments, rejects drift/public-effect config/custody/provider-shape failures, and emits only digests/counts. Its six-case focused suite, canonical production build/all 92 test files, lint, production audit, and Vinext compatibility are green locally. It does not replace dashboard Access/exposure review or D1/R2 evidence and performs no write.
-- On 2026-09-03 the owner authorized the checked Stage 3 sequence. All local and remote entry gates passed, but Wrangler rejected the one permitted first `versions upload` before creating a Worker. Cloudflare requires C3 or `wrangler deploy` for initial Worker creation, and either path creates a deployment prohibited by that authorization. No retry occurred; read-only proof found zero Worker, versions, deployments, routes, requests, or D1/R2 delta. See `02-99-STAGE3-EVIDENCE.md`. The next hosted step requires a reviewed deployment-aware replan and new exact owner authorization.
+- `02-99-STAGE3-RUNBOOK.md` now pins the deployment-aware Stage 3A replacement: one target-only initial `wrangler deploy` with `workers_dev=false`, `preview_urls=false`, zero routes and empty Cron, immediately followed by read-only evidence and a mandatory stop. Access, secrets, runtime-candidate generation, another upload, route enablement, application requests, and principal testing require later separate authorization. Public DNS confirms the repository's published `digitalrain.ai` domain is not Cloudflare-delegated, so the runbook does not change or depend on its DNS.
+- `greenfield:stage3:verify` is the checked Stage 3 version/deployment evidence seam. It accepts only owner-private source/config digest expectations and double-reads fixed Wrangler JSON list commands. Bootstrap mode requires exactly one version and its single 100% deployment; terminal mode permits exactly one later undeployed final version while traffic remains bound only to bootstrap. It rejects drift/public-effect config/custody/provider-shape failures and emits only digests/counts. Its ten-case focused suite, full canonical production build/tests, lint, zero-finding production audit, and 100% Vinext check are green against the revised bytes. It does not replace route/exposure or D1/R2 evidence and performs no write.
+- On 2026-09-03 the owner authorized the original checked Stage 3 sequence. All local and remote entry gates passed, but Wrangler rejected the one permitted first `versions upload` before creating a Worker. Cloudflare requires C3 or `wrangler deploy` for initial Worker creation, and either path creates a deployment prohibited by that authorization. No retry occurred; read-only proof found zero Worker, versions, deployments, routes, requests, or D1/R2 delta. See `02-99-STAGE3-EVIDENCE.md`. The later revised Stage 3A authorization now permits exactly that one initial deployment under the stricter stop conditions above; it does not retroactively alter the failed attempt.
 
 Use these existing artifacts rather than restating product decisions:
 
@@ -130,7 +133,7 @@ Use these existing artifacts rather than restating product decisions:
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- No further hosted write is authorized in the current lane. The provisioned D1 remains empty at exact migration `0009`, R2 remains private and empty, and no Worker exists. The exact next gate is a reviewed deployment-aware replacement for Stage 3 plus a new owner authorization naming the one unavoidable initial deployment and its stop conditions. Access, secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain blocked.
+- Exactly one further hosted write is authorized in the current lane: the revised Stage 3A initial unreachable `wrangler deploy` after canonical validation, followed by read-only verification and a mandatory stop. The provisioned D1 remains empty at exact migration `0009`, R2 remains private and empty, and no Worker exists before that command. Access, secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain blocked.
 - The current Wrangler credential does not grant Access application/policy management. Never extract, broaden, rotate, or replace it automatically. If Stage 3 is authorized, use the already signed-in owner dashboard or an explicitly owner-created least-privilege Access credential, and keep its value outside Git, chat, logs, screenshots, and evidence.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
@@ -153,16 +156,12 @@ Use these existing artifacts rather than restating product decisions:
 
 ## Safe next action
 
-Keep all external effects disabled. The bounded Phase 6 and Phase 7 synthetic
-preparation lines, target-only candidate generator, and private-runtime
-candidate generator are complete; do not add more placeholders. The checked
-`02-99-STAGE3-RUNBOOK.md` is blocked at 3A and must not be retried. Cloudflare
-requires a deployment to create the first Worker, contradicting the runbook's
-zero-deployment invariant. Prepare and review a deployment-aware replacement
-that keeps `workers_dev=false`, `preview_urls=false`, routes and Cron empty,
-updates the evidence verifier, and defines post-deployment zero-reachability
-and D1/R2 checks. Execute it only after a new exact owner authorization. Until
-then, do not create Access, enter secrets, upload or deploy a Worker, enable a
-preview or route, issue application requests, access real rows, persist,
-export, invoke a provider, or perform any effect. Do not access the original
-target. Plan 02-99 remains incomplete and no summary may be created.
+Keep all external effects disabled. Complete the revised Stage 3A local gates,
+regenerate the exact private target candidate, perform exactly one initial
+unreachable `wrangler deploy`, then immediately run only the checked read-only
+version/deployment/exposure/D1/R2 verification and stop. If the upload fails
+or is ambiguous, do not retry. Do not create Access, enter secrets, generate a
+runtime candidate, perform another upload, enable a preview or route, issue an
+application request, access real rows, persist, export, invoke a provider, or
+perform any effect. Do not access the original target. Plan 02-99 remains
+incomplete and no summary may be created.
