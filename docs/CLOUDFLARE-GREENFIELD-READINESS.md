@@ -330,7 +330,10 @@ D1/R2 zero-delta reads passed. See
 4. **Complete and stopped:** deploy one target-only bootstrap version exactly once with no route,
    preview, Access variable, secret declaration, or Cron trigger. Verify the
    resulting single 100% deployment and repeat D1/R2/exposure reads, then stop.
-5. **Not currently authorized:** from that Worker's **Settings → Domains & Routes**, enable and independently
+5. **Stage 3B0 complete; Stage 3B not currently authorized:** the approved
+   `digitalrain-prospector` Zero Trust Free organization now exists with the
+   default Cloudflare identity provider restricted to account members. From
+   that Worker's **Settings → Domains & Routes**, enable and independently
    review exact-owner Access for the production `workers.dev` URL while the URL
    remains disabled. Stop if Cloudflare requires making it reachable first.
 6. Generate the target-specific runtime candidate, then run all local gates and
@@ -373,8 +376,10 @@ No default is inferred for these external choices:
    `workers.dev` URL. The repository's published `digitalrain.ai` domain was
    not Cloudflare-delegated when checked on 2026-09-02, so this work must not
    change or depend on its DNS. A future custom domain is separate scope.
-3. **Access identity provider:** the IdP that can prove the exact owner and one
-   real non-owner negative principal.
+3. **Access identity provider:** resolved for onboarding as the default
+   Cloudflare identity provider restricted to account members. The future
+   Access policy must still prove the exact owner and one real non-owner
+   negative principal.
 4. **Configuration custody:** whether the non-secret target config is committed
    or generated from an owner-controlled release manifest. Secret values are
    never committed in either case.
@@ -416,7 +421,9 @@ completed objects and private exposure while incomplete multipart state
 remains unverified, and no migration remains pending. Revised Stage 3A has
 passed and exhausted its one command with one bootstrap version/deployment,
 production/preview routes disabled, no custom route/domain, zero Cron, and no
-D1/R2 delta. The empty-schedule PUT was forbidden and was not retried; the
-zero-Cron state was independently verified read-only. Access, secrets, a
-runtime candidate, another upload, route enablement, application requests,
+D1/R2 delta. Stage 3B0 is also complete with the approved Zero Trust Free team
+and restricted default Cloudflare identity provider. The empty-schedule PUT
+was forbidden and was not retried; the zero-Cron state was independently
+verified read-only. The Worker Access application/policy, secrets, a runtime
+candidate, another upload, route enablement, application requests,
 real-principal work, and effects remain separately gated**.

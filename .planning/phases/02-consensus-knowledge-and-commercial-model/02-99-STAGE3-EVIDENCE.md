@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-03
 
-**Status:** revised Stage 3A unreachable bootstrap verified; stopped before Access with no retry
+**Status:** revised Stage 3A unreachable bootstrap and Stage 3B0 onboarding verified; stopped before Access
 
 ## Authorized scope
 
@@ -177,12 +177,32 @@ The digest-only receipt still discloses no provider identifiers or identity
 values.
 
 Revised Stage 3A has passed its unreachable bootstrap checkpoint and its
-one-command authority is exhausted. Stop before Access, secrets,
-runtime-candidate generation, another upload, route enablement, any
-application request, or any effect. Stage 3 and Plan 02-99 remain incomplete;
-the Worker Access panel was inspected read-only after this stop and reports
-that no Zero Trust organization/authentication domain exists. No onboarding
-link was opened. The exact next external decision is Stage 3B0: choose the
-unique team name, Zero Trust plan, and initial identity-provider posture before
-the owner personally completes account onboarding. Stage 3B owner-only Access
-setup follows only after that prerequisite is independently verified.
+one-command authority is exhausted. Stage 3 and Plan 02-99 remain incomplete.
+
+## Stage 3B0 onboarding result
+
+The owner subsequently authorized the exact non-secret team name
+`digitalrain-prospector`, Zero Trust Free, and the new-organization default
+Cloudflare identity provider restricted to account members. The owner
+personally completed Cloudflare's payment-detail step. No payment or owner
+identity value was read into evidence or recorded in Git.
+
+Read-only dashboard verification proved:
+
+| Surface | Result |
+|---|---|
+| Zero Trust organization | active |
+| Team name/domain | exact approved `digitalrain-prospector` team |
+| Plan | Zero Trust Free; zero monthly price |
+| Identity providers | exactly one Cloudflare provider |
+| Provider restriction | **Restrict to account members** enabled |
+| Access applications/policies created in 3B0 | 0 |
+| Worker route/preview/Cron changes in 3B0 | 0 |
+| Secrets, credentials, users, devices, DNS, Gateway, or WARP changes | 0 |
+| Application requests or external effects | 0 |
+
+Stage 3B0 is complete. Stop before Access, secrets, runtime-candidate
+generation, another upload, route enablement, any application request, or any
+effect. The exact next external decision is separate Stage 3B authorization
+for the exact-owner Worker-level Access application while all Worker ingress
+remains disabled.

@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Status:** revised 3A verified unreachable and stopped before Access without retry
+**Status:** revised 3A verified unreachable; 3B0 verified complete; stopped before Access
 
 ## Scope
 
@@ -106,17 +106,17 @@ this checkpoint and gives a separate continuation authorization.
 > authority is exhausted; see
 > `02-99-STAGE3-EVIDENCE.md`.
 
-## 3B0 — Create the account Zero Trust organization (not authorized)
+## 3B0 — Create the account Zero Trust organization (complete and verified)
 
-The 2026-09-03 read-only Worker Access panel reports that this Cloudflare
-account has no Zero Trust organization or authentication domain. Cloudflare's
-current onboarding requires an owner-chosen unique team name, a subscription
-plan, and payment details even for the no-charge Free plan. Creating that
-organization is account provisioning, not an implicit part of Stage 3A or the
-Worker Access policy.
+The initial 2026-09-03 read-only Worker Access panel reported that this
+Cloudflare account had no Zero Trust organization or authentication domain.
+Cloudflare's onboarding required an owner-chosen unique team name, a
+subscription plan, and owner-entered payment details even for the no-charge
+Free plan. Creating that organization was account provisioning, not an
+implicit part of Stage 3A or the Worker Access policy.
 
-Before any Access application or policy action, require a separate exact owner
-decision that names:
+Before any Access application or policy action, the runbook required a
+separate exact owner decision naming:
 
 1. the non-secret unique team name that will form the
    `<team>.cloudflareaccess.com` authentication domain;
@@ -137,6 +137,17 @@ Official prerequisites:
 
 - <https://developers.cloudflare.com/cloudflare-one/setup/>
 - <https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/cloudflare/>
+
+> **2026-09-03 result:** The owner explicitly selected the non-secret team name
+> `digitalrain-prospector`, Zero Trust Free, and the automatically provisioned
+> Cloudflare identity provider restricted to account members. The owner
+> personally completed the payment-detail step. Read-only dashboard
+> verification then proved the exact team name/domain, the Free plan at zero
+> monthly price, and exactly one Cloudflare identity provider with **Restrict
+> to account members** enabled. No Access application or policy was created,
+> no Worker route was enabled, and no secret, credential, user, device, DNS,
+> Gateway, WARP, upload, request, or effect was added. Stage 3B0 is complete.
+> Stop before Stage 3B pending its separate exact authorization.
 
 ## 3B — Create the exact-owner Worker-level Access boundary (not authorized)
 
