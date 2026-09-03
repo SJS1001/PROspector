@@ -216,6 +216,15 @@ the edge admission control, while PROspector's `PILOT_OWNER_EMAIL` comparison
 remains the independent application-level check. ([Cloudflare Access for Workers](https://developers.cloudflare.com/workers/configuration/cloudflare-access/),
 [Access policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/))
 
+A sanitized read-only capability check on 2026-09-02 found that the active
+Wrangler OAuth profile is authenticated for the Worker/D1/zone operations used
+through Stage 2 but does not include Access Apps and Policies read/write.
+Cloudflare requires that separate permission to manage Access applications and
+policies through the API. No credential was displayed or changed. Stage 3 must
+therefore use the owner-authenticated dashboard or a separately owner-created
+least-privilege Access credential; never extract or broaden the existing
+Wrangler credential. ([Cloudflare API permissions](https://developers.cloudflare.com/fundamentals/api/reference/permissions/))
+
 The implementation cannot simply adopt `ctx.access`: Cloudflare documents that
 Workers with Static Assets execute behind an internal router that does not pass
 `ctx.access` to the user Worker, and the Vite plugin can add Static Assets even
