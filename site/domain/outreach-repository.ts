@@ -1,5 +1,10 @@
 import { v7 as uuidv7 } from "uuid";
 
+const REQUIRED_GMAIL_SCOPES = Object.freeze([
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send",
+] as const);
+
 export type OutreachRepositoryScope = Readonly<{
   workspaceId: string;
   ownerSubject: string;
@@ -94,6 +99,49 @@ export type RecordSuppressionInput = Readonly<{
   sourceEventDigest: string;
   aliasDigests: readonly string[];
   effectiveAt: number;
+  idempotencyKey: string;
+}>;
+
+export type RecordRecipientDispatchAuthorityInput = Readonly<{
+  messageVersionId: string;
+  packageApprovalId: string;
+  emailObservationId: string;
+  jurisdictionCode: string;
+  claimedBasisCode: "consent" | "legitimate_interest" | "existing_relationship" | "other_documented";
+  basisSourceId: string;
+  basisSourceDigest: string;
+  advisoryPolicyVersion: string;
+  advisoryPolicyDigest: string;
+  unsubscribePathDigest: string;
+  acknowledgedAt: number;
+  validUntil: number;
+  idempotencyKey: string;
+}>;
+
+export type RecordUnsubscribeAuthorityEventInput = Readonly<{
+  recipientAuthorityId: string;
+  expectedRevision: number;
+  status: "working" | "failed" | "revoked";
+  checkDigest: string;
+  observedAt: number;
+  validUntil: number | null;
+  idempotencyKey: string;
+}>;
+
+export type RecordSenderCapabilityInput = Readonly<{
+  senderConnectionId: string;
+  grantedScopes: readonly string[];
+  verifiedAddresses: readonly Readonly<{ address: string; kind: "canonical" | "alias"; verificationDigest: string }>[];
+  verifiedAt: number;
+  expiresAt: number;
+  idempotencyKey: string;
+}>;
+
+export type RevokeApprovalInput = Readonly<{
+  targetKind: "package_approval" | "message_approval";
+  targetApprovalId: string;
+  reasonCode: "owner_revoked" | "dependency_changed" | "compliance_changed" | "sender_changed";
+  sourceEventDigest: string;
   idempotencyKey: string;
 }>;
 
@@ -212,6 +260,283 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
       statements.push(...bindingStatements(database, scope.workspaceId, "message_version", versionId, input.bindings, now));
       statements.push(await auditStatement(database, scope, commandId, "message.version.created", "message_version", versionId, "version_created", operationDigest, now));
       return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, versionId, artifactDigest, statements);
+    },
+
+    recordRecipientDispatchAuthority: async (input: RecordRecipientDispatchAuthorityInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["messageVersionId", "packageApprovalId", "emailObservationId", "jurisdictionCode", "claimedBasisCode", "basisSourceId", "basisSourceDigest", "advisoryPolicyVersion", "advisoryPolicyDigest", "unsubscribePathDigest", "acknowledgedAt", "validUntil", "idempotencyKey"]);
+      if (
+        ![input.messageVersionId, input.packageApprovalId, input.emailObservationId, input.basisSourceId, input.idempotencyKey].every(validId)
+        || ![input.basisSourceDigest, input.advisoryPolicyDigest, input.unsubscribePathDigest].every(validDigest)
+        || !/^[A-Z0-9][A-Z0-9_.:-]{1,63}$/u.test(input.jurisdictionCode)
+        || !["consent", "legitimate_interest", "existing_relationship", "other_documented"].includes(input.claimedBasisCode)
+        || !boundedText(input.advisoryPolicyVersion, 1, 128)
+      ) throw conflict("invalid_recipient_dispatch_authority");
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      if (!positive(input.acknowledgedAt) || input.acknowledgedAt > now || !futureTime(input.validUntil, now)) throw conflict("invalid_recipient_dispatch_authority_time");
+      const row = await database.prepare(
+        `SELECT mv.artifact_digest message_artifact_digest,mv.snapshot_json,mv.unsubscribe_token_digest,mv.created_at message_created_at,
+                pv.id package_version_id,package.contact_id,pa.approval_digest package_approval_digest,pa.expires_at package_expires_at,
+                observation.contact_point_digest,observation.observation_digest
+         FROM outreach_message_versions mv
+         JOIN outreach_package_versions pv ON pv.id=mv.package_version_id AND pv.workspace_id=mv.workspace_id
+         JOIN outreach_packages package ON package.id=pv.package_id AND package.workspace_id=pv.workspace_id
+         JOIN outreach_package_approvals pa ON pa.id=? AND pa.workspace_id=mv.workspace_id AND pa.package_version_id=pv.id
+         JOIN contact_point_observations observation ON observation.id=? AND observation.workspace_id=mv.workspace_id AND observation.contact_id=package.contact_id
+         WHERE mv.id=? AND mv.workspace_id=? LIMIT 1`,
+      ).bind(input.packageApprovalId, input.emailObservationId, input.messageVersionId, scope.workspaceId).first<{
+        message_artifact_digest: string; snapshot_json: string; unsubscribe_token_digest: string; message_created_at: number;
+        package_version_id: string; contact_id: string; package_approval_digest: string; package_expires_at: number;
+        contact_point_digest: string; observation_digest: string;
+      }>();
+      const messageSnapshot = row && parseMessageSnapshot(row.snapshot_json);
+      if (
+        !row || !messageSnapshot || messageSnapshot.to.length !== 1 || messageSnapshot.cc.length !== 0 || messageSnapshot.bcc.length !== 0
+        || !validDigest(row.message_artifact_digest) || !validDigest(row.unsubscribe_token_digest)
+        || !validDigest(row.package_approval_digest) || !validDigest(row.contact_point_digest)
+        || input.validUntil > Number(row.package_expires_at) || input.acknowledgedAt < Number(row.message_created_at)
+      ) throw conflict("recipient_dispatch_authority_unavailable");
+      const recipient = normalizeMailbox(messageSnapshot.to[0]);
+      const sender = normalizeMailbox(messageSnapshot.from);
+      const recipientAddressDigest = await digest({ schema: "contact-point/v1", kind: "email", normalizedValue: recipient });
+      if (recipientAddressDigest !== row.contact_point_digest) throw conflict("recipient_contact_point_mismatch");
+      const senderAddressDigest = await digest({ schema: "outreach-sender-address/v1", address: sender });
+      const authorityDigest = await digest({
+        schema: "outreach-recipient-dispatch-authority/v1",
+        workspaceId: scope.workspaceId,
+        messageVersionId: input.messageVersionId,
+        messageArtifactDigest: row.message_artifact_digest,
+        packageApprovalId: input.packageApprovalId,
+        packageApprovalDigest: row.package_approval_digest,
+        contactId: row.contact_id,
+        emailObservationId: input.emailObservationId,
+        recipientAddressDigest,
+        senderAddressDigest,
+        jurisdictionCode: input.jurisdictionCode,
+        claimedBasisCode: input.claimedBasisCode,
+        basisSourceId: input.basisSourceId,
+        basisSourceDigest: input.basisSourceDigest,
+        advisoryPolicyVersion: input.advisoryPolicyVersion,
+        advisoryPolicyDigest: input.advisoryPolicyDigest,
+        unsubscribeTokenDigest: row.unsubscribe_token_digest,
+        unsubscribePathDigest: input.unsubscribePathDigest,
+        unsubscribeScopeKind: "exact_email",
+        unsubscribeScopeDigest: recipientAddressDigest,
+        ownerSubject: scope.ownerSubject,
+        acknowledgedAt: input.acknowledgedAt,
+        validUntil: input.validUntil,
+      });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "recipient_dispatch_authority.record", authorityDigest });
+      const authorityId = derivedId("orda", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements = [
+        commandStatement(database, scope, { id: commandId, kind: "recipient_dispatch_authority.record", key: input.idempotencyKey, digest: operationDigest, expectedVersion: 0, resultKind: "recipient_dispatch_authority", resultId: authorityId, now }),
+        database.prepare(
+          `INSERT INTO outreach_recipient_dispatch_authorities (
+            id,workspace_id,message_version_id,message_artifact_digest,package_approval_id,package_approval_digest,
+            contact_id,email_observation_id,recipient_address_digest,sender_address_digest,jurisdiction_code,claimed_basis_code,
+            basis_source_id,basis_source_digest,advisory_policy_version,advisory_policy_digest,acknowledgement_digest,
+            unsubscribe_token_digest,unsubscribe_path_digest,unsubscribe_scope_kind,unsubscribe_scope_digest,owner_subject,
+            acknowledged_at,authority_digest,valid_until,command_id,created_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(
+          authorityId, scope.workspaceId, input.messageVersionId, row.message_artifact_digest, input.packageApprovalId, row.package_approval_digest,
+          row.contact_id, input.emailObservationId, recipientAddressDigest, senderAddressDigest, input.jurisdictionCode, input.claimedBasisCode,
+          input.basisSourceId, input.basisSourceDigest, input.advisoryPolicyVersion, input.advisoryPolicyDigest, authorityDigest,
+          row.unsubscribe_token_digest, input.unsubscribePathDigest, "exact_email", recipientAddressDigest, scope.ownerSubject,
+          input.acknowledgedAt, authorityDigest, input.validUntil, commandId, now,
+        ),
+        await auditStatement(database, scope, commandId, "recipient_dispatch_authority.recorded", "recipient_dispatch_authority", authorityId, "owner_acknowledged_advisory", operationDigest, now),
+      ];
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, authorityId, authorityDigest, statements);
+    },
+
+    recordUnsubscribeAuthorityEvent: async (input: RecordUnsubscribeAuthorityEventInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["recipientAuthorityId", "expectedRevision", "status", "checkDigest", "observedAt", "validUntil", "idempotencyKey"]);
+      if (
+        !validId(input.recipientAuthorityId) || !validId(input.idempotencyKey) || !validDigest(input.checkDigest)
+        || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
+        || !["working", "failed", "revoked"].includes(input.status)
+      ) throw conflict("invalid_unsubscribe_authority_event");
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      if (!positive(input.observedAt) || input.observedAt > now) throw conflict("invalid_unsubscribe_authority_event_time");
+      if ((input.status === "working") !== (input.validUntil !== null) || (input.validUntil !== null && !futureTime(input.validUntil, input.observedAt))) throw conflict("invalid_unsubscribe_authority_event_validity");
+      const revision = input.expectedRevision + 1;
+      const eventDigest = await digest({
+        schema: "outreach-unsubscribe-authority-event/v1", workspaceId: scope.workspaceId,
+        recipientAuthorityId: input.recipientAuthorityId, revision, status: input.status,
+        checkDigest: input.checkDigest, observedAt: input.observedAt, validUntil: input.validUntil,
+      });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "unsubscribe_authority_event.record", eventDigest });
+      const eventId = derivedId("ouae", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements = [
+        commandStatement(database, scope, { id: commandId, kind: "unsubscribe_authority_event.record", key: input.idempotencyKey, digest: operationDigest, expectedVersion: input.expectedRevision, resultKind: "unsubscribe_authority_event", resultId: eventId, now }),
+        database.prepare(
+          `INSERT INTO outreach_unsubscribe_authority_events
+            (id,workspace_id,recipient_authority_id,revision,status,check_digest,event_digest,observed_at,valid_until,command_id,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(eventId, scope.workspaceId, input.recipientAuthorityId, revision, input.status, input.checkDigest, eventDigest, input.observedAt, input.validUntil, commandId, now),
+        await auditStatement(database, scope, commandId, "unsubscribe_authority_event.recorded", "unsubscribe_authority_event", eventId, input.status, operationDigest, now),
+      ];
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, eventId, eventDigest, statements);
+    },
+
+    recordSenderCapability: async (input: RecordSenderCapabilityInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["senderConnectionId", "grantedScopes", "verifiedAddresses", "verifiedAt", "expiresAt", "idempotencyKey"]);
+      if (!validId(input.senderConnectionId) || !validId(input.idempotencyKey) || !positive(input.verifiedAt) || !positive(input.expiresAt)) throw conflict("invalid_sender_capability");
+      const grantedScopes = uniqueBoundedStrings(input.grantedScopes, 1, 16, 256);
+      if (
+        !grantedScopes
+        || grantedScopes.length !== REQUIRED_GMAIL_SCOPES.length
+        || grantedScopes.some((grantedScope, index) => grantedScope !== REQUIRED_GMAIL_SCOPES[index])
+        || !Array.isArray(input.verifiedAddresses)
+        || input.verifiedAddresses.length < 1
+        || input.verifiedAddresses.length > 32
+      ) throw conflict("invalid_sender_capability");
+      const addresses = input.verifiedAddresses.map((address) => {
+        if (!plainObject(address) || !exactKeys(address, ["address", "kind", "verificationDigest"]) || !["canonical", "alias"].includes(address.kind) || !validDigest(address.verificationDigest)) throw conflict("invalid_sender_address");
+        return { address: normalizeMailbox(address.address), kind: address.kind, verificationDigest: address.verificationDigest };
+      });
+      if (new Set(addresses.map((address) => address.address)).size !== addresses.length) throw conflict("duplicate_sender_address");
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      if (input.verifiedAt > now || input.expiresAt <= now) throw conflict("invalid_sender_capability_time");
+      const connection = await database.prepare(
+        `SELECT connection_subject_digest,sender_address_digest FROM outreach_sender_connections
+         WHERE id=? AND workspace_id=? AND status='active' LIMIT 1`,
+      ).bind(input.senderConnectionId, scope.workspaceId).first<{ connection_subject_digest: string; sender_address_digest: string }>();
+      if (!connection || !validDigest(connection.connection_subject_digest) || !validDigest(connection.sender_address_digest)) throw conflict("sender_connection_unavailable");
+      const addressRows = (await Promise.all(addresses.map(async (address) => ({
+        ...address,
+        addressDigest: await digest({ schema: "outreach-sender-address/v1", address: address.address }),
+      })))).sort((left, right) => `${left.kind}:${left.addressDigest}`.localeCompare(`${right.kind}:${right.addressDigest}`));
+      if (!addressRows.some((address) => address.kind === "canonical" && address.addressDigest === connection.sender_address_digest)) throw conflict("canonical_sender_unverified");
+      const verifiedAddresses = addressRows.map((address) => ({
+        addressDigest: address.addressDigest,
+        kind: address.kind,
+        verificationDigest: address.verificationDigest,
+      }));
+      const scopeSetDigest = await digest({ schema: "outreach-sender-scopes/v1", grantedScopes });
+      const capabilityDigest = await digest({
+        schema: "outreach-sender-capability/v1", workspaceId: scope.workspaceId, senderConnectionId: input.senderConnectionId,
+        connectionSubjectDigest: connection.connection_subject_digest, canonicalAddressDigest: connection.sender_address_digest,
+        grantedScopes, scopeSetDigest, verifiedAddresses,
+        verifiedAt: input.verifiedAt, expiresAt: input.expiresAt,
+      });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "sender_capability.record", capabilityDigest });
+      const capabilityId = derivedId("oscs", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements: D1PreparedStatement[] = [
+        commandStatement(database, scope, { id: commandId, kind: "sender_capability.record", key: input.idempotencyKey, digest: operationDigest, expectedVersion: 0, resultKind: "sender_capability_snapshot", resultId: capabilityId, now }),
+        database.prepare(
+          `INSERT INTO outreach_sender_capability_snapshots
+            (id,workspace_id,sender_connection_id,connection_subject_digest,canonical_address_digest,granted_scopes_json,verified_addresses_json,scope_set_digest,capability_digest,verified_at,expires_at,command_id,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(capabilityId, scope.workspaceId, input.senderConnectionId, connection.connection_subject_digest, connection.sender_address_digest, canonical(grantedScopes), canonical(verifiedAddresses), scopeSetDigest, capabilityDigest, input.verifiedAt, input.expiresAt, commandId, now),
+      ];
+      for (const [ordinal, address] of addressRows.entries()) {
+        statements.push(database.prepare(
+          `INSERT INTO outreach_sender_verified_addresses
+            (id,workspace_id,sender_capability_id,address_digest,address_kind,verification_digest,verified_at,expires_at,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+        ).bind(derivedId("osva", `${ordinal}:${capabilityDigest}`), scope.workspaceId, capabilityId, address.addressDigest, address.kind, address.verificationDigest, input.verifiedAt, input.expiresAt, now));
+      }
+      statements.push(await auditStatement(database, scope, commandId, "sender_capability.recorded", "sender_capability_snapshot", capabilityId, "capability_verified", operationDigest, now));
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, capabilityId, capabilityDigest, statements);
+    },
+
+    revokeApproval: async (input: RevokeApprovalInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["targetKind", "targetApprovalId", "reasonCode", "sourceEventDigest", "idempotencyKey"]);
+      if (
+        !["package_approval", "message_approval"].includes(input.targetKind) || !validId(input.targetApprovalId)
+        || !["owner_revoked", "dependency_changed", "compliance_changed", "sender_changed"].includes(input.reasonCode)
+        || !validDigest(input.sourceEventDigest) || !validId(input.idempotencyKey)
+      ) throw conflict("invalid_approval_revocation");
+      await requireAdmission(database, scope);
+      const replay = await database.prepare(
+        `SELECT revocation.id,revocation.revocation_digest,revocation.package_approval_id,revocation.message_approval_id,
+                revocation.reason_code,revocation.source_event_digest
+         FROM outreach_commands command
+         JOIN outreach_approval_revocations revocation ON revocation.command_id=command.id AND revocation.workspace_id=command.workspace_id
+         WHERE command.workspace_id=? AND command.owner_subject=? AND command.idempotency_key=?
+           AND command.command_kind='approval.revoke' LIMIT 1`,
+      ).bind(scope.workspaceId, scope.ownerSubject, input.idempotencyKey).first<{
+        id: string;
+        revocation_digest: string;
+        package_approval_id: string | null;
+        message_approval_id: string | null;
+        reason_code: string;
+        source_event_digest: string;
+      }>();
+      if (replay) {
+        const exactTarget = input.targetKind === "package_approval"
+          ? replay.package_approval_id === input.targetApprovalId && replay.message_approval_id === null
+          : replay.message_approval_id === input.targetApprovalId && replay.package_approval_id === null;
+        if (
+          !exactTarget
+          || replay.reason_code !== input.reasonCode
+          || replay.source_event_digest !== input.sourceEventDigest
+          || !validId(replay.id)
+          || !validDigest(replay.revocation_digest)
+        ) throw conflict("idempotency_conflict");
+        return Object.freeze({ id: replay.id, digest: replay.revocation_digest, replayed: true });
+      }
+      const now = positiveTime(clock());
+      const table = input.targetKind === "package_approval" ? "outreach_package_approvals" : "outreach_message_approvals";
+      const approval = await database.prepare(
+        `SELECT approval_digest FROM ${table} WHERE id=? AND workspace_id=? AND owner_subject=? LIMIT 1`,
+      ).bind(input.targetApprovalId, scope.workspaceId, scope.ownerSubject).first<{ approval_digest: string }>();
+      if (!approval || !validDigest(approval.approval_digest)) throw conflict("approval_unavailable");
+      const revocationDigest = await digest({
+        schema: "outreach-approval-revocation/v1", workspaceId: scope.workspaceId, targetKind: input.targetKind,
+        targetApprovalId: input.targetApprovalId, approvalDigest: approval.approval_digest,
+        actorSubject: scope.ownerSubject, reasonCode: input.reasonCode, sourceEventDigest: input.sourceEventDigest, effectiveAt: now,
+      });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "approval.revoke", revocationDigest });
+      const revocationId = derivedId("oarv", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements = [
+        commandStatement(database, scope, { id: commandId, kind: "approval.revoke", key: input.idempotencyKey, digest: operationDigest, expectedVersion: 0, resultKind: "approval_revocation", resultId: revocationId, now }),
+        database.prepare(
+          `INSERT INTO outreach_approval_revocations
+            (id,workspace_id,package_approval_id,message_approval_id,approval_digest,actor_subject,reason_code,source_event_digest,revocation_digest,effective_at,command_id,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(revocationId, scope.workspaceId, input.targetKind === "package_approval" ? input.targetApprovalId : null, input.targetKind === "message_approval" ? input.targetApprovalId : null, approval.approval_digest, scope.ownerSubject, input.reasonCode, input.sourceEventDigest, revocationDigest, now, commandId, now),
+        await auditStatement(database, scope, commandId, "approval.revoked", "approval_revocation", revocationId, input.reasonCode, operationDigest, now),
+      ];
+      try {
+        return await commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, revocationId, revocationDigest, statements);
+      } catch {
+        const winner = await database.prepare(
+          `SELECT revocation.id,revocation.revocation_digest,revocation.package_approval_id,revocation.message_approval_id,
+                  revocation.reason_code,revocation.source_event_digest
+           FROM outreach_commands command
+           JOIN outreach_approval_revocations revocation ON revocation.command_id=command.id AND revocation.workspace_id=command.workspace_id
+           WHERE command.workspace_id=? AND command.owner_subject=? AND command.idempotency_key=?
+             AND command.command_kind='approval.revoke' LIMIT 1`,
+        ).bind(scope.workspaceId, scope.ownerSubject, input.idempotencyKey).first<{
+          id: string;
+          revocation_digest: string;
+          package_approval_id: string | null;
+          message_approval_id: string | null;
+          reason_code: string;
+          source_event_digest: string;
+        }>();
+        const exactTarget = input.targetKind === "package_approval"
+          ? winner?.package_approval_id === input.targetApprovalId && winner.message_approval_id === null
+          : winner?.message_approval_id === input.targetApprovalId && winner.package_approval_id === null;
+        if (
+          winner
+          && exactTarget
+          && winner.reason_code === input.reasonCode
+          && winner.source_event_digest === input.sourceEventDigest
+          && validId(winner.id)
+          && validDigest(winner.revocation_digest)
+        ) return Object.freeze({ id: winner.id, digest: winner.revocation_digest, replayed: true });
+        throw conflict("idempotency_conflict");
+      }
     },
 
     approvePackageVersion: async (input: ApprovePackageInput): Promise<OutreachWriteResult> => {
@@ -395,6 +720,28 @@ function validateSuppression(input: RecordSuppressionInput) {
   const reasons = ["owner_request", "unsubscribe", "explicit_opt_out", "do_not_call", "identity_retention", "import_retention"];
   if (!subjectKinds.includes(input.subjectKind) || !channels.includes(input.channel) || !validSubjectChannel(input.subjectKind, input.channel) || !reasons.includes(input.reason) || !validDigest(input.subjectDigest) || !validDigest(input.sourceEventDigest) || !validId(input.idempotencyKey)) throw conflict();
   if (input.aliasDigests.length > 64 || input.aliasDigests.some((item) => !validDigest(item))) throw conflict();
+}
+
+function parseMessageSnapshot(value: string): OutreachMessageSnapshot | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return validMessageSnapshot(parsed as OutreachMessageSnapshot) ? parsed as OutreachMessageSnapshot : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMailbox(value: unknown): string {
+  if (typeof value !== "string") throw conflict("invalid_mailbox");
+  const normalized = value.trim().toLowerCase();
+  if (normalized !== value || normalized.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)) throw conflict("invalid_mailbox");
+  return normalized;
+}
+
+function uniqueBoundedStrings(value: unknown, min: number, max: number, maxLength: number): string[] | null {
+  if (!Array.isArray(value) || value.length < min || value.length > max || value.some((item) => !boundedText(item, 1, maxLength))) return null;
+  const normalized = [...new Set(value)].sort();
+  return normalized.length === value.length ? normalized : null;
 }
 
 function validPackageSnapshot(snapshot: OutreachPackageSnapshot) {

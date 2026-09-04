@@ -99,6 +99,13 @@
       "when": 1788547952000,
       "tag": "0013_governed_outreach_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788549250616,
+      "tag": "0014_governed-outreach-authority",
+      "breakpoints": true
     }
   ]
 }

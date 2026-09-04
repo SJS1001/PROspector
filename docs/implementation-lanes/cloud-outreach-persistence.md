@@ -10,9 +10,11 @@
 - `site/drizzle/0010_governed_outreach.sql`
 - `site/drizzle/0012_governed_outreach_outbox.sql`
 - `site/drizzle/0013_governed_outreach_lease.sql`
+- `site/drizzle/0014_governed-outreach-authority.sql`
 - `site/drizzle/meta/0010_snapshot.json`
 - `site/drizzle/meta/0012_snapshot.json`
 - `site/drizzle/meta/0013_snapshot.json`
+- `site/drizzle/meta/0014_snapshot.json`
 - `site/drizzle/meta/_journal.json` (explicit candidate entries)
 - `site/domain/outreach-repository.ts`
 - `site/domain/outbox.ts`
@@ -31,6 +33,8 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 - `git diff --check` — passed.
 - Outbox/lease candidate: `cd site && node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs` — 24 passed, 0 failed after the final additive lease edits.
 - `cd site && npx eslint domain/outbox.ts db/schema.ts tests/outreach-persistence.test.mjs tests/helpers/outreach-fixture.mjs` — passed.
+- Delivery-authority closure: `cd site && node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs` — 33 passed, 0 failed. The disposable fixture applies the real 0010→0011→0012→0013→0014 chain.
+- `cd site && npx eslint domain/outreach-repository.ts domain/outbox.ts db/schema.ts tests/helpers/outreach-fixture.mjs tests/outreach-persistence.test.mjs` and `git diff --check` — passed after the final authority changes.
 
 ## Limitations and deferred surface
 
@@ -38,9 +42,10 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 - No provider adapter/call, dispatch worker, runtime handler/route, schedule, credential, real prospect data, or external export is present.
 - Additive candidate migration 0012 and the provider-neutral repository atomically consume one exact current Message approval and append one immutable Pending outbox item/event. Exact replay returns that item without another write.
 - Additive migration 0013 preserves the committed 0012 bytes and evolves only the event trigger. The repository can reserve a short, exclusive lease after the scheduled time; two simultaneous holders produce one winner, same-holder replay appends nothing, expired lease recovery increments generation, backdated/stale-holder transitions fail, and lease expiry cannot exceed either immutable approval. Every result explicitly denies provider invocation and the seam exposes no dispatch or finalization method.
-- Sender connection rows are append-only metadata snapshots. Only the latest active version whose sender digest matches the immutable Message can enqueue; values are opaque `vault-ref:` references, never credentials. No code in this lane creates a real connection.
+- Sender connection rows are append-only metadata snapshots. Additive 0014 requires the exact two configured Gmail scopes and a deterministic, immutable verified-address manifest. Canonical and exact send-as alias addresses are permitted only when sealed into that manifest; values are opaque `vault-ref:` references, never credentials. No code in this lane creates a real connection.
 - Enqueue/claim resolve Company, Contact, exact selected email, and preserved alias scope; unrelated exact-email suppression/stop state does not block another Contact. Organization and confirmed-domain scope remain fail-closed until their authoritative equivalence resolver exists.
-- This lease is a provider-disconnected scheduling prefilter, not the final pre-call recheck. Approval revocation history, working-unsubscribe authority, jurisdiction/basis authority, complete current source/review/contact-freshness rechecks, and minimized provider-attempt/reconciliation evidence remain absent. Those records and an atomic exact `Leased → Dispatching` recheck must exist before any MailPort composition or terminal-state writer.
+- Additive 0014 records immutable recipient jurisdiction/claimed-basis acknowledgements, Package-bound current source evidence, attested contact-freshness caps, working-unsubscribe checks, sender capability/address evidence, and approval revocations. Enqueue, new leases, and same-holder replay fail closed when those authorities or current lifecycle/suppression/stop/drift state change. Generic unsubscribe history deliberately cannot record `redeemed`; atomic redemption plus durable suppression remains later work.
+- This lease remains a provider-disconnected scheduling prefilter, not final pre-call authority. A separate exact pre-call authorization receipt, sequential provider-attempt evidence, evidence-gated state transitions, DeliveryUnknown reconciliation, and atomic unsubscribe redemption are still required before any MailPort composition or terminal-state writer.
 - Canonical preflight, full `npm test`, build, deployment, hosted migration application, and CI validation remain pending under the lane hold.
 
 ## Independent-review closure
@@ -92,11 +97,11 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 
 ## Candidate migration / release hold
 
-Migrations 0010–0013 remain unaccepted candidates. The original 0000–0009 SQL,
+Migrations 0010–0014 remain unaccepted candidates. The original 0000–0009 SQL,
 snapshots and accepted manifest/evidence are untouched. Existing authority
 fixtures still apply exactly 0000–0009; this lane's disposable helper then
-applies 0010 and additive outbox/lease candidates 0012–0013 separately (0011
-remains the independently owned candidate between them). Journal assertions
+applies the real candidate chain 0010–0014 in order, including independently
+owned 0011. Journal assertions
 select entries explicitly; no candidate changes accepted migration evidence.
 
 The unchanged target verifier requires the exact accepted ten-file migration

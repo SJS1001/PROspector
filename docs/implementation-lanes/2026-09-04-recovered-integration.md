@@ -109,6 +109,7 @@ All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only
   `0000`–`0009`, and its no-outreach-table assertions are unchanged. This is not
   a claim that a fresh whole combined run was performed after the assertion edit.
 - `node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **16/16 passed** after final hardening. Parent-version rollback/replay cases also passed **2/2** separately and the observed-candidate approval case passed **1/1** separately. Touched-file lint and diff check pass. Independent review found no remaining high/medium issue in the final parent fences; this remains a local candidate with the explicit resolver/release limits in its lane record.
+- The additive 0014 delivery-authority closure passed **33/33** in the same focused outreach/importer command. It applies the real 0010→0014 chain and proves freshness-capped recipient authority, Package-bound/current source evidence, exact sender scopes, sealed canonical/send-as addresses, working unsubscribe history, clock-independent revocation replay, suppression/source invalidation of active-lease replay, and zero provider calls. Independent correctness and security re-reviews both returned GO. Touched lint and diff checks passed; canonical preflight remained intentionally unused.
 
 Canonical `npm test` (including build), full lint, preflight, CI and release
 acceptance remain **pending**, not passed. The owner's preflight hold is active.
@@ -133,7 +134,8 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Durable outbox enqueue checkpoint
 
-Additive candidate migration `0012_governed_outreach_outbox.sql` now models
+Additive candidate migrations `0012_governed_outreach_outbox.sql` through
+`0014_governed-outreach-authority.sql` now model
 append-only sender-connection metadata, immutable outbox items, and an
 append-only state-event chain. The isolated `domain/outbox.ts` repository
 atomically consumes one exact, unexpired Message approval and creates exactly
@@ -146,16 +148,18 @@ drift, or stale upstream authority fails closed with no partial rows.
 This is still literal zero-effect preparation: the repository has no MailPort
 dependency or dispatch/finalization method and is not composed into any route, worker,
 schedule, provider, or runtime. No credential is stored; only an opaque
-`vault-ref:` metadata reference is representable. Additive migration 0013
-and the repository now support only a short, exclusive, monotonically fenced
+`vault-ref:` metadata reference is representable. Additive migrations 0013–0014
+and the repository now support a short, exclusive, monotonically fenced
 lease reservation after the intended send time. This reservation explicitly
-grants no provider authority. Complete pre-call source/review/contact freshness,
-approval-revocation, unsubscribe, jurisdiction/basis, attempt evidence,
-final-state reconciliation, unresolved Organization/domain suppression, and
-controlled composition remain separate work.
+grants no provider authority. Source/contact freshness, revocation, working
+unsubscribe, jurisdiction/claimed-basis, exact scopes and verified-address
+authority are current at lease and replay. Exact pre-call authorization,
+atomic unsubscribe redemption/suppression, attempt evidence, final-state
+reconciliation, unresolved Organization/domain equivalence, and controlled
+composition remain separate work.
 
-Focused verification after the final lease edit: outreach persistence plus the
-all-migration Cloudflare importer guard passed **24/24**; touched
+Focused verification after the final authority edit: outreach persistence plus the
+all-migration Cloudflare importer guard passed **33/33**; touched
 repository, fixture, and test lint passed; migration metadata JSON and
 `git diff --check` passed. Canonical preflight, the full suite, build, broad
 lint, CI, hosted migration, and provider checks remain unrun under the active
