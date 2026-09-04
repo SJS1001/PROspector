@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyMigrations, countRows, createD1Fixture } from "./helpers/d1.mjs";
-import { NOW, applyEnrichmentLineageCandidate, createApprovedProspectLifecycle, seedSyntheticReservationInputs, snapshotLaterPhaseEffects } from "./helpers/phase5-integration.mjs";
+import {
+  NOW,
+  applyEnrichmentLineageCandidate,
+  createApprovedProspectLifecycle,
+  createSyntheticContactSettlementAttestor,
+  seedSyntheticReservationInputs,
+  snapshotLaterPhaseEffects,
+} from "./helpers/phase5-integration.mjs";
 
 test("forward candidate repairs real Approved Prospect issuance and reservation without rewriting prior authority", async () => {
   const fixture = await createD1Fixture("phase5-controlled-enrichment-lifecycle");
@@ -108,6 +115,173 @@ test("candidate lineage invalidated after issuance blocks reservation without ob
   } finally { await fixture.dispose(); }
 });
 
+test("actual services settle one synthetic provider result into current ContactReady without later effects", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-success");
+  try {
+    await applyMigrations(fixture.database);
+    await applyEnrichmentLineageCandidate(fixture.database);
+    const lifecycle = await createApprovedProspectLifecycle(fixture);
+    await fixture.database.prepare(`INSERT INTO provider_quotes
+      (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+      VALUES ('p5i-quote',?,'synthetic-contact-provider','v1','synthetic-catalog',1,'business_contact_lookup/v1','CAD',10,?,?,?)`)
+      .bind(lifecycle.workspaceId,"b".repeat(64),NOW+20_000,NOW).run();
+    const [repositoryModule, issuance, authority, operation, providerPort, contactEvidence, eligibility, settlementPersistence] = await Promise.all([
+      load(fixture,"enrichment-repository"), load(fixture,"enrichment-grant-issuance"),
+      load(fixture,"enrichment-authority"), load(fixture,"enrichment-operation"),
+      load(fixture,"contact-provider-port"), load(fixture,"contact-evidence"),
+      load(fixture,"contact-eligibility"), load(fixture,"contact-settlement-persistence"),
+    ]);
+    const baseRepository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+      workspaceId:lifecycle.workspaceId,
+      ownerSubject:lifecycle.owner.subject,
+      now:()=>NOW+10,
+      contactSettlementAttestor:await createSyntheticContactSettlementAttestor(fixture),
+    });
+    let settledObservations = Object.freeze([]);
+    const repository = Object.freeze({
+      ...baseRepository,
+      async settleReservation(reservationId, settlement) {
+        const acknowledgement = await baseRepository.settleReservation(reservationId,settlement);
+        settledObservations = Object.freeze([...settlement.observations]);
+        return acknowledgement;
+      },
+    });
+    const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
+    assert.equal(snapshot?.admitted,true);
+    const issued = await issuance.issueEnrichmentGrant(repository,grantRequest(lifecycle,snapshot.revision,"p5i-success"));
+    assert.equal(issued.kind,"issued");
+    await seedSyntheticReservationInputs(fixture.database,lifecycle,issued.grant);
+    const reserved = await authority.reserveEnrichmentOperation(repository,{
+      grantId:issued.grant.id,
+      principalSubject:lifecycle.owner.subject,
+      operationKey:issued.grant.tuple.operationKey,
+      now:NOW+6,
+    });
+    assert.equal(reserved.kind,"reserved");
+    const binding = reserved.reservation.assignment.evidenceAssignments[0];
+    const evidence = Object.freeze({
+      id:"p5i-success-observation",
+      assignmentId:binding.assignmentId,
+      prospectId:binding.prospectId,
+      workspaceId:binding.workspaceId,
+      contactId:binding.contactId,
+      profileConfigurationId:binding.profileConfigurationId,
+      profileConfigurationDigest:binding.profileConfigurationDigest,
+      kind:"email",
+      value:"verified-contact@example.invalid",
+      confidence:1,
+      provenance:Object.freeze({
+        sourceReference:"source:synthetic-phase5-integration",
+        excerpt:"Synthetic mailbox verification evidence.",
+        objectReference:"object:synthetic-phase5-integration",
+        contentHash:"e".repeat(64),
+        retrievedAt:NOW+1,
+      }),
+      observedAt:NOW+3,
+    });
+    let providerCalls = 0;
+    const port = providerPort.bindContactProviderPort({
+      providerId:issued.grant.tuple.providerId,
+      providerVersion:issued.grant.tuple.providerVersion,
+      catalogRef:issued.grant.tuple.catalogRef,
+    },async (assignment) => {
+      providerCalls += 1;
+      return Object.freeze({
+        kind:"completed",
+        reservationId:assignment.reservationId,
+        operationKey:assignment.operationKey,
+        documentedUnits:1,
+        documentedCostMinor:10,
+        evidence:Object.freeze([evidence]),
+      });
+    });
+    const verifier = contactEvidence.bindContactEvidenceVerifier({
+      verifierId:"phase5-synthetic-verifier",
+      verifierVersion:"v1",
+    },async () => Object.freeze({
+      observationId:evidence.id,
+      workspaceId:evidence.workspaceId,
+      contactId:evidence.contactId,
+      profileConfigurationId:evidence.profileConfigurationId,
+      profileConfigurationDigest:evidence.profileConfigurationDigest,
+      kind:evidence.kind,
+      normalizedValue:evidence.value,
+      contentHash:evidence.provenance.contentHash,
+      verificationClass:"mailbox_verified",
+      method:"mailbox_verification",
+      verifiedAt:NOW+2,
+      providerId:issued.grant.tuple.providerId,
+      providerVersion:issued.grant.tuple.providerVersion,
+      catalogRef:issued.grant.tuple.catalogRef,
+      verdictReference:"verdict:synthetic-phase5-integration",
+      verdictDigest:"f".repeat(64),
+    }));
+    const laterEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
+    const execution = await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+7},verifier);
+    assert.deepEqual(execution,{kind:"settled",outcome:"completed"});
+    assert.equal(providerCalls,1);
+    assert.equal(settledObservations.length,1);
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),1);
+    assert.equal(await countRows(fixture.database,"contact_verification_receipts"),1);
+    const terminal = await fixture.database.prepare(`SELECT state,terminal_reason,documented_units,documented_cost_minor
+      FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1`)
+      .bind(reserved.reservation.id).first();
+    assert.deepEqual(terminal,{state:"settled",terminal_reason:"completed",documented_units:1,documented_cost_minor:10});
+    const budgets = (await fixture.database.prepare(`SELECT actual_units,reserved_units,actual_cost_minor,reserved_cost_minor
+      FROM enrichment_budget_accounts WHERE workspace_id=? ORDER BY scope`)
+      .bind(lifecycle.workspaceId).all()).results;
+    assert.equal(budgets.length,4);
+    assert.deepEqual(budgets.map((row) => ({
+      actualUnits:Number(row.actual_units),
+      reservedUnits:Number(row.reserved_units),
+      actualCostMinor:Number(row.actual_cost_minor),
+      reservedCostMinor:Number(row.reserved_cost_minor),
+    })),Array.from({length:4},() => ({actualUnits:1,reservedUnits:0,actualCostMinor:10,reservedCostMinor:0})));
+    assert.equal(await settlementPersistence.verifyPersistedContactSettlement(
+      fixture.database,
+      await createSyntheticContactSettlementAttestor(fixture),
+      lifecycle.workspaceId,
+      reserved.reservation.id,
+    ),true);
+    const projectionInput = {
+      target:{workspaceId:lifecycle.workspaceId,prospectId:lifecycle.prospectId,contactId:binding.contactId},
+      points:settledObservations,
+      strategy:{configurationId:lifecycle.configurationId,configurationDigest:lifecycle.configurationDigest},
+      authority:{
+        prospectId:lifecycle.prospectId,
+        configurationId:lifecycle.configurationId,
+        configurationDigest:lifecycle.configurationDigest,
+        profileAvailable:true,
+        configurationCurrent:true,
+        drifted:false,
+        disqualified:false,
+        suppressed:false,
+        phase4Approved:true,
+        contactCapabilityEnabled:true,
+      },
+      now:NOW+8,
+    };
+    const contactReady = eligibility.projectContactEligibility(projectionInput);
+    assert.equal(contactReady.state,"ContactReady");
+    assert.equal(contactReady.eligible,true);
+    for (const recheck of [
+      eligibility.recheckForPackageApproval,
+      eligibility.recheckForCrmExport,
+      eligibility.recheckForClickToCall,
+      eligibility.recheckForFinalSend,
+    ]) {
+      const result = recheck(projectionInput);
+      assert.equal(result.blocked,true);
+      assert.equal(result.eligibility.state,"ContactReady");
+      assert.deepEqual(result.effectsBefore,eligibility.zeroDownstreamEffects());
+      assert.deepEqual(result.effectsAfter,eligibility.zeroDownstreamEffects());
+    }
+    assert.equal((await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+9},verifier)).kind,"blocked");
+    assert.equal(providerCalls,1,"settled operations cannot be invoked twice");
+    assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),laterEffectsBefore);
+  } finally { await fixture.dispose(); }
+});
+
 async function readyObservedCandidate(fixture) {
   await applyMigrations(fixture.database); await applyEnrichmentLineageCandidate(fixture.database);
   const lifecycle = await createApprovedProspectLifecycle(fixture);
@@ -125,3 +299,5 @@ async function readyObservedCandidate(fixture) {
 }
 
 function grantRequest(lifecycle, expectedRevision, idempotencyKey) { return { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision,idempotencyKey,now:NOW+5 }; }
+
+function load(fixture,name) { return fixture.vite.ssrLoadModule(new URL(`../domain/${name}.ts`,import.meta.url).pathname); }

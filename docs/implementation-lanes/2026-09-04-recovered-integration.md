@@ -70,9 +70,16 @@ candidates, not reviewed-ready releases; the following local fixes supersede the
 All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only.
 
 - `node --test tests/crm-csv-codec.test.mjs tests/gmail-boundary.test.mjs tests/weekly-outcome.test.mjs tests/phase7-preparation-weekly-outcome.test.mjs tests/outreach-preparation-boundary.test.mjs`: **38/38 passed**.
-- `node --test tests/controlled-enrichment-integration.test.mjs`: **3/3 passed**.
-  Proves old-chain rejection/rollback, additive repair, grant replay, one reservation,
-  uncertainty without re-claim, and invalidated candidate/configuration denial.
+- `node --test tests/controlled-enrichment-integration.test.mjs`: **4/4 passed**.
+  In addition to old-chain rejection/rollback, additive repair, replay, uncertainty,
+  and invalidation, the fourth case crosses the actual Phase 4 services into one
+  issued grant, one committed reservation, exactly one test-injected fake-provider
+  invocation, trusted verification, attested D1 settlement, released reservation
+  budgets, and the real `ContactReady` projector. All four downstream rechecks stay
+  blocked with exact zero-effect snapshots, and replay cannot invoke the fake again.
+  The adjacent 14-test enrichment/eligibility/preflight set passed three consecutive
+  runs after one initial fail-closed `NeedsReconciliation` result; an exact
+  test-plus-lint concurrency rerun also passed. No external provider was reachable.
 - `node --test tests/enrichment-candidate-lineage-migration.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **2/2 passed**.
 - `node --test tests/contact-evidence-presentation.test.mjs tests/contact-confirmation-state.test.mjs`: **4/4 passed** after privacy hardening.
 - `node --test tests/contacts-ui.test.mjs`: **8/8 passed** on the final Contacts
@@ -94,10 +101,11 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Exact remaining path
 
-1. Complete the real-service enrichment success/verification/eligibility lifecycle
-   with test-injected providers. Current integration proves issuance, reservation,
-   uncertainty, and invalidation; it does not yet prove a successful provider
-   settlement through ContactReady or ExportReady.
+1. Add the authenticated durable observation-rehydration and eligibility-snapshot
+   write/read seam. The successful integrated proof reaches the actual eligibility
+   projector with the exact in-process observation accepted by settlement, but no
+   runtime path yet rehydrates that attested D1 evidence or persists the resulting
+   current `contact_eligibility_snapshots` row.
 2. Implement missing durable outbox/lease/finalization, approval consumption,
    source invalidation, exact suppression resolution, and read-only runtime
    projections behind disabled adapters. Continue artifact construction,

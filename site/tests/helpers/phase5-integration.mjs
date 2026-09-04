@@ -117,6 +117,24 @@ export async function seedSyntheticReservationInputs(database, lifecycle, grant)
   }
 }
 
+/** Test-only attestor for durable synthetic settlement replay. */
+export async function createSyntheticContactSettlementAttestor(fixture) {
+  const attestor = await load(fixture, "contact-settlement-attestor");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode("phase5-integration-attestation-key-at-least-thirty-two-bytes"),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const bound = attestor.bindContactSettlementAttestor({
+    active: { keyId: "phase5-integration-key", key },
+    verificationOnly: [],
+  });
+  assert.ok(bound);
+  return bound;
+}
+
 async function load(fixture, name) {
   return fixture.vite.ssrLoadModule(new URL(`../../domain/${name}.ts`, import.meta.url).pathname);
 }
