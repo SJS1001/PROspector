@@ -62,6 +62,11 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
     assert.equal(outboxEntry.tag, "0012_governed_outreach_outbox");
     assert.equal(outboxSnapshot.prevId, JSON.parse(await readFile(new URL("../drizzle/meta/0011_snapshot.json", import.meta.url), "utf8")).id);
     for (const table of OUTBOX_TABLES) assert.equal(outboxSnapshot.tables[table]?.name, table);
+    const leaseSnapshot = JSON.parse(await readFile(new URL("../drizzle/meta/0013_snapshot.json", import.meta.url), "utf8"));
+    const leaseEntry = journal.entries.find((entry) => entry.idx === 13);
+    assert.equal(leaseEntry.tag, "0013_governed_outreach_lease");
+    assert.equal(leaseSnapshot.prevId, outboxSnapshot.id);
+    assert.deepEqual(leaseSnapshot.tables, outboxSnapshot.tables, "trigger-only 0013 must not alter table metadata");
 
     const migration = await readFile(new URL("../drizzle/0010_governed_outreach.sql", import.meta.url), "utf8");
     assert.doesNotMatch(migration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
@@ -244,6 +249,141 @@ test("approved message enqueue is atomic, exactly replayable, immutable, and zer
   }
 });
 
+test("dispatch leases are exclusive, monotonic, replayable, and grant no provider authority", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-lease");
+  try {
+    const prepared = await prepareApprovedMessage(fixture, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const queued = await outbox.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    assert.equal(queued.kind, "queued");
+
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const claimingOutbox = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const first = await claimingOutbox.claimDispatchLease({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+    });
+    assert.deepEqual(first, {
+      kind: "claimed",
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+      leaseGeneration: 1,
+      expiresAt: OUTREACH_NOW + 16_000,
+      replayed: false,
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.deepEqual(
+      await claimingOutbox.claimDispatchLease({
+        outboxItemId: queued.outboxItemId,
+        holderId: "synthetic-worker-one",
+      }),
+      { ...first, replayed: true },
+    );
+    assert.deepEqual(
+      await claimingOutbox.claimDispatchLease({
+        outboxItemId: queued.outboxItemId,
+        holderId: "synthetic-worker-two",
+      }),
+      {
+        kind: "blocked",
+        reason: "lease_unavailable",
+        providerInvocationAuthorized: false,
+        providerCalls: 0,
+      },
+    );
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+
+    await assert.rejects(
+      fixture.database.prepare(
+        "INSERT INTO outreach_outbox_events (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at) VALUES ('backdated-lease',?,?,3,'leased',2,'synthetic-worker-two',?,'backdated',?,?)",
+      ).bind(
+        prepared.seeded.workspaceId,
+        queued.outboxItemId,
+        OUTREACH_NOW + 30_000,
+        "8".repeat(64),
+        OUTREACH_NOW,
+      ).run(),
+      /invalid outreach outbox event/,
+    );
+    const afterExpiry = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 16_000,
+    });
+    const second = await afterExpiry.claimDispatchLease({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-two",
+    });
+    assert.deepEqual(second, {
+      kind: "claimed",
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-two",
+      leaseGeneration: 2,
+      expiresAt: OUTREACH_NOW + 31_000,
+      replayed: false,
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 3);
+    await assert.rejects(
+      fixture.database.prepare(
+        "INSERT INTO outreach_outbox_events (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at) VALUES ('stale-worker-dispatch',?,?,4,'dispatching',1,'synthetic-worker-one',?,'stale_holder',?,?)",
+      ).bind(
+        prepared.seeded.workspaceId,
+        queued.outboxItemId,
+        first.expiresAt,
+        "7".repeat(64),
+        OUTREACH_NOW + 16_001,
+      ).run(),
+      /invalid outreach outbox event/,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("simultaneous lease claimers produce one winner and one immutable event", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-lease-race");
+  try {
+    const prepared = await prepareApprovedMessage(fixture, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const enqueue = await loadOutbox(fixture, prepared.seeded);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const queued = await enqueue.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    assert.equal(queued.kind, "queued");
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const claimant = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const results = await Promise.all([
+      claimant.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" }),
+      claimant.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-two" }),
+    ]);
+    assert.equal(results.filter((result) => result.kind === "claimed").length, 1);
+    assert.equal(results.filter((result) => result.kind === "blocked" && result.reason === "lease_unavailable").length, 1);
+    assert.equal(results.every((result) => result.providerInvocationAuthorized === false && result.providerCalls === 0), true);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("outbox enqueue rejects stale sender metadata, wrong owners, and accessor inputs without partial state", async () => {
   const fixture = await createD1Fixture("outreach-outbox-denials");
   try {
@@ -290,8 +430,8 @@ test("outbox enqueue rejects stale sender metadata, wrong owners, and accessor i
   }
 });
 
-test("suppression committed after approval blocks enqueue and leaves approval unconsumed", async () => {
-  const fixture = await createD1Fixture("outreach-outbox-suppression-race");
+test("unrelated suppression committed after approval does not block exact enqueue scope", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-unrelated-suppression");
   try {
     const prepared = await prepareApprovedMessage(fixture);
     const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
@@ -301,13 +441,125 @@ test("suppression committed after approval blocks enqueue and leaves approval un
       idempotencyKey: "outreach-outbox-post-approval-suppression",
     });
     const outbox = await loadOutbox(fixture, prepared.seeded);
-    assert.deepEqual(
-      await outbox.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId }),
-      { kind: "blocked", reason: "current_authority_unavailable", providerCalls: 0 },
+    const queued = await outbox.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+    assert.equal(queued.kind, "queued");
+    assert.equal(queued.providerCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_message_approval_consumptions"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 1);
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const whenDue = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    assert.equal(
+      (await whenDue.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" })).kind,
+      "claimed",
     );
-    assert.equal(await countRows(fixture.database, "outreach_message_approval_consumptions"), 0);
-    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 0);
-    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("exact suppression after queue prevents lease acquisition", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-lease-suppression");
+  try {
+    const prepared = await prepareApprovedMessage(fixture);
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const queued = await outbox.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    assert.equal(queued.kind, "queued");
+    const repository = await loadRepository(fixture, prepared.seeded);
+    await repository.recordSuppression({
+      ...suppressionInput(),
+      subjectDigest: prepared.seeded.contactPointDigest,
+      aliasDigests: [],
+      idempotencyKey: "outreach-outbox-post-queue-suppression",
+    });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const whenDue = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    assert.deepEqual(
+      await whenDue.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" }),
+      {
+        kind: "blocked",
+        reason: "lease_unavailable",
+        providerInvocationAuthorized: false,
+        providerCalls: 0,
+      },
+    );
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 1);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("future schedule and sender revocation prevent lease acquisition", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-lease-schedule-revocation");
+  try {
+    const prepared = await prepareApprovedMessage(fixture);
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const queued = await outbox.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    assert.equal(queued.kind, "queued");
+    assert.equal(
+      (await outbox.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" })).kind,
+      "blocked",
+      "the message is scheduled one second in the future",
+    );
+    await insertSenderConnection(fixture, prepared.seeded, "revoked", 2);
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const whenDue = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    assert.deepEqual(
+      await whenDue.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" }),
+      {
+        kind: "blocked",
+        reason: "lease_unavailable",
+        providerInvocationAuthorized: false,
+        providerCalls: 0,
+      },
+    );
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 1);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("dispatch lease expiry cannot exceed immutable message approval authority", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-lease-expiry-cap");
+  try {
+    const prepared = await prepareApprovedMessage(fixture);
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const queued = await outbox.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    assert.equal(queued.kind, "queued");
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const whenDue = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await whenDue.claimDispatchLease({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+    });
+    assert.equal(lease.kind, "claimed");
+    assert.equal(lease.expiresAt, OUTREACH_NOW + 10_000);
+    assert.equal(lease.providerInvocationAuthorized, false);
+    assert.equal(lease.providerCalls, 0);
   } finally {
     await fixture.dispose();
   }
@@ -382,14 +634,14 @@ async function loadRepository(fixture, seeded) {
   return repositoryModule.createD1OutreachRepository(fixture.database, scope(seeded));
 }
 
-async function prepareApprovedMessage(fixture) {
+async function prepareApprovedMessage(fixture, expiry = {}) {
   const seeded = await seedOutreachAuthority(fixture);
   const repository = await loadRepository(fixture, seeded);
   const packageVersion = await repository.createPackageVersion(packageInput(seeded));
   const packageApproval = await repository.approvePackageVersion({
     packageVersionId: packageVersion.id,
     expectedVersion: 1,
-    expiresAt: OUTREACH_NOW + 20_000,
+    expiresAt: expiry.packageExpiresAt ?? OUTREACH_NOW + 20_000,
     idempotencyKey: "outreach-package-approval-for-outbox",
   });
   const message = await repository.createMessageVersion(messageInput(packageVersion, seeded));
@@ -398,7 +650,7 @@ async function prepareApprovedMessage(fixture) {
     packageApprovalId: packageApproval.id,
     expectedVersion: 1,
     acknowledgementDigest: "a".repeat(64),
-    expiresAt: OUTREACH_NOW + 10_000,
+    expiresAt: expiry.messageExpiresAt ?? OUTREACH_NOW + 10_000,
     idempotencyKey: "outreach-message-approval-for-outbox",
   });
   return { seeded, messageApproval };

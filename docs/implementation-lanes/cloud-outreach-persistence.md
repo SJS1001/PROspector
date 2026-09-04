@@ -9,8 +9,10 @@
 - `site/db/schema.ts`
 - `site/drizzle/0010_governed_outreach.sql`
 - `site/drizzle/0012_governed_outreach_outbox.sql`
+- `site/drizzle/0013_governed_outreach_lease.sql`
 - `site/drizzle/meta/0010_snapshot.json`
 - `site/drizzle/meta/0012_snapshot.json`
+- `site/drizzle/meta/0013_snapshot.json`
 - `site/drizzle/meta/_journal.json` (explicit candidate entries)
 - `site/domain/outreach-repository.ts`
 - `site/domain/outbox.ts`
@@ -27,17 +29,18 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 - The two later-version parent-fence tests also passed as a focused 2/2 run; the observed-candidate positive approval test passed independently.
 - `cd site && ./node_modules/.bin/eslint domain/outreach-repository.ts tests/outreach-persistence.test.mjs tests/helpers/outreach-fixture.mjs` — passed.
 - `git diff --check` — passed.
-- Outbox candidate: `cd site && node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs` — 19 passed, 0 failed after the final schema/service/test edits.
+- Outbox/lease candidate: `cd site && node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs` — 24 passed, 0 failed after the final additive lease edits.
 - `cd site && npx eslint domain/outbox.ts db/schema.ts tests/outreach-persistence.test.mjs tests/helpers/outreach-fixture.mjs` — passed.
 
 ## Limitations and deferred surface
 
 - This is code-only candidate work, not Phase 06-02 acceptance and not a hosted validation claim.
 - No provider adapter/call, dispatch worker, runtime handler/route, schedule, credential, real prospect data, or external export is present.
-- Additive candidate migration 0012 and the provider-neutral repository now atomically consume one exact current Message approval and append one immutable Pending outbox item/event. Exact replay returns that item without another write. The seam exposes no lease, finalization, dispatch, provider, or non-suppression stop method.
+- Additive candidate migration 0012 and the provider-neutral repository atomically consume one exact current Message approval and append one immutable Pending outbox item/event. Exact replay returns that item without another write.
+- Additive migration 0013 preserves the committed 0012 bytes and evolves only the event trigger. The repository can reserve a short, exclusive lease after the scheduled time; two simultaneous holders produce one winner, same-holder replay appends nothing, expired lease recovery increments generation, backdated/stale-holder transitions fail, and lease expiry cannot exceed either immutable approval. Every result explicitly denies provider invocation and the seam exposes no dispatch or finalization method.
 - Sender connection rows are append-only metadata snapshots. Only the latest active version whose sender digest matches the immutable Message can enqueue; values are opaque `vault-ref:` references, never credentials. No code in this lane creates a real connection.
-- Enqueue currently treats any effective suppression or stop in the workspace as a fail-closed block. Exact transitive subject resolution at final dispatch remains required before composition; the conservative block must not be weakened into permissive matching.
-- Approval revocation/expiry projection and broader read projections are also deferred; no permissive placeholder methods were added.
+- Enqueue/claim resolve Company, Contact, exact selected email, and preserved alias scope; unrelated exact-email suppression/stop state does not block another Contact. Organization and confirmed-domain scope remain fail-closed until their authoritative equivalence resolver exists.
+- This lease is a provider-disconnected scheduling prefilter, not the final pre-call recheck. Approval revocation history, working-unsubscribe authority, jurisdiction/basis authority, complete current source/review/contact-freshness rechecks, and minimized provider-attempt/reconciliation evidence remain absent. Those records and an atomic exact `Leased → Dispatching` recheck must exist before any MailPort composition or terminal-state writer.
 - Canonical preflight, full `npm test`, build, deployment, hosted migration application, and CI validation remain pending under the lane hold.
 
 ## Independent-review closure
@@ -89,12 +92,12 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 
 ## Candidate migration / release hold
 
-Migrations 0010–0012 remain unaccepted candidates. The original 0000–0009 SQL,
+Migrations 0010–0013 remain unaccepted candidates. The original 0000–0009 SQL,
 snapshots and accepted manifest/evidence are untouched. Existing authority
 fixtures still apply exactly 0000–0009; this lane's disposable helper then
-applies 0010 and additive outbox candidate 0012 separately (0011 remains the
-independently owned candidate between them). Journal assertions select entries
-explicitly; no candidate changes accepted migration evidence.
+applies 0010 and additive outbox/lease candidates 0012–0013 separately (0011
+remains the independently owned candidate between them). Journal assertions
+select entries explicitly; no candidate changes accepted migration evidence.
 
 The unchanged target verifier requires the exact accepted ten-file migration
 inventory, so the additional 0010 intentionally produces

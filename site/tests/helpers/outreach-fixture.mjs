@@ -15,7 +15,11 @@ const attestors = new WeakMap();
 
 export async function applyOutreachMigrations(database) {
   await applyMigrations(database);
-  for (const migration of ["0010_governed_outreach.sql", "0012_governed_outreach_outbox.sql"]) {
+  for (const migration of [
+    "0010_governed_outreach.sql",
+    "0012_governed_outreach_outbox.sql",
+    "0013_governed_outreach_lease.sql",
+  ]) {
     const sql = await readFile(new URL(`../../drizzle/${migration}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
       const trimmed = statement.trim();
