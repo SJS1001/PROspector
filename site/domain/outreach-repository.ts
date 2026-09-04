@@ -1,0 +1,450 @@
+import { v7 as uuidv7 } from "uuid";
+
+export type OutreachRepositoryScope = Readonly<{
+  workspaceId: string;
+  ownerSubject: string;
+  now?: () => number;
+}>;
+
+export type OutreachBinding = Readonly<{
+  kind: "configuration" | "qualification" | "review_decision" | "source" | "evidence" | "claim_guardrail" | "contact_observation" | "contact_eligibility" | "package_version";
+  id: string;
+  digest: string;
+}>;
+
+export type OutreachPackageSnapshot = Readonly<{
+  evidenceDigests: readonly string[];
+  claimGuardrailDigests: readonly string[];
+  recommendedAngle: string;
+  selectedRole: "champion" | "economic_buyer" | "general";
+  selectedContactPointDigests: readonly string[];
+  callScript: string;
+  draftMessageIds: readonly string[];
+}>;
+
+export type OutreachMessageSnapshot = Readonly<{
+  senderReference: string;
+  from: string;
+  replyTo: string | null;
+  to: readonly string[];
+  cc: readonly string[];
+  bcc: readonly string[];
+  subject: string;
+  textBody: string;
+  htmlBody: string | null;
+  links: readonly string[];
+  attachments: readonly Readonly<{ id: string; name: string; mediaType: string; digest: string }>[];
+  threadReference: string | null;
+  replyToMessageReference: string | null;
+}>;
+
+export type CreatePackageVersionInput = Readonly<{
+  packageId: string;
+  prospectId: string;
+  contactId: string;
+  profileId: string;
+  version: number;
+  expectedVersion: number;
+  configurationId: string;
+  configurationDigest: string;
+  configurationRevision: number;
+  prospectRevision: number;
+  contactRevision: number;
+  contactEligibilitySnapshotId: string;
+  snapshot: OutreachPackageSnapshot;
+  bindings: readonly OutreachBinding[];
+  idempotencyKey: string;
+}>;
+
+export type CreateMessageVersionInput = Readonly<{
+  messageId: string;
+  packageId: string;
+  packageVersionId: string;
+  version: number;
+  expectedVersion: number;
+  snapshot: OutreachMessageSnapshot;
+  intendedSendAt: number | null;
+  timezone: string;
+  unsubscribeTokenDigest: string;
+  bindings: readonly OutreachBinding[];
+  idempotencyKey: string;
+}>;
+
+export type ApprovePackageInput = Readonly<{
+  packageVersionId: string;
+  expectedVersion: number;
+  expiresAt: number;
+  idempotencyKey: string;
+}>;
+
+export type ApproveMessageInput = Readonly<{
+  messageVersionId: string;
+  packageApprovalId: string;
+  expectedVersion: number;
+  acknowledgementDigest: string;
+  expiresAt: number;
+  idempotencyKey: string;
+}>;
+
+export type RecordSuppressionInput = Readonly<{
+  subjectKind: "exact_email" | "confirmed_email_domain" | "e164_phone" | "contact" | "organization" | "company";
+  subjectDigest: string;
+  channel: "email" | "phone" | "all";
+  reason: "owner_request" | "unsubscribe" | "explicit_opt_out" | "do_not_call" | "identity_retention" | "import_retention";
+  sourceEventDigest: string;
+  aliasDigests: readonly string[];
+  effectiveAt: number;
+  idempotencyKey: string;
+}>;
+
+export type OutreachWriteResult = Readonly<{
+  id: string;
+  digest: string;
+  replayed: boolean;
+}>;
+
+export class OutreachRepositoryConflictError extends Error {
+  constructor(reason = "conflict") {
+    super(`outreach_repository_conflict:${reason}`);
+    this.name = "OutreachRepositoryConflictError";
+  }
+}
+
+const ID = /^[a-z0-9][a-z0-9_.:-]{2,127}$/iu;
+const DIGEST = /^[a-f0-9]{64}$/u;
+const TIMEZONE = /^[A-Za-z_]+(?:\/[A-Za-z0-9_+.-]+)+$/u;
+const SECRET_KEY = /(?:password|secret|bearer|oauth|pkce|credential|authorization|cookie|access.?token|refresh.?token)/iu;
+const MAX_SNAPSHOT_BYTES = 64 * 1024;
+
+/**
+ * Creates the uncomposed, provider-neutral D1 persistence seam. The scope must
+ * be derived by trusted server admission; no method accepts workspace, owner,
+ * provider response, credential, endpoint, or dispatch authority.
+ */
+export function createD1OutreachRepository(database: D1Database, scope: OutreachRepositoryScope) {
+  if (!validId(scope.workspaceId) || !validId(scope.ownerSubject)) throw new TypeError("invalid_outreach_repository_scope");
+  const clock = scope.now ?? Date.now;
+
+  return Object.freeze({
+    createPackageVersion: async (input: CreatePackageVersionInput): Promise<OutreachWriteResult> => {
+      validatePackageInput(input);
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      const snapshotJson = canonical(input.snapshot);
+      boundedSnapshot(snapshotJson);
+      const artifactDigest = await digest({
+        schema: "outreach-package-version/v1", packageId: input.packageId, version: input.version,
+        prospectId: input.prospectId, contactId: input.contactId, profileId: input.profileId,
+        configurationId: input.configurationId, configurationDigest: input.configurationDigest,
+        configurationRevision: input.configurationRevision, prospectRevision: input.prospectRevision,
+        contactRevision: input.contactRevision, contactEligibilitySnapshotId: input.contactEligibilitySnapshotId,
+        snapshot: input.snapshot, bindings: normalizedBindings(input.bindings),
+      });
+      const callScriptDigest = await digest({ schema: "outreach-call-script/v1", callScript: input.snapshot.callScript });
+      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "package_version.create", artifactDigest });
+      const versionId = derivedId("opv", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements: D1PreparedStatement[] = [commandStatement(database, scope, {
+        id: commandId, kind: "package_version.create", key: input.idempotencyKey, digest: operationDigest,
+        expectedVersion: input.expectedVersion, resultKind: "package_version", resultId: versionId, now,
+      })];
+      if (input.version === 1) statements.push(database.prepare(
+        `INSERT INTO outreach_packages (id,workspace_id,prospect_id,contact_id,profile_id,created_at)
+         VALUES (?,?,?,?,?,?)`,
+      ).bind(input.packageId, scope.workspaceId, input.prospectId, input.contactId, input.profileId, now));
+      statements.push(database.prepare(
+        `INSERT INTO outreach_package_versions (
+          id,workspace_id,package_id,version,configuration_id,configuration_digest,configuration_revision,
+          prospect_revision,contact_revision,contact_eligibility_snapshot_id,snapshot_json,artifact_digest,
+          call_script_digest,command_id,created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        versionId, scope.workspaceId, input.packageId, input.version, input.configurationId, input.configurationDigest,
+        input.configurationRevision, input.prospectRevision, input.contactRevision, input.contactEligibilitySnapshotId,
+        snapshotJson, artifactDigest, callScriptDigest, commandId, now,
+      ));
+      statements.push(...bindingStatements(database, scope.workspaceId, "package_version", versionId, input.bindings, now));
+      statements.push(await auditStatement(database, scope, commandId, "package.version.created", "package_version", versionId, "version_created", operationDigest, now));
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, versionId, artifactDigest, statements);
+    },
+
+    createMessageVersion: async (input: CreateMessageVersionInput): Promise<OutreachWriteResult> => {
+      validateMessageInput(input);
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      const snapshotJson = canonical(input.snapshot);
+      boundedSnapshot(snapshotJson);
+      const artifactDigest = await digest({
+        schema: "outreach-message-version/v1", messageId: input.messageId, packageId: input.packageId,
+        packageVersionId: input.packageVersionId, version: input.version, snapshot: input.snapshot,
+        intendedSendAt: input.intendedSendAt, timezone: input.timezone,
+        unsubscribeTokenDigest: input.unsubscribeTokenDigest, bindings: normalizedBindings(input.bindings),
+      });
+      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "message_version.create", artifactDigest });
+      const versionId = derivedId("omv", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements: D1PreparedStatement[] = [commandStatement(database, scope, {
+        id: commandId, kind: "message_version.create", key: input.idempotencyKey, digest: operationDigest,
+        expectedVersion: input.expectedVersion, resultKind: "message_version", resultId: versionId, now,
+      })];
+      if (input.version === 1) statements.push(database.prepare(
+        "INSERT INTO outreach_messages (id,workspace_id,package_id,channel,created_at) VALUES (?,?,?,'email',?)",
+      ).bind(input.messageId, scope.workspaceId, input.packageId, now));
+      statements.push(database.prepare(
+        `INSERT INTO outreach_message_versions (
+          id,workspace_id,message_id,package_version_id,version,snapshot_json,artifact_digest,
+          intended_send_at,timezone,unsubscribe_token_digest,command_id,created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        versionId, scope.workspaceId, input.messageId, input.packageVersionId, input.version, snapshotJson,
+        artifactDigest, input.intendedSendAt, input.timezone, input.unsubscribeTokenDigest, commandId, now,
+      ));
+      statements.push(...bindingStatements(database, scope.workspaceId, "message_version", versionId, input.bindings, now));
+      statements.push(await auditStatement(database, scope, commandId, "message.version.created", "message_version", versionId, "version_created", operationDigest, now));
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, versionId, artifactDigest, statements);
+    },
+
+    approvePackageVersion: async (input: ApprovePackageInput): Promise<OutreachWriteResult> => {
+      if (!validId(input.packageVersionId) || !positive(input.expectedVersion) || !validId(input.idempotencyKey)) throw conflict();
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      if (!futureTime(input.expiresAt, now)) throw conflict();
+      const version = await database.prepare(
+        "SELECT artifact_digest,version FROM outreach_package_versions WHERE id=? AND workspace_id=? LIMIT 1",
+      ).bind(input.packageVersionId, scope.workspaceId).first<{ artifact_digest: string; version: number }>();
+      if (!version || Number(version.version) !== input.expectedVersion || !validDigest(version.artifact_digest)) throw conflict();
+      const approvalDigest = await digest({ schema: "outreach-package-approval/v1", packageVersionId: input.packageVersionId, artifactDigest: version.artifact_digest, ownerSubject: scope.ownerSubject, expiresAt: input.expiresAt });
+      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "package.approve", approvalDigest });
+      const approvalId = derivedId("opa", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements = [
+        commandStatement(database, scope, { id: commandId, kind: "package.approve", key: input.idempotencyKey, digest: operationDigest, expectedVersion: input.expectedVersion, resultKind: "package_approval", resultId: approvalId, now }),
+        database.prepare(
+          `INSERT INTO outreach_package_approvals
+            (id,workspace_id,package_version_id,artifact_digest,owner_subject,approval_digest,expires_at,command_id,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+        ).bind(approvalId, scope.workspaceId, input.packageVersionId, version.artifact_digest, scope.ownerSubject, approvalDigest, input.expiresAt, commandId, now),
+        await auditStatement(database, scope, commandId, "package.approved", "package_approval", approvalId, "owner_approved", operationDigest, now),
+      ];
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, approvalId, approvalDigest, statements);
+    },
+
+    approveMessageVersion: async (input: ApproveMessageInput): Promise<OutreachWriteResult> => {
+      if (!validId(input.messageVersionId) || !validId(input.packageApprovalId) || !positive(input.expectedVersion) || !validDigest(input.acknowledgementDigest) || !validId(input.idempotencyKey)) throw conflict();
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      if (!futureTime(input.expiresAt, now)) throw conflict();
+      const version = await database.prepare(
+        "SELECT artifact_digest,version FROM outreach_message_versions WHERE id=? AND workspace_id=? LIMIT 1",
+      ).bind(input.messageVersionId, scope.workspaceId).first<{ artifact_digest: string; version: number }>();
+      if (!version || Number(version.version) !== input.expectedVersion || !validDigest(version.artifact_digest)) throw conflict();
+      const approvalDigest = await digest({ schema: "outreach-message-approval/v1", messageVersionId: input.messageVersionId, packageApprovalId: input.packageApprovalId, artifactDigest: version.artifact_digest, acknowledgementDigest: input.acknowledgementDigest, ownerSubject: scope.ownerSubject, expiresAt: input.expiresAt });
+      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "message.approve", approvalDigest });
+      const approvalId = derivedId("oma", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements = [
+        commandStatement(database, scope, { id: commandId, kind: "message.approve", key: input.idempotencyKey, digest: operationDigest, expectedVersion: input.expectedVersion, resultKind: "message_approval", resultId: approvalId, now }),
+        database.prepare(
+          `INSERT INTO outreach_message_approvals (
+            id,workspace_id,message_version_id,package_approval_id,artifact_digest,owner_subject,
+            acknowledgement_digest,approval_digest,expires_at,command_id,created_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(approvalId, scope.workspaceId, input.messageVersionId, input.packageApprovalId, version.artifact_digest, scope.ownerSubject, input.acknowledgementDigest, approvalDigest, input.expiresAt, commandId, now),
+        await auditStatement(database, scope, commandId, "message.approved", "message_approval", approvalId, "owner_acknowledged", operationDigest, now),
+      ];
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, approvalId, approvalDigest, statements);
+    },
+
+    recordSuppression: async (input: RecordSuppressionInput): Promise<OutreachWriteResult> => {
+      validateSuppression(input);
+      await requireAdmission(database, scope);
+      const now = positiveTime(clock());
+      if (!positive(input.effectiveAt) || input.effectiveAt > now) throw conflict();
+      const aliasDigests = uniqueSorted(input.aliasDigests);
+      const aliasSnapshotJson = canonical(aliasDigests);
+      const aliasSnapshotDigest = await digest({ schema: "outreach-suppression-aliases/v1", aliasDigests });
+      const tombstoneDigest = await digest({ schema: "outreach-suppression-tombstone/v1", subjectKind: input.subjectKind, subjectDigest: input.subjectDigest, channel: input.channel, reason: input.reason, sourceEventDigest: input.sourceEventDigest, aliasSnapshotDigest, effectiveAt: input.effectiveAt });
+      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "suppression.record", tombstoneDigest });
+      const tombstoneId = derivedId("ost", operationDigest);
+      const stopId = derivedId("ose", operationDigest);
+      const commandId = derivedId("ocm", operationDigest);
+      const statements = [
+        commandStatement(database, scope, { id: commandId, kind: "suppression.record", key: input.idempotencyKey, digest: operationDigest, expectedVersion: 0, resultKind: "suppression_tombstone", resultId: tombstoneId, now }),
+        database.prepare(
+          `INSERT INTO outreach_suppression_tombstones (
+            id,workspace_id,subject_kind,subject_digest,channel,reason,source_event_digest,
+            alias_snapshot_json,alias_snapshot_digest,tombstone_digest,actor_subject,effective_at,command_id,created_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(tombstoneId, scope.workspaceId, input.subjectKind, input.subjectDigest, input.channel, input.reason, input.sourceEventDigest, aliasSnapshotJson, aliasSnapshotDigest, tombstoneDigest, scope.ownerSubject, input.effectiveAt, commandId, now),
+        database.prepare(
+          `INSERT INTO outreach_stop_events (
+            id,workspace_id,stop_kind,tombstone_id,subject_kind,subject_digest,source_event_digest,
+            reason_code,command_id,effective_at,created_at
+          ) VALUES (?,?,'suppression',?,?,?,?,?,?,?,?)`,
+        ).bind(stopId, scope.workspaceId, tombstoneId, input.subjectKind, input.subjectDigest, input.sourceEventDigest, input.reason, commandId, input.effectiveAt, now),
+        await auditStatement(database, scope, commandId, "suppression.recorded", "suppression_tombstone", tombstoneId, input.reason, operationDigest, now),
+      ];
+      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, tombstoneId, tombstoneDigest, statements);
+    },
+
+    isSuppressed: async (subjects: readonly Readonly<{ kind: RecordSuppressionInput["subjectKind"]; digest: string; channel: RecordSuppressionInput["channel"] }>[]): Promise<boolean> => {
+      if (subjects.length < 1 || subjects.length > 32 || subjects.some((subject) => !validDigest(subject.digest))) throw conflict();
+      await requireAdmission(database, scope);
+      for (const subject of subjects) {
+        const row = await database.prepare(
+          `SELECT 1 blocked FROM outreach_suppression_tombstones
+           WHERE workspace_id=? AND subject_kind=? AND subject_digest=? AND (channel=? OR channel='all' OR ?='all') LIMIT 1`,
+        ).bind(scope.workspaceId, subject.kind, subject.digest, subject.channel, subject.channel).first();
+        if (row) return true;
+      }
+      return false;
+    },
+  });
+}
+
+type Command = Readonly<{ id: string; kind: string; key: string; digest: string; expectedVersion: number; resultKind: string; resultId: string; now: number }>;
+
+function commandStatement(database: D1Database, scope: OutreachRepositoryScope, command: Command) {
+  return database.prepare(
+    `INSERT INTO outreach_commands
+      (id,workspace_id,owner_subject,command_kind,idempotency_key,operation_digest,expected_version,result_kind,result_id,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(command.id, scope.workspaceId, scope.ownerSubject, command.kind, command.key, command.digest, command.expectedVersion, command.resultKind, command.resultId, command.now);
+}
+
+async function auditStatement(database: D1Database, scope: OutreachRepositoryScope, commandId: string, action: string, subjectKind: string, subjectId: string, reasonCode: string, operationDigest: string, now: number) {
+  const materialDigest = await digest({ schema: "outreach-audit-record/v1", action, subjectKind, subjectId, reasonCode, operationDigest });
+  return database.prepare(
+    `INSERT INTO outreach_audit_records
+      (id,workspace_id,actor_subject,action,subject_kind,subject_id,outcome,reason_code,material_digest,command_id,created_at)
+     VALUES (?,?,?,?,?,?,'recorded',?,?,?,?)`,
+  ).bind(derivedId("oar", materialDigest), scope.workspaceId, scope.ownerSubject, action, subjectKind, subjectId, reasonCode, materialDigest, commandId, now);
+}
+
+function bindingStatements(database: D1Database, workspaceId: string, artifactKind: "package_version" | "message_version", artifactId: string, bindings: readonly OutreachBinding[], now: number) {
+  return normalizedBindings(bindings).map((binding, ordinal) => database.prepare(
+    `INSERT INTO outreach_artifact_bindings
+      (id,workspace_id,artifact_kind,artifact_id,binding_kind,binding_id,binding_digest,ordinal,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+  ).bind(derivedId("oab", `${ordinal}:${artifactId}`), workspaceId, artifactKind, artifactId, binding.kind, binding.id, binding.digest, ordinal, now));
+}
+
+async function commit(database: D1Database, workspaceId: string, key: string, operationDigest: string, resultId: string, resultDigest: string, statements: readonly D1PreparedStatement[]): Promise<OutreachWriteResult> {
+  try {
+    await database.batch([...statements]);
+    return Object.freeze({ id: resultId, digest: resultDigest, replayed: false });
+  } catch {
+    const winner = await database.prepare(
+      "SELECT operation_digest,result_id FROM outreach_commands WHERE workspace_id=? AND idempotency_key=? LIMIT 1",
+    ).bind(workspaceId, key).first<{ operation_digest: string; result_id: string }>();
+    if (winner?.operation_digest === operationDigest && winner.result_id === resultId) {
+      return Object.freeze({ id: resultId, digest: resultDigest, replayed: true });
+    }
+    throw conflict();
+  }
+}
+
+async function requireAdmission(database: D1Database, scope: OutreachRepositoryScope) {
+  const row = await database.prepare(
+    "SELECT id FROM workspaces WHERE id=? AND owner_subject=? LIMIT 1",
+  ).bind(scope.workspaceId, scope.ownerSubject).first();
+  if (!row) throw conflict();
+}
+
+function validatePackageInput(input: CreatePackageVersionInput) {
+  if (![input.packageId, input.prospectId, input.contactId, input.profileId, input.configurationId, input.contactEligibilitySnapshotId, input.idempotencyKey].every(validId)) throw conflict("invalid_package_identifier");
+  if (!validDigest(input.configurationDigest)) throw conflict("invalid_package_configuration_digest");
+  if (!positive(input.version) || input.expectedVersion !== input.version - 1 || !positive(input.configurationRevision) || !positive(input.prospectRevision) || !positive(input.contactRevision)) throw conflict("invalid_package_revision");
+  if (!validPackageSnapshot(input.snapshot)) throw conflict("invalid_package_snapshot");
+  if (!validBindings(input.bindings, true)) throw conflict("invalid_package_bindings");
+}
+
+function validateMessageInput(input: CreateMessageVersionInput) {
+  if (![input.messageId, input.packageId, input.packageVersionId, input.idempotencyKey].every(validId)) throw conflict();
+  if (!positive(input.version) || input.expectedVersion !== input.version - 1 || !validDigest(input.unsubscribeTokenDigest) || !TIMEZONE.test(input.timezone) || !validMessageSnapshot(input.snapshot) || !validBindings(input.bindings, false)) throw conflict();
+  if (input.intendedSendAt !== null && !positive(input.intendedSendAt)) throw conflict();
+}
+
+function validateSuppression(input: RecordSuppressionInput) {
+  const subjectKinds = ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"];
+  const channels = ["email", "phone", "all"];
+  const reasons = ["owner_request", "unsubscribe", "explicit_opt_out", "do_not_call", "identity_retention", "import_retention"];
+  if (!subjectKinds.includes(input.subjectKind) || !channels.includes(input.channel) || !reasons.includes(input.reason) || !validDigest(input.subjectDigest) || !validDigest(input.sourceEventDigest) || !validId(input.idempotencyKey)) throw conflict();
+  if (input.aliasDigests.length > 64 || input.aliasDigests.some((item) => !validDigest(item))) throw conflict();
+}
+
+function validPackageSnapshot(snapshot: OutreachPackageSnapshot) {
+  return plainObject(snapshot) && validDigestList(snapshot.evidenceDigests, 1, 64) && validDigestList(snapshot.claimGuardrailDigests, 1, 32)
+    && boundedText(snapshot.recommendedAngle, 1, 4_000) && ["champion", "economic_buyer", "general"].includes(snapshot.selectedRole)
+    && validDigestList(snapshot.selectedContactPointDigests, 1, 8) && boundedText(snapshot.callScript, 1, 16_000)
+    && validIdList(snapshot.draftMessageIds, 0, 32) && exactKeys(snapshot, ["evidenceDigests", "claimGuardrailDigests", "recommendedAngle", "selectedRole", "selectedContactPointDigests", "callScript", "draftMessageIds"]);
+}
+
+function validMessageSnapshot(snapshot: OutreachMessageSnapshot) {
+  if (!plainObject(snapshot) || !exactKeys(snapshot, ["senderReference", "from", "replyTo", "to", "cc", "bcc", "subject", "textBody", "htmlBody", "links", "attachments", "threadReference", "replyToMessageReference"])) return false;
+  if (!boundedText(snapshot.senderReference, 1, 256) || !boundedText(snapshot.from, 3, 320) || (snapshot.replyTo !== null && !boundedText(snapshot.replyTo, 3, 320))) return false;
+  if (![snapshot.to, snapshot.cc, snapshot.bcc].every((list) => Array.isArray(list) && list.length <= 32 && list.every((item) => boundedText(item, 3, 320))) || snapshot.to.length < 1) return false;
+  if (!boundedText(snapshot.subject, 1, 998) || !boundedText(snapshot.textBody, 1, 32_000) || (snapshot.htmlBody !== null && !boundedText(snapshot.htmlBody, 1, 48_000))) return false;
+  if (!Array.isArray(snapshot.links) || snapshot.links.length > 64 || snapshot.links.some((item) => !boundedText(item, 1, 2_048))) return false;
+  if (!Array.isArray(snapshot.attachments) || snapshot.attachments.length > 16 || snapshot.attachments.some((item) => !plainObject(item) || !exactKeys(item, ["id", "name", "mediaType", "digest"]) || !validId(item.id) || !boundedText(item.name, 1, 255) || !boundedText(item.mediaType, 1, 127) || !validDigest(item.digest))) return false;
+  return [snapshot.threadReference, snapshot.replyToMessageReference].every((item) => item === null || boundedText(item, 1, 512));
+}
+
+function validBindings(bindings: readonly OutreachBinding[], packageBindings: boolean) {
+  if (!Array.isArray(bindings) || bindings.length < 1 || bindings.length > 128) return false;
+  if (bindings.some((binding) => !plainObject(binding) || !exactKeys(binding, ["kind", "id", "digest"]) || !validId(binding.id) || !validDigest(binding.digest))) return false;
+  const identities = new Set(bindings.map((binding) => `${binding.kind}:${binding.id}`));
+  if (identities.size !== bindings.length) return false;
+  const kinds = new Set(bindings.map((binding) => binding.kind));
+  return packageBindings
+    ? ["configuration", "qualification", "review_decision", "source", "evidence", "claim_guardrail", "contact_eligibility"].every((kind) => kinds.has(kind as OutreachBinding["kind"]))
+    : bindings.length === 1 && kinds.has("package_version");
+}
+
+function normalizedBindings(bindings: readonly OutreachBinding[]) {
+  return [...bindings].map((binding) => ({ kind: binding.kind, id: binding.id, digest: binding.digest })).sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`));
+}
+
+function canonical(value: unknown): string {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (plainObject(value)) {
+    const object = value as Record<string, unknown>;
+    if (Object.keys(object).some((key) => SECRET_KEY.test(key))) throw conflict();
+    return Object.fromEntries(Object.keys(object).sort().map((key) => [key, canonicalValue(object[key])]));
+  }
+  throw conflict();
+}
+
+async function digest(value: unknown) {
+  const bytes = new TextEncoder().encode(typeof value === "string" ? value : canonical(value));
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function derivedId(prefix: string, material: string) {
+  if (DIGEST.test(material)) return `${prefix}_${material.slice(0, 32)}`;
+  const compact = Array.from(new TextEncoder().encode(material), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${prefix}_${compact.slice(0, 32).padEnd(32, "0")}_${uuidv7().slice(0, 8)}`;
+}
+
+function boundedSnapshot(value: string) {
+  if (new TextEncoder().encode(value).byteLength > MAX_SNAPSHOT_BYTES) throw conflict();
+}
+
+function validId(value: unknown): value is string { return typeof value === "string" && ID.test(value); }
+function validDigest(value: unknown): value is string { return typeof value === "string" && DIGEST.test(value); }
+function positive(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) > 0; }
+function positiveTime(value: unknown) { if (!positive(value)) throw conflict(); return Number(value); }
+function futureTime(value: unknown, now: number) { return positive(value) && Number(value) > now; }
+function boundedText(value: unknown, min: number, max: number): value is string { return typeof value === "string" && value.length >= min && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value); }
+function plainObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
+function exactKeys(value: object, keys: readonly string[]) { return Object.keys(value).sort().join("\u0000") === [...keys].sort().join("\u0000"); }
+function validDigestList(value: unknown, min: number, max: number): value is readonly string[] { return Array.isArray(value) && value.length >= min && value.length <= max && value.every(validDigest) && new Set(value).size === value.length; }
+function validIdList(value: unknown, min: number, max: number): value is readonly string[] { return Array.isArray(value) && value.length >= min && value.length <= max && value.every(validId) && new Set(value).size === value.length; }
+function uniqueSorted(values: readonly string[]) { return [...new Set(values)].sort(); }
+function conflict(reason?: string) { return new OutreachRepositoryConflictError(reason); }

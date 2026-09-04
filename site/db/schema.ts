@@ -817,3 +817,148 @@ export const runnerSpendReservationEvents = sqliteTable("runner_spend_reservatio
   check("runner_spend_reservation_event_revision_check", sql`${t.durableRevision} > 0`),
   check("runner_spend_reservation_event_digest_check", sql`length(${t.acknowledgementDigest}) = 64 and ${t.acknowledgementDigest} not glob '*[^0-9a-f]*' and (${t.settlementDigest} is null or (length(${t.settlementDigest}) = 64 and ${t.settlementDigest} not glob '*[^0-9a-f]*'))`),
 ]);
+
+// Phase 6 candidate persistence only. These records provide immutable,
+// provider-neutral authority facts; no route, worker, adapter, or effect is
+// composed from them by this schema.
+export const outreachCommands = sqliteTable("outreach_commands", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(),
+  commandKind: text("command_kind", { enum: ["package_version.create", "message_version.create", "package.approve", "message.approve", "suppression.record"] }).notNull(),
+  idempotencyKey: text("idempotency_key").notNull(), operationDigest: text("operation_digest").notNull(),
+  expectedVersion: integer("expected_version").notNull(), resultKind: text("result_kind", { enum: ["package_version", "message_version", "package_approval", "message_approval", "suppression_tombstone"] }).notNull(),
+  resultId: text("result_id").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_command_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+  uniqueIndex("outreach_command_operation_unique").on(t.workspaceId, t.operationDigest),
+  check("outreach_command_expected_version_check", sql`${t.expectedVersion} >= 0`),
+  check("outreach_command_digest_check", sql`length(${t.operationDigest}) = 64 and ${t.operationDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachPackages = sqliteTable("outreach_packages", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id), contactId: text("contact_id").notNull().references(() => contacts.id),
+  profileId: text("profile_id").notNull().references(() => profiles.id), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [index("outreach_package_subject_idx").on(t.workspaceId, t.prospectId, t.contactId)]);
+
+export const outreachPackageVersions = sqliteTable("outreach_package_versions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  packageId: text("package_id").notNull().references(() => outreachPackages.id), version: integer("version").notNull(),
+  configurationId: text("configuration_id").notNull().references(() => configurations.id), configurationDigest: text("configuration_digest").notNull(),
+  configurationRevision: integer("configuration_revision").notNull(), prospectRevision: integer("prospect_revision").notNull(), contactRevision: integer("contact_revision").notNull(),
+  contactEligibilitySnapshotId: text("contact_eligibility_snapshot_id").notNull().references(() => contactEligibilitySnapshots.id),
+  snapshotJson: text("snapshot_json").notNull(), artifactDigest: text("artifact_digest").notNull(), callScriptDigest: text("call_script_digest").notNull(),
+  commandId: text("command_id").notNull().references(() => outreachCommands.id), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_package_version_number_unique").on(t.packageId, t.version), uniqueIndex("outreach_package_version_digest_unique").on(t.workspaceId, t.artifactDigest),
+  uniqueIndex("outreach_package_version_command_unique").on(t.commandId), index("outreach_package_version_package_idx").on(t.workspaceId, t.packageId, t.version),
+  check("outreach_package_version_revision_check", sql`${t.version} > 0 and ${t.configurationRevision} > 0 and ${t.prospectRevision} > 0 and ${t.contactRevision} > 0`),
+  check("outreach_package_version_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*' and length(${t.artifactDigest}) = 64 and ${t.artifactDigest} not glob '*[^0-9a-f]*' and length(${t.callScriptDigest}) = 64 and ${t.callScriptDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachMessages = sqliteTable("outreach_messages", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  packageId: text("package_id").notNull().references(() => outreachPackages.id), channel: text("channel", { enum: ["email"] }).notNull().default("email"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [index("outreach_message_package_idx").on(t.workspaceId, t.packageId)]);
+
+export const outreachMessageVersions = sqliteTable("outreach_message_versions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  messageId: text("message_id").notNull().references(() => outreachMessages.id), packageVersionId: text("package_version_id").notNull().references(() => outreachPackageVersions.id),
+  version: integer("version").notNull(), snapshotJson: text("snapshot_json").notNull(), artifactDigest: text("artifact_digest").notNull(),
+  intendedSendAt: integer("intended_send_at", { mode: "timestamp_ms" }), timezone: text("timezone").notNull(), unsubscribeTokenDigest: text("unsubscribe_token_digest").notNull(),
+  commandId: text("command_id").notNull().references(() => outreachCommands.id), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_message_version_number_unique").on(t.messageId, t.version), uniqueIndex("outreach_message_version_digest_unique").on(t.workspaceId, t.artifactDigest),
+  uniqueIndex("outreach_message_version_unsubscribe_unique").on(t.workspaceId, t.unsubscribeTokenDigest), uniqueIndex("outreach_message_version_command_unique").on(t.commandId),
+  index("outreach_message_version_message_idx").on(t.workspaceId, t.messageId, t.version), check("outreach_message_version_number_check", sql`${t.version} > 0`),
+  check("outreach_message_version_digest_check", sql`length(${t.artifactDigest}) = 64 and ${t.artifactDigest} not glob '*[^0-9a-f]*' and length(${t.unsubscribeTokenDigest}) = 64 and ${t.unsubscribeTokenDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachArtifactBindings = sqliteTable("outreach_artifact_bindings", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  artifactKind: text("artifact_kind", { enum: ["package_version", "message_version"] }).notNull(), artifactId: text("artifact_id").notNull(),
+  bindingKind: text("binding_kind", { enum: ["configuration", "qualification", "review_decision", "source", "evidence", "claim_guardrail", "contact_observation", "contact_eligibility", "package_version"] }).notNull(),
+  bindingId: text("binding_id").notNull(), bindingDigest: text("binding_digest").notNull(), ordinal: integer("ordinal").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_artifact_binding_ordinal_unique").on(t.artifactKind, t.artifactId, t.ordinal),
+  uniqueIndex("outreach_artifact_binding_identity_unique").on(t.artifactKind, t.artifactId, t.bindingKind, t.bindingId),
+  index("outreach_artifact_binding_lookup_idx").on(t.workspaceId, t.artifactKind, t.artifactId),
+  check("outreach_artifact_binding_ordinal_check", sql`${t.ordinal} >= 0`),
+  check("outreach_artifact_binding_digest_check", sql`length(${t.bindingDigest}) = 64 and ${t.bindingDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachPackageApprovals = sqliteTable("outreach_package_approvals", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  packageVersionId: text("package_version_id").notNull().references(() => outreachPackageVersions.id), artifactDigest: text("artifact_digest").notNull(),
+  ownerSubject: text("owner_subject").notNull(), approvalDigest: text("approval_digest").notNull(), expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  commandId: text("command_id").notNull().references(() => outreachCommands.id), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_package_approval_version_unique").on(t.packageVersionId), uniqueIndex("outreach_package_approval_digest_unique").on(t.workspaceId, t.approvalDigest),
+  uniqueIndex("outreach_package_approval_command_unique").on(t.commandId), check("outreach_package_approval_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+  check("outreach_package_approval_digest_check", sql`length(${t.artifactDigest}) = 64 and ${t.artifactDigest} not glob '*[^0-9a-f]*' and length(${t.approvalDigest}) = 64 and ${t.approvalDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachMessageApprovals = sqliteTable("outreach_message_approvals", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  messageVersionId: text("message_version_id").notNull().references(() => outreachMessageVersions.id), packageApprovalId: text("package_approval_id").notNull().references(() => outreachPackageApprovals.id),
+  artifactDigest: text("artifact_digest").notNull(), ownerSubject: text("owner_subject").notNull(), acknowledgementDigest: text("acknowledgement_digest").notNull(),
+  approvalDigest: text("approval_digest").notNull(), expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  commandId: text("command_id").notNull().references(() => outreachCommands.id), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_message_approval_version_unique").on(t.messageVersionId), uniqueIndex("outreach_message_approval_digest_unique").on(t.workspaceId, t.approvalDigest),
+  uniqueIndex("outreach_message_approval_command_unique").on(t.commandId), check("outreach_message_approval_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+  check("outreach_message_approval_digest_check", sql`length(${t.artifactDigest}) = 64 and ${t.artifactDigest} not glob '*[^0-9a-f]*' and length(${t.acknowledgementDigest}) = 64 and ${t.acknowledgementDigest} not glob '*[^0-9a-f]*' and length(${t.approvalDigest}) = 64 and ${t.approvalDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachMessageApprovalConsumptions = sqliteTable("outreach_message_approval_consumptions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  messageApprovalId: text("message_approval_id").notNull().references(() => outreachMessageApprovals.id), sendKey: text("send_key").notNull(),
+  approvalDigest: text("approval_digest").notNull(), fenceGeneration: integer("fence_generation").notNull(), consumedAt: integer("consumed_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_message_approval_consumption_once_unique").on(t.messageApprovalId), uniqueIndex("outreach_message_approval_consumption_send_key_unique").on(t.workspaceId, t.sendKey),
+  check("outreach_message_approval_consumption_fence_check", sql`${t.fenceGeneration} > 0`),
+  check("outreach_message_approval_consumption_digest_check", sql`length(${t.approvalDigest}) = 64 and ${t.approvalDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachSuppressionTombstones = sqliteTable("outreach_suppression_tombstones", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  subjectKind: text("subject_kind", { enum: ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"] }).notNull(),
+  subjectDigest: text("subject_digest").notNull(), channel: text("channel", { enum: ["email", "phone", "all"] }).notNull(),
+  reason: text("reason", { enum: ["owner_request", "unsubscribe", "explicit_opt_out", "do_not_call", "identity_retention", "import_retention"] }).notNull(),
+  sourceEventDigest: text("source_event_digest").notNull(), aliasSnapshotJson: text("alias_snapshot_json").notNull(), aliasSnapshotDigest: text("alias_snapshot_digest").notNull(),
+  tombstoneDigest: text("tombstone_digest").notNull(), actorSubject: text("actor_subject").notNull(), effectiveAt: integer("effective_at", { mode: "timestamp_ms" }).notNull(),
+  commandId: text("command_id").notNull().references(() => outreachCommands.id), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_suppression_subject_unique").on(t.workspaceId, t.subjectKind, t.subjectDigest, t.channel),
+  uniqueIndex("outreach_suppression_tombstone_digest_unique").on(t.workspaceId, t.tombstoneDigest), uniqueIndex("outreach_suppression_command_unique").on(t.commandId),
+  index("outreach_suppression_effective_idx").on(t.workspaceId, t.effectiveAt),
+  check("outreach_suppression_time_check", sql`${t.effectiveAt} <= ${t.createdAt}`),
+  check("outreach_suppression_digest_check", sql`length(${t.subjectDigest}) = 64 and ${t.subjectDigest} not glob '*[^0-9a-f]*' and length(${t.sourceEventDigest}) = 64 and ${t.sourceEventDigest} not glob '*[^0-9a-f]*' and length(${t.aliasSnapshotDigest}) = 64 and ${t.aliasSnapshotDigest} not glob '*[^0-9a-f]*' and length(${t.tombstoneDigest}) = 64 and ${t.tombstoneDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachStopEvents = sqliteTable("outreach_stop_events", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  stopKind: text("stop_kind", { enum: ["suppression", "reply", "bounce", "pause", "archive", "high_risk_drift"] }).notNull(),
+  tombstoneId: text("tombstone_id").references(() => outreachSuppressionTombstones.id), subjectKind: text("subject_kind").notNull(), subjectDigest: text("subject_digest").notNull(),
+  sourceEventDigest: text("source_event_digest").notNull(), reasonCode: text("reason_code").notNull(), commandId: text("command_id").notNull().references(() => outreachCommands.id),
+  effectiveAt: integer("effective_at", { mode: "timestamp_ms" }).notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_stop_source_unique").on(t.workspaceId, t.stopKind, t.sourceEventDigest), index("outreach_stop_subject_idx").on(t.workspaceId, t.subjectKind, t.subjectDigest, t.effectiveAt),
+  check("outreach_stop_time_check", sql`${t.effectiveAt} <= ${t.createdAt}`),
+  check("outreach_stop_digest_check", sql`length(${t.subjectDigest}) = 64 and ${t.subjectDigest} not glob '*[^0-9a-f]*' and length(${t.sourceEventDigest}) = 64 and ${t.sourceEventDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachAuditRecords = sqliteTable("outreach_audit_records", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  actorSubject: text("actor_subject").notNull(), action: text("action", { enum: ["package.version.created", "message.version.created", "package.approved", "message.approved", "suppression.recorded"] }).notNull(),
+  subjectKind: text("subject_kind", { enum: ["package_version", "message_version", "package_approval", "message_approval", "suppression_tombstone"] }).notNull(),
+  subjectId: text("subject_id").notNull(), outcome: text("outcome", { enum: ["recorded"] }).notNull().default("recorded"), reasonCode: text("reason_code").notNull(),
+  materialDigest: text("material_digest").notNull(), commandId: text("command_id").notNull().references(() => outreachCommands.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_audit_command_unique").on(t.commandId), uniqueIndex("outreach_audit_material_unique").on(t.workspaceId, t.materialDigest),
+  index("outreach_audit_time_idx").on(t.workspaceId, t.createdAt),
+  check("outreach_audit_digest_check", sql`length(${t.materialDigest}) = 64 and ${t.materialDigest} not glob '*[^0-9a-f]*'`),
+]);
