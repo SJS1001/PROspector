@@ -922,6 +922,50 @@ export const outreachMessageApprovalConsumptions = sqliteTable("outreach_message
   check("outreach_message_approval_consumption_digest_check", sql`length(${t.approvalDigest}) = 64 and ${t.approvalDigest} not glob '*[^0-9a-f]*'`),
 ]);
 
+export const outreachSenderConnections = sqliteTable("outreach_sender_connections", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  provider: text("provider", { enum: ["gmail"] }).notNull(), connectionSubjectDigest: text("connection_subject_digest").notNull(),
+  senderAddressDigest: text("sender_address_digest").notNull(), protectedReference: text("protected_reference").notNull(),
+  protectedReferenceVersion: integer("protected_reference_version").notNull(), status: text("status", { enum: ["active", "revoked", "degraded"] }).notNull(),
+  verifiedAt: integer("verified_at", { mode: "timestamp_ms" }).notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_sender_connection_subject_version_unique").on(t.workspaceId, t.provider, t.connectionSubjectDigest, t.protectedReferenceVersion),
+  check("outreach_sender_connection_digest_check", sql`length(${t.connectionSubjectDigest}) = 64 and ${t.connectionSubjectDigest} not glob '*[^0-9a-f]*' and length(${t.senderAddressDigest}) = 64 and ${t.senderAddressDigest} not glob '*[^0-9a-f]*'`),
+  check("outreach_sender_connection_reference_check", sql`${t.protectedReferenceVersion} > 0 and length(${t.protectedReference}) between 1 and 512 and ${t.verifiedAt} <= ${t.createdAt}`),
+]);
+
+export const outreachOutboxItems = sqliteTable("outreach_outbox_items", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  messageVersionId: text("message_version_id").notNull().references(() => outreachMessageVersions.id),
+  messageApprovalId: text("message_approval_id").notNull().references(() => outreachMessageApprovals.id),
+  approvalConsumptionId: text("approval_consumption_id").notNull().references(() => outreachMessageApprovalConsumptions.id),
+  senderConnectionId: text("sender_connection_id").notNull().references(() => outreachSenderConnections.id),
+  sendKey: text("send_key").notNull(), dispatchKey: text("dispatch_key").notNull(), rfcMessageIdDigest: text("rfc_message_id_digest").notNull(),
+  markerDigest: text("marker_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_outbox_message_approval_unique").on(t.messageApprovalId),
+  uniqueIndex("outreach_outbox_consumption_unique").on(t.approvalConsumptionId),
+  uniqueIndex("outreach_outbox_send_key_unique").on(t.workspaceId, t.sendKey),
+  uniqueIndex("outreach_outbox_dispatch_key_unique").on(t.workspaceId, t.dispatchKey),
+  index("outreach_outbox_message_idx").on(t.workspaceId, t.messageVersionId, t.createdAt),
+  check("outreach_outbox_digest_check", sql`length(${t.sendKey}) = 64 and ${t.sendKey} not glob '*[^0-9a-f]*' and length(${t.dispatchKey}) = 64 and ${t.dispatchKey} not glob '*[^0-9a-f]*' and length(${t.rfcMessageIdDigest}) = 64 and ${t.rfcMessageIdDigest} not glob '*[^0-9a-f]*' and length(${t.markerDigest}) = 64 and ${t.markerDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const outreachOutboxEvents = sqliteTable("outreach_outbox_events", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  outboxItemId: text("outbox_item_id").notNull().references(() => outreachOutboxItems.id), revision: integer("revision").notNull(),
+  state: text("state", { enum: ["pending", "leased", "dispatching", "sent", "cancelled", "failed_before_dispatch", "delivery_unknown"] }).notNull(),
+  leaseGeneration: integer("lease_generation").notNull(), leaseHolderId: text("lease_holder_id"), leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }),
+  reasonCode: text("reason_code").notNull(), eventDigest: text("event_digest").notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_outbox_event_revision_unique").on(t.outboxItemId, t.revision),
+  uniqueIndex("outreach_outbox_event_digest_unique").on(t.workspaceId, t.eventDigest),
+  index("outreach_outbox_event_state_idx").on(t.workspaceId, t.state, t.createdAt),
+  check("outreach_outbox_event_revision_check", sql`${t.revision} > 0 and ${t.leaseGeneration} >= 0`),
+  check("outreach_outbox_event_digest_check", sql`length(${t.eventDigest}) = 64 and ${t.eventDigest} not glob '*[^0-9a-f]*'`),
+  check("outreach_outbox_event_lease_check", sql`(${t.state} = 'pending' and ${t.revision} = 1 and ${t.leaseGeneration} = 0 and ${t.leaseHolderId} is null and ${t.leaseExpiresAt} is null) or (${t.state} <> 'pending' and ${t.revision} > 1)`),
+]);
+
 export const outreachSuppressionTombstones = sqliteTable("outreach_suppression_tombstones", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   subjectKind: text("subject_kind", { enum: ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"] }).notNull(),

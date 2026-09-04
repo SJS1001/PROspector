@@ -115,8 +115,8 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Exact remaining path
 
-1. Implement missing durable outbox/lease/finalization, approval consumption,
-   source invalidation, exact suppression resolution, and read-only runtime
+1. Complete durable outbox lease/finalization, source invalidation, exact
+   suppression resolution, and read-only runtime
    projections behind disabled adapters. Continue artifact construction,
    manual-call logging, handoff persistence/delivery, outcome history and recovery
    as bounded local units, preserving every external gate.
@@ -130,5 +130,30 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
    provider/operational proof. No original Sites access, hosting writes, provider
    configuration, credentials, real data, exports to recipients, outbound messages,
    calls, schedules or spend occurred in this integration work.
+
+## Durable outbox enqueue checkpoint
+
+Additive candidate migration `0012_governed_outreach_outbox.sql` now models
+append-only sender-connection metadata, immutable outbox items, and an
+append-only state-event chain. The isolated `domain/outbox.ts` repository
+atomically consumes one exact, unexpired Message approval and creates exactly
+one Pending item only when the complete current authority chain and latest
+active sender metadata still match. Exact replay is read-only. Stale sender
+metadata, owner mismatch, malformed/accessor input, suppression/stop presence,
+drift, or stale upstream authority fails closed with no partial rows.
+
+This is still literal zero-effect preparation: the repository has no MailPort
+dependency or lease/dispatch method and is not composed into any route, worker,
+schedule, provider, or runtime. No credential is stored; only an opaque
+`vault-ref:` metadata reference is representable. Lease acquisition,
+final-state reconciliation, exact transitive suppression resolution, and
+controlled composition remain separate work.
+
+Focused verification after the final edit: outreach persistence plus the
+all-migration Cloudflare importer guard passed **19/19**; touched schema,
+repository, fixture, and test lint passed; migration metadata JSON and
+`git diff --check` passed. Canonical preflight, the full suite, build, broad
+lint, CI, hosted migration, and provider checks remain unrun under the active
+preflight hold.
 
 There is no new plan-completion credit. The whole system remains incomplete.

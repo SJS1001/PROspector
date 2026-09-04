@@ -24,12 +24,20 @@ const TABLES = [
   "outreach_stop_events",
   "outreach_audit_records",
 ];
+const OUTBOX_TABLES = ["outreach_sender_connections", "outreach_outbox_items", "outreach_outbox_events"];
 
-test("0010 adds only the governed outreach candidate schema with aligned metadata", async () => {
+test("governed outreach candidate migrations stay additive and metadata-aligned", async () => {
   const fixture = await createD1Fixture("outreach-migration");
   try {
     await applyOutreachMigrations(fixture.database);
     for (const table of TABLES) {
+      assert.equal(
+        (await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").bind(table).first())?.name,
+        table,
+      );
+      assert.equal(await countRows(fixture.database, table), 0);
+    }
+    for (const table of OUTBOX_TABLES) {
       assert.equal(
         (await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").bind(table).first())?.name,
         table,
@@ -49,10 +57,23 @@ test("0010 adds only the governed outreach candidate schema with aligned metadat
     });
     assert.equal(snapshot.prevId, prior.id);
     for (const table of TABLES) assert.equal(snapshot.tables[table]?.name, table);
+    const outboxSnapshot = JSON.parse(await readFile(new URL("../drizzle/meta/0012_snapshot.json", import.meta.url), "utf8"));
+    const outboxEntry = journal.entries.find((entry) => entry.idx === 12);
+    assert.equal(outboxEntry.tag, "0012_governed_outreach_outbox");
+    assert.equal(outboxSnapshot.prevId, JSON.parse(await readFile(new URL("../drizzle/meta/0011_snapshot.json", import.meta.url), "utf8")).id);
+    for (const table of OUTBOX_TABLES) assert.equal(outboxSnapshot.tables[table]?.name, table);
 
     const migration = await readFile(new URL("../drizzle/0010_governed_outreach.sql", import.meta.url), "utf8");
     assert.doesNotMatch(migration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
     assert.doesNotMatch(migration, /CREATE TABLE\s+[`"]?(?:outbox|dispatch|gmail|provider)/iu);
+    const outboxMigration = await readFile(new URL("../drizzle/0012_governed_outreach_outbox.sql", import.meta.url), "utf8");
+    assert.doesNotMatch(outboxMigration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
+    const outboxSource = await readFile(new URL("../domain/outbox.ts", import.meta.url), "utf8");
+    assert.deepEqual(
+      [...outboxSource.matchAll(/^import\s+.*?from\s+"([^"]+)";$/gmu)].map((match) => match[1]),
+      ["./enrichment-grant-issuance"],
+    );
+    assert.doesNotMatch(outboxSource, /\bfetch\s*\(|gmail-boundary|gmail\.ts/iu);
     const triggers = migration.match(/CREATE TRIGGER[\s\S]*?END;/gu) ?? [];
     assert.ok(triggers.length >= 30);
     for (const trigger of triggers) assert.equal((trigger.match(/\bEND;/gu) ?? []).length, 1, "each 0010 trigger keeps one outer END terminator");
@@ -166,6 +187,132 @@ test("message and package approvals remain separate immutable authorities", asyn
   }
 });
 
+test("approved message enqueue is atomic, exactly replayable, immutable, and zero-effect", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-enqueue");
+  try {
+    const prepared = await prepareApprovedMessage(fixture);
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const input = { messageApprovalId: prepared.messageApproval.id, senderConnectionId };
+
+    const first = await outbox.enqueueApprovedMessage(input);
+    assert.equal(first.kind, "queued");
+    assert.equal(first.replayed, false);
+    assert.equal(first.providerCalls, 0);
+    assert.match(first.sendKey, /^[a-f0-9]{64}$/u);
+    assert.match(first.dispatchKey, /^[a-f0-9]{64}$/u);
+    assert.equal(await countRows(fixture.database, "outreach_message_approval_consumptions"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 1);
+    assert.deepEqual(
+      await fixture.database.prepare(
+        "SELECT revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code FROM outreach_outbox_events WHERE outbox_item_id=?",
+      ).bind(first.outboxItemId).first(),
+      {
+        revision: 1,
+        state: "pending",
+        lease_generation: 0,
+        lease_holder_id: null,
+        lease_expires_at: null,
+        reason_code: "approved_message_queued",
+      },
+    );
+
+    const replay = await outbox.enqueueApprovedMessage(input);
+    assert.deepEqual(replay, { ...first, replayed: true });
+    assert.equal(await countRows(fixture.database, "outreach_message_approval_consumptions"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 1);
+
+    await assert.rejects(
+      fixture.database.prepare(
+        "INSERT INTO outreach_outbox_events (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at) VALUES ('invalid-direct-sent',?,?,2,'sent',0,NULL,NULL,'bypass',?,?)",
+      ).bind(prepared.seeded.workspaceId, first.outboxItemId, "6".repeat(64), OUTREACH_NOW + 1).run(),
+      /invalid outreach outbox event/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("UPDATE outreach_outbox_items SET dispatch_key=? WHERE id=?").bind("0".repeat(64), first.outboxItemId).run(),
+      /immutable outreach outbox item/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("DELETE FROM outreach_sender_connections WHERE id=?").bind(senderConnectionId).run(),
+      /immutable outreach sender connection/,
+    );
+    assert.deepEqual((await fixture.database.prepare("PRAGMA foreign_key_check").all()).results, []);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("outbox enqueue rejects stale sender metadata, wrong owners, and accessor inputs without partial state", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-denials");
+  try {
+    const prepared = await prepareApprovedMessage(fixture);
+    const activeId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    await insertSenderConnection(fixture, prepared.seeded, "degraded", 2);
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+
+    assert.deepEqual(
+      await outbox.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId: activeId }),
+      { kind: "blocked", reason: "current_authority_unavailable", providerCalls: 0 },
+    );
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const wrongOwner = outboxModule.createD1OutboxRepository(fixture.database, {
+      workspaceId: prepared.seeded.workspaceId,
+      ownerSubject: "different-owner",
+      now: () => OUTREACH_NOW,
+    });
+    assert.deepEqual(
+      await wrongOwner.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId: activeId }),
+      { kind: "blocked", reason: "current_authority_unavailable", providerCalls: 0 },
+    );
+
+    let getterCalls = 0;
+    const accessorInput = {};
+    Object.defineProperty(accessorInput, "messageApprovalId", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return prepared.messageApproval.id;
+      },
+    });
+    Object.defineProperty(accessorInput, "senderConnectionId", { enumerable: true, value: activeId });
+    assert.deepEqual(
+      await outbox.enqueueApprovedMessage(accessorInput),
+      { kind: "blocked", reason: "invalid_request", providerCalls: 0 },
+    );
+    assert.equal(getterCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_message_approval_consumptions"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("suppression committed after approval blocks enqueue and leaves approval unconsumed", async () => {
+  const fixture = await createD1Fixture("outreach-outbox-suppression-race");
+  try {
+    const prepared = await prepareApprovedMessage(fixture);
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const repository = await loadRepository(fixture, prepared.seeded);
+    await repository.recordSuppression({
+      ...suppressionInput(),
+      idempotencyKey: "outreach-outbox-post-approval-suppression",
+    });
+    const outbox = await loadOutbox(fixture, prepared.seeded);
+    assert.deepEqual(
+      await outbox.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId }),
+      { kind: "blocked", reason: "current_authority_unavailable", providerCalls: 0 },
+    );
+    assert.equal(await countRows(fixture.database, "outreach_message_approval_consumptions"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("suppression atomically appends tombstone, stop, and minimized audit before exact replay", async () => {
   const fixture = await createD1Fixture("outreach-suppression");
   try {
@@ -233,6 +380,56 @@ test("repository admission and cross-workspace artifact bindings fail closed", a
 async function loadRepository(fixture, seeded) {
   const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/outreach-repository.ts", import.meta.url).pathname);
   return repositoryModule.createD1OutreachRepository(fixture.database, scope(seeded));
+}
+
+async function prepareApprovedMessage(fixture) {
+  const seeded = await seedOutreachAuthority(fixture);
+  const repository = await loadRepository(fixture, seeded);
+  const packageVersion = await repository.createPackageVersion(packageInput(seeded));
+  const packageApproval = await repository.approvePackageVersion({
+    packageVersionId: packageVersion.id,
+    expectedVersion: 1,
+    expiresAt: OUTREACH_NOW + 20_000,
+    idempotencyKey: "outreach-package-approval-for-outbox",
+  });
+  const message = await repository.createMessageVersion(messageInput(packageVersion, seeded));
+  const messageApproval = await repository.approveMessageVersion({
+    messageVersionId: message.id,
+    packageApprovalId: packageApproval.id,
+    expectedVersion: 1,
+    acknowledgementDigest: "a".repeat(64),
+    expiresAt: OUTREACH_NOW + 10_000,
+    idempotencyKey: "outreach-message-approval-for-outbox",
+  });
+  return { seeded, messageApproval };
+}
+
+async function loadOutbox(fixture, seeded) {
+  const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+  return outboxModule.createD1OutboxRepository(fixture.database, scope(seeded));
+}
+
+async function insertSenderConnection(fixture, seeded, status, version) {
+  const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+  const senderAddressDigest = await issuance.canonicalDigest({
+    schema: "outreach-sender-address/v1",
+    address: "owner@example.invalid",
+  });
+  const connectionId = "outreach-sender-connection-" + version;
+  await fixture.database.prepare(
+    "INSERT INTO outreach_sender_connections (id,workspace_id,provider,connection_subject_digest,sender_address_digest,protected_reference,protected_reference_version,status,verified_at,created_at) VALUES (?,?,'gmail',?,?,?,?,?,?,?)",
+  ).bind(
+    connectionId,
+    seeded.workspaceId,
+    "6".repeat(64),
+    senderAddressDigest,
+    "vault-ref:synthetic-unconfigured-" + version,
+    version,
+    status,
+    OUTREACH_NOW - 1,
+    OUTREACH_NOW,
+  ).run();
+  return connectionId;
 }
 
 test("caller mutation cannot change captured scope, package, message, approval, or suppression commands", async () => {
