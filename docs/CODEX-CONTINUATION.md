@@ -8,6 +8,16 @@
 
 ## Fresh isolated pilot ownership
 
+### Offline cloud-wave continuation — 2026-09-04
+
+For the newer owner-authorized offline implementation branch, read
+[`implementation-lanes/2026-09-04-recovered-integration.md`](implementation-lanes/2026-09-04-recovered-integration.md).
+It records recovered cloud commits, local review corrections, focused evidence,
+and exact remaining work on `codex/cloud-wave1-integration`. PR #2 is merged in
+that branch's main base, not an open draft. Preflight remains on hold. New local
+migration candidates do not supersede accepted hosted evidence or grant any
+phase/operational authority. The older hosted checkpoint below is unchanged.
+
 The original hosted project is inaccessible and permanently outside the
 execution path. Read [`GREENFIELD-BASELINE.md`](GREENFIELD-BASELINE.md) before
 planning or implementation. Cloudflare Stage 1 resources have been

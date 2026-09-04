@@ -1,5 +1,20 @@
 # Cloud enrichment integration lane
 
+## Recovered integration follow-up
+
+The original result below exposed the defect; it is no longer the current test
+expectation. On `codex/cloud-wave1-integration`, forward-only migration `0011`
+and matching repository predicates preserve observed candidates with a Passed
+assessment and current approved Prospect. Previously applied migrations remain
+unchanged. The focused integration now passes three cases: actual Phase 4 to
+grant/reservation/uncertainty lifecycle, rejected candidate denial, and candidate
+invalidation after issuance. The old trigger rejection and rollback are also
+proved before the forward candidate is applied in disposable D1. Successful
+provider settlement through ContactReady/ExportReady remains incomplete.
+See `2026-09-04-recovered-integration.md`; no phase or hosted acceptance is claimed.
+
+## Original cloud result (historical)
+
 - Base: `38d86681cd7a8e9f5be70b56365d9be2a786f0ad` (`origin/main`; tree `098689052d412d93972c67131dda8b2b5638e772`)
 - Branch: `codex/cloud-enrichment-integration`
 - Owned files: `site/tests/controlled-enrichment-integration.test.mjs`, `site/tests/helpers/phase5-integration.mjs`, and this record

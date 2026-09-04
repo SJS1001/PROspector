@@ -157,10 +157,15 @@ export async function createOriginatedMessageReference(
     const material = JSON.stringify([
       "prospector-origin/v1",
       approvedMessage.workspaceId,
+      approvedMessage.companyId,
       approvedMessage.messageVersionId,
       approvedMessage.messageDigest,
       approvedMessage.messageApprovalId,
       approvedMessage.messageApprovalDigest,
+      approvedMessage.packageVersionId,
+      approvedMessage.packageDigest,
+      approvedMessage.profileConfigurationId,
+      approvedMessage.profileConfigurationDigest,
       idempotency.outboxItemId,
       idempotency.sendKey,
       idempotency.leaseGeneration,
@@ -224,7 +229,11 @@ function exactRecord(value: unknown, keys: readonly string[]): Record<string, un
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) invalid();
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Object.keys(descriptors).sort().join("\0") !== [...keys].sort().join("\0")) invalid();
+  const actualKeys = Reflect.ownKeys(descriptors);
+  if (
+    actualKeys.some((key) => typeof key !== "string")
+    || (actualKeys as string[]).sort().join("\0") !== [...keys].sort().join("\0")
+  ) invalid();
   const record: Record<string, unknown> = {};
   for (const key of keys) {
     const descriptor = descriptors[key];

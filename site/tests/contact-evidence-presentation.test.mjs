@@ -14,15 +14,24 @@ test("contact evidence renders bounded kind, class, method, and deterministic UT
   } finally { await fixture.dispose(); }
 });
 
-test("malformed and hostile evidence renders explicit unknown states and React-escaped text", async () => {
+test("malformed or privacy-unsafe projections fail closed without rendering contact values", async () => {
   const fixture = await createD1Fixture("contact-evidence-malformed");
   try {
     const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
-    const html = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: projection([{ kind: "<script>alert(1)</script>", verificationClass: "forged", method: "x".repeat(65), verifiedAt: Number.MAX_SAFE_INTEGER }], ["hostile<&>"]) }));
-    for (const expected of ["Unknown observation kind", "Unknown verification class", "Unknown verification method", "Unknown verification time"]) assert.match(html, new RegExp(expected));
-    assert.match(html, /hostile&lt;&amp;&gt;/, "displayed bounded text is escaped by SSR");
-    assert.doesNotMatch(html, /hostile<&>/);
-    assert.doesNotMatch(html, /<script>|alert\(1\)/);
+    const hostile = projection([{ kind: "<script>alert(1)</script>", verificationClass: "forged", method: "x".repeat(65), verifiedAt: Number.MAX_SAFE_INTEGER }], ["contact@example.invalid"]);
+    hostile.eligibility[0].contactId = "contact@example.invalid";
+    const html = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: hostile }));
+    assert.match(html, /Contacts are unavailable until the separate capability gate is proven/);
+    assert.doesNotMatch(html, /contact@example|hostile|<script>|alert\(1\)/i);
+    assert.equal(leaves.normalizeContactsProjection(null), null);
+    assert.equal(leaves.normalizeContactsProjection({}), null);
+    for (const field of ["id", "contactId", "prospectId"]) {
+      for (const value of ["5550100012", "555-010-0012", "contact@example.invalid", "https://example.invalid/source"]) {
+        const candidate = projection([]);
+        candidate.eligibility[0][field] = value;
+        assert.deepEqual(leaves.normalizeContactsProjection(candidate).eligibility, [], `${field} hides contact-like values`);
+      }
+    }
   } finally { await fixture.dispose(); }
 });
 

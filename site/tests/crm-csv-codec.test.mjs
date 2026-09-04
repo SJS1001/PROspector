@@ -49,6 +49,17 @@ function decode(document) {
   return new TextDecoder("utf-8", { fatal: true }).decode(document.bytes);
 }
 
+function utf8Length(value) {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function rowInputBytes(candidate) {
+  return Object.values(candidate).reduce(
+    (total, value) => total + (value === null ? 0 : utf8Length(value)),
+    0,
+  );
+}
+
 function parseCsv(text) {
   const records = [];
   let record = [];
@@ -115,7 +126,17 @@ test("encodes the exact 22-column UTF-8 CRLF RFC 4180 policy", async () => {
 test("neutralizes every dangerous formula prefix before RFC 4180 quoting", async () => {
   const { vite, codec } = await load();
   try {
-    const prefixes = ["=1+1", "+SUM(A1:A2)", "-2+3", "@cmd,now"];
+    const prefixes = [
+      "=1+1",
+      "+SUM(A1:A2)",
+      "-2+3",
+      "@cmd,now",
+      "\t=1+1",
+      " \t+SUM(A1:A2)",
+      "\r-2+3",
+      "\n@cmd,now",
+      "\ufeff=1+1",
+    ];
     const rows = prefixes.map((contactValue, index) => row({
       prospect_id: `prospect-formula-${index}`,
       contact_id: `contact-formula-${index}`,
@@ -172,6 +193,21 @@ test("hashes the exact returned bytes and emits a deterministic empty document",
   }
 });
 
+test("keeps checksum bytes immutable when a caller mutates a returned view", async () => {
+  const { vite, codec } = await load();
+  try {
+    const document = await codec.encodeCrmCsv([row()]);
+    const mutated = document.bytes;
+    mutated[0] ^= 0xff;
+    assert.notEqual(createHash("sha256").update(mutated).digest("hex"), document.sha256);
+    const current = document.bytes;
+    assert.equal(createHash("sha256").update(current).digest("hex"), document.sha256);
+    assert.notEqual(current[0], mutated[0]);
+  } finally {
+    await vite.close();
+  }
+});
+
 test("rejects malformed, unknown, accessor-backed, sparse, and oversized inputs", async () => {
   const { vite, codec } = await load();
   try {
@@ -210,6 +246,105 @@ test("rejects malformed, unknown, accessor-backed, sparse, and oversized inputs"
     await assert.rejects(
       codec.encodeCrmCsv(Array(codec.CRM_CSV_LIMITS.maxRows + 1)),
       (error) => error?.code === "crm_csv_rows_too_many",
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
+test("enforces exact UTF-8 input, output, and stable-ID byte boundaries", async () => {
+  const { vite, codec } = await load();
+  try {
+    for (const [label, character, count] of [
+      ["two-byte", "é", codec.CRM_CSV_LIMITS.maxStableIdUtf8Bytes / 2],
+      ["four-byte", "🚀", codec.CRM_CSV_LIMITS.maxStableIdUtf8Bytes / 4],
+    ]) {
+      const atStableIdLimit = character.repeat(count);
+      assert.equal(utf8Length(atStableIdLimit), codec.CRM_CSV_LIMITS.maxStableIdUtf8Bytes);
+      for (const field of ["prospect_id", "contact_id", "contact_point_id"]) {
+        await codec.encodeCrmCsv([row({ [field]: atStableIdLimit })]);
+        await assert.rejects(
+          codec.encodeCrmCsv([row({ [field]: `${atStableIdLimit}x` })]),
+          (error) => error?.code === "crm_csv_stable_id_invalid",
+          `${label} ${field} one-byte-over`,
+        );
+      }
+    }
+
+    const inputRows = Array.from({ length: 300 }, (_, index) => row({
+      prospect_id: `prospect-input-${index}`,
+      contact_id: `contact-input-${index}`,
+      contact_point_id: `point-input-${index}`,
+      contact_value: null,
+    }));
+    const inputBaseBytes = inputRows.reduce((total, candidate) => total + rowInputBytes(candidate), 0);
+    let inputPayloadBytes = codec.CRM_CSV_LIMITS.maxInputUtf8Bytes - inputBaseBytes;
+    for (const candidate of inputRows) {
+      const width = Math.min(codec.CRM_CSV_LIMITS.maxCellUtf8Bytes, inputPayloadBytes);
+      candidate.contact_value = "x".repeat(width);
+      inputPayloadBytes -= width;
+    }
+    assert.equal(inputPayloadBytes, 0);
+    assert.equal(
+      inputRows.reduce((total, candidate) => total + rowInputBytes(candidate), 0),
+      codec.CRM_CSV_LIMITS.maxInputUtf8Bytes,
+    );
+    await codec.encodeCrmCsv(inputRows);
+    inputRows.at(-1).contact_value += "x";
+    assert.equal(
+      inputRows.reduce((total, candidate) => total + rowInputBytes(candidate), 0),
+      codec.CRM_CSV_LIMITS.maxInputUtf8Bytes + 1,
+    );
+    await assert.rejects(
+      codec.encodeCrmCsv(inputRows),
+      (error) => error?.code === "crm_csv_input_too_large",
+    );
+
+    const outputRows = Array.from({ length: 300 }, (_, index) => {
+      const candidate = row({ contact_value: '"' });
+      for (const field of Object.keys(candidate)) {
+        if (field !== "contact_value") candidate[field] = '"';
+      }
+      candidate.prospect_id = `"prospect-output-${index}`;
+      candidate.contact_id = `"contact-output-${index}`;
+      candidate.contact_point_id = `"point-output-${index}`;
+      return candidate;
+    });
+    const outputBase = await codec.encodeCrmCsv(outputRows);
+    let outputPayloadBytes = Math.floor(
+      (codec.CRM_CSV_LIMITS.maxOutputUtf8Bytes - outputBase.byteLength) / 2,
+    );
+    for (const candidate of outputRows) {
+      const width = Math.min(
+        codec.CRM_CSV_LIMITS.maxCellUtf8Bytes - utf8Length(candidate.contact_value),
+        outputPayloadBytes,
+      );
+      candidate.contact_value = '"'.repeat(width);
+      candidate.contact_value = `"${candidate.contact_value}`;
+      outputPayloadBytes -= width;
+    }
+    assert.equal(outputPayloadBytes, 0);
+    if ((codec.CRM_CSV_LIMITS.maxOutputUtf8Bytes - outputBase.byteLength) % 2 === 1) {
+      outputRows.at(-1).contact_value += "x";
+    }
+    assert.ok(
+      outputRows.reduce((total, candidate) => total + rowInputBytes(candidate), 0)
+        <= codec.CRM_CSV_LIMITS.maxInputUtf8Bytes,
+    );
+    const exactOutput = await codec.encodeCrmCsv(outputRows);
+    assert.equal(exactOutput.byteLength, codec.CRM_CSV_LIMITS.maxOutputUtf8Bytes);
+    const outputRowWithSpace = outputRows.find(
+      (candidate) => utf8Length(candidate.contact_value) < codec.CRM_CSV_LIMITS.maxCellUtf8Bytes,
+    );
+    assert.ok(outputRowWithSpace);
+    outputRowWithSpace.contact_value += "x";
+    assert.ok(
+      outputRows.reduce((total, candidate) => total + rowInputBytes(candidate), 0)
+        <= codec.CRM_CSV_LIMITS.maxInputUtf8Bytes,
+    );
+    await assert.rejects(
+      codec.encodeCrmCsv(outputRows),
+      (error) => error?.code === "crm_csv_output_too_large",
     );
   } finally {
     await vite.close();

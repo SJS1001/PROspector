@@ -122,11 +122,15 @@ const MAX_SNAPSHOT_BYTES = 64 * 1024;
  * provider response, credential, endpoint, or dispatch authority.
  */
 export function createD1OutreachRepository(database: D1Database, scope: OutreachRepositoryScope) {
+  if (!plainObject(scope) || !dataKeys(scope, ["workspaceId", "ownerSubject"], ["now"])) throw new TypeError("invalid_outreach_repository_scope");
+  scope = Object.freeze({ workspaceId: scope.workspaceId, ownerSubject: scope.ownerSubject, ...(scope.now === undefined ? {} : { now: scope.now }) });
   if (!validId(scope.workspaceId) || !validId(scope.ownerSubject)) throw new TypeError("invalid_outreach_repository_scope");
+  if (scope.now !== undefined && typeof scope.now !== "function") throw new TypeError("invalid_outreach_repository_clock");
   const clock = scope.now ?? Date.now;
 
   return Object.freeze({
     createPackageVersion: async (input: CreatePackageVersionInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["packageId", "prospectId", "contactId", "profileId", "version", "expectedVersion", "configurationId", "configurationDigest", "configurationRevision", "prospectRevision", "contactRevision", "contactEligibilitySnapshotId", "snapshot", "bindings", "idempotencyKey"]);
       validatePackageInput(input);
       await requireAdmission(database, scope);
       const now = positiveTime(clock());
@@ -141,7 +145,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
         snapshot: input.snapshot, bindings: normalizedBindings(input.bindings),
       });
       const callScriptDigest = await digest({ schema: "outreach-call-script/v1", callScript: input.snapshot.callScript });
-      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "package_version.create", artifactDigest });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "package_version.create", artifactDigest });
       const versionId = derivedId("opv", operationDigest);
       const commandId = derivedId("ocm", operationDigest);
       const statements: D1PreparedStatement[] = [commandStatement(database, scope, {
@@ -157,11 +161,14 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
           id,workspace_id,package_id,version,configuration_id,configuration_digest,configuration_revision,
           prospect_revision,contact_revision,contact_eligibility_snapshot_id,snapshot_json,artifact_digest,
           call_script_digest,command_id,created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          WHERE EXISTS (SELECT 1 FROM outreach_packages parent WHERE parent.id=? AND parent.workspace_id=?
+            AND parent.prospect_id=? AND parent.contact_id=? AND parent.profile_id=?)`,
       ).bind(
         versionId, scope.workspaceId, input.packageId, input.version, input.configurationId, input.configurationDigest,
         input.configurationRevision, input.prospectRevision, input.contactRevision, input.contactEligibilitySnapshotId,
         snapshotJson, artifactDigest, callScriptDigest, commandId, now,
+        input.packageId, scope.workspaceId, input.prospectId, input.contactId, input.profileId,
       ));
       statements.push(...bindingStatements(database, scope.workspaceId, "package_version", versionId, input.bindings, now));
       statements.push(await auditStatement(database, scope, commandId, "package.version.created", "package_version", versionId, "version_created", operationDigest, now));
@@ -169,6 +176,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
     },
 
     createMessageVersion: async (input: CreateMessageVersionInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["messageId", "packageId", "packageVersionId", "version", "expectedVersion", "snapshot", "intendedSendAt", "timezone", "unsubscribeTokenDigest", "bindings", "idempotencyKey"]);
       validateMessageInput(input);
       await requireAdmission(database, scope);
       const now = positiveTime(clock());
@@ -180,7 +188,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
         intendedSendAt: input.intendedSendAt, timezone: input.timezone,
         unsubscribeTokenDigest: input.unsubscribeTokenDigest, bindings: normalizedBindings(input.bindings),
       });
-      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "message_version.create", artifactDigest });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "message_version.create", artifactDigest });
       const versionId = derivedId("omv", operationDigest);
       const commandId = derivedId("ocm", operationDigest);
       const statements: D1PreparedStatement[] = [commandStatement(database, scope, {
@@ -194,10 +202,12 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
         `INSERT INTO outreach_message_versions (
           id,workspace_id,message_id,package_version_id,version,snapshot_json,artifact_digest,
           intended_send_at,timezone,unsubscribe_token_digest,command_id,created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?
+          WHERE EXISTS (SELECT 1 FROM outreach_messages parent WHERE parent.id=? AND parent.workspace_id=? AND parent.package_id=?)`,
       ).bind(
         versionId, scope.workspaceId, input.messageId, input.packageVersionId, input.version, snapshotJson,
         artifactDigest, input.intendedSendAt, input.timezone, input.unsubscribeTokenDigest, commandId, now,
+        input.messageId, scope.workspaceId, input.packageId,
       ));
       statements.push(...bindingStatements(database, scope.workspaceId, "message_version", versionId, input.bindings, now));
       statements.push(await auditStatement(database, scope, commandId, "message.version.created", "message_version", versionId, "version_created", operationDigest, now));
@@ -205,6 +215,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
     },
 
     approvePackageVersion: async (input: ApprovePackageInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["packageVersionId", "expectedVersion", "expiresAt", "idempotencyKey"]);
       if (!validId(input.packageVersionId) || !positive(input.expectedVersion) || !validId(input.idempotencyKey)) throw conflict();
       await requireAdmission(database, scope);
       const now = positiveTime(clock());
@@ -214,7 +225,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
       ).bind(input.packageVersionId, scope.workspaceId).first<{ artifact_digest: string; version: number }>();
       if (!version || Number(version.version) !== input.expectedVersion || !validDigest(version.artifact_digest)) throw conflict();
       const approvalDigest = await digest({ schema: "outreach-package-approval/v1", packageVersionId: input.packageVersionId, artifactDigest: version.artifact_digest, ownerSubject: scope.ownerSubject, expiresAt: input.expiresAt });
-      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "package.approve", approvalDigest });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "package.approve", approvalDigest });
       const approvalId = derivedId("opa", operationDigest);
       const commandId = derivedId("ocm", operationDigest);
       const statements = [
@@ -230,6 +241,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
     },
 
     approveMessageVersion: async (input: ApproveMessageInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["messageVersionId", "packageApprovalId", "expectedVersion", "acknowledgementDigest", "expiresAt", "idempotencyKey"]);
       if (!validId(input.messageVersionId) || !validId(input.packageApprovalId) || !positive(input.expectedVersion) || !validDigest(input.acknowledgementDigest) || !validId(input.idempotencyKey)) throw conflict();
       await requireAdmission(database, scope);
       const now = positiveTime(clock());
@@ -239,7 +251,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
       ).bind(input.messageVersionId, scope.workspaceId).first<{ artifact_digest: string; version: number }>();
       if (!version || Number(version.version) !== input.expectedVersion || !validDigest(version.artifact_digest)) throw conflict();
       const approvalDigest = await digest({ schema: "outreach-message-approval/v1", messageVersionId: input.messageVersionId, packageApprovalId: input.packageApprovalId, artifactDigest: version.artifact_digest, acknowledgementDigest: input.acknowledgementDigest, ownerSubject: scope.ownerSubject, expiresAt: input.expiresAt });
-      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "message.approve", approvalDigest });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "message.approve", approvalDigest });
       const approvalId = derivedId("oma", operationDigest);
       const commandId = derivedId("ocm", operationDigest);
       const statements = [
@@ -256,6 +268,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
     },
 
     recordSuppression: async (input: RecordSuppressionInput): Promise<OutreachWriteResult> => {
+      input = snapshotCommand(input, ["subjectKind", "subjectDigest", "channel", "reason", "sourceEventDigest", "aliasDigests", "effectiveAt", "idempotencyKey"]);
       validateSuppression(input);
       await requireAdmission(database, scope);
       const now = positiveTime(clock());
@@ -264,7 +277,7 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
       const aliasSnapshotJson = canonical(aliasDigests);
       const aliasSnapshotDigest = await digest({ schema: "outreach-suppression-aliases/v1", aliasDigests });
       const tombstoneDigest = await digest({ schema: "outreach-suppression-tombstone/v1", subjectKind: input.subjectKind, subjectDigest: input.subjectDigest, channel: input.channel, reason: input.reason, sourceEventDigest: input.sourceEventDigest, aliasSnapshotDigest, effectiveAt: input.effectiveAt });
-      const operationDigest = await digest({ schema: "outreach-command/v1", commandKind: "suppression.record", tombstoneDigest });
+      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "suppression.record", tombstoneDigest });
       const tombstoneId = derivedId("ost", operationDigest);
       const stopId = derivedId("ose", operationDigest);
       const commandId = derivedId("ocm", operationDigest);
@@ -288,16 +301,26 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
     },
 
     isSuppressed: async (subjects: readonly Readonly<{ kind: RecordSuppressionInput["subjectKind"]; digest: string; channel: RecordSuppressionInput["channel"] }>[]): Promise<boolean> => {
-      if (subjects.length < 1 || subjects.length > 32 || subjects.some((subject) => !validDigest(subject.digest))) throw conflict();
+      subjects = snapshotData(subjects);
+      if (!Array.isArray(subjects) || subjects.length < 1 || subjects.length > 32 || subjects.some((subject) => !plainObject(subject) || !exactKeys(subject, ["kind", "digest", "channel"]) || !validDigest(subject.digest) || !validSubjectChannel(subject.kind, subject.channel))) throw conflict();
       await requireAdmission(database, scope);
-      for (const subject of subjects) {
-        const row = await database.prepare(
-          `SELECT 1 blocked FROM outreach_suppression_tombstones
-           WHERE workspace_id=? AND subject_kind=? AND subject_digest=? AND (channel=? OR channel='all' OR ?='all') LIMIT 1`,
-        ).bind(scope.workspaceId, subject.kind, subject.digest, subject.channel, subject.channel).first();
-        if (row) return true;
-      }
-      return false;
+      // One read gives every subject/alias the same database snapshot. Traverse
+      // the complete same-kind alias component, including overlapping tombstones.
+      const row = await database.prepare(`
+        WITH RECURSIVE reach(kind,digest,channel) AS (
+          SELECT json_extract(value,'$.kind'),json_extract(value,'$.digest'),json_extract(value,'$.channel') FROM json_each(?)
+          UNION
+          SELECT reach.kind, aliases.value, reach.channel FROM reach
+          JOIN outreach_suppression_tombstones s ON s.workspace_id=? AND s.subject_kind=reach.kind
+            AND (s.channel=reach.channel OR s.channel='all' OR reach.channel='all')
+            AND (s.subject_digest=reach.digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=reach.digest))
+          JOIN json_each(json_insert(s.alias_snapshot_json,'$[#]',s.subject_digest)) aliases
+        ) SELECT 1 blocked FROM reach JOIN outreach_suppression_tombstones s
+          ON s.workspace_id=? AND s.subject_kind=reach.kind
+          AND (s.channel=reach.channel OR s.channel='all' OR reach.channel='all')
+          AND (s.subject_digest=reach.digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=reach.digest)) LIMIT 1
+      `).bind(canonical(subjects), scope.workspaceId, scope.workspaceId).first();
+      return row !== null;
     },
   });
 }
@@ -333,13 +356,14 @@ async function commit(database: D1Database, workspaceId: string, key: string, op
   try {
     await database.batch([...statements]);
     return Object.freeze({ id: resultId, digest: resultDigest, replayed: false });
-  } catch {
+  } catch (error) {
     const winner = await database.prepare(
       "SELECT operation_digest,result_id FROM outreach_commands WHERE workspace_id=? AND idempotency_key=? LIMIT 1",
     ).bind(workspaceId, key).first<{ operation_digest: string; result_id: string }>();
     if (winner?.operation_digest === operationDigest && winner.result_id === resultId) {
       return Object.freeze({ id: resultId, digest: resultDigest, replayed: true });
     }
+    if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" && error.message.includes("unresolved outreach suppression scope")) throw conflict("unresolved_suppression_scope");
     throw conflict();
   }
 }
@@ -369,7 +393,7 @@ function validateSuppression(input: RecordSuppressionInput) {
   const subjectKinds = ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"];
   const channels = ["email", "phone", "all"];
   const reasons = ["owner_request", "unsubscribe", "explicit_opt_out", "do_not_call", "identity_retention", "import_retention"];
-  if (!subjectKinds.includes(input.subjectKind) || !channels.includes(input.channel) || !reasons.includes(input.reason) || !validDigest(input.subjectDigest) || !validDigest(input.sourceEventDigest) || !validId(input.idempotencyKey)) throw conflict();
+  if (!subjectKinds.includes(input.subjectKind) || !channels.includes(input.channel) || !validSubjectChannel(input.subjectKind, input.channel) || !reasons.includes(input.reason) || !validDigest(input.subjectDigest) || !validDigest(input.sourceEventDigest) || !validId(input.idempotencyKey)) throw conflict();
   if (input.aliasDigests.length > 64 || input.aliasDigests.some((item) => !validDigest(item))) throw conflict();
 }
 
@@ -403,6 +427,48 @@ function validBindings(bindings: readonly OutreachBinding[], packageBindings: bo
 
 function normalizedBindings(bindings: readonly OutreachBinding[]) {
   return [...bindings].map((binding) => ({ kind: binding.kind, id: binding.id, digest: binding.digest })).sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`));
+}
+
+function validSubjectChannel(kind: unknown, channel: unknown) {
+  return ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"].includes(String(kind))
+    && ["email", "phone", "all"].includes(String(channel))
+    && (!(kind === "exact_email" || kind === "confirmed_email_domain") || channel === "email" || channel === "all")
+    && (kind !== "e164_phone" || channel === "phone" || channel === "all");
+}
+
+function dataKeys(value: object, required: readonly string[], optional: readonly string[] = []) {
+  const keys = Reflect.ownKeys(value);
+  return required.every((key) => keys.includes(key)) && keys.every((key) => typeof key === "string" && [...required, ...optional].includes(key)
+    && Object.hasOwn(Object.getOwnPropertyDescriptor(value, key) ?? {}, "value"));
+}
+
+/** Capture before any admission/hash await; never invoke accessors or toJSON. */
+function snapshotData<T>(value: T): T {
+  let nodes = 0;
+  const seen = new Set<object>();
+  const copy = (item: unknown, depth: number): unknown => {
+    if (++nodes > 4096 || depth > 12) throw conflict("invalid_input_shape");
+    if (item === null || typeof item === "string" || typeof item === "boolean" || (typeof item === "number" && Number.isSafeInteger(item))) return item;
+    if (!item || typeof item !== "object" || seen.has(item)) throw conflict("invalid_input_shape");
+    seen.add(item);
+    try {
+      if (Array.isArray(item)) {
+        if (Object.getPrototypeOf(item) !== Array.prototype || item.length > 1024 || !dataKeys(item, ["length", ...Array.from({ length: item.length }, (_, index) => String(index))])) throw conflict("invalid_input_shape");
+        return Object.freeze(Array.from({ length: item.length }, (_, index) => copy(Object.getOwnPropertyDescriptor(item, String(index))!.value, depth + 1)));
+      }
+      if (!plainObject(item)) throw conflict("invalid_input_shape");
+      const keys = Reflect.ownKeys(item);
+      if (keys.some((key) => typeof key !== "string" || !Object.hasOwn(Object.getOwnPropertyDescriptor(item, key) ?? {}, "value"))) throw conflict("invalid_input_shape");
+      return Object.freeze(Object.fromEntries(keys.map((key) => [key, copy(Object.getOwnPropertyDescriptor(item, key)!.value, depth + 1)])));
+    } finally { seen.delete(item); }
+  };
+  return copy(value, 0) as T;
+}
+
+function snapshotCommand<T>(value: T, keys: readonly string[]): T {
+  const copied = snapshotData(value);
+  if (!plainObject(copied) || !exactKeys(copied, keys)) throw conflict("invalid_command_shape");
+  return copied;
 }
 
 function canonical(value: unknown): string {

@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyMigrations, countRows, createD1Fixture } from "./helpers/d1.mjs";
-import { NOW, createApprovedProspectLifecycle, snapshotLaterPhaseEffects } from "./helpers/phase5-integration.mjs";
+import { NOW, applyEnrichmentLineageCandidate, createApprovedProspectLifecycle, seedSyntheticReservationInputs, snapshotLaterPhaseEffects } from "./helpers/phase5-integration.mjs";
 
-test("real Approved Prospect lifecycle exposes the Phase 4 to Phase 5 status defect without forged authority", async () => {
+test("forward candidate repairs real Approved Prospect issuance and reservation without rewriting prior authority", async () => {
   const fixture = await createD1Fixture("phase5-controlled-enrichment-lifecycle");
   try {
     await applyMigrations(fixture.database);
-    const laterEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
     const lifecycle = await createApprovedProspectLifecycle(fixture);
     await fixture.database.prepare(`INSERT INTO provider_quotes
       (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
@@ -23,11 +22,36 @@ test("real Approved Prospect lifecycle exposes the Phase 4 to Phase 5 status def
       JOIN typed_configurations c ON c.id=qa.configuration_id AND c.workspace_id=p.workspace_id WHERE p.id=?`)
       .bind(lifecycle.prospectId).first();
     assert.deepEqual(persisted, { state:"approved", active:1, candidate_status:"observed", outcome:"Passed", configuration_active:1 });
-    assert.equal(await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]), null,
-      "Phase 5 requires a candidate status that no Phase 4 service produces");
+    const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
+    assert.equal(snapshot?.admitted, true);
+    const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
+    const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
+    const request = { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision:snapshot.revision,idempotencyKey:"p5i-grant",now:NOW+5 };
+    await assert.rejects(issuance.issueEnrichmentGrant(repository,request),
+      /enrichment_grant_commit_failed/, "the old trigger still rejects the actual observed candidate");
     assert.equal(await countRows(fixture.database,"enrichment_grants"),0);
     assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
     assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+
+    await applyEnrichmentLineageCandidate(fixture.database);
+    const laterEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
+    const issued = await issuance.issueEnrichmentGrant(repository,request);
+    assert.equal(issued.kind,"issued");
+    assert.equal((await issuance.issueEnrichmentGrant(repository,request)).replayed,true);
+    assert.equal(await countRows(fixture.database,"enrichment_grants"),1);
+    await seedSyntheticReservationInputs(fixture.database,lifecycle,issued.grant);
+    const reservationRequest = {grantId:issued.grant.id,principalSubject:lifecycle.owner.subject,operationKey:issued.grant.tuple.operationKey,now:NOW+6};
+    const reserved = await authority.reserveEnrichmentOperation(repository,reservationRequest);
+    assert.equal(reserved.kind,"reserved");
+    assert.equal((await authority.reserveEnrichmentOperation(repository,reservationRequest)).kind,"blocked", "a consumed grant cannot reserve a second time");
+    assert.equal(await countRows(fixture.database,"enrichment_reservations"),1);
+    const claimed = await authority.claimAdmittedCommittedInvocation(repository,reserved.reservation.id,NOW+7);
+    assert.equal(claimed.kind,"claimed");
+    await repository.markNeedsReconciliation(reserved.reservation.id,"timeout");
+    assert.notEqual((await authority.claimAdmittedCommittedInvocation(repository,reserved.reservation.id,NOW+8)).kind,"claimed");
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+    await fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id=?").bind(lifecycle.configurationId).run();
+    assert.equal(await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]),null,"deactivated configuration still denies authority");
 
     const contacts = await fixture.vite.ssrLoadModule(new URL("../domain/contacts-handler.ts", import.meta.url).pathname);
     const identity = { email:"phase5-integration-owner@example.invalid", displayName:"Phase 5 integration owner" };
@@ -50,3 +74,54 @@ test("real Approved Prospect lifecycle exposes the Phase 4 to Phase 5 status def
     assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),laterEffectsBefore);
   } finally { await fixture.dispose(); }
 });
+
+test("a non-observed/non-qualified candidate remains denied before grant issuance", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-rejected-candidate");
+  try {
+    const { lifecycle, repository, issuance } = await readyObservedCandidate(fixture);
+    await fixture.database.prepare("UPDATE prospecting_candidates SET status='rejected' WHERE id=(SELECT candidate_id FROM profile_prospects WHERE id=? AND workspace_id=?)")
+      .bind(lifecycle.prospectId,lifecycle.workspaceId).run();
+    assert.equal(await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]),null);
+    const result = await issuance.issueEnrichmentGrant(repository,grantRequest(lifecycle,1,"p5i-rejected-candidate"));
+    assert.equal(result.kind,"blocked");
+    assert.equal(await countRows(fixture.database,"enrichment_grants"),0);
+    assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+  } finally { await fixture.dispose(); }
+});
+
+test("candidate lineage invalidated after issuance blocks reservation without observations", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-stale-candidate");
+  try {
+    const { lifecycle, repository, issuance, authority } = await readyObservedCandidate(fixture);
+    const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
+    assert.equal(snapshot?.admitted,true);
+    const issued = await issuance.issueEnrichmentGrant(repository,grantRequest(lifecycle,snapshot.revision,"p5i-stale-candidate"));
+    assert.equal(issued.kind,"issued");
+    await seedSyntheticReservationInputs(fixture.database,lifecycle,issued.grant);
+    await fixture.database.prepare("UPDATE prospecting_candidates SET status='invalid' WHERE id=(SELECT candidate_id FROM profile_prospects WHERE id=? AND workspace_id=?)")
+      .bind(lifecycle.prospectId,lifecycle.workspaceId).run();
+    const result = await authority.reserveEnrichmentOperation(repository,{grantId:issued.grant.id,principalSubject:lifecycle.owner.subject,operationKey:issued.grant.tuple.operationKey,now:NOW+6});
+    assert.equal(result.kind,"blocked");
+    assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+  } finally { await fixture.dispose(); }
+});
+
+async function readyObservedCandidate(fixture) {
+  await applyMigrations(fixture.database); await applyEnrichmentLineageCandidate(fixture.database);
+  const lifecycle = await createApprovedProspectLifecycle(fixture);
+  await fixture.database.prepare(`INSERT INTO provider_quotes
+    (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
+    VALUES ('p5i-quote',?,'synthetic-contact-provider','v1','synthetic-catalog',1,'business_contact_lookup/v1','CAD',10,?,?,?)`)
+    .bind(lifecycle.workspaceId,"b".repeat(64),NOW+20_000,NOW).run();
+  const [repositoryModule,issuance,authority] = await Promise.all([
+    fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname),
+    fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname),
+    fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname),
+  ]);
+  const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:()=>NOW});
+  return { lifecycle, repository, issuance, authority };
+}
+
+function grantRequest(lifecycle, expectedRevision, idempotencyKey) { return { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision,idempotencyKey,now:NOW+5 }; }

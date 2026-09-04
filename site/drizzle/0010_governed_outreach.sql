@@ -320,6 +320,82 @@ CREATE TRIGGER outreach_artifact_binding_scope_guard BEFORE INSERT ON outreach_a
     OR (NEW.binding_kind='package_version' AND NOT EXISTS (SELECT 1 FROM outreach_package_versions x WHERE x.id=NEW.binding_id AND x.workspace_id=NEW.workspace_id AND x.artifact_digest=NEW.binding_digest));
 END;
 --> statement-breakpoint
+CREATE TRIGGER outreach_artifact_binding_ancestry_guard BEFORE INSERT ON outreach_artifact_bindings BEGIN
+  SELECT RAISE(ABORT, 'sealed outreach bindings') WHERE EXISTS (
+    SELECT 1 FROM outreach_audit_records a WHERE a.workspace_id=NEW.workspace_id AND a.subject_kind=NEW.artifact_kind AND a.subject_id=NEW.artifact_id
+  );
+  SELECT RAISE(ABORT, 'invalid outreach binding ancestry') WHERE
+    (NEW.artifact_kind='message_version' AND (NEW.binding_kind<>'package_version' OR NOT EXISTS (
+      SELECT 1 FROM outreach_message_versions mv JOIN outreach_package_versions pv ON pv.id=mv.package_version_id
+      WHERE mv.id=NEW.artifact_id AND mv.workspace_id=NEW.workspace_id AND pv.workspace_id=NEW.workspace_id
+        AND pv.id=NEW.binding_id AND pv.artifact_digest=NEW.binding_digest
+    )))
+    OR (NEW.artifact_kind='package_version' AND NOT EXISTS (
+      SELECT 1 FROM outreach_package_versions pv
+      JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+      JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+      JOIN prospecting_candidates candidate ON candidate.id=p.candidate_id AND candidate.workspace_id=p.workspace_id
+      WHERE pv.id=NEW.artifact_id AND pv.workspace_id=NEW.workspace_id
+        AND (
+          (NEW.binding_kind='configuration' AND NEW.binding_id=pv.configuration_id AND NEW.binding_digest=pv.configuration_digest)
+          OR (NEW.binding_kind='qualification' AND NEW.binding_id=p.assessment_id AND EXISTS (
+            SELECT 1 FROM qualification_assessments q WHERE q.id=p.assessment_id AND q.workspace_id=p.workspace_id
+              AND q.candidate_id=p.candidate_id AND q.configuration_id=pv.configuration_id AND q.configuration_digest=pv.configuration_digest
+          ))
+          OR (NEW.binding_kind='review_decision' AND EXISTS (
+            SELECT 1 FROM prospect_review_decisions r WHERE r.id=NEW.binding_id AND r.workspace_id=p.workspace_id
+              AND r.prospect_id=p.id AND r.assessment_id=p.assessment_id AND r.decision='approve'
+          ))
+          OR (NEW.binding_kind='source' AND EXISTS (
+            SELECT 1 FROM prospecting_source_lineage e WHERE e.workspace_id=p.workspace_id AND e.source_id=NEW.binding_id
+              AND e.run_id=candidate.run_id AND e.submission_id=candidate.submission_id
+          ))
+          OR (NEW.binding_kind='evidence' AND EXISTS (
+            SELECT 1 FROM prospecting_source_lineage e WHERE e.id=NEW.binding_id AND e.workspace_id=p.workspace_id
+              AND e.run_id=candidate.run_id AND e.submission_id=candidate.submission_id
+              AND EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.evidenceDigests') d WHERE d.value=NEW.binding_digest)
+          ))
+          OR (NEW.binding_kind='claim_guardrail' AND EXISTS (
+            SELECT 1 FROM knowledge_versions k WHERE k.id=NEW.binding_id AND k.workspace_id=p.workspace_id
+              AND k.kind='claim_guardrail' AND k.scope_type='profile' AND k.scope_id=op.profile_id
+              AND EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.claimGuardrailDigests') d WHERE d.value=NEW.binding_digest)
+          ))
+          OR (NEW.binding_kind='contact_observation' AND EXISTS (
+            SELECT 1 FROM contact_point_observations o JOIN contact_evidence_assignments a ON a.id=o.assignment_id
+            JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id
+            WHERE o.id=NEW.binding_id AND o.workspace_id=p.workspace_id AND o.contact_id=op.contact_id
+              AND a.workspace_id=p.workspace_id AND a.prospect_id=p.id AND a.contact_id=op.contact_id
+              AND o.configuration_id=pv.configuration_id AND o.configuration_digest=pv.configuration_digest
+              AND EXISTS (SELECT 1 FROM json_each(ces.observation_ids_json) d WHERE d.value=o.id)
+              AND EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.selectedContactPointDigests') d WHERE d.value=o.contact_point_digest)
+          ))
+          OR (NEW.binding_kind='contact_eligibility' AND NEW.binding_id=pv.contact_eligibility_snapshot_id)
+        )
+    ));
+END;
+--> statement-breakpoint
+CREATE TRIGGER outreach_artifact_binding_complete_guard BEFORE INSERT ON outreach_audit_records
+WHEN NEW.action IN ('package.version.created','message.version.created') BEGIN
+  SELECT RAISE(ABORT, 'incomplete outreach bindings') WHERE
+    (NEW.action='message.version.created' AND (SELECT count(*) FROM outreach_artifact_bindings b WHERE b.artifact_kind='message_version' AND b.artifact_id=NEW.subject_id AND b.workspace_id=NEW.workspace_id AND b.binding_kind='package_version')<>1)
+    OR (NEW.action='package.version.created' AND EXISTS (
+      SELECT 1 FROM outreach_package_versions pv WHERE pv.id=NEW.subject_id AND pv.workspace_id=NEW.workspace_id AND (
+        EXISTS (SELECT 1 FROM json_each('["configuration","qualification","review_decision","contact_eligibility"]') required
+          WHERE (SELECT count(*) FROM outreach_artifact_bindings b WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind=required.value)<>1)
+        OR EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.selectedContactPointDigests') d WHERE NOT EXISTS (
+          SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id
+          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation' AND o.contact_point_digest=d.value))
+        OR EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.evidenceDigests') d WHERE NOT EXISTS (
+          SELECT 1 FROM outreach_artifact_bindings b WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='evidence' AND b.binding_digest=d.value))
+        OR EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.claimGuardrailDigests') d WHERE NOT EXISTS (
+          SELECT 1 FROM outreach_artifact_bindings b WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='claim_guardrail' AND b.binding_digest=d.value))
+        OR EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN prospecting_source_lineage e ON e.id=b.binding_id
+          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='evidence' AND NOT EXISTS (
+            SELECT 1 FROM outreach_artifact_bindings s WHERE s.artifact_kind='package_version' AND s.artifact_id=pv.id AND s.binding_kind='source' AND s.binding_id=e.source_id))
+      )
+    ));
+END;
+--> statement-breakpoint
 CREATE TRIGGER outreach_package_approval_scope_guard BEFORE INSERT ON outreach_package_approvals BEGIN
   SELECT RAISE(ABORT, 'invalid outreach package approval') WHERE NOT EXISTS (
     SELECT 1 FROM outreach_package_versions pv
@@ -343,6 +419,237 @@ CREATE TRIGGER outreach_message_approval_scope_guard BEFORE INSERT ON outreach_m
   );
 END;
 --> statement-breakpoint
+CREATE TRIGGER outreach_package_approval_current_guard BEFORE INSERT ON outreach_package_approvals BEGIN
+  SELECT RAISE(ABORT, 'stale outreach candidate ancestry') WHERE NOT EXISTS (
+    SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN prospecting_candidates candidate ON candidate.id=p.candidate_id AND candidate.workspace_id=p.workspace_id
+    WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id
+      AND candidate.profile_id=op.profile_id AND candidate.configuration_id=pv.configuration_id
+      AND candidate.status IN ('observed','qualified')
+  );
+  SELECT RAISE(ABORT, 'unresolved outreach suppression scope') WHERE EXISTS (
+    SELECT 1 FROM outreach_suppression_tombstones s WHERE s.workspace_id=NEW.workspace_id
+      AND s.effective_at<=NEW.created_at AND s.subject_kind IN ('organization','confirmed_email_domain')
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN customer_profiles cp ON cp.id=op.profile_id AND cp.workspace_id=op.workspace_id
+    JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id
+    JOIN products product ON product.id=mp.product_id AND product.workspace_id=mp.workspace_id
+    JOIN companies company ON company.id=product.company_id AND company.workspace_id=product.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id AND c.company_id=company.id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    JOIN qualification_assessments q ON q.id=p.assessment_id AND q.workspace_id=p.workspace_id
+    WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id
+      AND p.profile_id=op.profile_id AND p.state='approved' AND p.active=1 AND p.revision=pv.prospect_revision AND c.revision=pv.contact_revision
+      AND cp.lifecycle='ready' AND mp.lifecycle='active' AND product.lifecycle='ready' AND company.status='active'
+      AND cfg.active=1 AND cfg.owner_type='profile' AND cfg.owner_id=op.profile_id AND cfg.kind='profile_effective'
+      AND cfg.digest=pv.configuration_digest AND cfg.revision=pv.configuration_revision
+      AND q.candidate_id=p.candidate_id AND q.configuration_id=cfg.id AND q.configuration_digest=cfg.digest AND q.outcome='Passed'
+      AND ces.contact_id=c.id AND ces.prospect_id=p.id AND ces.configuration_id=cfg.id
+      AND ces.configuration_digest=cfg.digest AND ces.configuration_revision=cfg.revision AND ces.prospect_revision=p.revision
+      AND ces.state='ContactReady' AND ces.eligible=1 AND ces.projected_at<=NEW.created_at
+      AND json_array_length(ces.preserved_suppression_refs_json)=0
+      AND NOT EXISTS (SELECT 1 FROM contact_eligibility_snapshots later WHERE later.workspace_id=p.workspace_id
+        AND later.contact_id=c.id AND later.prospect_id=p.id AND later.id<>ces.id AND later.projected_at>=ces.projected_at)
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM outreach_package_versions later WHERE later.package_id=pv.package_id AND later.version>pv.version)
+      AND EXISTS (SELECT 1 FROM outreach_audit_records ar WHERE ar.workspace_id=pv.workspace_id AND ar.subject_kind='package_version' AND ar.subject_id=pv.id AND ar.action='package.version.created')
+      AND EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN prospect_review_decisions r ON r.id=b.binding_id
+        WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='review_decision'
+          AND r.prospect_id=p.id AND r.assessment_id=p.assessment_id AND r.decision='approve' AND r.decision_digest=b.binding_digest
+          AND NOT EXISTS (SELECT 1 FROM prospect_review_decisions later WHERE later.workspace_id=r.workspace_id AND later.prospect_id=p.id
+            AND later.id<>r.id AND later.created_at>=r.created_at))
+      AND NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN sources s ON s.id=b.binding_id
+        WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='source' AND (s.status<>'available' OR s.source_digest<>b.binding_digest))
+      AND NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN knowledge_versions k ON k.id=b.binding_id
+        WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='claim_guardrail' AND (k.status<>'confirmed' OR k.value_digest<>b.binding_digest))
+      AND NOT EXISTS (SELECT 1 FROM knowledge_drifts d WHERE d.workspace_id=pv.workspace_id AND d.status IN ('open','reviewed','contained')
+        AND (EXISTS (SELECT 1 FROM configuration_knowledge_dependencies dep WHERE dep.configuration_id=cfg.id AND dep.knowledge_version_id=d.current_version_id)
+          OR EXISTS (SELECT 1 FROM outreach_artifact_bindings b WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='claim_guardrail' AND b.binding_id=d.current_version_id)))
+      AND json_array_length(pv.snapshot_json,'$.selectedContactPointDigests')>0
+  );
+  SELECT RAISE(ABORT, 'stale outreach contact evidence') WHERE EXISTS (
+    SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN json_each(pv.snapshot_json,'$.selectedContactPointDigests') selected
+    WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id AND NOT EXISTS (
+        SELECT 1 FROM outreach_artifact_bindings b
+        JOIN contact_point_observations o ON o.id=b.binding_id AND o.workspace_id=pv.workspace_id
+        JOIN contact_evidence_assignments a ON a.id=o.assignment_id AND a.workspace_id=pv.workspace_id
+        JOIN contact_verification_receipts vr ON vr.id=o.verification_receipt_id AND vr.workspace_id=pv.workspace_id
+        WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation'
+          AND b.binding_digest=o.observation_digest AND o.contact_id=op.contact_id AND o.configuration_id=pv.configuration_id AND o.configuration_digest=pv.configuration_digest
+          AND a.prospect_id=op.prospect_id AND a.contact_id=op.contact_id AND a.configuration_id=pv.configuration_id
+          AND o.contact_point_digest=selected.value AND o.verified_at<=NEW.created_at
+          AND vr.observation_id=o.id AND vr.receipt_digest IS NOT NULL AND vr.attestation_key_id IS NOT NULL
+          AND ((o.kind='email' AND o.verification_class='mailbox_verified' AND o.method='mailbox_verification' AND o.verified_at+2592000000>NEW.created_at)
+            OR (o.verification_class='source_verified' AND o.method='authoritative_source_reconfirmed' AND o.verified_at+7776000000>NEW.created_at))
+          AND NOT EXISTS (SELECT 1 FROM contact_point_observations later WHERE later.workspace_id=o.workspace_id AND later.contact_id=o.contact_id
+            AND later.contact_point_digest=o.contact_point_digest AND later.id<>o.id AND later.observed_at>=o.observed_at)
+    )
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM outreach_suppression_tombstones s WHERE s.workspace_id=pv.workspace_id AND s.effective_at<=NEW.created_at AND (
+        s.subject_kind='company'
+        OR (s.subject_kind='contact' AND (s.subject_digest=c.identity_digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=c.identity_digest)))
+        OR (s.subject_kind IN ('exact_email','e164_phone') AND EXISTS (
+          SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id
+          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation'
+            AND ((s.subject_kind='exact_email' AND o.kind='email') OR (s.subject_kind='e164_phone' AND o.kind='phone'))
+            AND (s.subject_digest=o.contact_point_digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=o.contact_point_digest))
+        ))
+      ))
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM outreach_stop_events stop WHERE stop.workspace_id=pv.workspace_id AND stop.stop_kind<>'suppression' AND stop.effective_at<=NEW.created_at
+        AND ((stop.subject_kind='company') OR (stop.subject_kind='contact' AND stop.subject_digest=c.identity_digest)
+          OR EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.selectedContactPointDigests') point WHERE point.value=stop.subject_digest)))
+  );
+END;
+--> statement-breakpoint
+CREATE TRIGGER outreach_message_approval_current_guard BEFORE INSERT ON outreach_message_approvals BEGIN
+  SELECT RAISE(ABORT, 'stale outreach candidate ancestry') WHERE NOT EXISTS (
+    SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN prospecting_candidates candidate ON candidate.id=p.candidate_id AND candidate.workspace_id=p.workspace_id
+    WHERE pv.id=(SELECT package_version_id FROM outreach_message_versions WHERE id=NEW.message_version_id AND workspace_id=NEW.workspace_id) AND pv.workspace_id=NEW.workspace_id
+      AND candidate.profile_id=op.profile_id AND candidate.configuration_id=pv.configuration_id
+      AND candidate.status IN ('observed','qualified')
+  );
+  SELECT RAISE(ABORT, 'unresolved outreach suppression scope') WHERE EXISTS (
+    SELECT 1 FROM outreach_suppression_tombstones s WHERE s.workspace_id=NEW.workspace_id
+      AND s.effective_at<=NEW.created_at AND s.subject_kind IN ('organization','confirmed_email_domain')
+  );
+  SELECT RAISE(ABORT, 'stale outreach message version') WHERE EXISTS (
+    SELECT 1 FROM outreach_message_versions mv JOIN outreach_message_versions later ON later.message_id=mv.message_id AND later.version>mv.version
+    WHERE mv.id=NEW.message_version_id AND mv.workspace_id=NEW.workspace_id
+  );
+  SELECT RAISE(ABORT, 'incomplete outreach message audit') WHERE NOT EXISTS (
+    SELECT 1 FROM outreach_audit_records a WHERE a.workspace_id=NEW.workspace_id AND a.subject_kind='message_version' AND a.subject_id=NEW.message_version_id AND a.action='message.version.created'
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN customer_profiles cp ON cp.id=op.profile_id AND cp.workspace_id=op.workspace_id
+    JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id
+    JOIN products product ON product.id=mp.product_id AND product.workspace_id=mp.workspace_id
+    JOIN companies company ON company.id=product.company_id AND company.workspace_id=product.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id AND c.company_id=company.id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    JOIN qualification_assessments q ON q.id=p.assessment_id AND q.workspace_id=p.workspace_id
+    WHERE pv.id=(SELECT package_version_id FROM outreach_message_versions WHERE id=NEW.message_version_id AND workspace_id=NEW.workspace_id) AND pv.workspace_id=NEW.workspace_id
+      AND p.profile_id=op.profile_id AND p.state='approved' AND p.active=1 AND p.revision=pv.prospect_revision AND c.revision=pv.contact_revision
+      AND cp.lifecycle='ready' AND mp.lifecycle='active' AND product.lifecycle='ready' AND company.status='active'
+      AND cfg.active=1 AND cfg.owner_type='profile' AND cfg.owner_id=op.profile_id AND cfg.kind='profile_effective'
+      AND cfg.digest=pv.configuration_digest AND cfg.revision=pv.configuration_revision
+      AND q.candidate_id=p.candidate_id AND q.configuration_id=cfg.id AND q.configuration_digest=cfg.digest AND q.outcome='Passed'
+      AND ces.contact_id=c.id AND ces.prospect_id=p.id AND ces.configuration_id=cfg.id
+      AND ces.configuration_digest=cfg.digest AND ces.configuration_revision=cfg.revision AND ces.prospect_revision=p.revision
+      AND ces.state='ContactReady' AND ces.eligible=1 AND ces.projected_at<=NEW.created_at
+      AND json_array_length(ces.preserved_suppression_refs_json)=0
+      AND NOT EXISTS (SELECT 1 FROM contact_eligibility_snapshots later WHERE later.workspace_id=p.workspace_id
+        AND later.contact_id=c.id AND later.prospect_id=p.id AND later.id<>ces.id AND later.projected_at>=ces.projected_at)
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    WHERE pv.id=(SELECT package_version_id FROM outreach_message_versions WHERE id=NEW.message_version_id AND workspace_id=NEW.workspace_id) AND pv.workspace_id=NEW.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM outreach_package_versions later WHERE later.package_id=pv.package_id AND later.version>pv.version)
+      AND EXISTS (SELECT 1 FROM outreach_audit_records ar WHERE ar.workspace_id=pv.workspace_id AND ar.subject_kind='package_version' AND ar.subject_id=pv.id AND ar.action='package.version.created')
+      AND EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN prospect_review_decisions r ON r.id=b.binding_id
+        WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='review_decision'
+          AND r.prospect_id=p.id AND r.assessment_id=p.assessment_id AND r.decision='approve' AND r.decision_digest=b.binding_digest
+          AND NOT EXISTS (SELECT 1 FROM prospect_review_decisions later WHERE later.workspace_id=r.workspace_id AND later.prospect_id=p.id
+            AND later.id<>r.id AND later.created_at>=r.created_at))
+      AND NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN sources s ON s.id=b.binding_id
+        WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='source' AND (s.status<>'available' OR s.source_digest<>b.binding_digest))
+      AND NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN knowledge_versions k ON k.id=b.binding_id
+        WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='claim_guardrail' AND (k.status<>'confirmed' OR k.value_digest<>b.binding_digest))
+      AND NOT EXISTS (SELECT 1 FROM knowledge_drifts d WHERE d.workspace_id=pv.workspace_id AND d.status IN ('open','reviewed','contained')
+        AND (EXISTS (SELECT 1 FROM configuration_knowledge_dependencies dep WHERE dep.configuration_id=cfg.id AND dep.knowledge_version_id=d.current_version_id)
+          OR EXISTS (SELECT 1 FROM outreach_artifact_bindings b WHERE b.artifact_id=pv.id AND b.artifact_kind='package_version' AND b.binding_kind='claim_guardrail' AND b.binding_id=d.current_version_id)))
+      AND json_array_length(pv.snapshot_json,'$.selectedContactPointDigests')>0
+  );
+  SELECT RAISE(ABORT, 'stale outreach contact evidence') WHERE EXISTS (
+    SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN json_each(pv.snapshot_json,'$.selectedContactPointDigests') selected
+    WHERE pv.id=(SELECT package_version_id FROM outreach_message_versions WHERE id=NEW.message_version_id AND workspace_id=NEW.workspace_id) AND pv.workspace_id=NEW.workspace_id AND NOT EXISTS (
+        SELECT 1 FROM outreach_artifact_bindings b
+        JOIN contact_point_observations o ON o.id=b.binding_id AND o.workspace_id=pv.workspace_id
+        JOIN contact_evidence_assignments a ON a.id=o.assignment_id AND a.workspace_id=pv.workspace_id
+        JOIN contact_verification_receipts vr ON vr.id=o.verification_receipt_id AND vr.workspace_id=pv.workspace_id
+        WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation'
+          AND b.binding_digest=o.observation_digest AND o.contact_id=op.contact_id AND o.configuration_id=pv.configuration_id AND o.configuration_digest=pv.configuration_digest
+          AND a.prospect_id=op.prospect_id AND a.contact_id=op.contact_id AND a.configuration_id=pv.configuration_id
+          AND o.contact_point_digest=selected.value AND o.verified_at<=NEW.created_at
+          AND vr.observation_id=o.id AND vr.receipt_digest IS NOT NULL AND vr.attestation_key_id IS NOT NULL
+          AND ((o.kind='email' AND o.verification_class='mailbox_verified' AND o.method='mailbox_verification' AND o.verified_at+2592000000>NEW.created_at)
+            OR (o.verification_class='source_verified' AND o.method='authoritative_source_reconfirmed' AND o.verified_at+7776000000>NEW.created_at))
+          AND NOT EXISTS (SELECT 1 FROM contact_point_observations later WHERE later.workspace_id=o.workspace_id AND later.contact_id=o.contact_id
+            AND later.contact_point_digest=o.contact_point_digest AND later.id<>o.id AND later.observed_at>=o.observed_at)
+    )
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    WHERE pv.id=(SELECT package_version_id FROM outreach_message_versions WHERE id=NEW.message_version_id AND workspace_id=NEW.workspace_id) AND pv.workspace_id=NEW.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM outreach_suppression_tombstones s WHERE s.workspace_id=pv.workspace_id AND s.effective_at<=NEW.created_at AND (
+        s.subject_kind='company'
+        OR (s.subject_kind='contact' AND (s.subject_digest=c.identity_digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=c.identity_digest)))
+        OR (s.subject_kind IN ('exact_email','e164_phone') AND EXISTS (
+          SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id
+          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation'
+            AND ((s.subject_kind='exact_email' AND o.kind='email') OR (s.subject_kind='e164_phone' AND o.kind='phone'))
+            AND (s.subject_digest=o.contact_point_digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=o.contact_point_digest))
+        ))
+      ))
+  );
+  SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
+    JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+    JOIN profile_prospects p ON p.id=op.prospect_id AND p.workspace_id=op.workspace_id
+    JOIN contacts c ON c.id=op.contact_id AND c.workspace_id=op.workspace_id
+    JOIN typed_configurations cfg ON cfg.id=pv.configuration_id AND cfg.workspace_id=pv.workspace_id
+    JOIN contact_eligibility_snapshots ces ON ces.id=pv.contact_eligibility_snapshot_id AND ces.workspace_id=pv.workspace_id
+    WHERE pv.id=(SELECT package_version_id FROM outreach_message_versions WHERE id=NEW.message_version_id AND workspace_id=NEW.workspace_id) AND pv.workspace_id=NEW.workspace_id
+      AND NOT EXISTS (SELECT 1 FROM outreach_stop_events stop WHERE stop.workspace_id=pv.workspace_id AND stop.stop_kind<>'suppression' AND stop.effective_at<=NEW.created_at
+        AND ((stop.subject_kind='company') OR (stop.subject_kind='contact' AND stop.subject_digest=c.identity_digest)
+          OR EXISTS (SELECT 1 FROM json_each(pv.snapshot_json,'$.selectedContactPointDigests') point WHERE point.value=stop.subject_digest)))
+  );
+END;
+--> statement-breakpoint
 CREATE TRIGGER outreach_message_consumption_scope_guard BEFORE INSERT ON outreach_message_approval_consumptions BEGIN
   SELECT RAISE(ABORT, 'invalid outreach approval consumption') WHERE NOT EXISTS (
     SELECT 1 FROM outreach_message_approvals ma WHERE ma.id=NEW.message_approval_id
@@ -351,6 +658,11 @@ CREATE TRIGGER outreach_message_consumption_scope_guard BEFORE INSERT ON outreac
 END;
 --> statement-breakpoint
 CREATE TRIGGER outreach_suppression_scope_guard BEFORE INSERT ON outreach_suppression_tombstones BEGIN
+  SELECT RAISE(ABORT, 'invalid outreach suppression aliases') WHERE json_valid(NEW.alias_snapshot_json)<>1;
+  SELECT RAISE(ABORT, 'invalid outreach suppression aliases') WHERE json_type(NEW.alias_snapshot_json)<>'array'
+    OR json_array_length(NEW.alias_snapshot_json)>64
+    OR EXISTS (SELECT 1 FROM json_each(NEW.alias_snapshot_json) a WHERE a.type<>'text' OR length(a.value)<>64 OR a.value GLOB '*[^0-9a-f]*')
+    OR (SELECT count(*) FROM json_each(NEW.alias_snapshot_json))<>(SELECT count(DISTINCT value) FROM json_each(NEW.alias_snapshot_json));
   SELECT RAISE(ABORT, 'invalid outreach suppression') WHERE
     NEW.subject_kind NOT IN ('exact_email','confirmed_email_domain','e164_phone','contact','organization','company')
     OR NEW.channel NOT IN ('email','phone','all')

@@ -238,8 +238,8 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
     const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
     const projected = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: {
       capability: { available: false, status: "blocked", reason: "Current capability is blocked." },
-      eligibility: [{ id: "eligibility-1", contactId: "contact-1", prospectId: "prospect-1", state: "ContactReady", eligible: true, reasonCodes: [], observations: [{ verificationClass: "mailbox_verified" }] }],
-      verifiedContacts: [{ id: "verified-1", contactId: "contact-1", prospectId: "prospect-1", state: "ContactReady", eligible: true, reasonCodes: [], observations: [{ verificationClass: "mailbox_verified" }] }],
+      eligibility: [{ id: "eligibility-1", contactId: "contact-1", prospectId: "prospect-1", state: "ContactReady", eligible: true, reasonCodes: [], observations: [{ kind: "email", verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: 1_700_000_000_000 }] }],
+      verifiedContacts: [{ id: "verified-1", contactId: "contact-1", prospectId: "prospect-1", state: "ContactReady", eligible: true, reasonCodes: [], observations: [{ kind: "email", verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: 1_700_000_000_000 }] }],
       suggestions: [{ id: "suggestion-1", contactId: "contact-2", prospectId: "prospect-2", state: "ContactSuggestion", eligible: false, reasonCodes: ["verification_pending"] }],
       needsReview: [{ id: "review-1", contactId: "contact-3", prospectId: "prospect-3", state: "NeedsReview", eligible: false, reasonCodes: ["contact_evidence_stale"] }],
       identity: [{ id: "identity-1", subjectKind: "contact", kind: "merge", revision: 2, candidateRevisions: [{ subjectId: "contact-1", revision: 1 }, { subjectId: "contact-2", revision: 1 }], sourceLineageIds: ["lineage-1"] }],
@@ -251,7 +251,33 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
 
 test("Contacts transport gets fresh authority/CSRF before mutation, keeps one intent key pending, and refreshes after 409 or CSRF", async () => {
   const [workspace, leaves, handlerSource, route] = await Promise.all([source("app/prospects/contacts-workspace.tsx"), source("app/prospects/contact-leaves.tsx"), source("domain/contacts-handler.ts"), source("app/api/contacts/route.ts")]);
-  assert.match(workspace, /useEffect[\s\S]*then\(refresh\)/); assert.match(workspace, /useState\(\(\) => crypto\.randomUUID\(\)\)/); assert.match(workspace, /setAuthorityReady\(false\)[\s\S]*fetch\("\/api\/contacts"/); assert.match(workspace, /disabled=\{!authorityReady \|\| !confirmed \|\| pending\}/); assert.match(workspace, /response\.status === 409[\s\S]*await refresh\(\)/); assert.match(workspace, /response\.status === 403[\s\S]*await refresh\(\)/);
+  assert.match(workspace, /useEffect[\s\S]*then\(refresh\)/); assert.match(workspace, /useState\(\(\) => crypto\.randomUUID\(\)\)/); assert.match(workspace, /startAuthorityRefresh[\s\S]*fetchContactsProjection/); assert.match(workspace, /disabled=\{!authorityReady \|\| !confirmed \|\| pending\}/); assert.match(workspace, /response\.status === 409[\s\S]*await refresh\(\)/); assert.match(workspace, /response\.status === 403[\s\S]*await refresh\(\)/);
   assert.match(`${workspace}\n${leaves}`, /data-status/); assert.match(`${workspace}\n${leaves}`, /contacts-granted-operation-explanation/);
   assert.match(handlerSource, /admitPilotOwner[\s\S]*validateSameOriginMutation[\s\S]*consumeCsrfToken/); assert.match(handlerSource, /MAX_CONTACTS_BODY_BYTES/); assert.doesNotMatch(`${handlerSource}\n${route}`, /enrichment-operation|contact-provider-port|provider.*\.enrich/i);
+});
+
+test("shared unknown-confirmation recovery clears confirmation, uses GET only, and fences stale completions", async () => {
+  const fixture = await createD1Fixture("contacts-unknown-result-refresh");
+  try {
+    const workspace = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contacts-workspace.tsx", import.meta.url).pathname);
+    const confirmation = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-confirmation-state.ts", import.meta.url).pathname);
+    const calls = [];
+    const post = await workspace.postContactConfirmation(async (url, init) => { calls.push({ url, method: init.method }); return new Response("unavailable", { status: 503 }); }, { authorityReady: true, confirmed: true, pending: false, idempotencyKey: "stable-synthetic-key" });
+    assert.equal(post.status, 503);
+    let current = confirmation.finishAuthorityRefresh(confirmation.startAuthorityRefresh(confirmation.INITIAL_CONTACT_CONFIRMATION_STATE), 1, true);
+    current = confirmation.setExplicitConfirmation(current, true);
+    current = confirmation.beginConfirmationRequest(current).state;
+    const recovery = workspace.beginUnknownContactConfirmationRecovery(current);
+    assert.deepEqual({ ready: recovery.state.authorityReady, confirmed: recovery.state.confirmed, pending: recovery.state.pending }, { ready: false, confirmed: false, pending: false });
+    const refreshed = await workspace.finishUnknownContactConfirmationRecovery(async (url, init) => { calls.push({ url, method: init.method ?? "GET" }); return Response.json({ capability: { available: false, status: "blocked", reason: "Blocked." }, eligibility: [], verifiedContacts: [], suggestions: [], needsReview: [], identity: [], authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false } }); }, recovery);
+    const applied = workspace.applyUnknownContactConfirmationRecovery(recovery.state, refreshed);
+    assert.equal(refreshed.projection?.authority.providerCall, false); assert.equal(applied.authorityReady, true); assert.equal(applied.confirmed, false);
+    assert.deepEqual(calls, [{ url: "/api/contacts", method: "POST" }, { url: "/api/contacts", method: "GET" }], "recovery performs one safe GET and never retries POST");
+    const malformed = await workspace.fetchContactsProjection(async () => Response.json({ capability: { available: false, status: "blocked", reason: "contact@example.invalid" } }));
+    assert.equal(malformed.projection, null, "malformed successful responses do not become UI authority");
+    const stale = confirmation.startAuthorityRefresh(recovery.state);
+    assert.equal(workspace.applyUnknownContactConfirmationRecovery(stale, refreshed), stale, "a late recovery cannot overwrite a newer authority generation");
+    const thrown = await workspace.finishUnknownContactConfirmationRecovery(async () => { throw new Error("offline"); }, recovery);
+    assert.deepEqual({ ready: thrown.state.authorityReady, confirmed: thrown.state.confirmed, pending: thrown.state.pending }, { ready: false, confirmed: false, pending: false });
+  } finally { await fixture.dispose(); }
 });

@@ -135,6 +135,7 @@ export async function seedOutreachAuthority(fixture) {
     evidenceDigest,
     guardrailDigest,
     observationId: observation.id,
+    contactPointDigest: (await fixture.database.prepare("SELECT contact_point_digest FROM contact_point_observations WHERE id=? AND workspace_id=?").bind(observation.id, seeded.workspaceId).first()).contact_point_digest,
     observationDigest: settlementIdentity.observationBindings[0].observationDigest,
   });
 }

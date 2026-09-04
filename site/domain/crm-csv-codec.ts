@@ -43,6 +43,11 @@ export const CRM_CSV_LIMITS = Object.freeze({
 
 export type CrmCsvFieldId = typeof CRM_CSV_FIELD_IDS[number];
 export type CrmCsvRow = Readonly<Record<CrmCsvFieldId, string | null>>;
+type NormalizedCrmCsvRow = CrmCsvRow & Readonly<{
+  prospect_id: string;
+  contact_id: string;
+  contact_point_id: string;
+}>;
 export type CrmCsvCodecErrorCode =
   | "crm_csv_input_invalid"
   | "crm_csv_rows_too_many"
@@ -77,7 +82,10 @@ export class CrmCsvCodecError extends Error {
 }
 
 const encoder = new TextEncoder();
-const DANGEROUS_FORMULA_PREFIX = /^[=+\-@]/u;
+// Spreadsheet applications may discard leading whitespace/control characters
+// before interpreting a formula. Put the apostrophe before those characters so
+// the whole cell remains text after import.
+const DANGEROUS_FORMULA_PREFIX = /^[\p{White_Space}\p{Cc}\uFEFF]*[=+\-@]/u;
 const REQUIRES_QUOTES = /[",\r\n]/u;
 const STABLE_ID_FIELDS = ["prospect_id", "contact_id", "contact_point_id"] as const;
 
@@ -100,6 +108,7 @@ export async function encodeCrmCsv(value: unknown): Promise<EncodedCrmCsv> {
     }
 
     const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const canonicalBytes = bytes.slice();
     return Object.freeze({
       schemaVersion: CRM_CSV_SCHEMA_VERSION,
       fieldIds: CRM_CSV_FIELD_IDS,
@@ -109,9 +118,11 @@ export async function encodeCrmCsv(value: unknown): Promise<EncodedCrmCsv> {
       mediaType: "text/csv; charset=utf-8" as const,
       rowCount: canonicalRows.length,
       uniqueProspectCount: new Set(canonicalRows.map((row) => row.prospect_id)).size,
-      byteLength: bytes.byteLength,
+      byteLength: canonicalBytes.byteLength,
       sha256: toHex(new Uint8Array(digest)),
-      bytes,
+      get bytes() {
+        return canonicalBytes.slice();
+      },
     });
   } catch (error) {
     if (error instanceof CrmCsvCodecError) throw error;
@@ -119,7 +130,7 @@ export async function encodeCrmCsv(value: unknown): Promise<EncodedCrmCsv> {
   }
 }
 
-function normalizeRows(value: unknown): CrmCsvRow[] {
+function normalizeRows(value: unknown): NormalizedCrmCsvRow[] {
   if (!Array.isArray(value)) invalid("crm_csv_input_invalid");
   if (value.length > CRM_CSV_LIMITS.maxRows) invalid("crm_csv_rows_too_many");
 
@@ -146,16 +157,20 @@ function normalizeRows(value: unknown): CrmCsvRow[] {
       inputBytes += byteLength;
       if (inputBytes > CRM_CSV_LIMITS.maxInputUtf8Bytes) invalid("crm_csv_input_too_large");
     }
-    for (const field of STABLE_ID_FIELDS) {
-      const id = normalized[field];
-      if (
-        typeof id !== "string"
-        || id.length === 0
-        || utf8Length(id) > CRM_CSV_LIMITS.maxStableIdUtf8Bytes
-      ) invalid("crm_csv_stable_id_invalid");
-    }
+    validateStableIds(normalized);
     return normalized;
   });
+}
+
+function validateStableIds(row: CrmCsvRow): asserts row is NormalizedCrmCsvRow {
+  for (const field of STABLE_ID_FIELDS) {
+    const id = row[field];
+    if (
+      typeof id !== "string"
+      || id.length === 0
+      || utf8Length(id) > CRM_CSV_LIMITS.maxStableIdUtf8Bytes
+    ) invalid("crm_csv_stable_id_invalid");
+  }
 }
 
 function normalizeRow(value: unknown): CrmCsvRow {
@@ -185,8 +200,8 @@ function normalizeRow(value: unknown): CrmCsvRow {
   return Object.freeze(output);
 }
 
-function deduplicateAndSort(rows: readonly CrmCsvRow[]) {
-  const byIdentity = new Map<string, { row: CrmCsvRow; signature: string }>();
+function deduplicateAndSort(rows: readonly NormalizedCrmCsvRow[]) {
+  const byIdentity = new Map<string, { row: NormalizedCrmCsvRow; signature: string }>();
   for (const row of rows) {
     const identity = JSON.stringify([row.prospect_id, row.contact_point_id]);
     const signature = JSON.stringify(CRM_CSV_FIELD_IDS.map((field) => row[field]));

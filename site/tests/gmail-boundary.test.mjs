@@ -109,6 +109,24 @@ test("originated markers bind the exact approved message and idempotency tuple",
     });
     assert.deepEqual(first, replay);
     assert.notEqual(first.marker, advancedLease.marker);
+    for (const [field, replacement] of [
+      ["workspaceId", "synthetic-workspace-other"],
+      ["companyId", "synthetic-company-other"],
+      ["messageVersionId", "synthetic-message-version-other"],
+      ["messageDigest", "e".repeat(64)],
+      ["messageApprovalId", "synthetic-message-approval-other"],
+      ["messageApprovalDigest", "e".repeat(64)],
+      ["packageVersionId", "synthetic-package-version-other"],
+      ["packageDigest", "e".repeat(64)],
+      ["profileConfigurationId", "synthetic-profile-configuration-other"],
+      ["profileConfigurationDigest", "e".repeat(64)],
+    ]) {
+      const changed = await mail.createOriginatedMessageReference({
+        ...input,
+        approvedMessage: { ...input.approvedMessage, [field]: replacement },
+      });
+      assert.notEqual(first.marker, changed.marker, `${field} must bind the marker`);
+    }
     assert.match(first.rfcMessageId, /^<[a-f0-9]{64}@prospector\.invalid>$/u);
     assert.match(first.marker, /^prospector-origin\/v1:[a-f0-9]{64}$/u);
     assert.equal(Object.isFrozen(first), true);
@@ -120,10 +138,14 @@ test("originated markers bind the exact approved message and idempotency tuple",
         throw new Error("getter_must_not_run");
       },
     });
+    const symbol = Symbol("unknown");
     for (const invalid of [
       { ...input, extra: true },
       { ...input, approvedMessage: { ...input.approvedMessage, messageDigest: "bad" } },
       { ...input, idempotency: { ...input.idempotency, providerAttempt: 2 } },
+      { ...input, [symbol]: true },
+      { ...input, approvedMessage: { ...input.approvedMessage, [symbol]: true } },
+      { ...input, idempotency: { ...input.idempotency, [symbol]: true } },
       getterBacked,
       new Proxy({}, { ownKeys() { throw new Error("hostile_proxy"); } }),
     ]) {

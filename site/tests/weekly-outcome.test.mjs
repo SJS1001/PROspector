@@ -262,7 +262,10 @@ test("Approved and ContactReady never imply ExportReady", async () => {
 test("Draft and alternate non-Mining hierarchies are data-driven exclusions and scope", async () => {
   const { vite, weekly } = await load();
   try {
-    const nonMining = history("prospect-logistics", exportPath("2026-03-11T12:00:00.000Z"), {
+    const nonMining = history("prospect-logistics", [
+      ...exportPath("2026-03-11T12:00:00.000Z"),
+      contact("2026-03-12T12:00:00.000Z", "contact-logistics"),
+    ], {
       companyId: "company-logistics",
       productId: "product-routing",
       marketPlayId: "play-port-operators",
@@ -287,8 +290,36 @@ test("Draft and alternate non-Mining hierarchies are data-driven exclusions and 
     assert.equal(draft.status, "available");
     assert.equal(draft.profileIncluded, false);
     assert.deepEqual(draft.exclusions, ["profile_not_operating"]);
+    assert.equal(draft.counts.distinctStableProspectCount, 0);
+    assert.equal(draft.counts.distinctStableContactCount, 0);
     assert.equal(draft.counts.newlyExportReadyProspectCount, 0);
     for (const category of LOSS_CATEGORIES) assert.equal(draft.losses[category].eventCount, 0);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("rejects complete history snapshots above the aggregate event bound", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const historyCount = 11;
+    const eventsPerHistory = Math.ceil((weekly.WEEKLY_OUTCOME_MAX_TOTAL_EVENTS + 1) / historyCount);
+    assert.ok(eventsPerHistory <= weekly.WEEKLY_OUTCOME_MAX_EVENTS_PER_PROSPECT);
+    const histories = Array.from({ length: historyCount }, (_, historyIndex) => history(
+      `prospect-event-cap-${historyIndex}`,
+      [
+        created(),
+        ...Array.from({ length: eventsPerHistory - 1 }, (_, eventIndex) => contact(
+          "2026-03-10T12:00:00.000Z",
+          `contact-event-cap-${historyIndex}-${eventIndex}`,
+        )),
+      ],
+    ));
+    const result = weekly.reduceWeeklyOutcome(input(histories));
+    assert.equal(result.status, "unavailable");
+    assert.deepEqual(result.reasonCodes, ["history_event_limit_exceeded"]);
+    assert.equal(result.counts, null);
+    assert.equal(result.losses, null);
   } finally {
     await vite.close();
   }
@@ -394,6 +425,16 @@ test("cross-scope, extra-field, sparse, and accessor-backed inputs fail closed",
       weekly.reduceWeeklyOutcome(sparse).reasonCodes,
       ["history_input_malformed"],
     );
+
+    for (const field of ["histories", "prospectIds", "events"]) {
+      const tagged = input([history("prospect-tagged", [created()])]);
+      const array = field === "histories" ? tagged.histories
+        : field === "prospectIds" ? tagged.coverage.prospectIds : tagged.histories[0].events;
+      array[Symbol("unknown")] = "unexpected";
+      assert.deepEqual(weekly.reduceWeeklyOutcome(tagged).reasonCodes,
+        ["history_input_malformed"], `${field} rejects symbol-backed extras`);
+    }
+    assert.equal(Object.isFrozen(weekly.WEEKLY_OUTCOME_LOSS_CATEGORIES), true);
 
     const accessor = Object.defineProperty(input([]), "histories", {
       enumerable: true,

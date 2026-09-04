@@ -1,5 +1,10 @@
 # Cloud mail boundary implementation lane
 
+Recovered integration binds all approved-message fields into each originated
+marker and rejects unknown symbol keys at every record level. Revised focused
+tests pass 6/6; standalone strict TypeScript and touched lint pass. See
+`2026-09-04-recovered-integration.md` for integration evidence and pending gates.
+
 - Branch: `codex/cloud-mail-boundary`
 - Base: `38d86681cd7a8e9f5be70b56365d9be2a786f0ad`
 - Base tree: `098689052d412d93972c67131dda8b2b5638e772`

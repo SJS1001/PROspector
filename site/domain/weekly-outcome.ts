@@ -1,7 +1,10 @@
 export const WEEKLY_OUTCOME_TIME_ZONE = "America/Toronto" as const;
 export const WEEKLY_OUTCOME_TARGET = 7 as const;
+export const WEEKLY_OUTCOME_MAX_PROSPECTS = 10_000 as const;
+export const WEEKLY_OUTCOME_MAX_EVENTS_PER_PROSPECT = 10_000 as const;
+export const WEEKLY_OUTCOME_MAX_TOTAL_EVENTS = 100_000 as const;
 
-export const WEEKLY_OUTCOME_LOSS_CATEGORIES = [
+export const WEEKLY_OUTCOME_LOSS_CATEGORIES = Object.freeze([
   "rejected",
   "deferred",
   "enrichment_failed",
@@ -12,7 +15,7 @@ export const WEEKLY_OUTCOME_LOSS_CATEGORIES = [
   "suppressed",
   "high_risk_drift",
   "reversal",
-] as const;
+] as const);
 
 export type WeeklyOutcomeLossCategory =
   (typeof WEEKLY_OUTCOME_LOSS_CATEGORIES)[number];
@@ -110,7 +113,8 @@ export type WeeklyOutcomeUnavailableReason =
   | "history_sequence_incomplete"
   | "history_chronology_invalid"
   | "history_state_discontinuous"
-  | "history_contains_future_event";
+  | "history_contains_future_event"
+  | "history_event_limit_exceeded";
 
 type ZonedInstant = Readonly<{
   localDate: string;
@@ -233,9 +237,11 @@ function normalizeInput(value: unknown): WeeklyOutcomeHistoryInput {
   if (coverage.from !== "prospect_origin") incompleteCoverage();
   const through = instant(coverage.through);
   if (through !== asOf) incompleteCoverage();
-  const prospectIds = denseArray(coverage.prospectIds).map(stableId);
+  const prospectIds = denseArray(coverage.prospectIds, WEEKLY_OUTCOME_MAX_PROSPECTS).map(stableId);
   unique(prospectIds, "history_coverage_incomplete");
-  const histories = denseArray(input.histories).map((entry) => normalizeHistory(entry, scope, asOf));
+  const eventCounter = { total: 0 };
+  const histories = denseArray(input.histories, WEEKLY_OUTCOME_MAX_PROSPECTS)
+    .map((entry) => normalizeHistory(entry, scope, asOf, eventCounter));
   unique(histories.map((entry) => entry.prospectId), "history_coverage_incomplete");
   if (!sameMembers(prospectIds, histories.map((entry) => entry.prospectId))) incompleteCoverage();
   const eventIds = histories.flatMap((entry) => entry.events.map((event) => event.eventId));
@@ -267,11 +273,21 @@ function normalizeScope(value: unknown): WeeklyOutcomeScope {
   });
 }
 
-function normalizeHistory(value: unknown, scope: WeeklyOutcomeScope, asOf: string): ProspectHistory {
+function normalizeHistory(
+  value: unknown,
+  scope: WeeklyOutcomeScope,
+  asOf: string,
+  eventCounter: { total: number },
+): ProspectHistory {
   const input = exactRecord(value, [
     "prospectId", "workspaceId", "companyId", "productId", "marketPlayId", "profileId",
     "events",
   ]);
+  const eventValues = denseArray(input.events, WEEKLY_OUTCOME_MAX_EVENTS_PER_PROSPECT);
+  if (eventCounter.total + eventValues.length > WEEKLY_OUTCOME_MAX_TOTAL_EVENTS) {
+    fail("history_event_limit_exceeded");
+  }
+  eventCounter.total += eventValues.length;
   const history = {
     prospectId: stableId(input.prospectId),
     workspaceId: stableId(input.workspaceId),
@@ -279,7 +295,7 @@ function normalizeHistory(value: unknown, scope: WeeklyOutcomeScope, asOf: strin
     productId: stableId(input.productId),
     marketPlayId: stableId(input.marketPlayId),
     profileId: stableId(input.profileId),
-    events: denseArray(input.events).map(normalizeEvent),
+    events: eventValues.map(normalizeEvent),
   };
   for (const key of ["workspaceId", "companyId", "productId", "marketPlayId", "profileId"] as const) {
     if (history[key] !== scope[key]) fail("history_scope_mismatch");
@@ -371,7 +387,7 @@ function project(input: WeeklyOutcomeHistoryInput): WeeklyOutcomeAvailable {
 
   for (const history of input.histories) {
     for (const event of history.events) {
-      if (event.kind === "contact_linked") stableContacts.add(event.contactId);
+      if (profileIncluded && event.kind === "contact_linked") stableContacts.add(event.contactId);
       if (profileIncluded && event.kind === "loss" && inWeek(event.occurredAt, week)) {
         const local = localDateInfo(event.occurredAt);
         lossEvents.get(event.category)?.push(deepFreeze({
@@ -438,7 +454,7 @@ function project(input: WeeklyOutcomeHistoryInput): WeeklyOutcomeAvailable {
     exclusions: profileIncluded ? [] : ["profile_not_operating"],
     target: WEEKLY_OUTCOME_TARGET,
     counts: {
-      distinctStableProspectCount: input.histories.length,
+      distinctStableProspectCount: profileIncluded ? input.histories.length : 0,
       distinctStableContactCount: stableContacts.size,
       newlyExportReadyProspectCount: cohort.length,
       remainingProspectsToTarget: Math.max(WEEKLY_OUTCOME_TARGET - cohort.length, 0),
@@ -556,9 +572,10 @@ function exactRecordAtLeast(value: unknown, keys: readonly string[]): Record<str
   return result;
 }
 
-function denseArray(value: unknown): unknown[] {
-  if (!Array.isArray(value) || value.length > 10_000) malformed();
+function denseArray(value: unknown, maximumLength: number): unknown[] {
+  if (!Array.isArray(value) || value.length > maximumLength) malformed();
   const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key !== "string")) malformed();
   const expected = Array.from({ length: value.length }, (_, index) => String(index));
   const actual = Object.keys(descriptors).filter((key) => key !== "length");
   if (!sameMembers(expected, actual)) malformed();
@@ -619,8 +636,9 @@ function utcDate(value: number) {
 }
 
 function sameMembers(left: readonly string[], right: readonly string[]) {
+  const sortedRight = [...right].sort(compareText);
   return left.length === right.length
-    && [...left].sort(compareText).every((value, index) => value === [...right].sort(compareText)[index]);
+    && [...left].sort(compareText).every((value, index) => value === sortedRight[index]);
 }
 
 function unique(values: readonly string[], reason: WeeklyOutcomeUnavailableReason) {

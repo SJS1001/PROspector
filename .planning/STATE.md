@@ -16,6 +16,13 @@ progress:
 
 # Project State
 
+**Offline implementation update (2026-09-04):** The owner authorized a separate
+cloud implementation wave while hosted/preflight gates remain held. Its recovered
+integration and review ledger is `docs/implementation-lanes/2026-09-04-recovered-integration.md`
+on `codex/cloud-wave1-integration`. PR #2 is merged into the recorded main base;
+older references to an open draft are historical. No plan credit or hosted
+checkpoint is advanced by this candidate. Resume that ledger for local work.
+
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-29)

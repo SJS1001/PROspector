@@ -24,6 +24,10 @@ future read-only Morning Brief. Its exported TypeScript contract requires:
   Prospect, beginning with `prospect_created` and carrying safe audit
   references.
 
+The reducer accepts at most 10,000 Prospects, 10,000 events per Prospect, and
+100,000 events across the complete snapshot. A snapshot above any limit is
+unavailable; it is never truncated into a partial outcome.
+
 The reducer structurally verifies coverage membership, sequence, chronology,
 scope, state continuity, future-event exclusion, and exact input shapes. It
 counts only the first-ever explicit transition to `ExportReady` for each stable
@@ -34,7 +38,8 @@ Re-entry after a reversal cannot replace an earlier first transition.
 The available projection keeps the fixed target of seven, distinct stable
 Prospect and linked Contact counts, cohort audit references and local UTC
 offsets, and ten separate loss ledgers. Draft Profile history is explicitly
-excluded. Missing or incomplete coverage and malformed history return
+excluded and therefore produces zero stable Prospect/contact metrics, cohort,
+and losses. Missing or incomplete coverage and malformed history return
 `status: "unavailable"`, `counts: null`, and `losses: null`; they do not report
 zero success.
 
@@ -57,7 +62,7 @@ zero success.
 
 ## Focused validation
 
-- `cd site && node --test tests/weekly-outcome.test.mjs tests/phase7-preparation-weekly-outcome.test.mjs` — PASS, 20/20 (8 reducer cases plus the 12 existing preparation-semantics cases).
+- `cd site && node --test tests/weekly-outcome.test.mjs tests/phase7-preparation-weekly-outcome.test.mjs` — PASS, 21/21 (9 reducer cases plus the 12 existing preparation-semantics cases).
 - `cd site && npx eslint domain/weekly-outcome.ts tests/weekly-outcome.test.mjs` — PASS.
 - `cd site && npx tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --module ESNext --moduleResolution Bundler --skipLibCheck domain/weekly-outcome.ts` — PASS.
 - `git diff --check` — PASS after all owned changes.

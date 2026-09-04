@@ -1,5 +1,11 @@
 # Cloud CRM CSV codec lane
 
+Recovered integration adds whitespace/control/BOM formula defenses, immutable
+checksum-bound byte access, and exact UTF-8 input/output/multibyte-ID limit
+tests. The revised focused suite passes 8/8; standalone strict TypeScript and
+touched lint pass. See `2026-09-04-recovered-integration.md`. The original
+six-case cloud result below is historical, not the final integration evidence.
+
 - Base: `origin/main` at `38d86681cd7a8e9f5be70b56365d9be2a786f0ad`
 - Branch: `codex/cloud-crm-csv-codec`
 - Owned files: `site/domain/crm-csv-codec.ts`, `site/tests/crm-csv-codec.test.mjs`, and this record
