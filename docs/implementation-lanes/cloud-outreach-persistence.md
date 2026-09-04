@@ -11,10 +11,12 @@
 - `site/drizzle/0012_governed_outreach_outbox.sql`
 - `site/drizzle/0013_governed_outreach_lease.sql`
 - `site/drizzle/0014_governed-outreach-authority.sql`
+- `site/drizzle/0015_governed-outreach-pre-call.sql`
 - `site/drizzle/meta/0010_snapshot.json`
 - `site/drizzle/meta/0012_snapshot.json`
 - `site/drizzle/meta/0013_snapshot.json`
 - `site/drizzle/meta/0014_snapshot.json`
+- `site/drizzle/meta/0015_snapshot.json`
 - `site/drizzle/meta/_journal.json` (explicit candidate entries)
 - `site/domain/outreach-repository.ts`
 - `site/domain/outbox.ts`
@@ -35,6 +37,7 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 - `cd site && npx eslint domain/outbox.ts db/schema.ts tests/outreach-persistence.test.mjs tests/helpers/outreach-fixture.mjs` — passed.
 - Delivery-authority closure: `cd site && node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs` — 33 passed, 0 failed. The disposable fixture applies the real 0010→0011→0012→0013→0014 chain.
 - `cd site && npx eslint domain/outreach-repository.ts domain/outbox.ts db/schema.ts tests/helpers/outreach-fixture.mjs tests/outreach-persistence.test.mjs` and `git diff --check` — passed after the final authority changes.
+- Pre-call recheck candidate: `cd site && node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs` — **41 passed, 0 failed** on the final exact diff. Coverage includes the positive path, exact replay/contention, hostile input, forged stored digests, stale lease generations, exact expiry, wrong owner/holder, populated-0014 unsafe ancestry, all bound source/Claim Guardrail invalidation, both approval revocations, stop/suppression, unsubscribe/sender rotation, later Message/Package versions, newer eligibility, profile/play/product/company lifecycle changes, zero effects, and importer compatibility. Touched lint, migration metadata JSON, and `git diff --check` passed. Final independent security and test reviews returned GO with no remaining high/medium blocker for this bounded inert candidate.
 
 ## Limitations and deferred surface
 
@@ -45,7 +48,8 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 - Sender connection rows are append-only metadata snapshots. Additive 0014 requires the exact two configured Gmail scopes and a deterministic, immutable verified-address manifest. Canonical and exact send-as alias addresses are permitted only when sealed into that manifest; values are opaque `vault-ref:` references, never credentials. No code in this lane creates a real connection.
 - Enqueue/claim resolve Company, Contact, exact selected email, and preserved alias scope; unrelated exact-email suppression/stop state does not block another Contact. Organization and confirmed-domain scope remain fail-closed until their authoritative equivalence resolver exists.
 - Additive 0014 records immutable recipient jurisdiction/claimed-basis acknowledgements, Package-bound current source evidence, attested contact-freshness caps, working-unsubscribe checks, sender capability/address evidence, and approval revocations. Enqueue, new leases, and same-holder replay fail closed when those authorities or current lifecycle/suppression/stop/drift state change. Generic unsubscribe history deliberately cannot record `redeemed`; atomic redemption plus durable suppression remains later work.
-- This lease remains a provider-disconnected scheduling prefilter, not final pre-call authority. A separate exact pre-call authorization receipt, sequential provider-attempt evidence, evidence-gated state transitions, DeliveryUnknown reconciliation, and atomic unsubscribe redemption are still required before any MailPort composition or terminal-state writer.
+- Additive 0015 persists one immutable, exact-lease pre-call **recheck receipt** only after its transaction-local trigger rechecks the current approvals, artifact lineage, every bound source and Claim Guardrail, recipient/contact freshness, eligibility, sender/scopes/address, unsubscribe, lifecycle, drift, suppression, stop, and fence tuple. The receipt is capped to the earliest authority expiry, stores identifiers plus a repository-recomputed digest of its referenced material rather than message/address/credential material, and always records `provider_invocation_authorized=0`. The database trigger independently certifies current relational and absence predicates at insertion; the digest is not a bearer capability or a substitute for that check. Exact replay is read-only, revalidates both current authority and canonical digests, and a competing creator can produce only one row.
+- Migration 0015 also closes the prior raw `Leased → Dispatching` and terminal-event transition path. Receipt creation leaves the item `Leased`; it is audit evidence, not a bearer capability. Sequential provider-attempt evidence, a fresh post-receipt recheck, evidence-gated transitions, DeliveryUnknown reconciliation, and atomic unsubscribe redemption remain required before any MailPort composition or terminal-state writer.
 - Canonical preflight, full `npm test`, build, deployment, hosted migration application, and CI validation remain pending under the lane hold.
 
 ## Independent-review closure
@@ -97,10 +101,10 @@ Existing 0000–0009 migration and snapshot bytes are unchanged.
 
 ## Candidate migration / release hold
 
-Migrations 0010–0014 remain unaccepted candidates. The original 0000–0009 SQL,
+Migrations 0010–0015 remain unaccepted candidates. The original 0000–0009 SQL,
 snapshots and accepted manifest/evidence are untouched. Existing authority
 fixtures still apply exactly 0000–0009; this lane's disposable helper then
-applies the real candidate chain 0010–0014 in order, including independently
+applies the real candidate chain 0010–0015 in order, including independently
 owned 0011. Journal assertions
 select entries explicitly; no candidate changes accepted migration evidence.
 

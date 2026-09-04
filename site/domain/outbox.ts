@@ -25,6 +25,72 @@ type LatestEventRow = {
   lease_holder_id: string | null;
   lease_expires_at: number | null;
 };
+type PreCallMaterialRow = {
+  outbox_item_id: string;
+  send_key: string;
+  dispatch_key: string;
+  approval_consumption_id: string;
+  lease_event_id: string;
+  lease_revision: number;
+  lease_generation: number;
+  lease_holder_id: string;
+  lease_expires_at: number;
+  message_version_id: string;
+  message_artifact_digest: string;
+  message_approval_id: string;
+  message_approval_digest: string;
+  message_approval_expires_at: number;
+  package_version_id: string;
+  package_artifact_digest: string;
+  package_approval_id: string;
+  package_approval_digest: string;
+  package_approval_expires_at: number;
+  prospect_id: string;
+  prospect_revision: number;
+  contact_id: string;
+  contact_revision: number;
+  configuration_id: string;
+  configuration_digest: string;
+  configuration_revision: number;
+  contact_eligibility_snapshot_id: string;
+  contact_eligibility_snapshot_digest: string;
+  email_observation_id: string;
+  observation_digest: string;
+  observation_verified_at: number;
+  observation_verification_class: string;
+  basis_source_id: string;
+  basis_source_digest: string;
+  recipient_authority_id: string;
+  recipient_authority_digest: string;
+  recipient_authority_expires_at: number;
+  unsubscribe_event_id: string;
+  unsubscribe_revision: number;
+  unsubscribe_event_digest: string;
+  unsubscribe_expires_at: number;
+  sender_connection_id: string;
+  sender_connection_subject_digest: string;
+  sender_connection_version: number;
+  sender_capability_id: string;
+  sender_capability_digest: string;
+  sender_capability_expires_at: number;
+  sender_verified_address_id: string;
+  sender_address_digest: string;
+  sender_address_verification_digest: string;
+  sender_address_expires_at: number;
+};
+type PreCallReceiptRow = {
+  id: string;
+  outbox_item_id: string;
+  lease_event_id: string;
+  lease_revision: number;
+  lease_generation: number;
+  lease_holder_id: string;
+  lease_expires_at: number;
+  current_material_digest: string;
+  receipt_digest: string;
+  valid_until: number;
+  created_at: number;
+};
 
 export type EnqueueResult =
   | Readonly<{
@@ -48,6 +114,25 @@ export type ClaimLeaseResult =
       holderId: string;
       leaseGeneration: number;
       expiresAt: number;
+      replayed: boolean;
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>
+  | Readonly<{
+      kind: "blocked";
+      reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable";
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>;
+
+export type PreCallReceiptResult =
+  | Readonly<{
+      kind: "recorded";
+      receiptId: string;
+      receiptDigest: string;
+      outboxItemId: string;
+      leaseGeneration: number;
+      validUntil: number;
       replayed: boolean;
       providerInvocationAuthorized: false;
       providerCalls: 0;
@@ -482,6 +567,105 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
       ) return claimed(input.outboxItemId, input.holderId, generation, expiresAt, !committed);
       return leaseBlocked("lease_unavailable");
     },
+
+    async recordPreCallRecheckReceipt(inputValue: unknown): Promise<PreCallReceiptResult> {
+      const input = exactDataRecord(inputValue, ["outboxItemId", "holderId", "leaseGeneration"]);
+      if (
+        !input
+        || !id(input.outboxItemId)
+        || !id(input.holderId)
+        || !Number.isSafeInteger(input.leaseGeneration)
+        || Number(input.leaseGeneration) <= 0
+      ) return preCallBlocked("invalid_request");
+      const leaseGeneration = Number(input.leaseGeneration);
+      const now = scope.now();
+      if (!Number.isSafeInteger(now) || now <= 0) return preCallBlocked("current_authority_unavailable");
+      const existing = await readPreCallReceipt(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+        leaseGeneration,
+      );
+      if (existing) return verifyPreCallReceipt(database, scope, existing, input.holderId, now, true);
+      const material = await readPreCallMaterial(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+        input.holderId,
+        leaseGeneration,
+      );
+      if (!material || !validPreCallMaterial(material)) return preCallBlocked("lease_unavailable");
+      const contactFreshUntil = material.observation_verified_at + (
+        material.observation_verification_class === "mailbox_verified" ? 2_592_000_000 : 7_776_000_000
+      );
+      const validUntil = Math.min(
+        material.lease_expires_at,
+        material.message_approval_expires_at,
+        material.package_approval_expires_at,
+        material.recipient_authority_expires_at,
+        material.unsubscribe_expires_at,
+        material.sender_capability_expires_at,
+        material.sender_address_expires_at,
+        contactFreshUntil,
+      );
+      if (!Number.isSafeInteger(validUntil) || validUntil <= now) return preCallBlocked("current_authority_unavailable");
+      const currentMaterialDigest = await preCallMaterialDigest(scope, material);
+      const receiptDigest = await preCallReceiptDigest(scope, material, currentMaterialDigest, validUntil, now);
+      const receiptId = `opcr-${receiptDigest}`;
+      let committed = false;
+      try {
+        const inserted = await database.prepare(
+          `INSERT INTO outreach_pre_call_recheck_receipts
+            (id,workspace_id,owner_subject,outbox_item_id,lease_event_id,lease_revision,lease_generation,
+             lease_holder_id,lease_expires_at,recipient_authority_id,unsubscribe_event_id,sender_capability_id,
+             sender_verified_address_id,contact_eligibility_snapshot_id,current_material_digest,receipt_digest,
+             valid_until,provider_invocation_authorized,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
+        ).bind(
+          receiptId,
+          scope.workspaceId,
+          scope.ownerSubject,
+          input.outboxItemId,
+          material.lease_event_id,
+          material.lease_revision,
+          leaseGeneration,
+          input.holderId,
+          material.lease_expires_at,
+          material.recipient_authority_id,
+          material.unsubscribe_event_id,
+          material.sender_capability_id,
+          material.sender_verified_address_id,
+          material.contact_eligibility_snapshot_id,
+          currentMaterialDigest,
+          receiptDigest,
+          validUntil,
+          now,
+        ).run();
+        committed = Number(inserted.meta?.changes) === 1;
+      } catch {
+        // The trigger is the transaction-local current-authority fence. A
+        // concurrent exact record is resolved below; every other failure is
+        // intentionally indistinguishable from unavailable authority.
+      }
+      let stored: PreCallReceiptRow | null = null;
+      for (let attempt = 0; attempt < 3 && !stored; attempt += 1) {
+        stored = await readPreCallReceipt(
+          database,
+          scope.workspaceId,
+          scope.ownerSubject,
+          input.outboxItemId,
+          leaseGeneration,
+        );
+      }
+      if (!stored) return preCallBlocked("current_authority_unavailable");
+      const result = await verifyPreCallReceipt(database, scope, stored, input.holderId, now, !committed);
+      if (result.kind !== "recorded") return result;
+      return !committed || (result.receiptId === receiptId && result.receiptDigest === receiptDigest)
+        ? result
+        : preCallBlocked("lease_unavailable");
+    },
   });
 }
 
@@ -503,6 +687,87 @@ async function readLatestEvent(database: D1Database, workspaceId: string, outbox
      FROM outreach_outbox_events WHERE workspace_id=? AND outbox_item_id=?
      ORDER BY revision DESC LIMIT 1`,
   ).bind(workspaceId, outboxItemId).first<LatestEventRow>();
+}
+
+async function readPreCallReceipt(
+  database: D1Database,
+  workspaceId: string,
+  ownerSubject: string,
+  outboxItemId: string,
+  leaseGeneration: number,
+) {
+  return database.prepare(
+    `SELECT id,outbox_item_id,lease_event_id,lease_revision,lease_generation,lease_holder_id,lease_expires_at,
+            current_material_digest,receipt_digest,valid_until,created_at
+     FROM outreach_pre_call_recheck_receipts
+     WHERE workspace_id=? AND owner_subject=? AND outbox_item_id=? AND lease_generation=? LIMIT 1`,
+  ).bind(workspaceId, ownerSubject, outboxItemId, leaseGeneration).first<PreCallReceiptRow>();
+}
+
+async function readPreCallMaterial(
+  database: D1Database,
+  workspaceId: string,
+  ownerSubject: string,
+  outboxItemId: string,
+  holderId: string,
+  leaseGeneration: number,
+) {
+  return database.prepare(
+    `SELECT item.id outbox_item_id,item.send_key,item.dispatch_key,item.approval_consumption_id,
+            lease_event.id lease_event_id,lease_event.revision lease_revision,lease_event.lease_generation,
+            lease_event.lease_holder_id,lease_event.lease_expires_at,
+            message_version.id message_version_id,message_version.artifact_digest message_artifact_digest,
+            message_approval.id message_approval_id,message_approval.approval_digest message_approval_digest,
+            message_approval.expires_at message_approval_expires_at,
+            package_version.id package_version_id,package_version.artifact_digest package_artifact_digest,
+            package_approval.id package_approval_id,package_approval.approval_digest package_approval_digest,
+            package_approval.expires_at package_approval_expires_at,
+            prospect.id prospect_id,prospect.revision prospect_revision,contact.id contact_id,contact.revision contact_revision,
+            configuration.id configuration_id,configuration.digest configuration_digest,configuration.revision configuration_revision,
+            eligibility.id contact_eligibility_snapshot_id,eligibility.snapshot_digest contact_eligibility_snapshot_digest,
+            observation.id email_observation_id,observation.observation_digest,observation.verified_at observation_verified_at,
+            observation.verification_class observation_verification_class,
+            basis_source.id basis_source_id,basis_source.source_digest basis_source_digest,
+            recipient_authority.id recipient_authority_id,recipient_authority.authority_digest recipient_authority_digest,
+            recipient_authority.valid_until recipient_authority_expires_at,
+            unsubscribe.id unsubscribe_event_id,unsubscribe.revision unsubscribe_revision,
+            unsubscribe.event_digest unsubscribe_event_digest,unsubscribe.valid_until unsubscribe_expires_at,
+            sender_connection.id sender_connection_id,sender_connection.connection_subject_digest sender_connection_subject_digest,
+            sender_connection.protected_reference_version sender_connection_version,
+            sender_capability.id sender_capability_id,sender_capability.capability_digest sender_capability_digest,
+            sender_capability.expires_at sender_capability_expires_at,
+            sender_address.id sender_verified_address_id,sender_address.address_digest sender_address_digest,
+            sender_address.verification_digest sender_address_verification_digest,
+            sender_address.expires_at sender_address_expires_at
+     FROM outreach_outbox_items item
+     JOIN outreach_outbox_events lease_event ON lease_event.outbox_item_id=item.id AND lease_event.workspace_id=item.workspace_id
+     JOIN outreach_message_approval_consumptions consumption ON consumption.id=item.approval_consumption_id AND consumption.workspace_id=item.workspace_id
+     JOIN outreach_message_approvals message_approval ON message_approval.id=item.message_approval_id AND message_approval.workspace_id=item.workspace_id
+     JOIN outreach_message_versions message_version ON message_version.id=item.message_version_id AND message_version.workspace_id=item.workspace_id
+     JOIN outreach_package_approvals package_approval ON package_approval.id=message_approval.package_approval_id AND package_approval.workspace_id=item.workspace_id
+     JOIN outreach_package_versions package_version ON package_version.id=message_version.package_version_id AND package_version.workspace_id=item.workspace_id
+     JOIN outreach_packages package ON package.id=package_version.package_id AND package.workspace_id=item.workspace_id
+     JOIN profile_prospects prospect ON prospect.id=package.prospect_id AND prospect.workspace_id=item.workspace_id
+     JOIN contacts contact ON contact.id=package.contact_id AND contact.workspace_id=item.workspace_id
+     JOIN typed_configurations configuration ON configuration.id=package_version.configuration_id AND configuration.workspace_id=item.workspace_id
+     JOIN contact_eligibility_snapshots eligibility ON eligibility.id=package_version.contact_eligibility_snapshot_id AND eligibility.workspace_id=item.workspace_id
+     JOIN outreach_recipient_dispatch_authorities recipient_authority ON recipient_authority.message_version_id=item.message_version_id AND recipient_authority.workspace_id=item.workspace_id
+     JOIN contact_point_observations observation ON observation.id=recipient_authority.email_observation_id AND observation.workspace_id=item.workspace_id
+     JOIN sources basis_source ON basis_source.id=recipient_authority.basis_source_id AND basis_source.workspace_id=item.workspace_id
+     JOIN outreach_unsubscribe_authority_events unsubscribe ON unsubscribe.recipient_authority_id=recipient_authority.id AND unsubscribe.workspace_id=item.workspace_id
+     JOIN outreach_sender_connections sender_connection ON sender_connection.id=item.sender_connection_id AND sender_connection.workspace_id=item.workspace_id
+     JOIN outreach_sender_capability_snapshots sender_capability ON sender_capability.sender_connection_id=sender_connection.id AND sender_capability.workspace_id=item.workspace_id
+     JOIN outreach_sender_verified_addresses sender_address ON sender_address.sender_capability_id=sender_capability.id
+       AND sender_address.workspace_id=item.workspace_id AND sender_address.address_digest=recipient_authority.sender_address_digest
+     JOIN workspaces workspace ON workspace.id=item.workspace_id AND workspace.owner_subject=?
+     WHERE item.id=? AND item.workspace_id=? AND message_approval.owner_subject=?
+       AND lease_event.state='leased' AND lease_event.lease_holder_id=? AND lease_event.lease_generation=?
+       AND lease_event.id=(SELECT latest.id FROM outreach_outbox_events latest
+         WHERE latest.workspace_id=item.workspace_id AND latest.outbox_item_id=item.id ORDER BY latest.revision DESC LIMIT 1)
+       AND unsubscribe.id=(SELECT latest.id FROM outreach_unsubscribe_authority_events latest
+         WHERE latest.workspace_id=item.workspace_id AND latest.recipient_authority_id=recipient_authority.id ORDER BY latest.revision DESC LIMIT 1)
+     LIMIT 1`,
+  ).bind(ownerSubject, outboxItemId, workspaceId, ownerSubject, holderId, leaseGeneration).first<PreCallMaterialRow>();
 }
 
 async function readAuthorityExpiry(
@@ -554,6 +819,16 @@ async function readAuthorityExpiry(
        AND EXISTS (SELECT 1 FROM outreach_artifact_bindings binding WHERE binding.workspace_id=pv.workspace_id
          AND binding.artifact_kind='package_version' AND binding.artifact_id=pv.id AND binding.binding_kind='source'
          AND binding.binding_id=basis_source.id AND binding.binding_digest=basis_source.source_digest)
+       AND NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings binding
+         LEFT JOIN sources bound_source ON bound_source.id=binding.binding_id AND bound_source.workspace_id=binding.workspace_id
+         WHERE binding.workspace_id=pv.workspace_id AND binding.artifact_kind='package_version'
+           AND binding.artifact_id=pv.id AND binding.binding_kind='source'
+           AND (bound_source.id IS NULL OR bound_source.status<>'available' OR bound_source.source_digest<>binding.binding_digest))
+       AND NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings binding
+         LEFT JOIN knowledge_versions guardrail ON guardrail.id=binding.binding_id AND guardrail.workspace_id=binding.workspace_id
+         WHERE binding.workspace_id=pv.workspace_id AND binding.artifact_kind='package_version'
+           AND binding.artifact_id=pv.id AND binding.binding_kind='claim_guardrail'
+           AND (guardrail.id IS NULL OR guardrail.status<>'confirmed' OR guardrail.value_digest<>binding.binding_digest))
        AND EXISTS (SELECT 1 FROM outreach_artifact_bindings binding WHERE binding.workspace_id=pv.workspace_id
          AND binding.artifact_kind='package_version' AND binding.artifact_id=pv.id AND binding.binding_kind='contact_observation'
          AND binding.binding_id=observation.id AND binding.binding_digest=observation.observation_digest)
@@ -683,6 +958,145 @@ function blocked(reason: "invalid_request" | "current_authority_unavailable"): E
 
 function leaseBlocked(reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable"): ClaimLeaseResult {
   return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
+}
+
+function preCallBlocked(
+  reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable",
+): PreCallReceiptResult {
+  return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
+}
+
+function exactPreCallReceipt(
+  row: PreCallReceiptRow,
+  holderId: string,
+  replayed: boolean,
+): PreCallReceiptResult {
+  if (
+    !id(row.id)
+    || !id(row.outbox_item_id)
+    || !id(row.lease_event_id)
+    || row.lease_holder_id !== holderId
+    || !Number.isSafeInteger(row.lease_generation)
+    || row.lease_generation <= 0
+    || !digest(row.receipt_digest)
+    || !Number.isSafeInteger(row.valid_until)
+  ) return preCallBlocked("lease_unavailable");
+  return Object.freeze({
+    kind: "recorded",
+    receiptId: row.id,
+    receiptDigest: row.receipt_digest,
+    outboxItemId: row.outbox_item_id,
+    leaseGeneration: row.lease_generation,
+    validUntil: row.valid_until,
+    replayed,
+    providerInvocationAuthorized: false,
+    providerCalls: 0,
+  });
+}
+
+async function verifyPreCallReceipt(
+  database: D1Database,
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  row: PreCallReceiptRow,
+  holderId: string,
+  now: number,
+  replayed: boolean,
+): Promise<PreCallReceiptResult> {
+  const shaped = exactPreCallReceipt(row, holderId, replayed);
+  if (
+    shaped.kind !== "recorded"
+    || !digest(row.current_material_digest)
+    || !Number.isSafeInteger(row.lease_revision)
+    || row.lease_revision <= 1
+    || !Number.isSafeInteger(row.lease_expires_at)
+    || !Number.isSafeInteger(row.created_at)
+    || row.valid_until <= now
+  ) return preCallBlocked("current_authority_unavailable");
+  const authority = await readAuthorityExpiry(database, scope.workspaceId, scope.ownerSubject, row.outbox_item_id, now);
+  if (!authority || Object.values(authority).some((expiry) => !Number.isSafeInteger(expiry) || Number(expiry) <= now)) {
+    return preCallBlocked("current_authority_unavailable");
+  }
+  const material = await readPreCallMaterial(
+    database,
+    scope.workspaceId,
+    scope.ownerSubject,
+    row.outbox_item_id,
+    holderId,
+    row.lease_generation,
+  );
+  if (!material || !validPreCallMaterial(material) || material.lease_event_id !== row.lease_event_id) {
+    return preCallBlocked("lease_unavailable");
+  }
+  const currentMaterialDigest = await preCallMaterialDigest(scope, material);
+  const receiptDigest = await preCallReceiptDigest(scope, material, currentMaterialDigest, row.valid_until, row.created_at);
+  if (
+    currentMaterialDigest !== row.current_material_digest
+    || receiptDigest !== row.receipt_digest
+    || row.id !== `opcr-${receiptDigest}`
+    || material.lease_revision !== row.lease_revision
+    || material.lease_expires_at !== row.lease_expires_at
+  ) return preCallBlocked("current_authority_unavailable");
+  return shaped;
+}
+
+function preCallMaterialDigest(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  material: PreCallMaterialRow,
+) {
+  return canonicalDigest({
+    schema: "outreach-pre-call-current-material/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    ...material,
+  });
+}
+
+function preCallReceiptDigest(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  material: PreCallMaterialRow,
+  currentMaterialDigest: string,
+  validUntil: number,
+  createdAt: number,
+) {
+  return canonicalDigest({
+    schema: "outreach-pre-call-recheck-receipt/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    outboxItemId: material.outbox_item_id,
+    leaseEventId: material.lease_event_id,
+    leaseRevision: material.lease_revision,
+    leaseGeneration: material.lease_generation,
+    leaseHolderId: material.lease_holder_id,
+    leaseExpiresAt: material.lease_expires_at,
+    currentMaterialDigest,
+    validUntil,
+    createdAt,
+    providerInvocationAuthorized: false,
+  });
+}
+
+function validPreCallMaterial(row: PreCallMaterialRow) {
+  const ids = [
+    row.outbox_item_id,row.approval_consumption_id,row.lease_event_id,row.lease_holder_id,row.message_version_id,
+    row.message_approval_id,row.package_version_id,row.package_approval_id,row.prospect_id,row.contact_id,
+    row.configuration_id,row.contact_eligibility_snapshot_id,row.email_observation_id,row.basis_source_id,
+    row.recipient_authority_id,row.unsubscribe_event_id,row.sender_connection_id,row.sender_capability_id,
+    row.sender_verified_address_id,
+  ];
+  const digests = [
+    row.send_key,row.dispatch_key,row.message_artifact_digest,row.message_approval_digest,row.package_artifact_digest,
+    row.package_approval_digest,row.configuration_digest,row.contact_eligibility_snapshot_digest,row.observation_digest,
+    row.basis_source_digest,row.recipient_authority_digest,row.unsubscribe_event_digest,row.sender_connection_subject_digest,
+    row.sender_capability_digest,row.sender_address_digest,row.sender_address_verification_digest,
+  ];
+  const positiveIntegers = [
+    row.lease_revision,row.lease_generation,row.lease_expires_at,row.message_approval_expires_at,
+    row.package_approval_expires_at,row.prospect_revision,row.contact_revision,row.configuration_revision,
+    row.observation_verified_at,row.recipient_authority_expires_at,row.unsubscribe_revision,row.unsubscribe_expires_at,
+    row.sender_connection_version,row.sender_capability_expires_at,row.sender_address_expires_at,
+  ];
+  return ids.every(id) && digests.every(digest) && positiveIntegers.every((value) => Number.isSafeInteger(value) && value > 0)
+    && ["mailbox_verified", "source_verified"].includes(row.observation_verification_class);
 }
 
 function claimed(

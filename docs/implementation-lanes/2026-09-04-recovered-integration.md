@@ -110,14 +110,15 @@ All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only
   a claim that a fresh whole combined run was performed after the assertion edit.
 - `node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **16/16 passed** after final hardening. Parent-version rollback/replay cases also passed **2/2** separately and the observed-candidate approval case passed **1/1** separately. Touched-file lint and diff check pass. Independent review found no remaining high/medium issue in the final parent fences; this remains a local candidate with the explicit resolver/release limits in its lane record.
 - The additive 0014 delivery-authority closure passed **33/33** in the same focused outreach/importer command. It applies the real 0010→0014 chain and proves freshness-capped recipient authority, Package-bound/current source evidence, exact sender scopes, sealed canonical/send-as addresses, working unsubscribe history, clock-independent revocation replay, suppression/source invalidation of active-lease replay, and zero provider calls. Independent correctness and security re-reviews both returned GO. Touched lint and diff checks passed; canonical preflight remained intentionally unused.
+- Additive 0015 now persists a provider-inert pre-call recheck receipt for one exact live lease generation and closes the database's former direct `Leased → Dispatching` bypass. Its trigger is the local database linearization point: it rechecks current approvals, lineage, every bound source and Claim Guardrail, contact/eligibility, sender/scopes/address, unsubscribe, lifecycle, drift, suppression, stop, and expiry state before one immutable receipt can exist. The stored digest covers repository-selected referenced material; the trigger separately certifies current relational and absence predicates, and replay recomputes the digest and current authority. The receipt leaves the outbox `Leased`, carries `provider_invocation_authorized=0`, and exposes no MailPort, route, worker, credential, provider request, or terminal-state writer. This remains candidate preparation, not send authority or Phase 6 credit.
 
 Canonical `npm test` (including build), full lint, preflight, CI and release
 acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Exact remaining path
 
-1. Complete durable outbox pre-call authority/finalization, source
-   invalidation, unresolved Organization/domain suppression resolution, and read-only runtime
+1. Add the separately reviewed sequential provider-attempt root and evidence-gated
+   finalization around the inert 0015 receipt, then complete unresolved Organization/domain suppression resolution and read-only runtime
    projections behind disabled adapters. Continue artifact construction,
    manual-call logging, handoff persistence/delivery, outcome history and recovery
    as bounded local units, preserving every external gate.
@@ -135,7 +136,7 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 ## Durable outbox enqueue checkpoint
 
 Additive candidate migrations `0012_governed_outreach_outbox.sql` through
-`0014_governed-outreach-authority.sql` now model
+`0015_governed-outreach-pre-call.sql` now model
 append-only sender-connection metadata, immutable outbox items, and an
 append-only state-event chain. The isolated `domain/outbox.ts` repository
 atomically consumes one exact, unexpired Message approval and creates exactly
@@ -153,15 +154,23 @@ and the repository now support a short, exclusive, monotonically fenced
 lease reservation after the intended send time. This reservation explicitly
 grants no provider authority. Source/contact freshness, revocation, working
 unsubscribe, jurisdiction/claimed-basis, exact scopes and verified-address
-authority are current at lease and replay. Exact pre-call authorization,
-atomic unsubscribe redemption/suppression, attempt evidence, final-state
+authority are current at lease and replay. An immutable transaction-fenced
+pre-call recheck receipt can now be recorded without advancing beyond `Leased`;
+it explicitly grants no provider invocation. Atomic unsubscribe redemption/suppression, attempt evidence, final-state
 reconciliation, unresolved Organization/domain equivalence, and controlled
 composition remain separate work.
 
-Focused verification after the final authority edit: outreach persistence plus the
-all-migration Cloudflare importer guard passed **33/33**; touched
-repository, fixture, and test lint passed; migration metadata JSON and
-`git diff --check` passed. Canonical preflight, the full suite, build, broad
+Focused verification after the 0014 authority edit: outreach persistence plus the
+all-migration Cloudflare importer guard passed **33/33**. After 0015 and its final
+review fixes, the same exact focused command passed **41/41**. Its matrix covers
+receipt creation/replay/contention, forged-digest rejection, stale generations,
+populated legacy ancestry, all Package-bound sources and Claim Guardrails, both
+approval kinds, stop/suppression, unsubscribe/sender rotation, later Message and
+Package versions, newer eligibility, and profile/play/product/company lifecycle
+invalidation while preserving zero effects. Touched repository/schema/fixture/test
+lint passed; migration metadata JSON and `git diff --check` passed. Independent
+security and test reviews returned GO with no remaining high/medium blocker for
+this bounded inert candidate. Canonical preflight, the full suite, build, broad
 lint, CI, hosted migration, and provider checks remain unrun under the active
 preflight hold.
 

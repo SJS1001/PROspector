@@ -21,6 +21,7 @@ export async function applyOutreachMigrations(database) {
     "0012_governed_outreach_outbox.sql",
     "0013_governed_outreach_lease.sql",
     "0014_governed-outreach-authority.sql",
+    "0015_governed-outreach-pre-call.sql",
   ]);
 }
 
@@ -38,6 +39,10 @@ export async function applyOutreachAuthorityMigration(database) {
   await applyCandidateMigrations(database, ["0014_governed-outreach-authority.sql"]);
 }
 
+export async function applyOutreachPreCallMigration(database) {
+  await applyCandidateMigrations(database, ["0015_governed-outreach-pre-call.sql"]);
+}
+
 async function applyCandidateMigrations(database, migrations) {
   for (const migration of migrations) {
     const sql = await readFile(new URL(`../../drizzle/${migration}`, import.meta.url), "utf8");
@@ -48,8 +53,8 @@ async function applyCandidateMigrations(database, migrations) {
   }
 }
 
-export async function seedOutreachAuthority(fixture) {
-  await applyOutreachMigrations(fixture.database);
+export async function seedOutreachAuthority(fixture, options = {}) {
+  if (options.applyMigrations !== false) await applyOutreachMigrations(fixture.database);
   const seeded = await seedApprovedProspect(fixture);
   const repositoryModule = await fixture.vite.ssrLoadModule(
     new URL("../../domain/enrichment-repository.ts", import.meta.url).pathname,

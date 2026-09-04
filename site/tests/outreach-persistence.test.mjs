@@ -7,6 +7,7 @@ import {
   applyOutreachAuthorityMigration,
   applyOutreachMigrations,
   applyOutreachMigrationsThroughLease,
+  applyOutreachPreCallMigration,
   OUTREACH_NOW,
   OUTREACH_OWNER,
   seedOutreachAuthority,
@@ -34,6 +35,7 @@ const DELIVERY_AUTHORITY_TABLES = [
   "outreach_sender_verified_addresses",
   "outreach_approval_revocations",
 ];
+const PRE_CALL_TABLES = ["outreach_pre_call_recheck_receipts"];
 
 test("governed outreach candidate migrations stay additive and metadata-aligned", async () => {
   const fixture = await createD1Fixture("outreach-migration");
@@ -88,6 +90,14 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
     assert.equal(authorityEntry.tag, "0014_governed-outreach-authority");
     assert.equal(authoritySnapshot.prevId, leaseSnapshot.id);
     for (const table of DELIVERY_AUTHORITY_TABLES) assert.equal(authoritySnapshot.tables[table]?.name, table);
+    const preCallSnapshot = JSON.parse(await readFile(new URL("../drizzle/meta/0015_snapshot.json", import.meta.url), "utf8"));
+    const preCallEntry = journal.entries.find((entry) => entry.idx === 15);
+    assert.equal(preCallEntry.tag, "0015_governed-outreach-pre-call");
+    assert.equal(preCallSnapshot.prevId, authoritySnapshot.id);
+    for (const table of PRE_CALL_TABLES) {
+      assert.equal(preCallSnapshot.tables[table]?.name, table);
+      assert.equal(await countRows(fixture.database, table), 0);
+    }
 
     const migration = await readFile(new URL("../drizzle/0010_governed_outreach.sql", import.meta.url), "utf8");
     assert.doesNotMatch(migration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
@@ -99,6 +109,10 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
       [...outboxSource.matchAll(/^import\s+.*?from\s+"([^"]+)";$/gmu)].map((match) => match[1]),
       ["./enrichment-grant-issuance"],
     );
+    assert.doesNotMatch(outboxSource, /\bfetch\s*\(|gmail-boundary|gmail\.ts/iu);
+    const preCallMigration = await readFile(new URL("../drizzle/0015_governed-outreach-pre-call.sql", import.meta.url), "utf8");
+    assert.doesNotMatch(preCallMigration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
+    assert.match(preCallMigration, /provider_invocation_authorized[^\n]+DEFAULT 0 NOT NULL/iu);
     assert.doesNotMatch(outboxSource, /\bfetch\s*\(|gmail-boundary|gmail\.ts/iu);
     const triggers = migration.match(/CREATE TRIGGER[\s\S]*?END;/gu) ?? [];
     assert.ok(triggers.length >= 30);
@@ -122,9 +136,64 @@ test("0014 upgrades populated 0013 state without inferring new dispatch authorit
        VALUES ('authority-upgrade-connection','authority-upgrade-workspace','gmail',?,?,'vault-ref:synthetic-upgrade',1,'active',?,?)`,
     ).bind("1".repeat(64), "2".repeat(64), OUTREACH_NOW - 1, OUTREACH_NOW).run();
     await applyOutreachAuthorityMigration(fixture.database);
+    await applyOutreachPreCallMigration(fixture.database);
     assert.equal(await countRows(fixture.database, "outreach_sender_connections"), 1);
     for (const table of DELIVERY_AUTHORITY_TABLES) assert.equal(await countRows(fixture.database, table), 0);
+    for (const table of PRE_CALL_TABLES) assert.equal(await countRows(fixture.database, table), 0);
     assert.deepEqual((await fixture.database.prepare("PRAGMA foreign_key_check").all()).results, []);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("0015 fences a legacy dispatching history from retry and receipt authority", async () => {
+  const fixture = await createD1Fixture("outreach-pre-call-legacy-history");
+  try {
+    await applyOutreachMigrationsThroughLease(fixture.database);
+    await applyOutreachAuthorityMigration(fixture.database);
+    const seeded = await seedOutreachAuthority(fixture, { applyMigrations: false });
+    const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, seeded, "active", 1);
+    const enqueue = await loadOutbox(fixture, seeded);
+    const queued = await enqueue.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const beforeUpgrade = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await beforeUpgrade.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" });
+    assert.equal(lease.kind, "claimed");
+    await fixture.database.prepare(
+      `INSERT INTO outreach_outbox_events
+        (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at)
+       VALUES ('legacy-dispatching',?,?,3,'dispatching',1,'synthetic-worker-one',?,'legacy_dispatching',?,?)`,
+    ).bind(seeded.workspaceId, queued.outboxItemId, lease.expiresAt, "a".repeat(64), OUTREACH_NOW + 1_001).run();
+    await fixture.database.prepare(
+      `INSERT INTO outreach_outbox_events
+        (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at)
+       VALUES ('legacy-failed-before-dispatch',?,?,4,'failed_before_dispatch',1,'synthetic-worker-one',?,'legacy_failure',?,?)`,
+    ).bind(seeded.workspaceId, queued.outboxItemId, lease.expiresAt, "b".repeat(64), OUTREACH_NOW + 1_002).run();
+    await applyOutreachPreCallMigration(fixture.database);
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0);
+    const afterUpgrade = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(seeded),
+      now: () => OUTREACH_NOW + 1_003,
+    });
+    const retry = await afterUpgrade.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-two" });
+    assert.equal(retry.kind, "blocked");
+    assert.equal(retry.providerInvocationAuthorized, false);
+    assert.equal(retry.providerCalls, 0);
+    const receipt = await afterUpgrade.recordPreCallRecheckReceipt({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+      leaseGeneration: lease.leaseGeneration,
+    });
+    assert.equal(receipt.kind, "blocked");
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 4);
   } finally {
     await fixture.dispose();
   }
@@ -808,6 +877,19 @@ test("dispatch leases are exclusive, monotonic, replayable, and grant no provide
       providerCalls: 0,
     });
     assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 3);
+    assert.equal((await afterExpiry.recordPreCallRecheckReceipt({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+      leaseGeneration: first.leaseGeneration,
+    })).kind, "blocked", "the recovered generation permanently fences the old holder");
+    const currentReceipt = await afterExpiry.recordPreCallRecheckReceipt({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-two",
+      leaseGeneration: second.leaseGeneration,
+    });
+    assert.equal(currentReceipt.kind, "recorded");
+    assert.equal(currentReceipt.providerInvocationAuthorized, false);
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 1);
     await assert.rejects(
       fixture.database.prepare(
         "INSERT INTO outreach_outbox_events (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at) VALUES ('stale-worker-dispatch',?,?,4,'dispatching',1,'synthetic-worker-one',?,'stale_holder',?,?)",
@@ -836,6 +918,11 @@ test("dispatch leases are exclusive, monotonic, replayable, and grant no provide
         providerCalls: 0,
       },
     );
+    assert.equal((await afterExpiry.recordPreCallRecheckReceipt({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-two",
+      leaseGeneration: second.leaseGeneration,
+    })).kind, "blocked", "a historical receipt replay cannot launder later suppression");
     assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 3);
   } finally {
     await fixture.dispose();
@@ -871,6 +958,448 @@ test("simultaneous lease claimers produce one winner and one immutable event", a
     assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
   } finally {
     await fixture.dispose();
+  }
+});
+
+test("exact current lease records one immutable inert pre-call receipt", async () => {
+  const fixture = await createD1Fixture("outreach-pre-call-receipt");
+  try {
+    const prepared = await prepareApprovedMessage(fixture, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const enqueue = await loadOutbox(fixture, prepared.seeded);
+    const queued = await enqueue.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    assert.equal(queued.kind, "queued");
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const boundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await boundary.claimDispatchLease({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+    });
+    assert.equal(lease.kind, "claimed");
+    const input = {
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+      leaseGeneration: lease.leaseGeneration,
+    };
+    const laterBoundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_001,
+    });
+    const contenders = await Promise.all([
+      boundary.recordPreCallRecheckReceipt(input),
+      laterBoundary.recordPreCallRecheckReceipt(input),
+    ]);
+    assert.equal(contenders.every((result) => result.kind === "recorded"), true, JSON.stringify(contenders));
+    assert.equal(contenders.every((result) => result.providerInvocationAuthorized === false && result.providerCalls === 0), true);
+    assert.equal(contenders.filter((result) => result.replayed === false).length, 1);
+    assert.equal(contenders.filter((result) => result.replayed === true).length, 1);
+    const first = contenders.find((result) => result.kind === "recorded");
+    const replay = await boundary.recordPreCallRecheckReceipt(input);
+    assert.equal(replay.kind, "recorded", JSON.stringify(replay));
+    assert.equal(first.receiptId, replay.receiptId);
+    assert.equal(first.receiptDigest, replay.receiptDigest);
+    assert.equal(replay.replayed, true);
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2, "receipt must not advance dispatch state");
+    const wrongOwner = outboxModule.createD1OutboxRepository(fixture.database, {
+      workspaceId: prepared.seeded.workspaceId,
+      ownerSubject: "different-owner",
+      now: () => OUTREACH_NOW + 1_002,
+    });
+    assert.equal((await wrongOwner.recordPreCallRecheckReceipt(input)).kind, "blocked");
+    assert.equal(
+      (await fixture.database.prepare(
+        "SELECT provider_invocation_authorized FROM outreach_pre_call_recheck_receipts LIMIT 1",
+      ).first()).provider_invocation_authorized,
+      0,
+    );
+    await assert.rejects(
+      fixture.database.prepare(
+        "INSERT INTO outreach_outbox_events (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at) VALUES ('receipt-bypass-dispatching',?,?,3,'dispatching',1,'synthetic-worker-one',?,'bypass',?,?)",
+      ).bind(prepared.seeded.workspaceId, queued.outboxItemId, lease.expiresAt, "9".repeat(64), OUTREACH_NOW + 1_001).run(),
+      /invalid outreach outbox event/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("UPDATE outreach_pre_call_recheck_receipts SET provider_invocation_authorized=1 WHERE id=?").bind(first.receiptId).run(),
+      /immutable outreach pre-call receipt/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("DELETE FROM outreach_pre_call_recheck_receipts WHERE id=?").bind(first.receiptId).run(),
+      /immutable outreach pre-call receipt/,
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("pre-call receipt rejects stale fences, hostile input, and post-lease authority changes with zero effects", async () => {
+  const fixture = await createD1Fixture("outreach-pre-call-denials");
+  try {
+    const prepared = await prepareApprovedMessage(fixture, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const enqueue = await loadOutbox(fixture, prepared.seeded);
+    const queued = await enqueue.enqueueApprovedMessage({
+      messageApprovalId: prepared.messageApproval.id,
+      senderConnectionId,
+    });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const boundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await boundary.claimDispatchLease({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+    });
+    assert.equal(lease.kind, "claimed");
+    const base = {
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+      leaseGeneration: lease.leaseGeneration,
+    };
+    for (const input of [
+      { ...base, holderId: "synthetic-worker-two" },
+      { ...base, leaseGeneration: lease.leaseGeneration + 1 },
+      { ...base, extra: "forbidden" },
+    ]) {
+      assert.equal((await boundary.recordPreCallRecheckReceipt(input)).kind, "blocked");
+    }
+    let getterCalls = 0;
+    const hostile = {};
+    Object.defineProperty(hostile, "outboxItemId", { enumerable: true, get() { getterCalls += 1; return queued.outboxItemId; } });
+    Object.defineProperty(hostile, "holderId", { enumerable: true, value: base.holderId });
+    Object.defineProperty(hostile, "leaseGeneration", { enumerable: true, value: base.leaseGeneration });
+    assert.equal((await boundary.recordPreCallRecheckReceipt(hostile)).reason, "invalid_request");
+    assert.equal(getterCalls, 0);
+    await fixture.database.prepare("UPDATE sources SET status='withdrawn' WHERE id='outreach-source'").run();
+    assert.deepEqual(await boundary.recordPreCallRecheckReceipt(base), {
+      kind: "blocked",
+      reason: "current_authority_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("repository rejects a structurally valid receipt whose canonical digests were forged", async () => {
+  const fixture = await createD1Fixture("outreach-pre-call-forged-digest");
+  try {
+    const context = await prepareLeasedOutbox(fixture);
+    const first = await context.boundary.recordPreCallRecheckReceipt(context.input);
+    assert.equal(first.kind, "recorded");
+    const firstRow = await fixture.database.prepare(
+      "SELECT * FROM outreach_pre_call_recheck_receipts WHERE id=?",
+    ).bind(first.receiptId).first();
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const recovered = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => OUTREACH_NOW + 16_000,
+    });
+    const secondLease = await recovered.claimDispatchLease({
+      outboxItemId: context.input.outboxItemId,
+      holderId: "synthetic-worker-two",
+    });
+    assert.equal(secondLease.kind, "claimed");
+    const secondEvent = await fixture.database.prepare(
+      "SELECT id,revision FROM outreach_outbox_events WHERE outbox_item_id=? ORDER BY revision DESC LIMIT 1",
+    ).bind(context.input.outboxItemId).first();
+    const forgedDigest = "e".repeat(64);
+    await fixture.database.prepare(
+      `INSERT INTO outreach_pre_call_recheck_receipts
+        (id,workspace_id,owner_subject,outbox_item_id,lease_event_id,lease_revision,lease_generation,
+         lease_holder_id,lease_expires_at,recipient_authority_id,unsubscribe_event_id,sender_capability_id,
+         sender_verified_address_id,contact_eligibility_snapshot_id,current_material_digest,receipt_digest,
+         valid_until,provider_invocation_authorized,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
+    ).bind(
+      `opcr-${forgedDigest}`,
+      firstRow.workspace_id,
+      firstRow.owner_subject,
+      firstRow.outbox_item_id,
+      secondEvent.id,
+      secondEvent.revision,
+      secondLease.leaseGeneration,
+      secondLease.holderId,
+      secondLease.expiresAt,
+      firstRow.recipient_authority_id,
+      firstRow.unsubscribe_event_id,
+      firstRow.sender_capability_id,
+      firstRow.sender_verified_address_id,
+      firstRow.contact_eligibility_snapshot_id,
+      "d".repeat(64),
+      forgedDigest,
+      secondLease.expiresAt,
+      OUTREACH_NOW + 16_000,
+    ).run();
+    const replay = await recovered.recordPreCallRecheckReceipt({
+      outboxItemId: context.input.outboxItemId,
+      holderId: secondLease.holderId,
+      leaseGeneration: secondLease.leaseGeneration,
+    });
+    assert.equal(replay.kind, "blocked");
+    assert.equal(replay.providerInvocationAuthorized, false);
+    assert.equal(replay.providerCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("pre-call receipt fails closed at the exact lease expiry boundary and across owners", async () => {
+  const fixture = await createD1Fixture("outreach-pre-call-boundaries");
+  try {
+    const prepared = await prepareApprovedMessage(fixture, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+    const enqueue = await loadOutbox(fixture, prepared.seeded);
+    const queued = await enqueue.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const boundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await boundary.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" });
+    assert.equal(lease.kind, "claimed");
+    const input = { outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one", leaseGeneration: lease.leaseGeneration };
+    const wrongOwner = outboxModule.createD1OutboxRepository(fixture.database, {
+      workspaceId: prepared.seeded.workspaceId,
+      ownerSubject: "different-owner",
+      now: () => OUTREACH_NOW + 1_001,
+    });
+    assert.equal((await wrongOwner.recordPreCallRecheckReceipt(input)).kind, "blocked");
+    const expired = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(prepared.seeded),
+      now: () => lease.expiresAt,
+    });
+    assert.equal((await expired.recordPreCallRecheckReceipt(input)).kind, "blocked");
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("suppression, approval revocation, stop, unsubscribe failure, and sender rotation each win after lease", async () => {
+  const cases = [
+    ["suppression", async ({ repository, prepared }) => repository.recordSuppression({
+      ...suppressionInput(),
+      subjectDigest: prepared.seeded.contactPointDigest,
+      aliasDigests: [],
+      idempotencyKey: "pre-call-suppression",
+    })],
+    ["approval-revocation", async ({ repository, prepared }) => repository.revokeApproval({
+      targetKind: "message_approval",
+      targetApprovalId: prepared.messageApproval.id,
+      reasonCode: "owner_revoked",
+      sourceEventDigest: "4".repeat(64),
+      idempotencyKey: "pre-call-approval-revocation",
+    })],
+    ["package-approval-revocation", async ({ repository, prepared }) => repository.revokeApproval({
+      targetKind: "package_approval",
+      targetApprovalId: prepared.packageApproval.id,
+      reasonCode: "owner_revoked",
+      sourceEventDigest: "5".repeat(64),
+      idempotencyKey: "pre-call-package-approval-revocation",
+    })],
+    ["pause-stop", async ({ fixture, prepared }) => {
+      const command = await fixture.database.prepare(
+        "SELECT id FROM outreach_commands WHERE workspace_id=? ORDER BY created_at,id LIMIT 1",
+      ).bind(prepared.seeded.workspaceId).first();
+      await fixture.database.prepare(
+        `INSERT INTO outreach_stop_events
+          (id,workspace_id,stop_kind,tombstone_id,subject_kind,subject_digest,source_event_digest,
+           reason_code,command_id,effective_at,created_at)
+         VALUES ('outreach-pre-call-pause',?,'pause',NULL,'exact_email',?,?,'synthetic_pause',?,?,?)`,
+      ).bind(
+        prepared.seeded.workspaceId,
+        prepared.seeded.contactPointDigest,
+        "6".repeat(64),
+        command.id,
+        OUTREACH_NOW,
+        OUTREACH_NOW,
+      ).run();
+    }],
+    ["unsubscribe-failure", async ({ repository, prepared }) => repository.recordUnsubscribeAuthorityEvent({
+      recipientAuthorityId: prepared.recipientAuthority.id,
+      expectedRevision: 1,
+      status: "failed",
+      checkDigest: "f".repeat(64),
+      observedAt: OUTREACH_NOW,
+      validUntil: null,
+      idempotencyKey: "pre-call-unsubscribe-failed",
+    })],
+    ["sender-rotation", async ({ fixture, prepared }) => {
+      await insertSenderConnection(fixture, prepared.seeded, "degraded", 2);
+    }],
+    ["claim-guardrail-invalidated", async ({ fixture }) => {
+      await fixture.database.prepare("UPDATE knowledge_versions SET status='superseded' WHERE id='outreach-guardrail'").run();
+    }],
+  ];
+  for (const [name, invalidate] of cases) {
+    const fixture = await createD1Fixture(`outreach-pre-call-${name}`);
+    try {
+      const context = await prepareLeasedOutbox(fixture);
+      const repository = await loadRepository(fixture, context.prepared.seeded);
+      await invalidate({ ...context, fixture, repository });
+      const result = await context.boundary.recordPreCallRecheckReceipt(context.input);
+      assert.equal(result.kind, "blocked", name);
+      assert.equal(result.providerInvocationAuthorized, false, name);
+      assert.equal(result.providerCalls, 0, name);
+      assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0, name);
+      assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2, name);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("withdrawing any Package-bound source blocks the pre-call receipt", async () => {
+  const fixture = await createD1Fixture("outreach-pre-call-secondary-source");
+  try {
+    const seeded = await seedOutreachAuthority(fixture);
+    await fixture.database.prepare(
+      `INSERT INTO sources
+        (id,workspace_id,created_at,updated_at,revision,origin,opaque_locator,source_digest,privacy,license,status)
+       VALUES ('outreach-secondary-source',?,?,?,1,'public_research','synthetic:secondary-source',?,'public','synthetic-test-only','available')`,
+    ).bind(seeded.workspaceId, OUTREACH_NOW, OUTREACH_NOW, "6".repeat(64)).run();
+    await fixture.database.prepare(
+      `INSERT INTO prospecting_source_lineage
+        (id,workspace_id,run_id,submission_id,source_id,source_url,publisher_identity,underlying_origin_identity,
+         independence_group,source_tier,published_at,occurred_at,retrieved_at,excerpt,lineage_json,lineage_digest,created_at)
+       VALUES ('outreach-secondary-evidence',?,?, 'outreach-submission','outreach-secondary-source','https://example.invalid/secondary-evidence',
+         'synthetic-secondary-publisher','synthetic-secondary-origin','synthetic-secondary-independent',1,?,?,?,'synthetic secondary evidence','{}',?,?)`,
+    ).bind(
+      seeded.workspaceId,
+      seeded.runId,
+      OUTREACH_NOW - 10,
+      OUTREACH_NOW - 10,
+      OUTREACH_NOW - 5,
+      "7".repeat(64),
+      OUTREACH_NOW,
+    ).run();
+    const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+      additionalEvidenceDigests: ["7".repeat(64)],
+      additionalPackageBindings: [
+        { kind: "source", id: "outreach-secondary-source", digest: "6".repeat(64) },
+        { kind: "evidence", id: "outreach-secondary-evidence", digest: "7".repeat(64) },
+      ],
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, seeded, "active", 1);
+    const enqueue = await loadOutbox(fixture, seeded);
+    const queued = await enqueue.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const boundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await boundary.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" });
+    assert.equal(lease.kind, "claimed");
+    await fixture.database.prepare("UPDATE sources SET status='withdrawn' WHERE id='outreach-secondary-source'").run();
+    const result = await boundary.recordPreCallRecheckReceipt({
+      outboxItemId: queued.outboxItemId,
+      holderId: "synthetic-worker-one",
+      leaseGeneration: lease.leaseGeneration,
+    });
+    assert.equal(result.kind, "blocked");
+    assert.equal(result.providerInvocationAuthorized, false);
+    assert.equal(result.providerCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("later artifact, eligibility, and lifecycle state each block the pre-call receipt", async () => {
+  const cases = [
+    ["later-package", async ({ repository, prepared }) => repository.createPackageVersion({
+      ...packageInput(prepared.seeded),
+      version: 2,
+      expectedVersion: 1,
+      idempotencyKey: "pre-call-later-package",
+    })],
+    ["later-message", async ({ fixture, repository, prepared }) => {
+      const packageVersion = await fixture.database.prepare(
+        `SELECT package_version.id,package_version.artifact_digest digest
+         FROM outreach_message_versions message_version
+         JOIN outreach_package_versions package_version ON package_version.id=message_version.package_version_id
+         WHERE message_version.id=? AND message_version.workspace_id=?`,
+      ).bind(prepared.message.id, prepared.seeded.workspaceId).first();
+      const next = messageInput(packageVersion, prepared.seeded);
+      return repository.createMessageVersion({
+        ...next,
+        version: 2,
+        expectedVersion: 1,
+        snapshot: { ...next.snapshot, subject: "Synthetic later pre-call message" },
+        unsubscribeTokenDigest: "a".repeat(64),
+        idempotencyKey: "pre-call-later-message",
+      });
+    }],
+    ["newer-eligibility", async ({ fixture, prepared }) => fixture.database.prepare(
+      `INSERT INTO contact_eligibility_snapshots
+        (id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
+         prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,
+         snapshot_digest,projected_at)
+       SELECT 'pre-call-newer-eligibility',workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,
+         configuration_revision,prospect_revision,'NeedsReview',0,observation_ids_json,'["new_review_required"]',
+         preserved_suppression_refs_json,?,projected_at
+       FROM contact_eligibility_snapshots WHERE id=? AND workspace_id=?`,
+    ).bind(
+      "8".repeat(64),
+      prepared.seeded.eligibilityId,
+      prepared.seeded.workspaceId,
+    ).run()],
+    ["profile-paused", async ({ fixture, prepared }) => fixture.database.prepare(
+      "UPDATE customer_profiles SET lifecycle='paused' WHERE id=? AND workspace_id=?",
+    ).bind(prepared.seeded.profileId, prepared.seeded.workspaceId).run()],
+    ["play-paused", async ({ fixture, prepared }) => fixture.database.prepare(
+      `UPDATE market_plays SET lifecycle='paused'
+       WHERE workspace_id=? AND id=(SELECT play_id FROM customer_profiles WHERE id=? AND workspace_id=?)`,
+    ).bind(prepared.seeded.workspaceId, prepared.seeded.profileId, prepared.seeded.workspaceId).run()],
+    ["product-paused", async ({ fixture, prepared }) => fixture.database.prepare(
+      `UPDATE products SET lifecycle='paused'
+       WHERE workspace_id=? AND id=(
+         SELECT play.product_id FROM customer_profiles profile
+         JOIN market_plays play ON play.id=profile.play_id AND play.workspace_id=profile.workspace_id
+         WHERE profile.id=? AND profile.workspace_id=?)`,
+    ).bind(prepared.seeded.workspaceId, prepared.seeded.profileId, prepared.seeded.workspaceId).run()],
+    ["company-archived", async ({ fixture, prepared }) => fixture.database.prepare(
+      "UPDATE companies SET status='archived' WHERE workspace_id=?",
+    ).bind(prepared.seeded.workspaceId).run()],
+  ];
+  for (const [name, invalidate] of cases) {
+    const fixture = await createD1Fixture(`outreach-pre-call-currentness-${name}`);
+    try {
+      const context = await prepareLeasedOutbox(fixture);
+      const repository = await loadRepository(fixture, context.prepared.seeded);
+      await invalidate({ ...context, fixture, repository });
+      const result = await context.boundary.recordPreCallRecheckReceipt(context.input);
+      assert.equal(result.kind, "blocked", name);
+      assert.equal(result.providerInvocationAuthorized, false, name);
+      assert.equal(result.providerCalls, 0, name);
+      assert.equal(await countRows(fixture.database, "outreach_pre_call_recheck_receipts"), 0, name);
+      assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2, name);
+    } finally {
+      await fixture.dispose();
+    }
   }
 });
 
@@ -1126,8 +1655,20 @@ async function loadRepository(fixture, seeded) {
 
 async function prepareApprovedMessage(fixture, expiry = {}) {
   const seeded = await seedOutreachAuthority(fixture);
+  return prepareApprovedMessageFromSeeded(fixture, seeded, expiry);
+}
+
+async function prepareApprovedMessageFromSeeded(fixture, seeded, expiry = {}) {
   const repository = await loadRepository(fixture, seeded);
-  const packageVersion = await repository.createPackageVersion(packageInput(seeded));
+  const basePackage = packageInput(seeded);
+  const packageVersion = await repository.createPackageVersion({
+    ...basePackage,
+    snapshot: {
+      ...basePackage.snapshot,
+      evidenceDigests: [...basePackage.snapshot.evidenceDigests, ...(expiry.additionalEvidenceDigests ?? [])],
+    },
+    bindings: [...basePackage.bindings, ...(expiry.additionalPackageBindings ?? [])],
+  });
   const packageApproval = await repository.approvePackageVersion({
     packageVersionId: packageVersion.id,
     expectedVersion: 1,
@@ -1150,6 +1691,29 @@ async function prepareApprovedMessage(fixture, expiry = {}) {
 async function loadOutbox(fixture, seeded) {
   const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
   return outboxModule.createD1OutboxRepository(fixture.database, scope(seeded));
+}
+
+async function prepareLeasedOutbox(fixture) {
+  const prepared = await prepareApprovedMessage(fixture, {
+    packageExpiresAt: OUTREACH_NOW + 70_000,
+    messageExpiresAt: OUTREACH_NOW + 60_000,
+  });
+  const senderConnectionId = await insertSenderConnection(fixture, prepared.seeded, "active", 1);
+  const enqueue = await loadOutbox(fixture, prepared.seeded);
+  const queued = await enqueue.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+  assert.equal(queued.kind, "queued");
+  const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+  const boundary = outboxModule.createD1OutboxRepository(fixture.database, {
+    ...scope(prepared.seeded),
+    now: () => OUTREACH_NOW + 1_000,
+  });
+  const lease = await boundary.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" });
+  assert.equal(lease.kind, "claimed");
+  return {
+    prepared,
+    boundary,
+    input: { outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one", leaseGeneration: lease.leaseGeneration },
+  };
 }
 
 async function insertSenderConnection(fixture, seeded, status, version, grantedScopes = [

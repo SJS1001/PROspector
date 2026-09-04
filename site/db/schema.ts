@@ -1047,6 +1047,36 @@ export const outreachOutboxEvents = sqliteTable("outreach_outbox_events", {
   check("outreach_outbox_event_lease_check", sql`(${t.state} = 'pending' and ${t.revision} = 1 and ${t.leaseGeneration} = 0 and ${t.leaseHolderId} is null and ${t.leaseExpiresAt} is null) or (${t.state} <> 'pending' and ${t.revision} > 1)`),
 ]);
 
+export const outreachPreCallRecheckReceipts = sqliteTable("outreach_pre_call_recheck_receipts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(),
+  outboxItemId: text("outbox_item_id").notNull().references(() => outreachOutboxItems.id),
+  leaseEventId: text("lease_event_id").notNull().references(() => outreachOutboxEvents.id),
+  leaseRevision: integer("lease_revision").notNull(),
+  leaseGeneration: integer("lease_generation").notNull(),
+  leaseHolderId: text("lease_holder_id").notNull(),
+  leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }).notNull(),
+  recipientAuthorityId: text("recipient_authority_id").notNull().references(() => outreachRecipientDispatchAuthorities.id),
+  unsubscribeEventId: text("unsubscribe_event_id").notNull().references(() => outreachUnsubscribeAuthorityEvents.id),
+  senderCapabilityId: text("sender_capability_id").notNull().references(() => outreachSenderCapabilitySnapshots.id),
+  senderVerifiedAddressId: text("sender_verified_address_id").notNull().references(() => outreachSenderVerifiedAddresses.id),
+  contactEligibilitySnapshotId: text("contact_eligibility_snapshot_id").notNull().references(() => contactEligibilitySnapshots.id),
+  currentMaterialDigest: text("current_material_digest").notNull(),
+  receiptDigest: text("receipt_digest").notNull(),
+  validUntil: integer("valid_until", { mode: "timestamp_ms" }).notNull(),
+  providerInvocationAuthorized: integer("provider_invocation_authorized").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_pre_call_receipt_lease_event_unique").on(t.leaseEventId),
+  uniqueIndex("outreach_pre_call_receipt_generation_unique").on(t.outboxItemId, t.leaseGeneration),
+  uniqueIndex("outreach_pre_call_receipt_digest_unique").on(t.workspaceId, t.receiptDigest),
+  index("outreach_pre_call_receipt_expiry_idx").on(t.workspaceId, t.validUntil),
+  check("outreach_pre_call_receipt_fence_check", sql`${t.leaseRevision} > 1 and ${t.leaseGeneration} > 0 and ${t.validUntil} > ${t.createdAt} and ${t.validUntil} <= ${t.leaseExpiresAt}`),
+  check("outreach_pre_call_receipt_digest_check", sql`length(${t.currentMaterialDigest}) = 64 and ${t.currentMaterialDigest} not glob '*[^0-9a-f]*' and length(${t.receiptDigest}) = 64 and ${t.receiptDigest} not glob '*[^0-9a-f]*'`),
+  check("outreach_pre_call_receipt_no_provider_authority", sql`${t.providerInvocationAuthorized} = 0`),
+]);
+
 export const outreachSuppressionTombstones = sqliteTable("outreach_suppression_tombstones", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   subjectKind: text("subject_kind", { enum: ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"] }).notNull(),
