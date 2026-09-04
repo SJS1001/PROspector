@@ -86,6 +86,14 @@ All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only
   runs after one initial fail-closed `NeedsReconciliation` result; an exact
   test-plus-lint concurrency rerun also passed. No external provider was reachable.
 - `node --test tests/contact-eligibility.test.mjs tests/contact-receipt-binding-integrity.test.mjs tests/contact-assignment-receipt-integrity.test.mjs tests/contact-settlement-attestation.test.mjs`: **10/10 passed** after durable evidence rehydration was added. Touched-file lint and diff checks passed.
+- The same **4/4** controlled-enrichment integration suite now also proves the
+  durable eligibility snapshot boundary: the unchanged migration chain rejects the
+  write while the Phase 5 gate is absent; a disposable fixture can simulate a
+  future reviewed gate and persist/replay one digest-bound `ContactReady` snapshot;
+  a matching hard suppression appends a separate `NonContactable` snapshot with its
+  prohibition reference preserved. Owner mismatch is denied, reads recompute the
+  canonical digest, and no runtime route or gate-creation path was added. The
+  refactored gate reader kept the Contacts suite green at **8/8**; touched lint passed.
 - `node --test tests/enrichment-candidate-lineage-migration.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **2/2 passed**.
 - `node --test tests/contact-evidence-presentation.test.mjs tests/contact-confirmation-state.test.mjs`: **4/4 passed** after privacy hardening.
 - `node --test tests/contacts-ui.test.mjs`: **8/8 passed** on the final Contacts
@@ -107,21 +115,17 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Exact remaining path
 
-1. Add the eligibility-snapshot write/read seam behind a still-disabled runtime
-   capability. Authenticated durable observation rehydration is now implemented and
-   proven with synthetic D1 state across a reconstructed attestor, but no runtime
-   path yet persists the resulting current `contact_eligibility_snapshots` row.
-2. Implement missing durable outbox/lease/finalization, approval consumption,
+1. Implement missing durable outbox/lease/finalization, approval consumption,
    source invalidation, exact suppression resolution, and read-only runtime
    projections behind disabled adapters. Continue artifact construction,
    manual-call logging, handoff persistence/delivery, outcome history and recovery
    as bounded local units, preserving every external gate.
-3. Obtain permission before canonical preflight/release validation. Candidate
+2. Obtain permission before canonical preflight/release validation. Candidate
    `0010`/`0011` deliberately do not match the accepted ten-migration hosted
    manifest. Its verifier must reject this branch for target preparation until a
    separately reviewed exact release-candidate contract exists; never change old
    evidence to imply the new migrations were applied remotely.
-4. Separately finish Plan 02-99 Access attachment/secrets/private release and
+3. Separately finish Plan 02-99 Access attachment/secrets/private release and
    real-principal acceptance, then dependent phase acceptance and authorized
    provider/operational proof. No original Sites access, hosting writes, provider
    configuration, credentials, real data, exports to recipients, outbound messages,

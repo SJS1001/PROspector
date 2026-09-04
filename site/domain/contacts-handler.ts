@@ -4,6 +4,7 @@ import { readBoundedJson, validateSameOriginMutation } from "./request-security"
 import { DEFAULT_CONTACT_FRESHNESS_MS } from "./contact-eligibility";
 import type { ContactSettlementAttestor } from "./contact-settlement-attestor";
 import { verifyPersistedContactSettlement } from "./contact-settlement-persistence";
+import { controlledEnrichmentActivated } from "./phase-activation";
 
 /** Contacts remain a read-only, reject-only surface until their separate Phase 4
  * acceptance and runtime capability evidence exist.  This handler intentionally
@@ -116,15 +117,7 @@ function normalizeIdentity(row: IdentityRow) { if (!boundedId(row.id) || !["cont
 function strings(value: string, maximum: number) { try { const parsed = JSON.parse(value); if (!Array.isArray(parsed) || parsed.length > maximum || parsed.some((item) => !boundedId(item))) return null; return parsed; } catch { return null; } }
 function candidateRevisions(value: string, maximum: number) { try { const parsed = JSON.parse(value); if (!record(parsed) || Object.keys(parsed).length > maximum) return null; const entries = Object.entries(parsed); if (entries.some(([subjectId, revision]) => !boundedId(subjectId) || !positive(revision))) return null; return entries.map(([subjectId, revision]) => ({ subjectId, revision: Number(revision) })); } catch { return null; } }
 export async function contactAttestationActivated(database: D1Database, workspaceId: string) {
-  const gate = await database.prepare("SELECT capability,authorization_reference,target_project_deployment,reviewed_source_digest,migration_identity_status,post_migration_evidence_reference,independent_review_reference,deployed_boundary_proof_reference,tuple_digest FROM phase_activation_gates WHERE workspace_id=? AND capability='controlled_enrichment' LIMIT 2").bind(workspaceId).all<Record<string, string>>();
-  if (gate.results.length !== 1) return false;
-  const row = gate.results[0];
-  const fields = ["capability", "authorization_reference", "target_project_deployment", "reviewed_source_digest", "migration_identity_status", "post_migration_evidence_reference", "independent_review_reference", "deployed_boundary_proof_reference"] as const;
-  if (fields.some((field) => typeof row[field] !== "string" || !row[field].trim())) return false;
-  const canonicalGate = fields.map((field) => `${field}=${row[field]}`).join("\n");
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalGate));
-  const expected = Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return row.tuple_digest === expected;
+  return controlledEnrichmentActivated(database, workspaceId);
 }
 function boundedId(value: unknown) { return typeof value === "string" && value.length > 0 && value.length <= 160; }
 function boundedText(value: unknown, maximum: number) { return typeof value === "string" && value.trim().length > 0 && value.length <= maximum; }

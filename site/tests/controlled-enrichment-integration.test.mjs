@@ -130,6 +130,7 @@ test("actual services settle one synthetic provider result into current ContactR
     // Concurrent top-level SSR loads can instantiate duplicate module records.
     const settlementPersistence = await load(fixture,"contact-settlement-persistence");
     const eligibility = await load(fixture,"contact-eligibility");
+    const eligibilityPersistence = await load(fixture,"contact-eligibility-persistence");
     const [repositoryModule, issuance, authority, operation, providerPort, contactEvidence] = await Promise.all([
       load(fixture,"enrichment-repository"), load(fixture,"enrichment-grant-issuance"),
       load(fixture,"enrichment-authority"), load(fixture,"enrichment-operation"),
@@ -319,7 +320,88 @@ test("actual services settle one synthetic provider result into current ContactR
       assert.deepEqual(result.effectsBefore,eligibility.zeroDownstreamEffects());
       assert.deepEqual(result.effectsAfter,eligibility.zeroDownstreamEffects());
     }
-    assert.equal((await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+9},verifier)).kind,"blocked");
+    const snapshotRequest = {
+      ownerSubject:lifecycle.owner.subject,
+      workspaceId:lifecycle.workspaceId,
+      reservationId:reserved.reservation.id,
+      prospectId:lifecycle.prospectId,
+      contactId:binding.contactId,
+      configurationId:lifecycle.configurationId,
+      configurationDigest:lifecycle.configurationDigest,
+      projectedAt:NOW+8,
+    };
+    assert.deepEqual(
+      await eligibilityPersistence.persistCurrentContactEligibilitySnapshot(
+        fixture.database,
+        restartedAttestor,
+        snapshotRequest,
+      ),
+      {kind:"blocked",reason:"contact_capability_unavailable"},
+      "the unactivated runtime cannot persist even a valid synthetic projection",
+    );
+    assert.equal(await countRows(fixture.database,"contact_eligibility_snapshots"),0);
+    await enableSyntheticControlledEnrichmentGate(fixture.database,lifecycle.workspaceId);
+    const persistedSnapshot = await eligibilityPersistence.persistCurrentContactEligibilitySnapshot(
+      fixture.database,
+      restartedAttestor,
+      snapshotRequest,
+    );
+    assert.equal(persistedSnapshot.kind,"persisted",JSON.stringify(persistedSnapshot));
+    assert.equal(persistedSnapshot.snapshot.state,"ContactReady");
+    assert.equal(persistedSnapshot.snapshot.eligible,true);
+    assert.deepEqual(persistedSnapshot.snapshot.observationIds,[evidence.id]);
+    assert.deepEqual(persistedSnapshot.snapshot.preservedSuppressionRefs,[]);
+    assert.equal((await eligibilityPersistence.persistCurrentContactEligibilitySnapshot(
+      fixture.database,
+      restartedAttestor,
+      snapshotRequest,
+    )).replayed,true,"the same current snapshot is idempotent");
+    assert.equal(await countRows(fixture.database,"contact_eligibility_snapshots"),1);
+    assert.deepEqual(
+      await eligibilityPersistence.readLatestContactEligibilitySnapshot(
+        fixture.database,
+        lifecycle.owner.subject,
+        lifecycle.workspaceId,
+        lifecycle.prospectId,
+        binding.contactId,
+      ),
+      persistedSnapshot.snapshot,
+    );
+    assert.equal(await eligibilityPersistence.readLatestContactEligibilitySnapshot(
+      fixture.database,
+      "wrong-owner",
+      lifecycle.workspaceId,
+      lifecycle.prospectId,
+      binding.contactId,
+    ),null);
+    assert.deepEqual(
+      await eligibilityPersistence.persistCurrentContactEligibilitySnapshot(
+        fixture.database,
+        restartedAttestor,
+        {...snapshotRequest,ownerSubject:"wrong-owner",projectedAt:NOW+9},
+      ),
+      {kind:"blocked",reason:"contact_authority_unavailable"},
+    );
+    assert.equal(await countRows(fixture.database,"contact_eligibility_snapshots"),1);
+    const pointDigest = await fixture.database.prepare(
+      "SELECT contact_point_digest FROM contact_point_observations WHERE id=? AND workspace_id=?",
+    ).bind(evidence.id,lifecycle.workspaceId).first();
+    await fixture.database.prepare(
+      `INSERT INTO suppressions (id,workspace_id,subject_type,subject_digest,channel,reason,created_at)
+       VALUES ('p5i-suppression',?,'exact_email',?,'email','synthetic owner prohibition',?)`,
+    ).bind(lifecycle.workspaceId,pointDigest.contact_point_digest,NOW+9).run();
+    const suppressedSnapshot = await eligibilityPersistence.persistCurrentContactEligibilitySnapshot(
+      fixture.database,
+      restartedAttestor,
+      {...snapshotRequest,projectedAt:NOW+9},
+    );
+    assert.equal(suppressedSnapshot.kind,"persisted",JSON.stringify(suppressedSnapshot));
+    assert.equal(suppressedSnapshot.snapshot.state,"NonContactable");
+    assert.equal(suppressedSnapshot.snapshot.eligible,false);
+    assert.ok(suppressedSnapshot.snapshot.reasonCodes.includes("suppressed"));
+    assert.deepEqual(suppressedSnapshot.snapshot.preservedSuppressionRefs,["p5i-suppression"]);
+    assert.equal(await countRows(fixture.database,"contact_eligibility_snapshots"),2);
+    assert.equal((await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+10},verifier)).kind,"blocked");
     assert.equal(providerCalls,1,"settled operations cannot be invoked twice");
     assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),laterEffectsBefore);
   } finally { await fixture.dispose(); }
@@ -344,3 +426,45 @@ async function readyObservedCandidate(fixture) {
 function grantRequest(lifecycle, expectedRevision, idempotencyKey) { return { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision,idempotencyKey,now:NOW+5 }; }
 
 function load(fixture,name) { return fixture.vite.ssrLoadModule(new URL(`../domain/${name}.ts`,import.meta.url).pathname); }
+
+async function enableSyntheticControlledEnrichmentGate(database,workspaceId) {
+  const gate = {
+    capability:"controlled_enrichment",
+    authorization_reference:"synthetic-local-authorization",
+    target_project_deployment:"synthetic-local-target",
+    reviewed_source_digest:"a".repeat(64),
+    migration_identity_status:"synthetic-local-only",
+    post_migration_evidence_reference:"synthetic-local-evidence",
+    independent_review_reference:"synthetic-local-review",
+    deployed_boundary_proof_reference:"synthetic-local-boundary-proof",
+  };
+  const fields = [
+    "capability","authorization_reference","target_project_deployment","reviewed_source_digest",
+    "migration_identity_status","post_migration_evidence_reference","independent_review_reference",
+    "deployed_boundary_proof_reference",
+  ];
+  const canonical = fields.map((field) => `${field}=${gate[field]}`).join("\n");
+  const bytes = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(canonical));
+  const tupleDigest = Array.from(new Uint8Array(bytes),(byte) => byte.toString(16).padStart(2,"0")).join("");
+  await database.prepare("DROP TRIGGER phase_gate_activation_disabled_insert").run();
+  await database.prepare(
+    `INSERT INTO phase_activation_gates (
+      id,workspace_id,capability,authorization_reference,target_project_deployment,
+      reviewed_source_digest,migration_identity_status,post_migration_evidence_reference,
+      independent_review_reference,deployed_boundary_proof_reference,tuple_digest,accepted_at,created_at
+    ) VALUES ('p5i-synthetic-gate',?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(
+    workspaceId,
+    gate.capability,
+    gate.authorization_reference,
+    gate.target_project_deployment,
+    gate.reviewed_source_digest,
+    gate.migration_identity_status,
+    gate.post_migration_evidence_reference,
+    gate.independent_review_reference,
+    gate.deployed_boundary_proof_reference,
+    tupleDigest,
+    NOW+8,
+    NOW+8,
+  ).run();
+}
