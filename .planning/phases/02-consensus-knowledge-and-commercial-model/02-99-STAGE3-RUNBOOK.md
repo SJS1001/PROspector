@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Status:** revised 3A verified unreachable; 3B0 verified complete; stopped before Access
+**Status:** revised 3A verified unreachable; 3B0 verified complete; 3B preparation only, stopped before email entry and policy save
 
 ## Scope
 
@@ -149,11 +149,16 @@ Official prerequisites:
 > Gateway, WARP, upload, request, or effect was added. Stage 3B0 is complete.
 > Stop before Stage 3B pending its separate exact authorization.
 
-## 3B — Create the exact-owner Worker-level Access boundary (not authorized)
+## 3B — Create the exact-owner Worker-level Access boundary (prepared; action-time confirmation pending)
 
 Run this section only after 3B0 has been separately authorized, completed by
 the owner, and verified. Do not combine Zero Trust organization creation and
 the Worker Access application into one authorization.
+
+The owner's subsequent continuation authorizes this bounded Stage 3B
+preparation. It does not replace the browser's action-time confirmation for
+owner-email transmission or permission saves. No policy has been saved or
+attached. Stages 3C onward remain separately gated.
 
 In the owner-authenticated Cloudflare dashboard:
 
@@ -166,14 +171,30 @@ In the owner-authenticated Cloudflare dashboard:
    enabling either one. If Cloudflare requires enabling `workers.dev`, Preview
    URLs, a route, or a custom domain before Access can be applied, stop without
    changing exposure.
-3. Configure exactly one Allow policy whose Include selector is **Emails** and
-   whose value is the single exact owner email. Select only the already
+3. Configure exactly one dedicated Allow policy whose Include selector is
+   **Emails** and whose value is the single exact owner email. The observed
+   Worker picker initially offers only the broad **Cloudflare account** and
+   **Email domain** presets; do not apply either as an interim step. When no
+   exact-owner policy exists, prepare it through **Zero Trust → Access
+   controls → Policies → Add a policy**, then select that saved policy from
+   the Worker's picker. Inspect existing policies first to avoid duplicates.
+   Saving a reusable policy alone does not protect the Worker: attachment
+   through **Apply Access** is a separate permission change. Obtain the
+   required action-time confirmation before entering the owner email and
+   before each permission save. Select only the already
    verified Cloudflare identity provider. If the application cannot constrain
    the login method directly, add **Require → Login Methods → Cloudflare**;
    never add Login Methods as another Include rule because Include rules are
    OR conditions.
-4. Set both application and policy session duration to exactly **1 hour**. Do
-   not change the account-wide global session duration. Do not use Everyone,
+4. Set the application session duration to exactly **1 hour**. If the policy
+   menu does not offer one hour (as observed during preparation), use **Same
+   as application session duration** and independently verify that the
+   associated application is one hour. Do not claim an effective one-hour
+   policy from the inheritance setting alone. If the application cannot be
+   set and verified at one hour, stop rather than silently selecting a longer
+   duration. Do not change the account-wide global session duration or claim
+   this requires hourly IdP reauthentication; global sessions are separate.
+   Do not use Everyone,
    Emails ending in, Cloudflare Account Member, an email domain, a reusable
    broad group, Bypass, or Service Auth. Do not add the future non-owner
    negative-test principal. MFA remains outside this checkpoint and must not
@@ -181,7 +202,9 @@ In the owner-authenticated Cloudflare dashboard:
 5. Save and independently re-open the Worker and Access application. Verify
    the exact Worker, **All traffic** Worker destination, single-email Allow
    rule, Cloudflare-only login method, policy precedence, one-hour application
-   and policy durations, and absence of Bypass/broad rules. Re-prove that
+   duration and direct or inherited one-hour policy duration, and absence of
+   Bypass/broad rules. Verify that the dedicated policy has no unintended
+   application association. Re-prove that
    production `workers.dev` and Preview URLs remain disabled, with no route or
    custom domain.
 6. Record only the non-secret application audience and exact
@@ -197,6 +220,17 @@ value, or credential in Git, chat, screenshots, logs, or evidence.
 Stop if Access cannot be enabled while the Worker remains unreachable, if the
 application cannot be created without broad access, or if its audience/issuer
 cannot be verified.
+
+Session inheritance and application-token versus global-IdP session semantics:
+<https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/>
+
+**Preparation checkpoint:** the reusable policy form has one empty Emails
+field, one Require Login Methods selection for Cloudflare, action Allow, and
+policy duration set to inherit from the application. The owner email has not
+been entered, **Save policy** and **Apply Access** have not been used, and no
+one-hour application setting or Worker association has been verified. An
+unsaved form is not durable evidence; reconstruct it from this section after
+checking current provider state if the form is lost.
 
 Worker-level Access does not support WebSocket upgrades; Cloudflare returns
 `403` for that traffic. The current PROspector pilot has no authorized
@@ -259,7 +293,7 @@ npx wrangler versions upload \
   --message "Plan 02-99 Stage 3 unreachable private candidate"
 ```
 
-This is the second and final Stage 3 hosted write. It must create one version
+This is the second and final Stage 3 Worker code upload. It must create one version
 but no deployment. Do not use `wrangler deploy`, `wrangler secret put`, a
 preview alias, a route, or a custom domain. If the command fails or its result
 is ambiguous, do not retry; inspect versions, deployments, routes, Access, D1,

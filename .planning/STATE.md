@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Stage 3B0 verified complete with the approved Zero Trust Free organization and restricted default Cloudflare identity provider; Stage 3B exact-owner Worker Access awaits separate authorization
+stopped_at: Stage 3B policy form prepared but unsaved; owner-email transmission and permission saves await action-time confirmation; no Worker Access boundary exists
 last_updated: "2026-09-03"
 last_activity: 2026-09-03
 progress:
@@ -171,7 +171,7 @@ None yet.
 ### Blockers/Concerns
 
 - The original schema/source incident remains historical evidence explaining abandonment. Its missing provenance is waived, not solved, and no migration occurrence may be claimed.
-- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 2 D1 migration is complete and exact. Revised Stage 3A passed the unreachable bootstrap checkpoint and exhausted its one deployment-aware authority. Stage 3B0 is now complete: read-only dashboard evidence proves the approved `digitalrain-prospector` team, Zero Trust Free plan, and default Cloudflare identity provider restricted to account members. Current Cloudflare Worker Access supports **All traffic**, not production-only; the corrected Stage 3B boundary fixes one exact-owner Emails Allow rule, Cloudflare-only login, and one-hour application/policy sessions while both URL switches remain disabled. Stage 3B Access setup, secrets, runtime-candidate generation, and later-version work remain separately unauthorized. Terminal acceptance still requires an exact-owner Access boundary, real-principal denial, repeated zero-row/integrity evidence, zero-effect proof, and owner acceptance.
+- Plan 02-22 proved a reproducible fresh empty local baseline. Plan 02-99 Stage 2 D1 migration is complete and exact. Revised Stage 3A passed the unreachable bootstrap checkpoint and exhausted its one deployment-aware authority. Stage 3B0 is complete: read-only dashboard evidence proves the approved `digitalrain-prospector` team, Zero Trust Free plan, and restricted default Cloudflare identity provider. Stage 3B preparation is authorized but unsaved: the exact-owner Emails Allow policy requires Cloudflare login and must be separately attached to the Worker with **All traffic** while both URL switches stay disabled. Verify a one-hour application duration and direct or inherited one-hour policy duration; the observed policy menu lacks a direct one-hour option. Owner-email transmission and permission saves await action-time confirmation. Secrets, runtime-candidate generation, and later-version work remain separately gated. Terminal acceptance still requires the actual Access boundary, real-principal denial, repeated zero-row/integrity evidence, zero-effect proof, and owner acceptance.
 - The current Wrangler OAuth profile cannot read or write Access applications/policies. Do not retry the Access API with it and do not broaden, extract, or replace its credential automatically. Continue only after the owner authorizes either dashboard-based Access setup or creation/use of a least-privilege Access Apps and Policies credential.
 - The retired Phase 1 Sites release never received its real second-principal, authenticated mutation, secret/log, or fresh exact-release review checks. Those checks are superseded rather than passed; their greenfield equivalents remain non-substitutable Plan 02-99 acceptance gates.
 - Authenticated hosted foreign-origin, missing-CSRF, malformed-body, and replay checks remain operator-session checks; local route and harness regression coverage passes without extracting browser session material.
@@ -192,5 +192,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-03
-Stopped at: Stage 3B0 verified the approved Zero Trust Free organization, exact team name, and restricted default Cloudflare identity provider; one unreachable bootstrap version/deployment and exact empty D1/R2 state remain unchanged; Stage 3B exact-owner Worker Access awaits separate authorization; draft PR `#2` remains open
+Stopped at: Stage 3B0 complete; Stage 3B preparation authorized, but the dedicated exact-email/Cloudflare-login policy is unsaved and unattached pending action-time confirmation. The policy menu offers inheritance rather than a direct one-hour option; verify the eventual one-hour application setting before claiming its effective duration. No new hosted write or D1/R2 measurement occurred. Draft PR `#2` remains open.
 Resume files: `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-EVIDENCE.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE3-RUNBOOK.md`, `.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-STAGE2-EVIDENCE.md`, and `docs/CLOUDFLARE-GREENFIELD-READINESS.md`

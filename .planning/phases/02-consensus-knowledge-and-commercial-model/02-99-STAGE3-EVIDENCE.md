@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-03
 
-**Status:** revised Stage 3A unreachable bootstrap and Stage 3B0 onboarding verified; stopped before Access
+**Status:** revised Stage 3A unreachable bootstrap and Stage 3B0 onboarding verified; Stage 3B form prepared but unsaved
 
 ## Authorized scope
 
@@ -206,3 +206,34 @@ generation, another upload, route enablement, any application request, or any
 effect. The exact next external decision is separate Stage 3B authorization
 for the exact-owner Worker-level Access application while all Worker ingress
 remains disabled.
+
+## Stage 3B preparation only — action-time confirmation pending
+
+Following the owner's continuation, the operator inspected the existing
+greenfield Worker and prepared only non-sensitive policy form fields. The
+Worker Overview reported no URLs enabled, no custom domain or route, and zero
+invocations. The Access panel reported no Worker-specific protection. The
+Worker picker offered broad account-member/domain presets and the reusable
+policy list was empty; neither preset was applied.
+
+The separate reusable-policy form is prepared with action Allow, an empty
+Emails value, and Require Login Methods set only to Cloudflare. Its duration
+menu did not offer a direct one-hour option; **Same as application session
+duration** is selected. Current Cloudflare session-management documentation
+confirms inheritance, but the one-hour application setting and effective
+duration have not yet been configured or verified. This is not proof of an
+active one-hour policy or hourly IdP reauthentication.
+
+The operator stopped before typing the owner email or selecting **Save
+policy**. **Apply Access** was not selected either. Saving the reusable policy
+and attaching it to the Worker are distinct changes requiring action-time
+confirmation; generic or automatic continuations do not supply it. No Access
+protection, secret, upload, route, request, or data effect is claimed by this
+preparation. Earlier D1/R2, preview, and Cron evidence was not recollected and
+must not be presented as a new measurement.
+
+Resume from the revised Stage 3B runbook, not from a browser tab or unsaved
+form. First obtain the specific confirmation for owner-email transmission to
+Cloudflare Zero Trust and reusable-policy save; verify that save before
+preparing and confirming Worker attachment. Stage 3B and Plan 02-99 remain
+incomplete. Stages 3C onward retain their separate authority gates.

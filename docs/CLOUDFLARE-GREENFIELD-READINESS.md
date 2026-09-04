@@ -330,14 +330,19 @@ D1/R2 zero-delta reads passed. See
 4. **Complete and stopped:** deploy one target-only bootstrap version exactly once with no route,
    preview, Access variable, secret declaration, or Cron trigger. Verify the
    resulting single 100% deployment and repeat D1/R2/exposure reads, then stop.
-5. **Stage 3B0 complete; Stage 3B not currently authorized:** the approved
+5. **Stage 3B0 complete; Stage 3B prepared, action-time confirmation pending:** the approved
    `digitalrain-prospector` Zero Trust Free organization now exists with the
    default Cloudflare identity provider restricted to account members. From
    that Worker's **Access** tab, protect **All traffic** and independently
-   review an exact-owner Emails Allow policy with Cloudflare-only login and
-   one-hour application/policy durations while both production and preview
-   URLs remain disabled. Stop if Cloudflare requires making either surface
-   reachable first.
+   review a dedicated exact-owner Emails Allow policy with Cloudflare-only
+   login. Saving that reusable policy does not attach it to the Worker; the
+   separate **Apply Access** operation must be confirmed and verified. Set
+   and verify a one-hour application duration plus a direct or inherited
+   one-hour policy duration while both production and preview URLs remain
+   disabled. The policy menu observed during preparation lacks a direct
+   one-hour option; inheritance alone proves no effective duration. Stop if
+   the one-hour application setting is unavailable or Cloudflare requires
+   making either surface reachable first. No policy is saved or attached yet.
 6. Generate the target-specific runtime candidate, then run all local gates and
    a no-upload Wrangler dry run with owner-held secret values outside Git.
 7. Upload one final **undeployed** version with the required secrets supplied

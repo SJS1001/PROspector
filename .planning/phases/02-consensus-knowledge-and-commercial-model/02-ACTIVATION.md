@@ -44,8 +44,12 @@ onboarding. Read-only verification proved the exact non-secret
 `digitalrain-prospector` team, Zero Trust Free plan, and the automatically
 provisioned Cloudflare identity provider with account-member restriction
 enabled. No Access application/policy, Worker route, secret, upload, request,
-or effect was created. Stage 3B0 is complete; Stage 3B remains separately
-unauthorized.
+or effect was created. Stage 3B0 is complete. Subsequent owner continuation
+authorized Stage 3B preparation only: the dedicated exact-email/Cloudflare-login
+policy form is unsaved, and email entry plus permission saves await action-time
+confirmation. The eventual application duration must be verified at one hour;
+the prepared policy inherits its duration. No Worker association or effective
+one-hour session is claimed. See `02-99-STAGE3-EVIDENCE.md`.
 
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
