@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-03
 
-**Status:** revised Stage 3A unreachable bootstrap and Stage 3B0 onboarding verified; Stage 3B form prepared but unsaved
+**Status:** revised Stage 3A and Stage 3B0 verified; Stage 3B reusable policy saved and verified, Worker attachment unapplied
 
 ## Authorized scope
 
@@ -237,3 +237,26 @@ form. First obtain the specific confirmation for owner-email transmission to
 Cloudflare Zero Trust and reusable-policy save; verify that save before
 preparing and confirming Worker attachment. Stage 3B and Plan 02-99 remain
 incomplete. Stages 3C onward retain their separate authority gates.
+
+## Stage 3B reusable policy saved — 2026-09-04
+
+The owner explicitly confirmed email entry and the dedicated reusable-policy
+save. The operator verified the signed-in profile's verified email privately
+and rechecked that the reusable-policy inventory was empty before saving once.
+Cloudflare reported success. Reopening **PROspector owner-only** independently
+proved action Allow, exactly two rules (one exact-owner Include Emails rule
+and Require Login Method Cloudflare), inherited application session duration,
+and zero application associations. No identity or resource value is recorded.
+
+The existing Worker still reports no Access protection. Its Domains panel
+proves production and preview switches off and no custom domain or route.
+The operator prepared, but did not apply, **All traffic**, the saved policy,
+and **1 hour** in the Worker attachment dialog. That application-duration
+option exists, but neither attachment nor an effective one-hour session is
+claimed until **Apply Access** is separately confirmed, saved, and reread.
+
+No Worker upload, secret, route, application request, D1/R2 write, provider,
+or outbound effect occurred. D1/R2 and Cron evidence was not recollected.
+Stage 3B remains incomplete; do not create a duplicate policy on resume.
+The next action is confirmation for applying this saved policy to the exact
+Worker's All traffic destination with a one-hour session and all URLs off.

@@ -2,7 +2,7 @@
 
 **Captured:** 2026-09-02
 
-**Status:** revised 3A verified unreachable; 3B0 verified complete; 3B preparation only, stopped before email entry and policy save
+**Status:** revised 3A and 3B0 verified; 3B reusable policy saved, stopped before Worker attachment
 
 ## Scope
 
@@ -149,7 +149,7 @@ Official prerequisites:
 > Gateway, WARP, upload, request, or effect was added. Stage 3B0 is complete.
 > Stop before Stage 3B pending its separate exact authorization.
 
-## 3B — Create the exact-owner Worker-level Access boundary (prepared; action-time confirmation pending)
+## 3B — Create the exact-owner Worker-level Access boundary (policy saved; attachment confirmation pending)
 
 Run this section only after 3B0 has been separately authorized, completed by
 the owner, and verified. Do not combine Zero Trust organization creation and
@@ -157,8 +157,11 @@ the Worker Access application into one authorization.
 
 The owner's subsequent continuation authorizes this bounded Stage 3B
 preparation. It does not replace the browser's action-time confirmation for
-owner-email transmission or permission saves. No policy has been saved or
-attached. Stages 3C onward remain separately gated.
+owner-email transmission or permission saves. On 2026-09-04 the owner confirmed
+email entry and reusable-policy save; **PROspector owner-only** now exists and
+is independently verified with zero application associations. Do not create a
+duplicate. Worker attachment remains unconfirmed and unapplied. Stages 3C
+onward remain separately gated.
 
 In the owner-authenticated Cloudflare dashboard:
 
@@ -224,13 +227,15 @@ cannot be verified.
 Session inheritance and application-token versus global-IdP session semantics:
 <https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/>
 
-**Preparation checkpoint:** the reusable policy form has one empty Emails
-field, one Require Login Methods selection for Cloudflare, action Allow, and
-policy duration set to inherit from the application. The owner email has not
-been entered, **Save policy** and **Apply Access** have not been used, and no
-one-hour application setting or Worker association has been verified. An
-unsaved form is not durable evidence; reconstruct it from this section after
-checking current provider state if the form is lost.
+**2026-09-04 checkpoint:** the reusable policy is saved and reread with one
+exact-owner Emails rule, Require Login Method Cloudflare, action Allow, and
+inherited application duration. Its association count is zero. The Worker
+attachment dialog now selects **All traffic**, **PROspector owner-only**, and
+**1 hour**, but **Apply Access** has not been used. Neither an effective
+one-hour session nor Worker protection is verified yet. Obtain confirmation
+for that exact attachment, then apply once and reread the resulting state.
+Reconstruct any lost form from the saved policy after checking current state;
+an unsaved dialog is not evidence of a persisted boundary.
 
 Worker-level Access does not support WebSocket upgrades; Cloudflare returns
 `403` for that traffic. The current PROspector pilot has no authorized

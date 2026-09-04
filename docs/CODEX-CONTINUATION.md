@@ -140,7 +140,7 @@ Use these existing artifacts rather than restating product decisions:
 - Never display, copy, rotate, or remove secret values.
 - Safe runtime binding names are `DB`, `FILES`, `PILOT_OWNER_EMAIL`, and `OWNER_SUBJECT_PEPPER`. Their names may be documented; their values must never be copied into chat, Git, logs, screenshots, or handoff artifacts.
 - Code, plans, decisions, tests, and safe evidence references are portable through GitHub. Each Codex account must independently have GitHub access to the repository.
-- No further hosted write may proceed without the required confirmation. Revised Stage 3A passed its unreachable bootstrap gate and exhausted its one command. Its recorded evidence shows exact empty D1/R2 state, one bootstrap version/deployment, disabled production/preview routes, no custom route/domain, and zero Cron. Stage 3B0 is complete: the approved `digitalrain-prospector` Zero Trust Free organization exists with the default Cloudflare identity provider restricted to account members. Stage 3B preparation is authorized, but no Access policy has been saved or attached; owner-email transmission and permission saves await action-time confirmation. Secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain separately gated.
+- Revised Stage 3A and Stage 3B0 are complete. On 2026-09-04 the owner confirmed email entry and saving the dedicated Stage 3B reusable policy. It is independently verified with exactly one owner-email Allow selector, required Cloudflare login, inherited duration, and zero application associations. The Worker still has no Access attachment; All traffic and one hour are prepared but unapplied pending confirmation. Both URL switches were rechecked off with no route/custom domain. Prior exact D1/R2 and zero-Cron evidence was not recollected. Secrets, runtime-candidate generation, later version upload, route enablement, requests, and effects remain separately gated.
 - The current Wrangler credential does not grant Access application/policy management. Never extract, broaden, rotate, or replace it automatically. If Stage 3 is authorized, use the already signed-in owner dashboard or an explicitly owner-created least-privilege Access credential, and keep its value outside Git, chat, logs, screenshots, and evidence.
 - Missing human/external evidence must pause its activation plan and create no completion summary.
 
@@ -166,15 +166,16 @@ Use these existing artifacts rather than restating product decisions:
 Keep all external effects disabled. Revised Stage 3A has passed and Stage 3B0
 has been independently verified complete. Do not retry the empty-schedule
 failure or perform another upload. The owner authorized bounded Stage 3B
-preparation, but action-time confirmation for owner-email transmission and
-permission saves is still pending. No policy has been saved or attached.
-Review `02-99-STAGE3-EVIDENCE.md` and the corrected runbook: create a dedicated
-exact-email Allow policy with Require Login Methods set only to Cloudflare,
-then separately attach it to the exact Worker with **All traffic**. Policy
-save alone is not protection. Verify a one-hour application duration and a
-direct or inherited one-hour policy duration while both Worker URL switches
-remain disabled. The observed policy menu lacks a direct one-hour option;
-inheritance alone is not duration evidence. Do not enter secrets,
+preparation and then explicitly confirmed email entry and reusable-policy
+save on 2026-09-04. **PROspector owner-only** is saved and independently
+verified: one exact-owner Emails rule, Require Login Method Cloudflare,
+action Allow, inherited duration, zero application associations. Do not
+create a duplicate. Review `02-99-STAGE3-EVIDENCE.md` and the runbook, obtain
+confirmation to apply this policy to the exact Worker with **All traffic**
+and **1 hour**, then verify the persisted association and duration. The dialog
+offers and currently selects one hour, but remains unapplied. Both Worker URL
+switches were rechecked off with no custom domain or route. Policy save alone
+is not protection, and inheritance alone is not duration evidence. Do not enter secrets,
 generate a runtime candidate, enable a
 preview or route, issue an application request, access real rows, persist,
 export, invoke a provider, or perform any effect. Do not access the original

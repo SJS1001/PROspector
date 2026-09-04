@@ -44,17 +44,19 @@ onboarding. Read-only verification proved the exact non-secret
 `digitalrain-prospector` team, Zero Trust Free plan, and the automatically
 provisioned Cloudflare identity provider with account-member restriction
 enabled. No Access application/policy, Worker route, secret, upload, request,
-or effect was created. Stage 3B0 is complete. Subsequent owner continuation
-authorized Stage 3B preparation only: the dedicated exact-email/Cloudflare-login
-policy form is unsaved, and email entry plus permission saves await action-time
-confirmation. The eventual application duration must be verified at one hour;
-the prepared policy inherits its duration. No Worker association or effective
-one-hour session is claimed. See `02-99-STAGE3-EVIDENCE.md`.
+or effect was created. Stage 3B0 is complete. On 2026-09-04 the owner explicitly
+confirmed email entry and reusable-policy save. The dedicated exact-owner
+policy is saved and independently verified with required Cloudflare login,
+inherited duration, and zero application associations. All traffic and one
+hour are selected in the Worker attachment dialog but unapplied pending
+confirmation. No Worker association or effective one-hour session is claimed.
+Both URL switches remain off with no route/custom domain; D1/R2 and Cron
+evidence was not recollected. See `02-99-STAGE3-EVIDENCE.md`.
 
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
 | Greenfield local baseline | status: **Plan 02-22 complete; local only** | Reproduced an empty disposable database from the checked migration chain and explicitly recorded no original-project migration claim. |
-| Future greenfield target | status: **partially provisioned; Stage 2, revised Stage 3A, and Stage 3B0 complete; stopped before Access** | The fresh D1/R2 target retains exact migration and zero-data evidence. One bootstrap version/deployment exists with production/preview routes disabled, no custom route/domain, and zero Cron. The approved Zero Trust Free organization and restricted default Cloudflare IdP exist. The Worker Access application/policy, secrets, final runtime version, principals, and owner acceptance remain absent. |
+| Future greenfield target | status: **partially provisioned; Stage 2, revised Stage 3A, and Stage 3B0 complete; Stage 3B policy saved but unattached** | Recorded exact D1/R2 and bootstrap evidence remains the baseline. Both URL switches and absent routes were rechecked on 2026-09-04. The dedicated reusable policy has one owner-email Allow rule, required Cloudflare login, inherited duration, and zero application associations. Worker attachment/effective session, secrets, final runtime version, principals, and owner acceptance remain unverified. |
 | Phase 1 real-principal prerequisite | status: historical evidence only; fresh greenfield proof required | The 2026-08-01 redacted evidence belonged to the retired Sites release. It cannot satisfy Plan 02-99; the new target must prove owner/non-owner isolation and zero state delta independently. |
 | Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
 | Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |
@@ -72,7 +74,7 @@ one-hour session is claimed. See `02-99-STAGE3-EVIDENCE.md`.
 | Gate activation | status: non-executable; gate absent | Preserve the absent gate. No gate writer or activation is authorized. |
 | Owner lifecycle | status: non-executable | Upstream release and activation stages are unaccepted. |
 
-The original project must not be accessed or reused. The fresh greenfield target now contains the exact D1/R2 resources and one unreachable bootstrap Worker version/deployment; production and preview routing remain disabled with no route/custom domain or Cron. Stage 3B0 added only the verified Zero Trust organization and restricted default identity provider; no Worker Access application exists yet. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after a future target's exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
+The original project must not be accessed or reused. The fresh greenfield target has the recorded D1/R2 resources and unreachable bootstrap Worker version/deployment. Both URL switches and absent routes were rechecked on 2026-09-04; zero Cron remains prior evidence. Stage 3B0 established the Zero Trust organization and restricted default identity provider. Stage 3B has now saved only the dedicated reusable policy; no Worker Access application exists yet. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after a future target's exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
 
 No automated test, local fixture, status row, deployment record, digest, or text in this ledger can satisfy an absent human evidence requirement.
 
