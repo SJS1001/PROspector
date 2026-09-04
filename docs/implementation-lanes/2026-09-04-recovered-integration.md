@@ -77,9 +77,15 @@ All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only
   invocation, trusted verification, attested D1 settlement, released reservation
   budgets, and the real `ContactReady` projector. All four downstream rechecks stay
   blocked with exact zero-effect snapshots, and replay cannot invoke the fake again.
+  The settled evidence is then rehydrated from D1 through a newly reconstructed
+  server-only attestor, not retained in process: the reader re-verifies the complete
+  signed settlement, owner/workspace and configuration scope, returns only a
+  process-branded minimal eligibility view, and omits raw contact values and provider
+  provenance. Wrong-owner/configuration requests and structural copies fail closed.
   The adjacent 14-test enrichment/eligibility/preflight set passed three consecutive
   runs after one initial fail-closed `NeedsReconciliation` result; an exact
   test-plus-lint concurrency rerun also passed. No external provider was reachable.
+- `node --test tests/contact-eligibility.test.mjs tests/contact-receipt-binding-integrity.test.mjs tests/contact-assignment-receipt-integrity.test.mjs tests/contact-settlement-attestation.test.mjs`: **10/10 passed** after durable evidence rehydration was added. Touched-file lint and diff checks passed.
 - `node --test tests/enrichment-candidate-lineage-migration.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **2/2 passed**.
 - `node --test tests/contact-evidence-presentation.test.mjs tests/contact-confirmation-state.test.mjs`: **4/4 passed** after privacy hardening.
 - `node --test tests/contacts-ui.test.mjs`: **8/8 passed** on the final Contacts
@@ -101,11 +107,10 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Exact remaining path
 
-1. Add the authenticated durable observation-rehydration and eligibility-snapshot
-   write/read seam. The successful integrated proof reaches the actual eligibility
-   projector with the exact in-process observation accepted by settlement, but no
-   runtime path yet rehydrates that attested D1 evidence or persists the resulting
-   current `contact_eligibility_snapshots` row.
+1. Add the eligibility-snapshot write/read seam behind a still-disabled runtime
+   capability. Authenticated durable observation rehydration is now implemented and
+   proven with synthetic D1 state across a reconstructed attestor, but no runtime
+   path yet persists the resulting current `contact_eligibility_snapshots` row.
 2. Implement missing durable outbox/lease/finalization, approval consumption,
    source invalidation, exact suppression resolution, and read-only runtime
    projections behind disabled adapters. Continue artifact construction,

@@ -125,26 +125,22 @@ test("actual services settle one synthetic provider result into current ContactR
       (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
       VALUES ('p5i-quote',?,'synthetic-contact-provider','v1','synthetic-catalog',1,'business_contact_lookup/v1','CAD',10,?,?,?)`)
       .bind(lifecycle.workspaceId,"b".repeat(64),NOW+20_000,NOW).run();
-    const [repositoryModule, issuance, authority, operation, providerPort, contactEvidence, eligibility, settlementPersistence] = await Promise.all([
+    // Load the persistence module before the projector so Vite's SSR test graph
+    // shares the same process-local evidence brand used by the real module graph.
+    // Concurrent top-level SSR loads can instantiate duplicate module records.
+    const settlementPersistence = await load(fixture,"contact-settlement-persistence");
+    const eligibility = await load(fixture,"contact-eligibility");
+    const [repositoryModule, issuance, authority, operation, providerPort, contactEvidence] = await Promise.all([
       load(fixture,"enrichment-repository"), load(fixture,"enrichment-grant-issuance"),
       load(fixture,"enrichment-authority"), load(fixture,"enrichment-operation"),
       load(fixture,"contact-provider-port"), load(fixture,"contact-evidence"),
-      load(fixture,"contact-eligibility"), load(fixture,"contact-settlement-persistence"),
     ]);
-    const baseRepository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
+    const settlementAttestor = await createSyntheticContactSettlementAttestor(fixture);
+    const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
       workspaceId:lifecycle.workspaceId,
       ownerSubject:lifecycle.owner.subject,
       now:()=>NOW+10,
-      contactSettlementAttestor:await createSyntheticContactSettlementAttestor(fixture),
-    });
-    let settledObservations = Object.freeze([]);
-    const repository = Object.freeze({
-      ...baseRepository,
-      async settleReservation(reservationId, settlement) {
-        const acknowledgement = await baseRepository.settleReservation(reservationId,settlement);
-        settledObservations = Object.freeze([...settlement.observations]);
-        return acknowledgement;
-      },
+      contactSettlementAttestor:settlementAttestor,
     });
     const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
     assert.equal(snapshot?.admitted,true);
@@ -220,7 +216,6 @@ test("actual services settle one synthetic provider result into current ContactR
     const execution = await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+7},verifier);
     assert.deepEqual(execution,{kind:"settled",outcome:"completed"});
     assert.equal(providerCalls,1);
-    assert.equal(settledObservations.length,1);
     assert.equal(await countRows(fixture.database,"contact_point_observations"),1);
     assert.equal(await countRows(fixture.database,"contact_verification_receipts"),1);
     const terminal = await fixture.database.prepare(`SELECT state,terminal_reason,documented_units,documented_cost_minor
@@ -237,15 +232,63 @@ test("actual services settle one synthetic provider result into current ContactR
       actualCostMinor:Number(row.actual_cost_minor),
       reservedCostMinor:Number(row.reserved_cost_minor),
     })),Array.from({length:4},() => ({actualUnits:1,reservedUnits:0,actualCostMinor:10,reservedCostMinor:0})));
+    const restartedAttestor = await createSyntheticContactSettlementAttestor(fixture);
+    assert.notEqual(restartedAttestor,settlementAttestor,"restart reconstructs authority from the same nonextractable key material");
     assert.equal(await settlementPersistence.verifyPersistedContactSettlement(
       fixture.database,
-      await createSyntheticContactSettlementAttestor(fixture),
+      restartedAttestor,
       lifecycle.workspaceId,
       reserved.reservation.id,
     ),true);
+    const persistedPoints = await settlementPersistence.readVerifiedContactEligibilityEvidence(
+      fixture.database,
+      restartedAttestor,
+      {
+        ownerSubject:lifecycle.owner.subject,
+        workspaceId:lifecycle.workspaceId,
+        reservationId:reserved.reservation.id,
+        prospectId:lifecycle.prospectId,
+        contactId:binding.contactId,
+        configurationId:lifecycle.configurationId,
+        configurationDigest:lifecycle.configurationDigest,
+      },
+    );
+    assert.equal(persistedPoints?.length,1);
+    assert.equal(settlementPersistence.isVerifiedPersistedContactEligibilityEvidence(persistedPoints[0]),true);
+    assert.equal(contactEvidence.isDefensivelyValidContactObservation(persistedPoints[0]),false,"restart evidence carries no in-memory ingestion receipt");
+    assert.equal(settlementPersistence.isVerifiedPersistedContactEligibilityEvidence(structuredClone(persistedPoints[0])),false,"a structural copy loses durable replay authority");
+    for (const sensitiveKey of ["value","normalizedValue","provenance","providerId","sourceReference","excerpt","objectReference"]) {
+      assert.equal(sensitiveKey in persistedPoints[0],false,`rehydrated eligibility evidence excludes ${sensitiveKey}`);
+    }
+    assert.equal(await settlementPersistence.readVerifiedContactEligibilityEvidence(
+      fixture.database,
+      restartedAttestor,
+      {
+        ownerSubject:"wrong-owner",
+        workspaceId:lifecycle.workspaceId,
+        reservationId:reserved.reservation.id,
+        prospectId:lifecycle.prospectId,
+        contactId:binding.contactId,
+        configurationId:lifecycle.configurationId,
+        configurationDigest:lifecycle.configurationDigest,
+      },
+    ),null);
+    assert.equal(await settlementPersistence.readVerifiedContactEligibilityEvidence(
+      fixture.database,
+      restartedAttestor,
+      {
+        ownerSubject:lifecycle.owner.subject,
+        workspaceId:lifecycle.workspaceId,
+        reservationId:reserved.reservation.id,
+        prospectId:lifecycle.prospectId,
+        contactId:binding.contactId,
+        configurationId:lifecycle.configurationId,
+        configurationDigest:"0".repeat(64),
+      },
+    ),null,"configuration drift cannot replay verified evidence");
     const projectionInput = {
       target:{workspaceId:lifecycle.workspaceId,prospectId:lifecycle.prospectId,contactId:binding.contactId},
-      points:settledObservations,
+      points:persistedPoints,
       strategy:{configurationId:lifecycle.configurationId,configurationDigest:lifecycle.configurationDigest},
       authority:{
         prospectId:lifecycle.prospectId,
@@ -262,7 +305,7 @@ test("actual services settle one synthetic provider result into current ContactR
       now:NOW+8,
     };
     const contactReady = eligibility.projectContactEligibility(projectionInput);
-    assert.equal(contactReady.state,"ContactReady");
+    assert.equal(contactReady.state,"ContactReady",JSON.stringify(contactReady));
     assert.equal(contactReady.eligible,true);
     for (const recheck of [
       eligibility.recheckForPackageApproval,
