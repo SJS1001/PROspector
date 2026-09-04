@@ -89,6 +89,7 @@ type PreCallReceiptRow = {
   current_material_digest: string;
   receipt_digest: string;
   valid_until: number;
+  provider_invocation_authorized: number;
   created_at: number;
 };
 type DispatchAttemptPreparationRow = {
@@ -109,6 +110,25 @@ type DispatchAttemptPreparationRow = {
   provider_invocation_authorized: number;
   provider_calls: number;
   prepared_at: number;
+};
+type DispatchPreparationEventRow = {
+  id: string;
+  preparation_id: string;
+  revision: number;
+  event_kind: "voided_before_invocation" | "reprepared_no_invocation";
+  prior_event_id: string | null;
+  prior_digest: string;
+  pre_call_receipt_id: string;
+  lease_event_id: string;
+  lease_generation: number;
+  lease_holder_id: string;
+  lease_expires_at: number;
+  reason_code: "lease_expired_no_invocation" | "fresh_receipt_reprepared_no_invocation";
+  event_digest: string;
+  provider_invocation_authorized: number;
+  provider_calls: number;
+  effective_at: number;
+  created_at: number;
 };
 
 export type EnqueueResult =
@@ -182,6 +202,44 @@ export type DispatchAttemptPreparationResult =
       providerInvocationAuthorized: false;
       providerCalls: 0;
     }>;
+
+export type DispatchPreparationVoidResult =
+  | Readonly<{
+      kind: "voided_before_invocation";
+      eventId: string;
+      eventDigest: string;
+      preparationId: string;
+      outboxItemId: string;
+      leaseGeneration: number;
+      effectiveAt: number;
+      replayed: boolean;
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>
+  | DispatchPreparationLifecycleBlockedResult;
+
+export type DispatchRepreparationResult =
+  | Readonly<{
+      kind: "reprepared_no_invocation";
+      eventId: string;
+      eventDigest: string;
+      preparationId: string;
+      preCallReceiptId: string;
+      outboxItemId: string;
+      leaseGeneration: number;
+      validUntil: number;
+      replayed: boolean;
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>
+  | DispatchPreparationLifecycleBlockedResult;
+
+type DispatchPreparationLifecycleBlockedResult = Readonly<{
+  kind: "blocked";
+  reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable" | "attempt_unavailable";
+  providerInvocationAuthorized: false;
+  providerCalls: 0;
+}>;
 
 const LEASE_DURATION_MS = 15_000;
 
@@ -387,6 +445,23 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
       if (!Number.isSafeInteger(now) || now <= 0) return leaseBlocked("current_authority_unavailable");
       const current = await readLatestEvent(database, scope.workspaceId, input.outboxItemId);
       if (!current || !validLatestEvent(current)) return leaseBlocked("current_authority_unavailable");
+      const preparation = await readDispatchAttemptPreparation(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+      );
+      if (preparation) {
+        const lifecycle = await verifyDispatchPreparationLifecycle(database, scope, preparation);
+        const latestLifecycle = lifecycle?.at(-1);
+        if (
+          !latestLifecycle
+          || latestLifecycle.event_kind !== "voided_before_invocation"
+          || latestLifecycle.created_at > now
+        ) {
+          return leaseBlocked("lease_unavailable");
+        }
+      }
       const sameHolderReplay = (
         current.state === "leased"
         && current.lease_holder_id === input.holderId
@@ -787,6 +862,214 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
         && result.preparationDigest === preparationDigest
       ) ? result : attemptBlocked("attempt_unavailable");
     },
+
+    async voidExpiredDispatchPreparation(inputValue: unknown): Promise<DispatchPreparationVoidResult> {
+      const input = exactDataRecord(inputValue, ["outboxItemId", "preparationId", "expectedLeaseGeneration"]);
+      if (
+        !input
+        || !id(input.outboxItemId)
+        || !id(input.preparationId)
+        || !Number.isSafeInteger(input.expectedLeaseGeneration)
+        || Number(input.expectedLeaseGeneration) <= 0
+      ) return lifecycleBlocked("invalid_request");
+      const expectedLeaseGeneration = Number(input.expectedLeaseGeneration);
+      const now = scope.now();
+      if (!Number.isSafeInteger(now) || now <= 0) return lifecycleBlocked("current_authority_unavailable");
+      const preparation = await readDispatchAttemptPreparation(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+      );
+      if (!preparation || preparation.id !== input.preparationId) return lifecycleBlocked("attempt_unavailable");
+      const lifecycle = await verifyDispatchPreparationLifecycle(database, scope, preparation);
+      if (!lifecycle) return lifecycleBlocked("attempt_unavailable");
+      const latest = lifecycle.at(-1);
+      if (latest && latest.created_at > now) return lifecycleBlocked("current_authority_unavailable");
+      if (latest?.event_kind === "voided_before_invocation") {
+        return latest.lease_generation === expectedLeaseGeneration
+          ? dispatchPreparationVoidResult(preparation, latest, true)
+          : lifecycleBlocked("lease_unavailable");
+      }
+      const active = latest ?? preparation;
+      const activeLeaseGeneration = active.lease_generation;
+      const activeLeaseExpiresAt = active.lease_expires_at;
+      const activeCreatedAt = latest?.created_at ?? preparation.prepared_at;
+      if (
+        activeLeaseGeneration !== expectedLeaseGeneration
+        || activeCreatedAt > now
+        || activeLeaseExpiresAt > now
+      ) return lifecycleBlocked("lease_unavailable");
+      const revision = (latest?.revision ?? 0) + 1;
+      const priorEventId = latest?.id ?? null;
+      const priorDigest = latest?.event_digest ?? preparation.preparation_digest;
+      const preCallReceiptId = latest?.pre_call_receipt_id ?? preparation.pre_call_receipt_id;
+      const leaseEventId = latest?.lease_event_id ?? preparation.lease_event_id;
+      const leaseHolderId = latest?.lease_holder_id ?? preparation.lease_holder_id;
+      const eventDigest = await dispatchPreparationLifecycleDigest(scope, preparation, {
+        revision,
+        eventKind: "voided_before_invocation",
+        priorEventId,
+        priorDigest,
+        preCallReceiptId,
+        leaseEventId,
+        leaseGeneration: activeLeaseGeneration,
+        leaseHolderId,
+        leaseExpiresAt: activeLeaseExpiresAt,
+        reasonCode: "lease_expired_no_invocation",
+        effectiveAt: activeLeaseExpiresAt,
+        createdAt: now,
+      });
+      const eventId = `odape-${eventDigest}`;
+      let committed = false;
+      try {
+        const inserted = await database.prepare(
+          `INSERT INTO outreach_dispatch_attempt_preparation_events
+            (id,workspace_id,preparation_id,revision,event_kind,prior_event_id,prior_digest,
+             pre_call_receipt_id,lease_event_id,lease_generation,lease_holder_id,lease_expires_at,
+             reason_code,event_digest,provider_invocation_authorized,provider_calls,effective_at,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?)`,
+        ).bind(
+          eventId,
+          scope.workspaceId,
+          preparation.id,
+          revision,
+          "voided_before_invocation",
+          priorEventId,
+          priorDigest,
+          preCallReceiptId,
+          leaseEventId,
+          activeLeaseGeneration,
+          leaseHolderId,
+          activeLeaseExpiresAt,
+          "lease_expired_no_invocation",
+          eventDigest,
+          activeLeaseExpiresAt,
+          now,
+        ).run();
+        committed = Number(inserted.meta?.changes) === 1;
+      } catch {
+        // Exact contention is resolved by canonical lifecycle verification.
+      }
+      const storedLifecycle = await verifyDispatchPreparationLifecycle(database, scope, preparation);
+      const stored = storedLifecycle?.at(-1);
+      if (
+        !stored
+        || stored.event_kind !== "voided_before_invocation"
+        || stored.id !== eventId
+        || stored.event_digest !== eventDigest
+      ) return lifecycleBlocked("attempt_unavailable");
+      return dispatchPreparationVoidResult(preparation, stored, !committed);
+    },
+
+    async reprepareDispatchAttempt(inputValue: unknown): Promise<DispatchRepreparationResult> {
+      const input = exactDataRecord(inputValue, [
+        "outboxItemId", "preparationId", "priorVoidEventId", "preCallReceiptId", "holderId", "leaseGeneration",
+      ]);
+      if (
+        !input
+        || !id(input.outboxItemId)
+        || !id(input.preparationId)
+        || !id(input.priorVoidEventId)
+        || !id(input.preCallReceiptId)
+        || !id(input.holderId)
+        || !Number.isSafeInteger(input.leaseGeneration)
+        || Number(input.leaseGeneration) <= 0
+      ) return lifecycleBlocked("invalid_request");
+      const leaseGeneration = Number(input.leaseGeneration);
+      const now = scope.now();
+      if (!Number.isSafeInteger(now) || now <= 0) return lifecycleBlocked("current_authority_unavailable");
+      const preparation = await readDispatchAttemptPreparation(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+      );
+      if (!preparation || preparation.id !== input.preparationId) return lifecycleBlocked("attempt_unavailable");
+      const lifecycle = await verifyDispatchPreparationLifecycle(database, scope, preparation);
+      if (!lifecycle) return lifecycleBlocked("attempt_unavailable");
+      const latest = lifecycle.at(-1);
+      if (latest && latest.created_at > now) return lifecycleBlocked("current_authority_unavailable");
+      const receipt = await readPreCallReceipt(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+        leaseGeneration,
+      );
+      if (!receipt || receipt.id !== input.preCallReceiptId) return lifecycleBlocked("lease_unavailable");
+      const receiptResult = await verifyPreCallReceipt(database, scope, receipt, input.holderId, now, true);
+      if (receiptResult.kind !== "recorded") return lifecycleBlocked(receiptResult.reason);
+      if (latest?.event_kind === "reprepared_no_invocation") {
+        return latest.prior_event_id === input.priorVoidEventId
+          && latest.pre_call_receipt_id === receipt.id
+          && latest.lease_generation === leaseGeneration
+          && latest.lease_holder_id === input.holderId
+          ? dispatchRepreparationResult(preparation, latest, receipt, true)
+          : lifecycleBlocked("attempt_unavailable");
+      }
+      if (
+        !latest
+        || latest.event_kind !== "voided_before_invocation"
+        || latest.id !== input.priorVoidEventId
+        || leaseGeneration <= latest.lease_generation
+      ) return lifecycleBlocked("attempt_unavailable");
+      const revision = latest.revision + 1;
+      const eventDigest = await dispatchPreparationLifecycleDigest(scope, preparation, {
+        revision,
+        eventKind: "reprepared_no_invocation",
+        priorEventId: latest.id,
+        priorDigest: latest.event_digest,
+        preCallReceiptId: receipt.id,
+        leaseEventId: receipt.lease_event_id,
+        leaseGeneration,
+        leaseHolderId: input.holderId,
+        leaseExpiresAt: receipt.lease_expires_at,
+        reasonCode: "fresh_receipt_reprepared_no_invocation",
+        effectiveAt: now,
+        createdAt: now,
+      });
+      const eventId = `odape-${eventDigest}`;
+      let committed = false;
+      try {
+        const inserted = await database.prepare(
+          `INSERT INTO outreach_dispatch_attempt_preparation_events
+            (id,workspace_id,preparation_id,revision,event_kind,prior_event_id,prior_digest,
+             pre_call_receipt_id,lease_event_id,lease_generation,lease_holder_id,lease_expires_at,
+             reason_code,event_digest,provider_invocation_authorized,provider_calls,effective_at,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?)`,
+        ).bind(
+          eventId,
+          scope.workspaceId,
+          preparation.id,
+          revision,
+          "reprepared_no_invocation",
+          latest.id,
+          latest.event_digest,
+          receipt.id,
+          receipt.lease_event_id,
+          leaseGeneration,
+          input.holderId,
+          receipt.lease_expires_at,
+          "fresh_receipt_reprepared_no_invocation",
+          eventDigest,
+          now,
+          now,
+        ).run();
+        committed = Number(inserted.meta?.changes) === 1;
+      } catch {
+        // Exact contention is resolved by canonical lifecycle verification.
+      }
+      const storedLifecycle = await verifyDispatchPreparationLifecycle(database, scope, preparation);
+      const stored = storedLifecycle?.at(-1);
+      if (
+        !stored
+        || stored.event_kind !== "reprepared_no_invocation"
+        || stored.id !== eventId
+        || stored.event_digest !== eventDigest
+      ) return lifecycleBlocked("attempt_unavailable");
+      return dispatchRepreparationResult(preparation, stored, receipt, !committed);
+    },
   });
 }
 
@@ -819,7 +1102,7 @@ async function readPreCallReceipt(
 ) {
   return database.prepare(
     `SELECT id,outbox_item_id,lease_event_id,lease_revision,lease_generation,lease_holder_id,lease_expires_at,
-            current_material_digest,receipt_digest,valid_until,created_at
+            current_material_digest,receipt_digest,valid_until,provider_invocation_authorized,created_at
      FROM outreach_pre_call_recheck_receipts
      WHERE workspace_id=? AND owner_subject=? AND outbox_item_id=? AND lease_generation=? LIMIT 1`,
   ).bind(workspaceId, ownerSubject, outboxItemId, leaseGeneration).first<PreCallReceiptRow>();
@@ -832,13 +1115,47 @@ async function readDispatchAttemptPreparation(
   outboxItemId: string,
 ) {
   return database.prepare(
-    `SELECT id,outbox_item_id,attempt_ordinal,send_key,dispatch_key,message_version_id,
-            message_artifact_digest,sender_connection_id,pre_call_receipt_id,lease_event_id,
-            lease_generation,lease_holder_id,lease_expires_at,preparation_digest,
-            provider_invocation_authorized,provider_calls,prepared_at
-     FROM outreach_dispatch_attempt_preparations
-     WHERE workspace_id=? AND owner_subject=? AND outbox_item_id=? AND attempt_ordinal=1 LIMIT 1`,
+    `SELECT preparation.id,preparation.outbox_item_id,preparation.attempt_ordinal,
+            preparation.send_key,preparation.dispatch_key,preparation.message_version_id,
+            preparation.message_artifact_digest,preparation.sender_connection_id,
+            preparation.pre_call_receipt_id,preparation.lease_event_id,
+            preparation.lease_generation,preparation.lease_holder_id,preparation.lease_expires_at,
+            preparation.preparation_digest,preparation.provider_invocation_authorized,
+            preparation.provider_calls,preparation.prepared_at
+     FROM outreach_dispatch_attempt_preparations preparation
+     JOIN workspaces workspace ON workspace.id=preparation.workspace_id AND workspace.owner_subject=preparation.owner_subject
+     WHERE preparation.workspace_id=? AND preparation.owner_subject=? AND preparation.outbox_item_id=?
+       AND preparation.attempt_ordinal=1 LIMIT 1`,
   ).bind(workspaceId, ownerSubject, outboxItemId).first<DispatchAttemptPreparationRow>();
+}
+
+async function readPreCallReceiptById(
+  database: D1Database,
+  workspaceId: string,
+  ownerSubject: string,
+  receiptId: string,
+) {
+  return database.prepare(
+    `SELECT id,outbox_item_id,lease_event_id,lease_revision,lease_generation,lease_holder_id,lease_expires_at,
+            current_material_digest,receipt_digest,valid_until,provider_invocation_authorized,created_at
+     FROM outreach_pre_call_recheck_receipts
+     WHERE workspace_id=? AND owner_subject=? AND id=? LIMIT 1`,
+  ).bind(workspaceId, ownerSubject, receiptId).first<PreCallReceiptRow>();
+}
+
+async function readDispatchPreparationEvents(
+  database: D1Database,
+  workspaceId: string,
+  preparationId: string,
+) {
+  const result = await database.prepare(
+    `SELECT id,preparation_id,revision,event_kind,prior_event_id,prior_digest,pre_call_receipt_id,
+            lease_event_id,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,
+            provider_invocation_authorized,provider_calls,effective_at,created_at
+     FROM outreach_dispatch_attempt_preparation_events
+     WHERE workspace_id=? AND preparation_id=? ORDER BY revision ASC`,
+  ).bind(workspaceId, preparationId).all<DispatchPreparationEventRow>();
+  return result.results;
 }
 
 async function readPreCallMaterial(
@@ -1109,6 +1426,52 @@ function attemptBlocked(
   return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
 }
 
+function lifecycleBlocked(
+  reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable" | "attempt_unavailable",
+): DispatchPreparationLifecycleBlockedResult {
+  return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
+}
+
+function dispatchPreparationVoidResult(
+  preparation: DispatchAttemptPreparationRow,
+  event: DispatchPreparationEventRow,
+  replayed: boolean,
+): DispatchPreparationVoidResult {
+  return Object.freeze({
+    kind: "voided_before_invocation",
+    eventId: event.id,
+    eventDigest: event.event_digest,
+    preparationId: preparation.id,
+    outboxItemId: preparation.outbox_item_id,
+    leaseGeneration: event.lease_generation,
+    effectiveAt: event.effective_at,
+    replayed,
+    providerInvocationAuthorized: false,
+    providerCalls: 0,
+  });
+}
+
+function dispatchRepreparationResult(
+  preparation: DispatchAttemptPreparationRow,
+  event: DispatchPreparationEventRow,
+  receipt: PreCallReceiptRow,
+  replayed: boolean,
+): DispatchRepreparationResult {
+  return Object.freeze({
+    kind: "reprepared_no_invocation",
+    eventId: event.id,
+    eventDigest: event.event_digest,
+    preparationId: preparation.id,
+    preCallReceiptId: receipt.id,
+    outboxItemId: preparation.outbox_item_id,
+    leaseGeneration: event.lease_generation,
+    validUntil: receipt.valid_until,
+    replayed,
+    providerInvocationAuthorized: false,
+    providerCalls: 0,
+  });
+}
+
 function exactPreCallReceipt(
   row: PreCallReceiptRow,
   holderId: string,
@@ -1246,6 +1609,236 @@ function dispatchAttemptPreparationDigest(
     providerCalls: 0,
     preparedAt,
   });
+}
+
+type DispatchPreparationLifecycleDigestInput = Readonly<{
+  revision: number;
+  eventKind: DispatchPreparationEventRow["event_kind"];
+  priorEventId: string | null;
+  priorDigest: string;
+  preCallReceiptId: string;
+  leaseEventId: string;
+  leaseGeneration: number;
+  leaseHolderId: string;
+  leaseExpiresAt: number;
+  reasonCode: DispatchPreparationEventRow["reason_code"];
+  effectiveAt: number;
+  createdAt: number;
+}>;
+
+function dispatchPreparationLifecycleDigest(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  preparation: DispatchAttemptPreparationRow,
+  event: DispatchPreparationLifecycleDigestInput,
+) {
+  return canonicalDigest({
+    schema: "outreach-dispatch-attempt-preparation-event/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    preparationId: preparation.id,
+    preparationDigest: preparation.preparation_digest,
+    revision: event.revision,
+    eventKind: event.eventKind,
+    priorEventId: event.priorEventId,
+    priorDigest: event.priorDigest,
+    preCallReceiptId: event.preCallReceiptId,
+    leaseEventId: event.leaseEventId,
+    leaseGeneration: event.leaseGeneration,
+    leaseHolderId: event.leaseHolderId,
+    leaseExpiresAt: event.leaseExpiresAt,
+    reasonCode: event.reasonCode,
+    providerInvocationAuthorized: false,
+    providerCalls: 0,
+    effectiveAt: event.effectiveAt,
+    createdAt: event.createdAt,
+  });
+}
+
+function historicalPreCallReceiptDigest(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  receipt: PreCallReceiptRow,
+) {
+  return canonicalDigest({
+    schema: "outreach-pre-call-recheck-receipt/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    outboxItemId: receipt.outbox_item_id,
+    leaseEventId: receipt.lease_event_id,
+    leaseRevision: receipt.lease_revision,
+    leaseGeneration: receipt.lease_generation,
+    leaseHolderId: receipt.lease_holder_id,
+    leaseExpiresAt: receipt.lease_expires_at,
+    currentMaterialDigest: receipt.current_material_digest,
+    validUntil: receipt.valid_until,
+    createdAt: receipt.created_at,
+    providerInvocationAuthorized: false,
+  });
+}
+
+async function validHistoricalPreCallReceipt(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  receipt: PreCallReceiptRow,
+) {
+  if (
+    !id(receipt.id)
+    || !id(receipt.outbox_item_id)
+    || !id(receipt.lease_event_id)
+    || !id(receipt.lease_holder_id)
+    || !digest(receipt.current_material_digest)
+    || !digest(receipt.receipt_digest)
+    || ![receipt.lease_revision, receipt.lease_generation, receipt.lease_expires_at, receipt.valid_until, receipt.created_at]
+      .every((value) => Number.isSafeInteger(value) && value > 0)
+    || receipt.lease_revision <= 1
+    || receipt.valid_until > receipt.lease_expires_at
+    || receipt.created_at >= receipt.valid_until
+    || receipt.provider_invocation_authorized !== 0
+  ) return false;
+  const receiptDigest = await historicalPreCallReceiptDigest(scope, receipt);
+  return receipt.receipt_digest === receiptDigest && receipt.id === `opcr-${receiptDigest}`;
+}
+
+async function validDispatchAttemptPreparationIntegrity(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  preparation: DispatchAttemptPreparationRow,
+  receipt: PreCallReceiptRow,
+) {
+  if (
+    !id(preparation.id)
+    || !id(preparation.outbox_item_id)
+    || !id(preparation.message_version_id)
+    || !id(preparation.sender_connection_id)
+    || !id(preparation.pre_call_receipt_id)
+    || !id(preparation.lease_event_id)
+    || preparation.attempt_ordinal !== 1
+    || preparation.pre_call_receipt_id !== receipt.id
+    || preparation.outbox_item_id !== receipt.outbox_item_id
+    || preparation.lease_event_id !== receipt.lease_event_id
+    || preparation.lease_generation !== receipt.lease_generation
+    || preparation.lease_holder_id !== receipt.lease_holder_id
+    || preparation.lease_expires_at !== receipt.lease_expires_at
+    || preparation.prepared_at < receipt.created_at
+    || preparation.prepared_at >= preparation.lease_expires_at
+    || preparation.provider_invocation_authorized !== 0
+    || preparation.provider_calls !== 0
+    || ![preparation.send_key, preparation.dispatch_key, preparation.message_artifact_digest, preparation.preparation_digest].every(digest)
+    || !await validHistoricalPreCallReceipt(scope, receipt)
+  ) return false;
+  const preparationDigest = await dispatchAttemptPreparationDigest(scope, {
+    outbox_item_id: preparation.outbox_item_id,
+    send_key: preparation.send_key,
+    dispatch_key: preparation.dispatch_key,
+    message_version_id: preparation.message_version_id,
+    message_artifact_digest: preparation.message_artifact_digest,
+    sender_connection_id: preparation.sender_connection_id,
+  }, receipt, preparation.prepared_at);
+  return preparation.preparation_digest === preparationDigest && preparation.id === `odap-${preparationDigest}`;
+}
+
+async function verifyDispatchPreparationLifecycle(
+  database: D1Database,
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  preparation: DispatchAttemptPreparationRow,
+): Promise<DispatchPreparationEventRow[] | null> {
+  const rootReceipt = await readPreCallReceiptById(database, scope.workspaceId, scope.ownerSubject, preparation.pre_call_receipt_id);
+  if (!rootReceipt || !await validDispatchAttemptPreparationIntegrity(scope, preparation, rootReceipt)) return null;
+  const rows = await readDispatchPreparationEvents(database, scope.workspaceId, preparation.id);
+  if (rows.length > 1_000) return null;
+  let active: Readonly<{
+    preCallReceiptId: string;
+    leaseEventId: string;
+    leaseGeneration: number;
+    leaseHolderId: string;
+    leaseExpiresAt: number;
+  }> = {
+    preCallReceiptId: preparation.pre_call_receipt_id,
+    leaseEventId: preparation.lease_event_id,
+    leaseGeneration: preparation.lease_generation,
+    leaseHolderId: preparation.lease_holder_id,
+    leaseExpiresAt: preparation.lease_expires_at,
+  };
+  let priorId: string | null = null;
+  let priorDigest = preparation.preparation_digest;
+  let priorCreatedAt = preparation.prepared_at;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const revision = index + 1;
+    const expectedKind = revision % 2 === 1 ? "voided_before_invocation" : "reprepared_no_invocation";
+    const expectedReason = expectedKind === "voided_before_invocation"
+      ? "lease_expired_no_invocation"
+      : "fresh_receipt_reprepared_no_invocation";
+    if (
+      !id(row.id)
+      || row.preparation_id !== preparation.id
+      || row.revision !== revision
+      || row.event_kind !== expectedKind
+      || row.reason_code !== expectedReason
+      || row.prior_event_id !== priorId
+      || row.prior_digest !== priorDigest
+      || !id(row.pre_call_receipt_id)
+      || !id(row.lease_event_id)
+      || !id(row.lease_holder_id)
+      || !digest(row.event_digest)
+      || !digest(row.prior_digest)
+      || ![row.lease_generation, row.lease_expires_at, row.effective_at, row.created_at]
+        .every((value) => Number.isSafeInteger(value) && value > 0)
+      || row.provider_invocation_authorized !== 0
+      || row.provider_calls !== 0
+      || row.effective_at > row.created_at
+      || row.created_at < priorCreatedAt
+    ) return null;
+    if (expectedKind === "voided_before_invocation") {
+      if (
+        row.pre_call_receipt_id !== active.preCallReceiptId
+        || row.lease_event_id !== active.leaseEventId
+        || row.lease_generation !== active.leaseGeneration
+        || row.lease_holder_id !== active.leaseHolderId
+        || row.lease_expires_at !== active.leaseExpiresAt
+        || row.effective_at !== active.leaseExpiresAt
+      ) return null;
+    } else {
+      const receipt = await readPreCallReceiptById(database, scope.workspaceId, scope.ownerSubject, row.pre_call_receipt_id);
+      if (
+        !receipt
+        || !await validHistoricalPreCallReceipt(scope, receipt)
+        || receipt.outbox_item_id !== preparation.outbox_item_id
+        || receipt.lease_event_id !== row.lease_event_id
+        || receipt.lease_generation !== row.lease_generation
+        || receipt.lease_holder_id !== row.lease_holder_id
+        || receipt.lease_expires_at !== row.lease_expires_at
+        || receipt.created_at > row.created_at
+        || receipt.valid_until <= row.created_at
+        || row.lease_generation <= active.leaseGeneration
+        || row.effective_at !== row.created_at
+        || row.lease_expires_at <= row.created_at
+      ) return null;
+      active = {
+        preCallReceiptId: row.pre_call_receipt_id,
+        leaseEventId: row.lease_event_id,
+        leaseGeneration: row.lease_generation,
+        leaseHolderId: row.lease_holder_id,
+        leaseExpiresAt: row.lease_expires_at,
+      };
+    }
+    const eventDigest = await dispatchPreparationLifecycleDigest(scope, preparation, {
+      revision: row.revision,
+      eventKind: row.event_kind,
+      priorEventId: row.prior_event_id,
+      priorDigest: row.prior_digest,
+      preCallReceiptId: row.pre_call_receipt_id,
+      leaseEventId: row.lease_event_id,
+      leaseGeneration: row.lease_generation,
+      leaseHolderId: row.lease_holder_id,
+      leaseExpiresAt: row.lease_expires_at,
+      reasonCode: row.reason_code,
+      effectiveAt: row.effective_at,
+      createdAt: row.created_at,
+    });
+    if (row.event_digest !== eventDigest || row.id !== `odape-${eventDigest}`) return null;
+    priorId = row.id;
+    priorDigest = row.event_digest;
+    priorCreatedAt = row.created_at;
+  }
+  return rows;
 }
 
 async function verifyDispatchAttemptPreparation(

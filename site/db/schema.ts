@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { type AnySQLiteColumn, check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const auditColumns = {
   workspaceId: text("workspace_id").notNull(),
@@ -1106,6 +1106,38 @@ export const outreachDispatchAttemptPreparations = sqliteTable("outreach_dispatc
   check("outreach_dispatch_attempt_preparation_shape_check", sql`${t.leaseGeneration} > 0 and ${t.leaseExpiresAt} > ${t.preparedAt}`),
   check("outreach_dispatch_attempt_preparation_digest_check", sql`length(${t.sendKey}) = 64 and ${t.sendKey} not glob '*[^0-9a-f]*' and length(${t.dispatchKey}) = 64 and ${t.dispatchKey} not glob '*[^0-9a-f]*' and length(${t.messageArtifactDigest}) = 64 and ${t.messageArtifactDigest} not glob '*[^0-9a-f]*' and length(${t.preparationDigest}) = 64 and ${t.preparationDigest} not glob '*[^0-9a-f]*'`),
   check("outreach_dispatch_attempt_preparation_no_provider_authority", sql`${t.providerInvocationAuthorized} = 0 and ${t.providerCalls} = 0`),
+]);
+
+export const outreachDispatchAttemptPreparationEvents = sqliteTable("outreach_dispatch_attempt_preparation_events", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  preparationId: text("preparation_id").notNull().references(() => outreachDispatchAttemptPreparations.id),
+  revision: integer("revision").notNull(),
+  eventKind: text("event_kind", { enum: ["voided_before_invocation", "reprepared_no_invocation"] }).notNull(),
+  priorEventId: text("prior_event_id").references((): AnySQLiteColumn => outreachDispatchAttemptPreparationEvents.id),
+  priorDigest: text("prior_digest").notNull(),
+  preCallReceiptId: text("pre_call_receipt_id").notNull().references(() => outreachPreCallRecheckReceipts.id),
+  leaseEventId: text("lease_event_id").notNull().references(() => outreachOutboxEvents.id),
+  leaseGeneration: integer("lease_generation").notNull(),
+  leaseHolderId: text("lease_holder_id").notNull(),
+  leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }).notNull(),
+  reasonCode: text("reason_code", { enum: ["lease_expired_no_invocation", "fresh_receipt_reprepared_no_invocation"] }).notNull(),
+  eventDigest: text("event_digest").notNull(),
+  providerInvocationAuthorized: integer("provider_invocation_authorized").notNull().default(0),
+  providerCalls: integer("provider_calls").notNull().default(0),
+  effectiveAt: integer("effective_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_dispatch_attempt_preparation_event_revision_unique").on(t.preparationId, t.revision),
+  uniqueIndex("outreach_dispatch_attempt_preparation_event_prior_unique").on(t.priorEventId).where(sql`${t.priorEventId} is not null`),
+  uniqueIndex("outreach_dispatch_attempt_preparation_event_digest_unique").on(t.workspaceId, t.eventDigest),
+  index("outreach_dispatch_attempt_preparation_event_workspace_idx").on(t.workspaceId, t.preparationId, t.createdAt),
+  check("outreach_dispatch_attempt_preparation_event_revision_check", sql`${t.revision} > 0`),
+  check("outreach_dispatch_attempt_preparation_event_sequence_check", sql`(${t.revision} % 2 = 1 and ${t.eventKind} = 'voided_before_invocation') or (${t.revision} % 2 = 0 and ${t.eventKind} = 'reprepared_no_invocation')`),
+  check("outreach_dispatch_attempt_preparation_event_kind_reason_check", sql`(${t.eventKind} = 'voided_before_invocation' and ${t.reasonCode} = 'lease_expired_no_invocation' and ${t.effectiveAt} = ${t.leaseExpiresAt}) or (${t.eventKind} = 'reprepared_no_invocation' and ${t.reasonCode} = 'fresh_receipt_reprepared_no_invocation' and ${t.effectiveAt} = ${t.createdAt})`),
+  check("outreach_dispatch_attempt_preparation_event_time_check", sql`${t.leaseGeneration} > 0 and ${t.effectiveAt} <= ${t.createdAt}`),
+  check("outreach_dispatch_attempt_preparation_event_digest_check", sql`length(${t.priorDigest}) = 64 and ${t.priorDigest} not glob '*[^0-9a-f]*' and length(${t.eventDigest}) = 64 and ${t.eventDigest} not glob '*[^0-9a-f]*'`),
+  check("outreach_dispatch_attempt_preparation_event_no_provider_authority", sql`${t.providerInvocationAuthorized} = 0 and ${t.providerCalls} = 0`),
 ]);
 
 export const outreachSuppressionTombstones = sqliteTable("outreach_suppression_tombstones", {

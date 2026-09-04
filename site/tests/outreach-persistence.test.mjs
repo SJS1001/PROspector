@@ -9,6 +9,7 @@ import {
   applyOutreachMigrations,
   applyOutreachMigrationsThroughLease,
   applyOutreachPreCallMigration,
+  applyOutreachPreparationRecoveryMigration,
   OUTREACH_NOW,
   OUTREACH_OWNER,
   seedOutreachAuthority,
@@ -38,6 +39,7 @@ const DELIVERY_AUTHORITY_TABLES = [
 ];
 const PRE_CALL_TABLES = ["outreach_pre_call_recheck_receipts"];
 const ATTEMPT_PREPARATION_TABLES = ["outreach_dispatch_attempt_preparations"];
+const ATTEMPT_RECOVERY_TABLES = ["outreach_dispatch_attempt_preparation_events"];
 
 test("governed outreach candidate migrations stay additive and metadata-aligned", async () => {
   const fixture = await createD1Fixture("outreach-migration");
@@ -108,6 +110,14 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
       assert.equal(attemptSnapshot.tables[table]?.name, table);
       assert.equal(await countRows(fixture.database, table), 0);
     }
+    const recoverySnapshot = JSON.parse(await readFile(new URL("../drizzle/meta/0017_snapshot.json", import.meta.url), "utf8"));
+    const recoveryEntry = journal.entries.find((entry) => entry.idx === 17);
+    assert.equal(recoveryEntry.tag, "0017_governed-outreach-preparation-recovery");
+    assert.equal(recoverySnapshot.prevId, attemptSnapshot.id);
+    for (const table of ATTEMPT_RECOVERY_TABLES) {
+      assert.equal(recoverySnapshot.tables[table]?.name, table);
+      assert.equal(await countRows(fixture.database, table), 0);
+    }
 
     const migration = await readFile(new URL("../drizzle/0010_governed_outreach.sql", import.meta.url), "utf8");
     assert.doesNotMatch(migration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
@@ -128,6 +138,11 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
     assert.doesNotMatch(attemptMigration, /\b(?:boundary_committed|accepted|definite_failure_before_transmission|ambiguous|reconciled_sent)\b/iu);
     assert.match(attemptMigration, /provider_invocation_authorized[^\n]+DEFAULT 0 NOT NULL/iu);
     assert.doesNotMatch(attemptMigration, /\b(?:fetch|route|worker|cron)\b/iu);
+    const recoveryMigration = await readFile(new URL("../drizzle/0017_governed-outreach-preparation-recovery.sql", import.meta.url), "utf8");
+    assert.doesNotMatch(recoveryMigration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret|message_body|protected_reference)\b/iu);
+    assert.doesNotMatch(recoveryMigration, /\b(?:boundary_committed|accepted|definite_failure_before_transmission|ambiguous|reconciled_sent)\b/iu);
+    assert.match(recoveryMigration, /provider_invocation_authorized[^\n]+DEFAULT 0 NOT NULL/iu);
+    assert.doesNotMatch(recoveryMigration, /\b(?:fetch|route|worker|cron|mailport)\b/iu);
     assert.doesNotMatch(outboxSource, /\bfetch\s*\(|gmail-boundary|gmail\.ts/iu);
     const triggers = migration.match(/CREATE TRIGGER[\s\S]*?END;/gu) ?? [];
     assert.ok(triggers.length >= 30);
@@ -195,6 +210,46 @@ test("0016 upgrades populated 0015 state without inferring an attempt and can pr
     assert.equal(result.providerCalls, 0);
     assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 1);
     assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("0017 upgrades a populated 0016 attempt without inferring recovery and requires explicit expiry void", async () => {
+  const fixture = await createD1Fixture("outreach-recovery-upgrade");
+  try {
+    await applyOutreachMigrationsThroughLease(fixture.database);
+    await applyOutreachAuthorityMigration(fixture.database);
+    await applyOutreachPreCallMigration(fixture.database);
+    await applyOutreachAttemptPreparationMigration(fixture.database);
+    const seeded = await seedOutreachAuthority(fixture, { applyMigrations: false });
+    const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, seeded, "active", 1);
+    const outbox = await loadOutbox(fixture, seeded);
+    const queued = await outbox.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const initial = outboxModule.createD1OutboxRepository(fixture.database, { ...scope(seeded), now: () => OUTREACH_NOW + 1_000 });
+    const lease = await initial.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" });
+    const leaseInput = { outboxItemId: queued.outboxItemId, holderId: lease.holderId, leaseGeneration: lease.leaseGeneration };
+    const receipt = await initial.recordPreCallRecheckReceipt(leaseInput);
+    const attempt = await initial.prepareDispatchAttempt({ ...leaseInput, preCallReceiptId: receipt.receiptId });
+    assert.equal(attempt.kind, "prepared_no_invocation");
+    await applyOutreachPreparationRecoveryMigration(fixture.database);
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparation_events"), 0);
+    const expired = outboxModule.createD1OutboxRepository(fixture.database, { ...scope(seeded), now: () => lease.expiresAt });
+    const voided = await expired.voidExpiredDispatchPreparation({
+      outboxItemId: queued.outboxItemId,
+      preparationId: attempt.preparationId,
+      expectedLeaseGeneration: lease.leaseGeneration,
+    });
+    assert.equal(voided.kind, "voided_before_invocation");
+    assert.equal(voided.effectiveAt, lease.expiresAt);
+    assert.equal(voided.providerInvocationAuthorized, false);
+    assert.equal(voided.providerCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparation_events"), 1);
   } finally {
     await fixture.dispose();
   }
@@ -1202,6 +1257,336 @@ test("current receipt prepares one immutable zero-effect attempt without advanci
   }
 });
 
+test("expired inert attempts recover through two canonical zero-effect void and reprepare cycles", async () => {
+  const fixture = await createD1Fixture("outreach-attempt-recovery-cycles");
+  try {
+    const context = await prepareInertDispatchAttempt(fixture);
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const voidInput = {
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      expectedLeaseGeneration: context.input.leaseGeneration,
+    };
+    const beforeExpiry = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => context.receipt.validUntil - 1,
+    });
+    assert.deepEqual(await beforeExpiry.voidExpiredDispatchPreparation(voidInput), {
+      kind: "blocked",
+      reason: "lease_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    const atFirstExpiry = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => context.receipt.validUntil,
+    });
+    const firstVoidContenders = await Promise.all([
+      atFirstExpiry.voidExpiredDispatchPreparation(voidInput),
+      atFirstExpiry.voidExpiredDispatchPreparation(voidInput),
+    ]);
+    assert.equal(firstVoidContenders.every((result) => result.kind === "voided_before_invocation"), true);
+    assert.equal(firstVoidContenders.filter((result) => result.replayed === false).length, 1);
+    assert.equal(firstVoidContenders.filter((result) => result.replayed === true).length, 1);
+    assert.equal(firstVoidContenders[0].eventId, firstVoidContenders[1].eventId);
+    const firstVoid = firstVoidContenders[0];
+    const rolledBack = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => context.receipt.validUntil - 1,
+    });
+    assert.equal((await rolledBack.voidExpiredDispatchPreparation(voidInput)).reason, "current_authority_unavailable");
+    assert.equal((await rolledBack.claimDispatchLease({
+      outboxItemId: context.input.outboxItemId,
+      holderId: "synthetic-worker-two",
+    })).kind, "blocked");
+    const leaseContenders = await Promise.all([
+      atFirstExpiry.claimDispatchLease({ outboxItemId: context.input.outboxItemId, holderId: "synthetic-worker-two" }),
+      atFirstExpiry.claimDispatchLease({ outboxItemId: context.input.outboxItemId, holderId: "synthetic-worker-three" }),
+    ]);
+    const claimed = leaseContenders.filter((result) => result.kind === "claimed");
+    assert.equal(claimed.length, 1, JSON.stringify(leaseContenders));
+    assert.equal(claimed[0].leaseGeneration, 2);
+    const secondLease = claimed[0];
+    const secondReceipt = await atFirstExpiry.recordPreCallRecheckReceipt({
+      outboxItemId: context.input.outboxItemId,
+      holderId: secondLease.holderId,
+      leaseGeneration: secondLease.leaseGeneration,
+    });
+    assert.equal(secondReceipt.kind, "recorded");
+    const secondPreparationInput = {
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      priorVoidEventId: firstVoid.eventId,
+      preCallReceiptId: secondReceipt.receiptId,
+      holderId: secondLease.holderId,
+      leaseGeneration: secondLease.leaseGeneration,
+    };
+    const reprepareContenders = await Promise.all([
+      atFirstExpiry.reprepareDispatchAttempt(secondPreparationInput),
+      atFirstExpiry.reprepareDispatchAttempt(secondPreparationInput),
+    ]);
+    assert.equal(reprepareContenders.every((result) => result.kind === "reprepared_no_invocation"), true, JSON.stringify(reprepareContenders));
+    assert.equal(reprepareContenders.filter((result) => result.replayed === false).length, 1);
+    assert.equal(reprepareContenders.filter((result) => result.replayed === true).length, 1);
+    const secondPreparation = reprepareContenders[0];
+    assert.deepEqual(await atFirstExpiry.claimDispatchLease({
+      outboxItemId: context.input.outboxItemId,
+      holderId: secondLease.holderId,
+    }), {
+      kind: "blocked",
+      reason: "lease_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+
+    const atSecondExpiry = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => secondLease.expiresAt,
+    });
+    const secondVoid = await atSecondExpiry.voidExpiredDispatchPreparation({
+      ...voidInput,
+      expectedLeaseGeneration: secondLease.leaseGeneration,
+    });
+    assert.equal(secondVoid.kind, "voided_before_invocation");
+    const thirdLease = await atSecondExpiry.claimDispatchLease({
+      outboxItemId: context.input.outboxItemId,
+      holderId: "synthetic-worker-four",
+    });
+    assert.equal(thirdLease.kind, "claimed");
+    assert.equal(thirdLease.leaseGeneration, 3);
+    const thirdReceipt = await atSecondExpiry.recordPreCallRecheckReceipt({
+      outboxItemId: context.input.outboxItemId,
+      holderId: thirdLease.holderId,
+      leaseGeneration: thirdLease.leaseGeneration,
+    });
+    assert.equal(thirdReceipt.kind, "recorded");
+    const thirdPreparation = await atSecondExpiry.reprepareDispatchAttempt({
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      priorVoidEventId: secondVoid.eventId,
+      preCallReceiptId: thirdReceipt.receiptId,
+      holderId: thirdLease.holderId,
+      leaseGeneration: thirdLease.leaseGeneration,
+    });
+    assert.equal(thirdPreparation.kind, "reprepared_no_invocation");
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 1);
+    const lifecycle = (await fixture.database.prepare(
+      `SELECT id,revision,event_kind,prior_event_id,prior_digest,event_digest,lease_generation,
+              provider_invocation_authorized,provider_calls
+       FROM outreach_dispatch_attempt_preparation_events ORDER BY revision`,
+    ).all()).results;
+    assert.deepEqual(lifecycle.map((event) => event.revision), [1, 2, 3, 4]);
+    assert.deepEqual(lifecycle.map((event) => event.event_kind), [
+      "voided_before_invocation", "reprepared_no_invocation", "voided_before_invocation", "reprepared_no_invocation",
+    ]);
+    assert.deepEqual(lifecycle.map((event) => event.lease_generation), [1, 2, 2, 3]);
+    assert.equal(lifecycle.every((event) => event.provider_invocation_authorized === 0 && event.provider_calls === 0), true);
+    assert.equal(lifecycle[0].prior_event_id, null);
+    assert.equal(lifecycle[0].prior_digest, context.preparation.preparationDigest);
+    for (let index = 1; index < lifecycle.length; index += 1) {
+      assert.equal(lifecycle[index].prior_event_id, lifecycle[index - 1].id);
+      assert.equal(lifecycle[index].prior_digest, lifecycle[index - 1].event_digest);
+    }
+    const outboxStates = (await fixture.database.prepare(
+      "SELECT state FROM outreach_outbox_events WHERE outbox_item_id=? ORDER BY revision",
+    ).bind(context.input.outboxItemId).all()).results.map((event) => event.state);
+    assert.deepEqual(outboxStates, ["pending", "leased", "leased", "leased"]);
+    for (const result of [firstVoid, secondPreparation, secondVoid, thirdPreparation]) {
+      assert.equal(result.providerInvocationAuthorized, false);
+      assert.equal(result.providerCalls, 0);
+      assert.equal(Object.isFrozen(result), true);
+    }
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("forged recovery digests and stale terminal events cannot reopen an inert attempt", async () => {
+  const fixture = await createD1Fixture("outreach-attempt-recovery-forgery");
+  try {
+    const context = await prepareInertDispatchAttempt(fixture);
+    const preparation = await fixture.database.prepare(
+      "SELECT * FROM outreach_dispatch_attempt_preparations WHERE id=?",
+    ).bind(context.preparation.preparationId).first();
+    const forgedDigest = "f".repeat(64);
+    await fixture.database.prepare(
+      `INSERT INTO outreach_dispatch_attempt_preparation_events
+        (id,workspace_id,preparation_id,revision,event_kind,prior_event_id,prior_digest,
+         pre_call_receipt_id,lease_event_id,lease_generation,lease_holder_id,lease_expires_at,
+         reason_code,event_digest,provider_invocation_authorized,provider_calls,effective_at,created_at)
+       VALUES ('forged-recovery-event',?,?,1,'voided_before_invocation',NULL,?,?,?,?,?,?,
+               'lease_expired_no_invocation',?,0,0,?,?)`,
+    ).bind(
+      context.prepared.seeded.workspaceId,
+      preparation.id,
+      preparation.preparation_digest,
+      preparation.pre_call_receipt_id,
+      preparation.lease_event_id,
+      preparation.lease_generation,
+      preparation.lease_holder_id,
+      preparation.lease_expires_at,
+      forgedDigest,
+      preparation.lease_expires_at,
+      preparation.lease_expires_at,
+    ).run();
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const expired = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => preparation.lease_expires_at,
+    });
+    assert.deepEqual(await expired.claimDispatchLease({
+      outboxItemId: context.input.outboxItemId,
+      holderId: "synthetic-worker-two",
+    }), {
+      kind: "blocked",
+      reason: "lease_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.deepEqual(await expired.voidExpiredDispatchPreparation({
+      outboxItemId: context.input.outboxItemId,
+      preparationId: preparation.id,
+      expectedLeaseGeneration: preparation.lease_generation,
+    }), {
+      kind: "blocked",
+      reason: "attempt_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    await assert.rejects(
+      fixture.database.prepare(
+        `INSERT INTO outreach_outbox_events
+          (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at)
+         VALUES ('stale-terminal-after-void',?,?,3,'failed_before_dispatch',?,?,?,'stale_terminal',?,?)`,
+      ).bind(
+        context.prepared.seeded.workspaceId,
+        context.input.outboxItemId,
+        preparation.lease_generation,
+        preparation.lease_holder_id,
+        preparation.lease_expires_at,
+        "e".repeat(64),
+        preparation.lease_expires_at - 1,
+      ).run(),
+      /voided outreach dispatch preparation blocks stale terminal event/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("UPDATE outreach_dispatch_attempt_preparation_events SET provider_calls=1 WHERE id='forged-recovery-event'").run(),
+      /immutable outreach dispatch attempt preparation event/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("DELETE FROM outreach_dispatch_attempt_preparation_events WHERE id='forged-recovery-event'").run(),
+      /immutable outreach dispatch attempt preparation event/,
+    );
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparation_events"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("recovery rejects stale workers, hostile input, invalid lifecycle writes, and changed authority", async () => {
+  const fixture = await createD1Fixture("outreach-attempt-recovery-denials");
+  try {
+    const context = await prepareInertDispatchAttempt(fixture);
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const expired = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => context.receipt.validUntil,
+    });
+    const voided = await expired.voidExpiredDispatchPreparation({
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      expectedLeaseGeneration: context.input.leaseGeneration,
+    });
+    assert.equal(voided.kind, "voided_before_invocation");
+    const lease = await expired.claimDispatchLease({
+      outboxItemId: context.input.outboxItemId,
+      holderId: "synthetic-recovery-worker",
+    });
+    assert.equal(lease.kind, "claimed");
+    const receipt = await expired.recordPreCallRecheckReceipt({
+      outboxItemId: context.input.outboxItemId,
+      holderId: lease.holderId,
+      leaseGeneration: lease.leaseGeneration,
+    });
+    assert.equal(receipt.kind, "recorded");
+    const valid = {
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      priorVoidEventId: voided.eventId,
+      preCallReceiptId: receipt.receiptId,
+      holderId: lease.holderId,
+      leaseGeneration: lease.leaseGeneration,
+    };
+    for (const denied of [
+      { ...valid, preparationId: "different-preparation" },
+      { ...valid, priorVoidEventId: "different-void" },
+      { ...valid, preCallReceiptId: context.receipt.receiptId },
+      { ...valid, holderId: "stale-worker" },
+      { ...valid, leaseGeneration: context.input.leaseGeneration },
+      { ...valid, extra: "forbidden" },
+    ]) {
+      const result = await expired.reprepareDispatchAttempt(denied);
+      assert.equal(result.kind, "blocked");
+      assert.equal(result.providerInvocationAuthorized, false);
+      assert.equal(result.providerCalls, 0);
+    }
+    let getterCalls = 0;
+    const hostile = {};
+    Object.defineProperty(hostile, "outboxItemId", { enumerable: true, get() { getterCalls += 1; return valid.outboxItemId; } });
+    for (const [key, value] of Object.entries(valid).filter(([key]) => key !== "outboxItemId")) {
+      Object.defineProperty(hostile, key, { enumerable: true, value });
+    }
+    assert.deepEqual(await expired.reprepareDispatchAttempt(hostile), {
+      kind: "blocked",
+      reason: "invalid_request",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.equal(getterCalls, 0);
+    const wrongOwner = outboxModule.createD1OutboxRepository(fixture.database, {
+      workspaceId: context.prepared.seeded.workspaceId,
+      ownerSubject: "different-owner",
+      now: () => context.receipt.validUntil,
+    });
+    assert.equal((await wrongOwner.reprepareDispatchAttempt(valid)).kind, "blocked");
+    await assert.rejects(
+      fixture.database.prepare(
+        `INSERT INTO outreach_dispatch_attempt_preparation_events
+          (id,workspace_id,preparation_id,revision,event_kind,prior_event_id,prior_digest,
+           pre_call_receipt_id,lease_event_id,lease_generation,lease_holder_id,lease_expires_at,
+           reason_code,event_digest,provider_invocation_authorized,provider_calls,effective_at,created_at)
+         VALUES ('invalid-provider-reprepare',?,?,2,'reprepared_no_invocation',?,?,?,?,?,?,?,
+                 'fresh_receipt_reprepared_no_invocation',?,1,0,?,?)`,
+      ).bind(
+        context.prepared.seeded.workspaceId,
+        context.preparation.preparationId,
+        voided.eventId,
+        voided.eventDigest,
+        receipt.receiptId,
+        (await fixture.database.prepare("SELECT lease_event_id FROM outreach_pre_call_recheck_receipts WHERE id=?").bind(receipt.receiptId).first()).lease_event_id,
+        lease.leaseGeneration,
+        lease.holderId,
+        lease.expiresAt,
+        "c".repeat(64),
+        context.receipt.validUntil,
+        context.receipt.validUntil,
+      ).run(),
+      /CHECK constraint failed|invalid outreach dispatch repreparation/,
+    );
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparation_events"), 1);
+    await fixture.database.prepare("UPDATE sources SET status='withdrawn' WHERE id='outreach-source'").run();
+    const changedAuthority = await expired.reprepareDispatchAttempt(valid);
+    assert.equal(changedAuthority.kind, "blocked");
+    assert.equal(changedAuthority.providerInvocationAuthorized, false);
+    assert.equal(changedAuthority.providerCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparation_events"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 3);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("attempt preparation rechecks authority changed after the receipt and leaves no partial attempt", async () => {
   const cases = [
     ["source-withdrawn", async ({ fixture }) => fixture.database.prepare("UPDATE sources SET status='withdrawn' WHERE id='outreach-source'").run()],
@@ -1966,6 +2351,18 @@ async function prepareLeasedOutbox(fixture) {
     boundary,
     input: { outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one", leaseGeneration: lease.leaseGeneration },
   };
+}
+
+async function prepareInertDispatchAttempt(fixture) {
+  const context = await prepareLeasedOutbox(fixture);
+  const receipt = await context.boundary.recordPreCallRecheckReceipt(context.input);
+  assert.equal(receipt.kind, "recorded");
+  const preparation = await context.boundary.prepareDispatchAttempt({
+    ...context.input,
+    preCallReceiptId: receipt.receiptId,
+  });
+  assert.equal(preparation.kind, "prepared_no_invocation");
+  return { ...context, receipt, preparation };
 }
 
 async function insertSenderConnection(fixture, seeded, status, version, grantedScopes = [

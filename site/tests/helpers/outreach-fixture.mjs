@@ -23,6 +23,7 @@ export async function applyOutreachMigrations(database) {
     "0014_governed-outreach-authority.sql",
     "0015_governed-outreach-pre-call.sql",
     "0016_governed-outreach-attempt-preparation.sql",
+    "0017_governed-outreach-preparation-recovery.sql",
   ]);
 }
 
@@ -46,6 +47,10 @@ export async function applyOutreachPreCallMigration(database) {
 
 export async function applyOutreachAttemptPreparationMigration(database) {
   await applyCandidateMigrations(database, ["0016_governed-outreach-attempt-preparation.sql"]);
+}
+
+export async function applyOutreachPreparationRecoveryMigration(database) {
+  await applyCandidateMigrations(database, ["0017_governed-outreach-preparation-recovery.sql"]);
 }
 
 async function applyCandidateMigrations(database, migrations) {
