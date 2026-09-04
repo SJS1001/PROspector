@@ -1077,6 +1077,37 @@ export const outreachPreCallRecheckReceipts = sqliteTable("outreach_pre_call_rec
   check("outreach_pre_call_receipt_no_provider_authority", sql`${t.providerInvocationAuthorized} = 0`),
 ]);
 
+export const outreachDispatchAttemptPreparations = sqliteTable("outreach_dispatch_attempt_preparations", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(),
+  outboxItemId: text("outbox_item_id").notNull().references(() => outreachOutboxItems.id),
+  attemptOrdinal: integer("attempt_ordinal").notNull().default(1),
+  sendKey: text("send_key").notNull(),
+  dispatchKey: text("dispatch_key").notNull(),
+  messageVersionId: text("message_version_id").notNull().references(() => outreachMessageVersions.id),
+  messageArtifactDigest: text("message_artifact_digest").notNull(),
+  senderConnectionId: text("sender_connection_id").notNull().references(() => outreachSenderConnections.id),
+  preCallReceiptId: text("pre_call_receipt_id").notNull().references(() => outreachPreCallRecheckReceipts.id),
+  leaseEventId: text("lease_event_id").notNull().references(() => outreachOutboxEvents.id),
+  leaseGeneration: integer("lease_generation").notNull(),
+  leaseHolderId: text("lease_holder_id").notNull(),
+  leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }).notNull(),
+  preparationDigest: text("preparation_digest").notNull(),
+  providerInvocationAuthorized: integer("provider_invocation_authorized").notNull().default(0),
+  providerCalls: integer("provider_calls").notNull().default(0),
+  preparedAt: integer("prepared_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_dispatch_attempt_preparation_item_unique").on(t.outboxItemId, t.attemptOrdinal),
+  uniqueIndex("outreach_dispatch_attempt_preparation_receipt_unique").on(t.preCallReceiptId),
+  uniqueIndex("outreach_dispatch_attempt_preparation_digest_unique").on(t.workspaceId, t.preparationDigest),
+  index("outreach_dispatch_attempt_preparation_workspace_idx").on(t.workspaceId, t.preparedAt),
+  check("outreach_dispatch_attempt_preparation_ordinal_check", sql`${t.attemptOrdinal} = 1`),
+  check("outreach_dispatch_attempt_preparation_shape_check", sql`${t.leaseGeneration} > 0 and ${t.leaseExpiresAt} > ${t.preparedAt}`),
+  check("outreach_dispatch_attempt_preparation_digest_check", sql`length(${t.sendKey}) = 64 and ${t.sendKey} not glob '*[^0-9a-f]*' and length(${t.dispatchKey}) = 64 and ${t.dispatchKey} not glob '*[^0-9a-f]*' and length(${t.messageArtifactDigest}) = 64 and ${t.messageArtifactDigest} not glob '*[^0-9a-f]*' and length(${t.preparationDigest}) = 64 and ${t.preparationDigest} not glob '*[^0-9a-f]*'`),
+  check("outreach_dispatch_attempt_preparation_no_provider_authority", sql`${t.providerInvocationAuthorized} = 0 and ${t.providerCalls} = 0`),
+]);
+
 export const outreachSuppressionTombstones = sqliteTable("outreach_suppression_tombstones", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   subjectKind: text("subject_kind", { enum: ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"] }).notNull(),

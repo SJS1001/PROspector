@@ -91,6 +91,25 @@ type PreCallReceiptRow = {
   valid_until: number;
   created_at: number;
 };
+type DispatchAttemptPreparationRow = {
+  id: string;
+  outbox_item_id: string;
+  attempt_ordinal: number;
+  send_key: string;
+  dispatch_key: string;
+  message_version_id: string;
+  message_artifact_digest: string;
+  sender_connection_id: string;
+  pre_call_receipt_id: string;
+  lease_event_id: string;
+  lease_generation: number;
+  lease_holder_id: string;
+  lease_expires_at: number;
+  preparation_digest: string;
+  provider_invocation_authorized: number;
+  provider_calls: number;
+  prepared_at: number;
+};
 
 export type EnqueueResult =
   | Readonly<{
@@ -140,6 +159,26 @@ export type PreCallReceiptResult =
   | Readonly<{
       kind: "blocked";
       reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable";
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>;
+
+export type DispatchAttemptPreparationResult =
+  | Readonly<{
+      kind: "prepared_no_invocation";
+      preparationId: string;
+      preparationDigest: string;
+      preCallReceiptId: string;
+      outboxItemId: string;
+      leaseGeneration: number;
+      validUntil: number;
+      replayed: boolean;
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>
+  | Readonly<{
+      kind: "blocked";
+      reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable" | "attempt_unavailable";
       providerInvocationAuthorized: false;
       providerCalls: 0;
     }>;
@@ -666,6 +705,88 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
         ? result
         : preCallBlocked("lease_unavailable");
     },
+
+    async prepareDispatchAttempt(inputValue: unknown): Promise<DispatchAttemptPreparationResult> {
+      const input = exactDataRecord(inputValue, ["outboxItemId", "preCallReceiptId", "holderId", "leaseGeneration"]);
+      if (
+        !input
+        || !id(input.outboxItemId)
+        || !id(input.preCallReceiptId)
+        || !id(input.holderId)
+        || !Number.isSafeInteger(input.leaseGeneration)
+        || Number(input.leaseGeneration) <= 0
+      ) return attemptBlocked("invalid_request");
+      const leaseGeneration = Number(input.leaseGeneration);
+      const now = scope.now();
+      if (!Number.isSafeInteger(now) || now <= 0) return attemptBlocked("current_authority_unavailable");
+      const receipt = await readPreCallReceipt(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+        leaseGeneration,
+      );
+      if (!receipt || receipt.id !== input.preCallReceiptId) return attemptBlocked("lease_unavailable");
+      const receiptResult = await verifyPreCallReceipt(database, scope, receipt, input.holderId, now, true);
+      if (receiptResult.kind !== "recorded") return attemptBlocked(receiptResult.reason);
+      const existing = await readDispatchAttemptPreparation(database, scope.workspaceId, scope.ownerSubject, input.outboxItemId);
+      if (existing) {
+        return verifyDispatchAttemptPreparation(scope, existing, receipt, input.holderId, now, true);
+      }
+      const material = await readPreCallMaterial(
+        database,
+        scope.workspaceId,
+        scope.ownerSubject,
+        input.outboxItemId,
+        input.holderId,
+        leaseGeneration,
+      );
+      if (!material || !validPreCallMaterial(material) || material.lease_event_id !== receipt.lease_event_id) {
+        return attemptBlocked("lease_unavailable");
+      }
+      const preparationDigest = await dispatchAttemptPreparationDigest(scope, material, receipt, now);
+      const preparationId = `odap-${preparationDigest}`;
+      let committed = false;
+      try {
+        const inserted = await database.prepare(
+          `INSERT INTO outreach_dispatch_attempt_preparations
+            (id,workspace_id,owner_subject,outbox_item_id,attempt_ordinal,send_key,dispatch_key,
+             message_version_id,message_artifact_digest,sender_connection_id,pre_call_receipt_id,
+             lease_event_id,lease_generation,lease_holder_id,lease_expires_at,preparation_digest,
+             provider_invocation_authorized,provider_calls,prepared_at)
+           VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,0,0,?)`,
+        ).bind(
+          preparationId,
+          scope.workspaceId,
+          scope.ownerSubject,
+          input.outboxItemId,
+          material.send_key,
+          material.dispatch_key,
+          material.message_version_id,
+          material.message_artifact_digest,
+          material.sender_connection_id,
+          receipt.id,
+          receipt.lease_event_id,
+          leaseGeneration,
+          input.holderId,
+          receipt.lease_expires_at,
+          preparationDigest,
+          now,
+        ).run();
+        committed = Number(inserted.meta?.changes) === 1;
+      } catch {
+        // An exact concurrent preparation is resolved below. This single inert
+        // row is the whole preparation fact and never advances the outbox.
+      }
+      const stored = await readDispatchAttemptPreparation(database, scope.workspaceId, scope.ownerSubject, input.outboxItemId);
+      if (!stored) return attemptBlocked("current_authority_unavailable");
+      const result = await verifyDispatchAttemptPreparation(scope, stored, receipt, input.holderId, now, !committed);
+      if (result.kind !== "prepared_no_invocation") return result;
+      return !committed || (
+        result.preparationId === preparationId
+        && result.preparationDigest === preparationDigest
+      ) ? result : attemptBlocked("attempt_unavailable");
+    },
   });
 }
 
@@ -702,6 +823,22 @@ async function readPreCallReceipt(
      FROM outreach_pre_call_recheck_receipts
      WHERE workspace_id=? AND owner_subject=? AND outbox_item_id=? AND lease_generation=? LIMIT 1`,
   ).bind(workspaceId, ownerSubject, outboxItemId, leaseGeneration).first<PreCallReceiptRow>();
+}
+
+async function readDispatchAttemptPreparation(
+  database: D1Database,
+  workspaceId: string,
+  ownerSubject: string,
+  outboxItemId: string,
+) {
+  return database.prepare(
+    `SELECT id,outbox_item_id,attempt_ordinal,send_key,dispatch_key,message_version_id,
+            message_artifact_digest,sender_connection_id,pre_call_receipt_id,lease_event_id,
+            lease_generation,lease_holder_id,lease_expires_at,preparation_digest,
+            provider_invocation_authorized,provider_calls,prepared_at
+     FROM outreach_dispatch_attempt_preparations
+     WHERE workspace_id=? AND owner_subject=? AND outbox_item_id=? AND attempt_ordinal=1 LIMIT 1`,
+  ).bind(workspaceId, ownerSubject, outboxItemId).first<DispatchAttemptPreparationRow>();
 }
 
 async function readPreCallMaterial(
@@ -966,6 +1103,12 @@ function preCallBlocked(
   return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
 }
 
+function attemptBlocked(
+  reason: "invalid_request" | "current_authority_unavailable" | "lease_unavailable" | "attempt_unavailable",
+): DispatchAttemptPreparationResult {
+  return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
+}
+
 function exactPreCallReceipt(
   row: PreCallReceiptRow,
   holderId: string,
@@ -1010,6 +1153,7 @@ async function verifyPreCallReceipt(
     || row.lease_revision <= 1
     || !Number.isSafeInteger(row.lease_expires_at)
     || !Number.isSafeInteger(row.created_at)
+    || row.created_at > now
     || row.valid_until <= now
   ) return preCallBlocked("current_authority_unavailable");
   const authority = await readAuthorityExpiry(database, scope.workspaceId, scope.ownerSubject, row.outbox_item_id, now);
@@ -1072,6 +1216,91 @@ function preCallReceiptDigest(
     validUntil,
     createdAt,
     providerInvocationAuthorized: false,
+  });
+}
+
+function dispatchAttemptPreparationDigest(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  material: Pick<PreCallMaterialRow, "outbox_item_id" | "send_key" | "dispatch_key" | "message_version_id" | "message_artifact_digest" | "sender_connection_id">,
+  receipt: PreCallReceiptRow,
+  preparedAt: number,
+) {
+  return canonicalDigest({
+    schema: "outreach-dispatch-attempt-preparation/v1",
+    workspaceId: scope.workspaceId,
+    ownerSubject: scope.ownerSubject,
+    outboxItemId: material.outbox_item_id,
+    attemptOrdinal: 1,
+    sendKey: material.send_key,
+    dispatchKey: material.dispatch_key,
+    messageVersionId: material.message_version_id,
+    messageArtifactDigest: material.message_artifact_digest,
+    senderConnectionId: material.sender_connection_id,
+    preCallReceiptId: receipt.id,
+    preCallReceiptDigest: receipt.receipt_digest,
+    leaseEventId: receipt.lease_event_id,
+    leaseGeneration: receipt.lease_generation,
+    leaseHolderId: receipt.lease_holder_id,
+    leaseExpiresAt: receipt.lease_expires_at,
+    providerInvocationAuthorized: false,
+    providerCalls: 0,
+    preparedAt,
+  });
+}
+
+async function verifyDispatchAttemptPreparation(
+  scope: Readonly<{ workspaceId: string; ownerSubject: string }>,
+  row: DispatchAttemptPreparationRow,
+  receipt: PreCallReceiptRow,
+  holderId: string,
+  now: number,
+  replayed: boolean,
+): Promise<DispatchAttemptPreparationResult> {
+  if (
+    !id(row.id)
+    || !id(row.outbox_item_id)
+    || !id(row.message_version_id)
+    || !id(row.sender_connection_id)
+    || !id(row.pre_call_receipt_id)
+    || !id(row.lease_event_id)
+    || row.attempt_ordinal !== 1
+    || row.pre_call_receipt_id !== receipt.id
+    || row.lease_event_id !== receipt.lease_event_id
+    || row.lease_generation !== receipt.lease_generation
+    || row.lease_holder_id !== holderId
+    || row.lease_holder_id !== receipt.lease_holder_id
+    || row.lease_expires_at !== receipt.lease_expires_at
+    || row.prepared_at < receipt.created_at
+    || row.prepared_at > now
+    || row.lease_expires_at <= now
+    || receipt.valid_until <= now
+    || row.provider_invocation_authorized !== 0
+    || row.provider_calls !== 0
+    || ![row.send_key,row.dispatch_key,row.message_artifact_digest,row.preparation_digest].every(digest)
+  ) return attemptBlocked("attempt_unavailable");
+  const preparationDigest = await dispatchAttemptPreparationDigest(scope, {
+    outbox_item_id: row.outbox_item_id,
+    send_key: row.send_key,
+    dispatch_key: row.dispatch_key,
+    message_version_id: row.message_version_id,
+    message_artifact_digest: row.message_artifact_digest,
+    sender_connection_id: row.sender_connection_id,
+  }, receipt, row.prepared_at);
+  if (
+    preparationDigest !== row.preparation_digest
+    || row.id !== `odap-${preparationDigest}`
+  ) return attemptBlocked("attempt_unavailable");
+  return Object.freeze({
+    kind: "prepared_no_invocation",
+    preparationId: row.id,
+    preparationDigest,
+    preCallReceiptId: receipt.id,
+    outboxItemId: row.outbox_item_id,
+    leaseGeneration: row.lease_generation,
+    validUntil: receipt.valid_until,
+    replayed,
+    providerInvocationAuthorized: false,
+    providerCalls: 0,
   });
 }
 

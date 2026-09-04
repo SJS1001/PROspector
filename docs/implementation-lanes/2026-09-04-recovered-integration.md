@@ -111,14 +111,15 @@ All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only
 - `node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **16/16 passed** after final hardening. Parent-version rollback/replay cases also passed **2/2** separately and the observed-candidate approval case passed **1/1** separately. Touched-file lint and diff check pass. Independent review found no remaining high/medium issue in the final parent fences; this remains a local candidate with the explicit resolver/release limits in its lane record.
 - The additive 0014 delivery-authority closure passed **33/33** in the same focused outreach/importer command. It applies the real 0010→0014 chain and proves freshness-capped recipient authority, Package-bound/current source evidence, exact sender scopes, sealed canonical/send-as addresses, working unsubscribe history, clock-independent revocation replay, suppression/source invalidation of active-lease replay, and zero provider calls. Independent correctness and security re-reviews both returned GO. Touched lint and diff checks passed; canonical preflight remained intentionally unused.
 - Additive 0015 now persists a provider-inert pre-call recheck receipt for one exact live lease generation and closes the database's former direct `Leased → Dispatching` bypass. Its trigger is the local database linearization point: it rechecks current approvals, lineage, every bound source and Claim Guardrail, contact/eligibility, sender/scopes/address, unsubscribe, lifecycle, drift, suppression, stop, and expiry state before one immutable receipt can exist. The stored digest covers repository-selected referenced material; the trigger separately certifies current relational and absence predicates, and replay recomputes the digest and current authority. The receipt leaves the outbox `Leased`, carries `provider_invocation_authorized=0`, and exposes no MailPort, route, worker, credential, provider request, or terminal-state writer. This remains candidate preparation, not send authority or Phase 6 credit.
+- Additive 0016 now records one complete immutable, provider-inert `prepared_no_invocation` preparation for one exact current 0015 receipt. Its single insert rechecks authority after receipt creation, binds the stable attempt identity to the exact receipt/lease fence, recomputes the stored digest on replay, leaves the outbox `Leased`, and blocks lease recovery once preparation exists. It persists neither message/address/credential/provider payload nor provider evidence and permanently denies invocation with zero calls. The focused outreach/importer command passes **45/45** with upgrade, contention, clock rollback, expiry, hostile scope/fence, post-receipt invalidation, forged-digest, immutability, absence of premature future event kinds, raw-transition, and blocked-recovery coverage. This is not a provider attempt, send authority, or Phase 6 credit.
 
 Canonical `npm test` (including build), full lint, preflight, CI and release
 acceptance remain **pending**, not passed. The owner's preflight hold is active.
 
 ## Exact remaining path
 
-1. Add the separately reviewed sequential provider-attempt root and evidence-gated
-   finalization around the inert 0015 receipt, then complete unresolved Organization/domain suppression resolution and read-only runtime
+1. Add the separately reviewed provider-authorized no-return boundary, immediate trusted MailPort call, evidence-gated
+   finalization, and append-only abandon/reprepare semantics around the inert 0016 preparation, then complete unresolved Organization/domain suppression resolution and read-only runtime
    projections behind disabled adapters. Continue artifact construction,
    manual-call logging, handoff persistence/delivery, outcome history and recovery
    as bounded local units, preserving every external gate.
@@ -136,7 +137,7 @@ acceptance remain **pending**, not passed. The owner's preflight hold is active.
 ## Durable outbox enqueue checkpoint
 
 Additive candidate migrations `0012_governed_outreach_outbox.sql` through
-`0015_governed-outreach-pre-call.sql` now model
+`0016_governed-outreach-attempt-preparation.sql` now model
 append-only sender-connection metadata, immutable outbox items, and an
 append-only state-event chain. The isolated `domain/outbox.ts` repository
 atomically consumes one exact, unexpired Message approval and creates exactly
@@ -156,7 +157,11 @@ grants no provider authority. Source/contact freshness, revocation, working
 unsubscribe, jurisdiction/claimed-basis, exact scopes and verified-address
 authority are current at lease and replay. An immutable transaction-fenced
 pre-call recheck receipt can now be recorded without advancing beyond `Leased`;
-it explicitly grants no provider invocation. Atomic unsubscribe redemption/suppression, attempt evidence, final-state
+it explicitly grants no provider invocation. One complete immutable
+`prepared_no_invocation` preparation can then bind the stable attempt identity to that
+receipt/lease while the item remains `Leased`; this also grants no provider invocation
+and fences lease recovery until a future append-only abandon/reprepare design exists.
+Atomic unsubscribe redemption/suppression, provider-boundary evidence, final-state
 reconciliation, unresolved Organization/domain equivalence, and controlled
 composition remain separate work.
 
@@ -173,5 +178,13 @@ security and test reviews returned GO with no remaining high/medium blocker for
 this bounded inert candidate. Canonical preflight, the full suite, build, broad
 lint, CI, hosted migration, and provider checks remain unrun under the active
 preflight hold.
+
+After additive 0016, the same focused command passed **45/45**. The new cases cover
+populated-0015 upgrade without inferred attempts, exact and concurrent preparation,
+clock rollback, expiry, cross-owner and hostile inputs, transaction rollback after
+post-receipt authority changes, forged preparation digests, immutable records, absence
+of premature future event kinds, blocked raw dispatch transitions, and blocked lease
+recovery after preparation. Touched lint, metadata parsing, and diff checks pass. No canonical/full,
+preflight, CI, hosted, provider, credential, real-data, export, or outbound gate was run.
 
 There is no new plan-completion credit. The whole system remains incomplete.

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { countRows, createD1Fixture } from "./helpers/d1.mjs";
 import {
+  applyOutreachAttemptPreparationMigration,
   applyOutreachAuthorityMigration,
   applyOutreachMigrations,
   applyOutreachMigrationsThroughLease,
@@ -36,6 +37,7 @@ const DELIVERY_AUTHORITY_TABLES = [
   "outreach_approval_revocations",
 ];
 const PRE_CALL_TABLES = ["outreach_pre_call_recheck_receipts"];
+const ATTEMPT_PREPARATION_TABLES = ["outreach_dispatch_attempt_preparations"];
 
 test("governed outreach candidate migrations stay additive and metadata-aligned", async () => {
   const fixture = await createD1Fixture("outreach-migration");
@@ -98,6 +100,14 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
       assert.equal(preCallSnapshot.tables[table]?.name, table);
       assert.equal(await countRows(fixture.database, table), 0);
     }
+    const attemptSnapshot = JSON.parse(await readFile(new URL("../drizzle/meta/0016_snapshot.json", import.meta.url), "utf8"));
+    const attemptEntry = journal.entries.find((entry) => entry.idx === 16);
+    assert.equal(attemptEntry.tag, "0016_governed-outreach-attempt-preparation");
+    assert.equal(attemptSnapshot.prevId, preCallSnapshot.id);
+    for (const table of ATTEMPT_PREPARATION_TABLES) {
+      assert.equal(attemptSnapshot.tables[table]?.name, table);
+      assert.equal(await countRows(fixture.database, table), 0);
+    }
 
     const migration = await readFile(new URL("../drizzle/0010_governed_outreach.sql", import.meta.url), "utf8");
     assert.doesNotMatch(migration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
@@ -113,6 +123,11 @@ test("governed outreach candidate migrations stay additive and metadata-aligned"
     const preCallMigration = await readFile(new URL("../drizzle/0015_governed-outreach-pre-call.sql", import.meta.url), "utf8");
     assert.doesNotMatch(preCallMigration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret)\b/iu);
     assert.match(preCallMigration, /provider_invocation_authorized[^\n]+DEFAULT 0 NOT NULL/iu);
+    const attemptMigration = await readFile(new URL("../drizzle/0016_governed-outreach-attempt-preparation.sql", import.meta.url), "utf8");
+    assert.doesNotMatch(attemptMigration, /\b(?:access_token|refresh_token|oauth_code|pkce_verifier|bearer_value|provider_secret|message_body)\b/iu);
+    assert.doesNotMatch(attemptMigration, /\b(?:boundary_committed|accepted|definite_failure_before_transmission|ambiguous|reconciled_sent)\b/iu);
+    assert.match(attemptMigration, /provider_invocation_authorized[^\n]+DEFAULT 0 NOT NULL/iu);
+    assert.doesNotMatch(attemptMigration, /\b(?:fetch|route|worker|cron)\b/iu);
     assert.doesNotMatch(outboxSource, /\bfetch\s*\(|gmail-boundary|gmail\.ts/iu);
     const triggers = migration.match(/CREATE TRIGGER[\s\S]*?END;/gu) ?? [];
     assert.ok(triggers.length >= 30);
@@ -137,10 +152,49 @@ test("0014 upgrades populated 0013 state without inferring new dispatch authorit
     ).bind("1".repeat(64), "2".repeat(64), OUTREACH_NOW - 1, OUTREACH_NOW).run();
     await applyOutreachAuthorityMigration(fixture.database);
     await applyOutreachPreCallMigration(fixture.database);
+    await applyOutreachAttemptPreparationMigration(fixture.database);
     assert.equal(await countRows(fixture.database, "outreach_sender_connections"), 1);
     for (const table of DELIVERY_AUTHORITY_TABLES) assert.equal(await countRows(fixture.database, table), 0);
     for (const table of PRE_CALL_TABLES) assert.equal(await countRows(fixture.database, table), 0);
+    for (const table of ATTEMPT_PREPARATION_TABLES) assert.equal(await countRows(fixture.database, table), 0);
     assert.deepEqual((await fixture.database.prepare("PRAGMA foreign_key_check").all()).results, []);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("0016 upgrades populated 0015 state without inferring an attempt and can prepare the current receipt", async () => {
+  const fixture = await createD1Fixture("outreach-attempt-upgrade");
+  try {
+    await applyOutreachMigrationsThroughLease(fixture.database);
+    await applyOutreachAuthorityMigration(fixture.database);
+    await applyOutreachPreCallMigration(fixture.database);
+    const seeded = await seedOutreachAuthority(fixture, { applyMigrations: false });
+    const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
+      packageExpiresAt: OUTREACH_NOW + 70_000,
+      messageExpiresAt: OUTREACH_NOW + 60_000,
+    });
+    const senderConnectionId = await insertSenderConnection(fixture, seeded, "active", 1);
+    const enqueue = await loadOutbox(fixture, seeded);
+    const queued = await enqueue.enqueueApprovedMessage({ messageApprovalId: prepared.messageApproval.id, senderConnectionId });
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const boundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(seeded),
+      now: () => OUTREACH_NOW + 1_000,
+    });
+    const lease = await boundary.claimDispatchLease({ outboxItemId: queued.outboxItemId, holderId: "synthetic-worker-one" });
+    assert.equal(lease.kind, "claimed");
+    const leaseInput = { outboxItemId: queued.outboxItemId, holderId: lease.holderId, leaseGeneration: lease.leaseGeneration };
+    const receipt = await boundary.recordPreCallRecheckReceipt(leaseInput);
+    assert.equal(receipt.kind, "recorded");
+    await applyOutreachAttemptPreparationMigration(fixture.database);
+    for (const table of ATTEMPT_PREPARATION_TABLES) assert.equal(await countRows(fixture.database, table), 0);
+    const result = await boundary.prepareDispatchAttempt({ ...leaseInput, preCallReceiptId: receipt.receiptId });
+    assert.equal(result.kind, "prepared_no_invocation");
+    assert.equal(result.providerInvocationAuthorized, false);
+    assert.equal(result.providerCalls, 0);
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
   } finally {
     await fixture.dispose();
   }
@@ -1036,6 +1090,204 @@ test("exact current lease records one immutable inert pre-call receipt", async (
       fixture.database.prepare("DELETE FROM outreach_pre_call_recheck_receipts WHERE id=?").bind(first.receiptId).run(),
       /immutable outreach pre-call receipt/,
     );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("current receipt prepares one immutable zero-effect attempt without advancing the outbox", async () => {
+  const fixture = await createD1Fixture("outreach-attempt-preparation");
+  try {
+    const context = await prepareLeasedOutbox(fixture);
+    const receipt = await context.boundary.recordPreCallRecheckReceipt(context.input);
+    assert.equal(receipt.kind, "recorded");
+    const input = { ...context.input, preCallReceiptId: receipt.receiptId };
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const rollbackBoundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => OUTREACH_NOW + 999,
+    });
+    assert.equal((await rollbackBoundary.prepareDispatchAttempt(input)).kind, "blocked");
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 0);
+    const laterBoundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => OUTREACH_NOW + 1_001,
+    });
+    const contenders = await Promise.all([
+      context.boundary.prepareDispatchAttempt(input),
+      context.boundary.prepareDispatchAttempt(input),
+    ]);
+    assert.equal(contenders.every((result) => result.kind === "prepared_no_invocation"), true, JSON.stringify(contenders));
+    assert.equal(contenders.every((result) => result.providerInvocationAuthorized === false && result.providerCalls === 0), true);
+    assert.equal(contenders.filter((result) => result.replayed === false).length, 1);
+    assert.equal(contenders.filter((result) => result.replayed === true).length, 1);
+    assert.equal(contenders.every(Object.isFrozen), true);
+    assert.equal(contenders[0].preparationId, contenders[1].preparationId);
+    assert.equal(contenders[0].preparationDigest, contenders[1].preparationDigest);
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+    const latest = await fixture.database.prepare(
+      "SELECT state,revision FROM outreach_outbox_events WHERE outbox_item_id=? ORDER BY revision DESC LIMIT 1",
+    ).bind(input.outboxItemId).first();
+    assert.deepEqual(latest, { state: "leased", revision: 2 });
+    const persisted = await fixture.database.prepare(
+      `SELECT provider_invocation_authorized,provider_calls
+       FROM outreach_dispatch_attempt_preparations`,
+    ).first();
+    assert.deepEqual(persisted, {
+      provider_invocation_authorized: 0,
+      provider_calls: 0,
+    });
+    const replay = await laterBoundary.prepareDispatchAttempt(input);
+    assert.equal(replay.kind, "prepared_no_invocation");
+    assert.equal(replay.replayed, true);
+    const wrongOwner = outboxModule.createD1OutboxRepository(fixture.database, {
+      workspaceId: context.prepared.seeded.workspaceId,
+      ownerSubject: "different-owner",
+      now: () => OUTREACH_NOW + 1_001,
+    });
+    for (const denied of [
+      { ...input, holderId: "different-holder" },
+      { ...input, leaseGeneration: input.leaseGeneration + 1 },
+      { ...input, preCallReceiptId: "different-receipt" },
+      { ...input, extra: "forbidden" },
+    ]) assert.equal((await context.boundary.prepareDispatchAttempt(denied)).kind, "blocked");
+    assert.equal((await wrongOwner.prepareDispatchAttempt(input)).kind, "blocked");
+    let getterCalls = 0;
+    const hostile = {};
+    Object.defineProperty(hostile, "outboxItemId", { enumerable: true, get() { getterCalls += 1; return input.outboxItemId; } });
+    Object.defineProperty(hostile, "preCallReceiptId", { enumerable: true, value: input.preCallReceiptId });
+    Object.defineProperty(hostile, "holderId", { enumerable: true, value: input.holderId });
+    Object.defineProperty(hostile, "leaseGeneration", { enumerable: true, value: input.leaseGeneration });
+    assert.equal((await context.boundary.prepareDispatchAttempt(hostile)).reason, "invalid_request");
+    assert.equal(getterCalls, 0);
+    const expired = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => receipt.validUntil,
+    });
+    assert.equal((await expired.prepareDispatchAttempt(input)).kind, "blocked");
+    await assert.rejects(
+      fixture.database.prepare("UPDATE outreach_dispatch_attempt_preparations SET provider_calls=1 WHERE id=?").bind(replay.preparationId).run(),
+      /immutable outreach dispatch attempt preparation/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("DELETE FROM outreach_dispatch_attempt_preparations WHERE id=?").bind(replay.preparationId).run(),
+      /immutable outreach dispatch attempt preparation/,
+    );
+    const preparation = await fixture.database.prepare("SELECT * FROM outreach_dispatch_attempt_preparations WHERE id=?").bind(replay.preparationId).first();
+    await assert.rejects(
+      fixture.database.prepare(
+        "INSERT INTO outreach_outbox_events (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at) VALUES ('attempt-bypass-dispatching',?,?,3,'dispatching',1,'synthetic-worker-one',?,'bypass',?,?)",
+      ).bind(context.prepared.seeded.workspaceId, input.outboxItemId, preparation.lease_expires_at, "e".repeat(64), OUTREACH_NOW + 1_001).run(),
+      /invalid outreach outbox event/,
+    );
+    const recoveredBoundary = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => preparation.lease_expires_at + 1,
+    });
+    const recoveredLease = await recoveredBoundary.claimDispatchLease({
+      outboxItemId: input.outboxItemId,
+      holderId: "synthetic-worker-two",
+    });
+    assert.deepEqual(recoveredLease, {
+      kind: "blocked",
+      reason: "lease_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("attempt preparation rechecks authority changed after the receipt and leaves no partial attempt", async () => {
+  const cases = [
+    ["source-withdrawn", async ({ fixture }) => fixture.database.prepare("UPDATE sources SET status='withdrawn' WHERE id='outreach-source'").run()],
+    ["claim-guardrail-invalidated", async ({ fixture }) => fixture.database.prepare("UPDATE knowledge_versions SET status='superseded' WHERE id='outreach-guardrail'").run()],
+    ["suppression", async ({ repository, prepared }) => repository.recordSuppression({
+      ...suppressionInput(),
+      subjectDigest: prepared.seeded.contactPointDigest,
+      aliasDigests: [],
+      idempotencyKey: "attempt-preparation-suppression",
+    })],
+  ];
+  for (const [name, invalidate] of cases) {
+    const fixture = await createD1Fixture(`outreach-attempt-${name}`);
+    try {
+      const context = await prepareLeasedOutbox(fixture);
+      const receipt = await context.boundary.recordPreCallRecheckReceipt(context.input);
+      assert.equal(receipt.kind, "recorded", name);
+      const repository = await loadRepository(fixture, context.prepared.seeded);
+      await invalidate({ ...context, fixture, repository });
+      const result = await context.boundary.prepareDispatchAttempt({ ...context.input, preCallReceiptId: receipt.receiptId });
+      assert.equal(result.kind, "blocked", name);
+      assert.equal(result.providerInvocationAuthorized, false, name);
+      assert.equal(result.providerCalls, 0, name);
+      assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 0, name);
+      assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2, name);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("a structurally valid forged preparation never becomes provider authority", async () => {
+  const fixture = await createD1Fixture("outreach-attempt-forged-digests");
+  try {
+    const context = await prepareLeasedOutbox(fixture);
+    const receipt = await context.boundary.recordPreCallRecheckReceipt(context.input);
+    assert.equal(receipt.kind, "recorded");
+    const material = await fixture.database.prepare(
+      `SELECT item.send_key,item.dispatch_key,item.message_version_id,message_version.artifact_digest,
+              item.sender_connection_id
+       FROM outreach_outbox_items item
+       JOIN outreach_message_versions message_version
+         ON message_version.id=item.message_version_id AND message_version.workspace_id=item.workspace_id
+       WHERE item.id=? AND item.workspace_id=?`,
+    ).bind(context.input.outboxItemId, context.prepared.seeded.workspaceId).first();
+    const receiptRow = await fixture.database.prepare(
+      "SELECT * FROM outreach_pre_call_recheck_receipts WHERE id=?",
+    ).bind(receipt.receiptId).first();
+    const forgedPreparationDigest = "d".repeat(64);
+    await fixture.database.prepare(
+      `INSERT INTO outreach_dispatch_attempt_preparations
+        (id,workspace_id,owner_subject,outbox_item_id,attempt_ordinal,send_key,dispatch_key,
+         message_version_id,message_artifact_digest,sender_connection_id,pre_call_receipt_id,
+         lease_event_id,lease_generation,lease_holder_id,lease_expires_at,preparation_digest,
+         provider_invocation_authorized,provider_calls,prepared_at)
+       VALUES ('forged-attempt-preparation',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?)`,
+    ).bind(
+      context.prepared.seeded.workspaceId,
+      OUTREACH_OWNER.subject,
+      context.input.outboxItemId,
+      1,
+      material.send_key,
+      material.dispatch_key,
+      material.message_version_id,
+      material.artifact_digest,
+      material.sender_connection_id,
+      receiptRow.id,
+      receiptRow.lease_event_id,
+      receiptRow.lease_generation,
+      receiptRow.lease_holder_id,
+      receiptRow.lease_expires_at,
+      forgedPreparationDigest,
+      receiptRow.created_at,
+    ).run();
+    const result = await context.boundary.prepareDispatchAttempt({
+      ...context.input,
+      preCallReceiptId: receipt.receiptId,
+    });
+    assert.deepEqual(result, {
+      kind: "blocked",
+      reason: "attempt_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    });
+    assert.equal(await countRows(fixture.database, "outreach_dispatch_attempt_preparations"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), 2);
   } finally {
     await fixture.dispose();
   }
