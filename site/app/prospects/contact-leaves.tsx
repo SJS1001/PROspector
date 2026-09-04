@@ -2,7 +2,13 @@ import React from "react";
 
 export type ContactProjectionRow = {
   id: string; contactId: string; prospectId: string; state: string; eligible: boolean;
-  reasonCodes: readonly string[]; observations?: readonly { verificationClass: string }[];
+  reasonCodes: readonly string[]; observations?: readonly ContactObservationProjection[];
+};
+export type ContactObservationProjection = {
+  kind: string;
+  verificationClass: string;
+  method: string;
+  verifiedAt: number | null;
 };
 export type IdentityProjectionRow = {
   id: string; subjectKind: string; kind: string; revision: number;
@@ -32,17 +38,19 @@ export function ContactsReadFirst({ projection }: { projection: ContactsProjecti
 }
 
 function ContactRows({ rows, empty }: { rows: readonly ContactProjectionRow[]; empty: string }) {
-  return rows.length ? <ul>{rows.map((row) => <li key={row.id}><strong>{text(row.state, "Unknown status")}</strong> for contact {text(row.contactId, "unknown")} on prospect {text(row.prospectId, "unknown")}{row.reasonCodes.length ? <> — {row.reasonCodes.join(", ")}</> : null}{row.observations?.length ? <> — {row.observations.map((item) => item.verificationClass).join(", ")}</> : null}</li>)}</ul> : <p>{empty}</p>;
+  return rows.length ? <ul>{rows.map((row) => <li key={row.id}><strong>{text(row.state, "Unknown status")}</strong> for contact {text(row.contactId, "unknown")} on prospect {text(row.prospectId, "unknown")}{row.reasonCodes.length ? <> — {row.reasonCodes.join(", ")}</> : null}{row.observations?.length ? <ul aria-label="Contact evidence">{row.observations.slice(0, 32).map((item, index) => <li key={`${row.id}-evidence-${index}`}><dl><dt>Observation kind</dt><dd>{evidenceText(item.kind, ["email", "phone"], "Unknown observation kind")}</dd><dt>Verification class</dt><dd>{evidenceText(item.verificationClass, ["suggested", "domain_valid", "mailbox_verified", "source_verified", "invalid"], "Unknown verification class")}</dd><dt>Verification method</dt><dd>{evidenceText(item.method, ["pattern_inference", "domain_validation", "mailbox_verification", "authoritative_source_reconfirmed"], "Unknown verification method")}</dd><dt>Verified at</dt><dd>{verifiedTime(item.verifiedAt)}</dd></dl></li>)}</ul> : <p>No bounded verification evidence is available for this contact.</p>}</li>)}</ul> : <p>{empty}</p>;
 }
 function contactRows(value: readonly ContactProjectionRow[]) { return Array.isArray(value) ? value.filter(contactRow).slice(0, MAX_ROWS) : []; }
 function identityRows(value: readonly IdentityProjectionRow[]) { return Array.isArray(value) ? value.filter(identityRow).slice(0, MAX_ROWS) : []; }
-function contactRow(value: unknown): value is ContactProjectionRow { if (!record(value) || !id(value.id) || !id(value.contactId) || !id(value.prospectId) || !short(value.state, 64) || typeof value.eligible !== "boolean" || !strings(value.reasonCodes, 32)) return false; return value.observations === undefined || Array.isArray(value.observations) && value.observations.every((item) => record(item) && short(item.verificationClass, 64)); }
+function contactRow(value: unknown): value is ContactProjectionRow { if (!record(value) || !id(value.id) || !id(value.contactId) || !id(value.prospectId) || !short(value.state, 64) || typeof value.eligible !== "boolean" || !strings(value.reasonCodes, 32)) return false; return value.observations === undefined || Array.isArray(value.observations) && value.observations.length <= 32 && value.observations.every(record); }
 function identityRow(value: unknown): value is IdentityProjectionRow { return record(value) && id(value.id) && short(value.subjectKind, 64) && short(value.kind, 64) && Number.isSafeInteger(value.revision) && value.revision > 0 && Array.isArray(value.candidateRevisions) && value.candidateRevisions.length <= 100 && value.candidateRevisions.every((item) => record(item) && id(item.subjectId) && Number.isSafeInteger(item.revision) && item.revision > 0) && strings(value.sourceLineageIds, 100); }
 function strings(value: unknown, maximum: number): value is readonly string[] { return Array.isArray(value) && value.length <= maximum && value.every((item) => short(item, 160)); }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function id(value: unknown) { return short(value, 160); }
 function short(value: unknown, maximum: number): value is string { return typeof value === "string" && value.trim().length > 0 && value.length <= maximum; }
 function text(value: unknown, fallback: string) { return short(value, 240) ? value : fallback; }
+function evidenceText(value: unknown, allowed: readonly string[], fallback: string) { return typeof value === "string" && value.length <= 64 && allowed.includes(value) ? value : fallback; }
+function verifiedTime(value: unknown) { const timestamp = Number(value); if (!Number.isSafeInteger(timestamp) || timestamp <= 0) return "Unknown verification time"; try { return new Date(timestamp).toISOString(); } catch { return "Unknown verification time"; } }
 
 export function DisabledContactAction({ children, explanation, explanationId }: { children: string; explanation: string; explanationId: string }) {
   return <p><button type="button" disabled aria-describedby={explanationId}>{children}</button> <span id={explanationId} tabIndex={0}>{explanation}</span></p>;
