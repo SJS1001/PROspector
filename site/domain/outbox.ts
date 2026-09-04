@@ -445,7 +445,7 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
       if (!Number.isSafeInteger(now) || now <= 0) return leaseBlocked("current_authority_unavailable");
       const current = await readLatestEvent(database, scope.workspaceId, input.outboxItemId);
       if (!current || !validLatestEvent(current)) return leaseBlocked("current_authority_unavailable");
-      const preparation = await readDispatchAttemptPreparation(
+      const preparation = await readDispatchAttemptPreparationForLease(
         database,
         scope.workspaceId,
         scope.ownerSubject,
@@ -1127,6 +1127,34 @@ async function readDispatchAttemptPreparation(
      WHERE preparation.workspace_id=? AND preparation.owner_subject=? AND preparation.outbox_item_id=?
        AND preparation.attempt_ordinal=1 LIMIT 1`,
   ).bind(workspaceId, ownerSubject, outboxItemId).first<DispatchAttemptPreparationRow>();
+}
+
+async function readDispatchAttemptPreparationForLease(
+  database: D1Database,
+  workspaceId: string,
+  ownerSubject: string,
+  outboxItemId: string,
+) {
+  try {
+    return await readDispatchAttemptPreparation(database, workspaceId, ownerSubject, outboxItemId);
+  } catch (error) {
+    if (isMissingPreparationTable(error)) return null;
+    throw error;
+  }
+}
+
+function isMissingPreparationTable(error: unknown) {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (
+      current instanceof Error
+      && /\bno such table:\s*outreach_dispatch_attempt_preparations\b/iu.test(current.message)
+    ) return true;
+    current = typeof current === "object" && current !== null && "cause" in current
+      ? (current as { cause?: unknown }).cause
+      : null;
+  }
+  return false;
 }
 
 async function readPreCallReceiptById(
