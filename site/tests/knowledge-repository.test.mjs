@@ -196,3 +196,53 @@ test("generalized interview decision is atomic across proposal, version, confirm
     assert.equal(Number(binding.count), 1);
   } finally { await fixture.dispose(); }
 });
+
+test("generalized interview projects the exact commercial destination through confirmation without operational effects", async () => {
+  const fixture = await createD1Fixture("interview-commercial-destination");
+  try {
+    await applyMigrations(fixture.database);
+    const interview = await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname);
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge-handler.ts", import.meta.url).pathname);
+    const pepper = "test-only-destination-pepper-with-at-least-32-bytes";
+    const exactPrincipal = await interview.principalFromIdentity("destination@example.com", "Destination Owner", pepper);
+    await interview.bootstrapInterview(fixture.database, exactPrincipal);
+    const projectionResponse = await handler.handleKnowledgeGet({
+      database: fixture.database,
+      subjectPepper: pepper,
+      pilotOwnerEmail: "destination@example.com",
+      getIdentity: async () => ({ email: "destination@example.com", displayName: "Destination Owner" }),
+    });
+    assert.equal(projectionResponse.status, 200);
+    const projection = await projectionResponse.json();
+    const company = projection.commercial.path.find((node) => node.type === "company");
+    assert.ok(company);
+    const before = await snapshotForbiddenOperationalRows(fixture.database);
+
+    const active = projection.interview;
+    assert.equal(active.status, "active");
+    assert.deepEqual(active.question.destination, {
+      scopeType: "company",
+      id: company.id,
+      locator: company.name,
+    });
+
+    const awaiting = await interview.submitInterviewAnswer(fixture.database, exactPrincipal, {
+      questionId: active.question.id,
+      expectedRevision: active.question.revision,
+      idempotencyKey: "0198a4b0-0000-7000-8000-000000000271",
+      answer: "use_recommendation",
+    });
+    assert.equal(awaiting.status, "awaiting_confirmation");
+    assert.deepEqual(awaiting.question.destination, active.question.destination);
+
+    const confirmed = await interview.recordInterviewDecision(fixture.database, exactPrincipal, {
+      answerId: awaiting.answer.id,
+      expectedSessionRevision: awaiting.session.revision,
+      expectedQuestionRevision: awaiting.question.revision,
+      idempotencyKey: "0198a4b0-0000-7000-8000-000000000272",
+      decision: "accept",
+    });
+    assert.equal(confirmed.status, "confirmed");
+    await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
+  } finally { await fixture.dispose(); }
+});

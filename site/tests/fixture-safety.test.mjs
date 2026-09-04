@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import react from "@vitejs/plugin-react";
 import { createServer } from "vite";
 
-test("fixture renders every consequential control natively disabled", async () => {
+test("remaining fixture-governed consequential controls render natively disabled", async () => {
   const server = await createServer({
     configFile: false,
     logLevel: "silent",
@@ -33,9 +33,6 @@ test("fixture renders every consequential control natively disabled", async () =
       "Prospecting disabled",
       "Approve disabled",
       "Defer disabled",
-      "Explore disabled",
-      "Dismiss disabled",
-      "Prospect disabled",
       "CSV disabled",
       "Export disabled",
     ]) {

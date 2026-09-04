@@ -3,13 +3,14 @@
 Before changing this repository, read these committed sources of truth in order:
 
 1. `docs/CODEX-CONTINUATION.md`
-2. `.planning/STATE.md`
-3. `.planning/ROADMAP.md`
-4. `.planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md`
-5. The active Phase 2 `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`
-6. The current plan and every dependency summary named by that plan
+2. `docs/GREENFIELD-BASELINE.md`
+3. `.planning/STATE.md`
+4. `.planning/ROADMAP.md`
+5. `.planning/phases/02-consensus-knowledge-and-commercial-model/02-ACTIVATION.md`
+6. The active Phase 2 `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`
+7. The current plan and every dependency summary named by that plan
 
-Preserve the existing private Sites project. Do not create, clone, replace, rename, delete, or publicize a Sites project as a workaround for account-scoped access. Never display, copy, rotate, remove, or commit secret values or private hosted data.
+The original private Sites project is inaccessible and permanently retired from the execution path. Do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Future environments must be greenfield and require separate provisioning authority. Never display, copy, rotate, remove, or commit secret values or private hosted data.
 
 Plans that require a real principal, hosted control-plane action, database evidence, deployment authority, or an explicit owner decision remain incomplete until that exact evidence exists. Local tests, fixtures, prose, digests, and status rows cannot substitute for those checkpoints. Do not create a completion summary for a blocked plan.
 

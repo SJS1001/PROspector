@@ -12,8 +12,10 @@ const USER_FULL_NAME_ENCODING_HEADER =
   "oai-authenticated-user-full-name-encoding";
 const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 
-export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
-  const requestHeaders = await headers();
+export async function getChatGPTUser(
+  suppliedHeaders?: Pick<Headers, "get">,
+): Promise<ChatGPTUser | null> {
+  const requestHeaders = suppliedHeaders ?? await headers();
   const email = requestHeaders.get(USER_EMAIL_HEADER);
   if (!email) return null;
 

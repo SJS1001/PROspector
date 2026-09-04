@@ -1,0 +1,194 @@
+import { v7 } from "uuid";
+import { evaluateMiningQualification, type MiningQualification } from "./qualification";
+import { readCanonicalMaterialLineage, readValidatedSourcedDisproofSignalId } from "./source-policy";
+
+export class ProspectReviewError extends Error { readonly code = "prospect_review_rejected"; }
+type Principal = { subject: string; legacySubject?: string };
+type Candidate = { id:string; workspace_id:string; profile_id:string; offer_id:string; configuration_id:string; run_id:string; submission_id:string; candidate_json:string; candidate_digest:string; fingerprint:string };
+
+/** Builds an assessment exclusively from the persisted candidate, pinned configuration,
+ * and application-validated signals.  Runner scores and outcomes are deliberately absent. */
+export async function persistQualificationAssessment(database:D1Database, principal:Principal, input:{candidateId:string; now?:number}) {
+  const workspace=await workspaceFor(database,principal);
+  const candidate=await database.prepare("SELECT id,workspace_id,profile_id,offer_id,configuration_id,run_id,submission_id,candidate_json,candidate_digest,fingerprint FROM prospecting_candidates WHERE id=? AND workspace_id=? LIMIT 1").bind(input.candidateId,workspace.id).first<Candidate>();
+  if(!candidate) throw fail("Candidate is unavailable");
+  const configuration=await database.prepare("SELECT id,digest,manifest_json FROM typed_configurations WHERE id=? AND workspace_id=? AND owner_type='profile' AND owner_id=? AND kind='profile_effective' LIMIT 1").bind(candidate.configuration_id,workspace.id,candidate.profile_id).first<{id:string;digest:string;manifest_json:string}>();
+  if(!configuration) throw fail("Pinned Profile configuration is unavailable");
+  const candidateValue=safeJson(candidate.candidate_json);
+  const accountId=text(candidateValue.accountId),targetId=text(candidateValue.targetId);
+  if(!accountId||!targetId)throw fail("Candidate identity is unavailable");
+  const prospectFingerprint=await sha256(stable({workspaceId:workspace.id,profileId:candidate.profile_id,accountId,targetId,offerId:candidate.offer_id}));
+  // The tuple fallback recognizes pre-fix rows whose stored fingerprint included
+  // configurationDigest. New rows all use prospectFingerprint.
+  const priorInactive=await database.prepare("SELECT p.id,p.assessment_id,p.state,c.id cooldown_id,c.starts_at,c.ends_at,c.status,d.id decision_id,d.decision_digest,d.created_at decision_at FROM profile_prospects p JOIN prospecting_candidates prior_candidate ON prior_candidate.id=p.candidate_id AND prior_candidate.workspace_id=p.workspace_id LEFT JOIN prospect_cooldowns c ON c.prospect_id=p.id AND c.status='active' LEFT JOIN prospect_review_decisions d ON d.prospect_id=p.id AND d.workspace_id=p.workspace_id AND d.assessment_id=p.assessment_id WHERE p.workspace_id=? AND p.profile_id=? AND p.offer_id=? AND (p.fingerprint=? OR (json_extract(prior_candidate.candidate_json,'$.accountId')=? AND json_extract(prior_candidate.candidate_json,'$.targetId')=?)) AND p.active=0 ORDER BY p.updated_at DESC,p.id DESC,d.created_at DESC,d.id DESC LIMIT 1").bind(workspace.id,candidate.profile_id,candidate.offer_id,prospectFingerprint,accountId,targetId).first<PriorInactive>();
+  // Evidence is assignment-bound: same-profile observations from another run or
+  // submission cannot silently qualify this candidate. The sole cross-submission
+  // exception is an application-owned sourced-disproof marker bound to the exact
+  // rejected prospect, candidate, signal, lineage, and post-decision timestamps.
+  const signalRows=await database.prepare("SELECT ps.id,ps.source_lineage_id,ps.signal_digest,ps.material,pl.source_tier,pl.independence_group,pl.occurred_at,pl.retrieved_at,pl.lineage_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id WHERE ps.workspace_id=? AND ps.profile_id=? AND ps.run_id=? AND ps.submission_id=? AND pl.run_id=? AND pl.submission_id=? ORDER BY ps.id").bind(workspace.id,candidate.profile_id,candidate.run_id,candidate.submission_id,candidate.run_id,candidate.submission_id).all<SignalRow>();
+  let sourcedDisproof:SignalRow|undefined;
+  if(priorInactive?.state==="rejected"&&priorInactive.decision_at){
+    const signalId=await readValidatedSourcedDisproofSignalId(database,{workspaceId:workspace.id,profileId:candidate.profile_id,candidateId:candidate.id,candidateDigest:candidate.candidate_digest,fingerprint:prospectFingerprint,priorProspectId:priorInactive.id,priorAssessmentId:priorInactive.assessment_id,decisionAt:Number(priorInactive.decision_at)});
+    if(signalId){
+      sourcedDisproof=await database.prepare("SELECT ps.id,ps.source_lineage_id,ps.signal_digest,ps.material,pl.source_tier,pl.independence_group,pl.occurred_at,pl.retrieved_at,pl.lineage_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id WHERE ps.id=? AND ps.workspace_id=? AND ps.profile_id=? LIMIT 1").bind(signalId,workspace.id,candidate.profile_id).first<SignalRow>()??undefined;
+      if(sourcedDisproof&&!signalRows.results.some(row=>row.id===sourcedDisproof!.id))signalRows.results.push(sourcedDisproof);
+    }
+  }
+  const assessmentInput={
+    configurationDigest:configuration.digest, rubricDigest:rubricDigest(configuration.manifest_json), evaluationVersion:"mining-rubric/v1",
+    candidateId:candidate.id, accountId, targetId, offerId:candidate.offer_id,
+    accountFit:number(candidateValue.accountFit), painStrength:number(candidateValue.painStrength), timingUrgency:number(candidateValue.timingUrgency), dataReadiness:number(candidateValue.dataReadiness), commercialViability:number(candidateValue.commercialViability),
+    requiredEvidence:Array.isArray(candidateValue.requiredEvidence)?candidateValue.requiredEvidence:[], hardDisqualifiers:Array.isArray(candidateValue.hardDisqualifiers)?candidateValue.hardDisqualifiers:[],
+    sources:signalRows.results.map((row)=>({id:row.id,tier:row.source_tier,independenceGroup:row.independence_group,retrievedAt:row.retrieved_at,recency:recency(row.signal_json),material:Boolean(row.material)})),
+  };
+  const duplicate=await database.prepare("SELECT p.id FROM profile_prospects p JOIN prospecting_candidates prior_candidate ON prior_candidate.id=p.candidate_id AND prior_candidate.workspace_id=p.workspace_id WHERE p.workspace_id=? AND p.profile_id=? AND p.offer_id=? AND (p.fingerprint=? OR (json_extract(prior_candidate.candidate_json,'$.accountId')=? AND json_extract(prior_candidate.candidate_json,'$.targetId')=?)) AND p.active=1 LIMIT 1").bind(workspace.id,candidate.profile_id,candidate.offer_id,prospectFingerprint,accountId,targetId).first<{id:string}>();
+  if(duplicate) assessmentInput.hardDisqualifiers=[...assessmentInput.hardDisqualifiers,"duplicate_active_prospect"];
+  const evaluation=evaluateMiningQualification(assessmentInput); const now=input.now??Date.now();
+  const canonicalEvaluation=stable(evaluation);
+  const inputJson=stable({...assessmentInput,candidateDigest:candidate.candidate_digest,runId:candidate.run_id,submissionId:candidate.submission_id}), evidenceJson=stable(evaluation.citedSources), gateJson=stable(evaluation.gateChecks), anchorJson=stable(evaluation.anchors), scoreJson=stable({score:evaluation.score,outcome:evaluation.outcome,sortInputs:evaluation.sortInputs,missingFields:evaluation.missingFields,freshestMaterialEvent:evaluation.freshestMaterialEvent,evaluationVersion:evaluation.evaluationVersion,rubricDigest:evaluation.rubricDigest,evidenceDigest:await sha256(evidenceJson),canonicalEvaluation});
+  const inputDigest=await sha256(inputJson), assessmentDigest=await sha256(stable({configurationDigest:configuration.digest,inputDigest,anchors:evaluation.anchors,evidence:evaluation.citedSources,gates:evaluation.gateChecks,score:evaluation.score,outcome:evaluation.outcome,tieOrder:evaluation.tieOrder}));
+  const existing=await database.prepare("SELECT id FROM qualification_assessments WHERE workspace_id=? AND assessment_digest=? LIMIT 1").bind(workspace.id,assessmentDigest).first<{id:string}>();
+  if(existing) return assessmentProjection(existing.id,evaluation,duplicate?.id);
+  const materialSignal=signalRows.results.filter(x=>Boolean(x.material)).sort((a,b)=>Number(b.retrieved_at)-Number(a.retrieved_at)||a.id.localeCompare(b.id))[0];
+  const cooldownActive=priorInactive?.cooldown_id&&Number(priorInactive.ends_at)>now;
+  const reentryKind=priorInactive?.state==="rejected"&&sourcedDisproof?"sourced_disproof":priorInactive?.state==="deferred"&&(materialSignal||Number(priorInactive.ends_at)<=now)?(materialSignal?"material_signal":"review_date_due"):null;
+  if(cooldownActive&&!reentryKind) throw fail("Prospect cooldown remains active; a Material Signal is required for re-entry");
+  if(priorInactive?.state==="rejected"&&!reentryKind) throw fail("Application-validated sourced disproof is required to reopen a rejected prospect");
+  const assessmentId=v7(), commandId=v7(), auditId=v7(), prospectId=v7(), reentryId=v7(), reentryCommandId=v7(), reentryAuditId=v7();
+  try { await database.batch([
+    database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(assessmentId,workspace.id,candidate.id,configuration.id,configuration.digest,inputJson,inputDigest,anchorJson,evidenceJson,gateJson,scoreJson,evaluation.score,evaluation.outcome,stable(evaluation.tieOrder),assessmentDigest,priorInactive?.assessment_id??null,now),
+    database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'prospect.assessment',?,?,1,'prospecting_candidate',?,'accepted')").bind(commandId,workspace.id,now,now,`assessment:${assessmentDigest}`,assessmentDigest,candidate.id),
+    database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES (?,?,'system','prospect-assessment-service','prospect.assessed','qualification_assessment',?,?,?)").bind(auditId,workspace.id,assessmentId,stable({assessmentDigest,configurationDigest:configuration.digest,evidenceIds:evaluation.citedSources.map(x=>x.id)}),now),
+    database.prepare("INSERT INTO profile_prospects (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,candidate_id,assessment_id,fingerprint,state,active) SELECT ?,?,?,?,1,?,?,?,?,?,'qualified',1 WHERE ?='Passed' AND NOT EXISTS (SELECT 1 FROM profile_prospects p JOIN prospecting_candidates prior_candidate ON prior_candidate.id=p.candidate_id AND prior_candidate.workspace_id=p.workspace_id WHERE p.workspace_id=? AND p.profile_id=? AND p.offer_id=? AND (p.fingerprint=? OR (json_extract(prior_candidate.candidate_json,'$.accountId')=? AND json_extract(prior_candidate.candidate_json,'$.targetId')=?)) AND p.active=1)").bind(prospectId,workspace.id,now,now,candidate.profile_id,candidate.offer_id,candidate.id,assessmentId,prospectFingerprint,evaluation.outcome,workspace.id,candidate.profile_id,candidate.offer_id,prospectFingerprint,accountId,targetId),
+    ...(priorInactive&&reentryKind&&evaluation.outcome==="Passed"?[database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'prospect.reentry',?,?,1,'profile_prospect',?,'accepted')").bind(reentryCommandId,workspace.id,now,now,`reentry:${assessmentDigest}`,await sha256(stable({priorProspectId:priorInactive.id,assessmentDigest,reentryKind,signalId:sourcedDisproof?.id??materialSignal?.id??null})),priorInactive.id),database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES (?,?,'system','prospect-assessment-service','prospect.reentry','profile_prospect',?,?,?)").bind(reentryAuditId,workspace.id,priorInactive.id,stable({reentryKind,signalId:sourcedDisproof?.id??materialSignal?.id??null,assessmentId,reenteredProspectId:prospectId}),now),database.prepare("INSERT INTO prospect_reentry_events (id,workspace_id,prospect_id,cooldown_id,signal_id,prior_assessment_id,event_kind,event_json,event_digest,authority_command_id,audit_event_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(reentryId,workspace.id,priorInactive.id,priorInactive.cooldown_id,sourcedDisproof?.id??materialSignal?.id??null,priorInactive.assessment_id,reentryKind,stable({assessmentId,candidateId:candidate.id,candidateDigest:candidate.candidate_digest,priorProspectId:priorInactive.id,reenteredProspectId:prospectId,signalId:sourcedDisproof?.id??materialSignal?.id??null}),await sha256(stable({priorProspectId:priorInactive.id,assessmentDigest,reentryKind,signalId:sourcedDisproof?.id??materialSignal?.id??null})),reentryCommandId,reentryAuditId,now)]:[]),
+  ]); } catch { const winner=await database.prepare("SELECT id FROM qualification_assessments WHERE workspace_id=? AND assessment_digest=? LIMIT 1").bind(workspace.id,assessmentDigest).first<{id:string}>(); if(!winner) throw fail("Assessment conflict"); return assessmentProjection(winner.id,evaluation,duplicate?.id); }
+  const prospect=await database.prepare("SELECT id FROM profile_prospects WHERE assessment_id=? LIMIT 1").bind(assessmentId).first<{id:string}>();
+  return assessmentProjection(assessmentId,evaluation,prospect?.id);
+}
+
+export async function decideQualifiedProspect(database:D1Database, principal:Principal, input:{prospectId:string; assessmentId?:string; decision:"approve"|"reject"|"defer"; reason?:string; reviewAt?:number; expectedRevision:number; idempotencyKey:string; now?:number}) {
+  const reason=input.reason?.normalize("NFC").trim(); const now=input.now??Date.now();
+  if(!reason||reason.length>2000) throw fail("A review reason is required");
+  if(input.decision==="defer"&&(!Number.isSafeInteger(input.reviewAt)||input.reviewAt<=now)) throw fail("A reasoned deferred review date is required");
+  if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<1||!validKey(input.idempotencyKey)) throw fail("Invalid review command");
+  const workspace=await workspaceFor(database,principal);
+  const prospect=await database.prepare("SELECT p.id,p.workspace_id,p.assessment_id,p.revision,p.state,p.active,a.outcome FROM profile_prospects p JOIN qualification_assessments a ON a.id=p.assessment_id AND a.workspace_id=p.workspace_id WHERE p.id=? AND p.workspace_id=? LIMIT 1").bind(input.prospectId,workspace.id).first<{id:string;workspace_id:string;assessment_id:string;revision:number;state:string;active:number;outcome:string}>();
+  if(!prospect||prospect.state!=="qualified"||!prospect.active||prospect.outcome!=="Passed"||input.assessmentId!==undefined&&input.assessmentId!==prospect.assessment_id||prospect.revision!==input.expectedRevision) throw fail("Qualified Prospect is unavailable or stale");
+  const operation=await sha256(stable({action:"prospect.review",prospectId:prospect.id,assessmentId:prospect.assessment_id,decision:input.decision,reason,reviewAt:input.reviewAt??null,revision:prospect.revision}));
+  const prior=await database.prepare("SELECT id,operation_digest FROM prospect_review_decisions WHERE workspace_id=? AND idempotency_key=? LIMIT 1").bind(workspace.id,input.idempotencyKey).first<{id:string;operation_digest:string}>();
+  if(prior){if(prior.operation_digest!==operation)throw fail("Idempotency key conflicts with a different review command");return{decisionId:prior.id,replayed:true};}
+  const state=input.decision==="approve"?"approved":input.decision==="reject"?"rejected":"deferred", decisionId=v7(),commandId=v7(),auditId=v7();
+  try { const writes=[
+    database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) SELECT ?,?,?,?,1,'prospect.review',?,?,?,'profile_prospect',?,'accepted' WHERE EXISTS (SELECT 1 FROM profile_prospects WHERE id=? AND workspace_id=? AND state='qualified' AND active=1 AND revision=? AND assessment_id=?)").bind(commandId,workspace.id,now,now,input.idempotencyKey,operation,prospect.revision,prospect.id,prospect.id,workspace.id,prospect.revision,prospect.assessment_id),
+    database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) SELECT ?,?,'owner',?,?,'profile_prospect',?,?,? WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id=? AND workspace_id=?)").bind(auditId,workspace.id,principal.subject,`prospect.review.${input.decision}`,prospect.id,stable({assessmentId:prospect.assessment_id,operation}),now,commandId,workspace.id),
+    database.prepare("INSERT INTO prospect_review_decisions (id,workspace_id,prospect_id,assessment_id,decision,reason,review_at,expected_prospect_revision,authority_command_id,audit_event_id,decision_digest,operation_digest,idempotency_key,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id=? AND workspace_id=?)").bind(decisionId,workspace.id,prospect.id,prospect.assessment_id,input.decision,reason,input.reviewAt??null,prospect.revision,commandId,auditId,operation,operation,input.idempotencyKey,now,commandId,workspace.id),
+    database.prepare("UPDATE profile_prospects SET state=?,active=CASE WHEN ?='approve' THEN active ELSE 0 END,updated_at=?,revision=revision+1 WHERE id=? AND workspace_id=? AND revision=? AND state='qualified' AND EXISTS (SELECT 1 FROM prospect_review_decisions WHERE id=? AND authority_command_id=?)").bind(state,input.decision,now,prospect.id,workspace.id,prospect.revision,decisionId,commandId),
+  ]; if(input.decision!=="approve")writes.push(database.prepare("INSERT INTO prospect_cooldowns (id,workspace_id,prospect_id,review_decision_id,assessment_id,reason,starts_at,ends_at,status,created_at) SELECT ?,?,?,?,?,?,?,?,'active',? WHERE EXISTS (SELECT 1 FROM prospect_review_decisions WHERE id=? AND workspace_id=?)").bind(v7(),workspace.id,prospect.id,decisionId,prospect.assessment_id,reason,now,input.decision==="reject"?now+90*86400000:input.reviewAt!,now,decisionId,workspace.id));
+    const result=await database.batch(writes); if(!result[0]?.meta?.changes)throw fail("Qualified Prospect is unavailable or stale");
+  } catch(error) { if(error instanceof ProspectReviewError)throw error; const winner=await database.prepare("SELECT id,operation_digest FROM prospect_review_decisions WHERE workspace_id=? AND idempotency_key=? LIMIT 1").bind(workspace.id,input.idempotencyKey).first<{id:string;operation_digest:string}>(); if(winner&&winner.operation_digest===operation)return{decisionId:winner.id,replayed:true}; throw fail("Review conflict"); }
+  return {decisionId,replayed:false,state};
+}
+
+export async function readProspectingProjection(database:D1Database, principal:Principal, profileId?:string|null) {
+ const workspace=await workspaceFor(database,principal);
+ const [profiles,runs,evidence,assessments,queue,materialLineages]=await Promise.all([
+  database.prepare("SELECT id,name,lifecycle,revision FROM customer_profiles WHERE workspace_id=? ORDER BY name,id").bind(workspace.id).all(),
+  database.prepare("SELECT r.id,r.profile_id,r.configuration_id,r.configuration_digest,r.trigger_kind,r.trigger_key,r.execution_state,r.window_lower_exclusive,r.window_upper_inclusive,r.started_at,r.completed_at,r.successful_watermark,r.manifest_digest,s.id schedule_id,s.schedule_key,s.timezone,s.intended_local_time,s.utc_offset_minutes,s.cadence,s.next_run_at,s.last_successful_watermark schedule_watermark,s.execution_state schedule_state,ra.id assignment_id,ra.audience,ra.instruction_version,ra.tool_configuration_digest,ra.expires_at,ra.status assignment_status,ra.quota_json,ra.created_at assignment_created_at FROM prospecting_runs r LEFT JOIN prospecting_schedules s ON s.id=r.schedule_id LEFT JOIN runner_assignments ra ON ra.run_id=r.id AND ra.workspace_id=r.workspace_id WHERE r.workspace_id=? AND (? IS NULL OR r.profile_id=?) ORDER BY r.started_at DESC,r.id DESC,ra.created_at DESC,ra.id DESC").bind(workspace.id,profileId??null,profileId??null).all(),
+  database.prepare("SELECT ps.id,ps.profile_id,ps.signal_kind,ps.material,ps.created_at,pl.source_id,pl.source_url,pl.source_tier,pl.publisher_identity,pl.underlying_origin_identity,pl.independence_group,pl.published_at,pl.occurred_at,pl.retrieved_at,pl.excerpt,pl.lineage_digest,pl.run_id,pl.submission_id,r.configuration_digest,ps.signal_digest,ps.signal_json FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id JOIN prospecting_runs r ON r.id=pl.run_id AND r.workspace_id=pl.workspace_id WHERE ps.workspace_id=? AND (? IS NULL OR ps.profile_id=?) ORDER BY ps.created_at DESC,ps.id DESC").bind(workspace.id,profileId??null,profileId??null).all(),
+  database.prepare("SELECT a.id,a.candidate_id,c.candidate_digest,c.run_id,c.submission_id,a.configuration_id,a.configuration_digest,a.input_json,a.input_digest,a.anchor_json,a.evidence_json,a.gate_json,a.score_json,a.score,a.outcome,a.tie_order,a.assessment_digest,a.created_at FROM qualification_assessments a JOIN prospecting_candidates c ON c.id=a.candidate_id AND c.workspace_id=a.workspace_id WHERE a.workspace_id=? AND (? IS NULL OR c.profile_id=?) ORDER BY a.created_at DESC,a.id DESC").bind(workspace.id,profileId??null,profileId??null).all(),
+  database.prepare("SELECT p.id,p.profile_id,p.offer_id,p.candidate_id,p.assessment_id,p.revision,p.state,p.active,a.score,a.outcome,a.configuration_digest,a.assessment_digest,c.candidate_json,c.candidate_digest,account.id account_id,organization.canonical_name account_value,target.id target_id,COALESCE(json_extract(c.candidate_json,'$.targetValue'),json_extract(c.candidate_json,'$.targetName'),target.id) target_value FROM profile_prospects p JOIN qualification_assessments a ON a.id=p.assessment_id AND a.workspace_id=p.workspace_id JOIN prospecting_candidates c ON c.id=p.candidate_id AND c.workspace_id=p.workspace_id JOIN targets target ON target.id=json_extract(c.candidate_json,'$.targetId') AND target.workspace_id=p.workspace_id AND target.profile_id=p.profile_id JOIN accounts account ON account.id=target.account_id AND account.workspace_id=p.workspace_id AND account.id=json_extract(c.candidate_json,'$.accountId') JOIN organizations organization ON organization.id=account.organization_id AND organization.workspace_id=p.workspace_id WHERE p.workspace_id=? AND (? IS NULL OR p.profile_id=?) ORDER BY p.created_at DESC,p.id DESC").bind(workspace.id,profileId??null,profileId??null).all(),
+  database.prepare("SELECT ps.id,ps.profile_id,ps.signal_kind,pl.underlying_origin_identity FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id AND pl.workspace_id=ps.workspace_id WHERE ps.workspace_id=? AND ps.material=1 AND (? IS NULL OR ps.profile_id=?) ORDER BY ps.id").bind(workspace.id,profileId??null,profileId??null).all<{id:string;profile_id:string;signal_kind:string;underlying_origin_identity:string}>(),
+ ]);
+ const lineageKeys=[...new Map(materialLineages.results.map(row=>[`${row.profile_id}\u0000${row.signal_kind}\u0000${row.underlying_origin_identity}`,row])).entries()];
+ const canonicalLineages=new Map(await Promise.all(lineageKeys.map(async([key,row])=>[key,await readCanonicalMaterialLineage(database,{workspaceId:workspace.id,profileId:row.profile_id,kind:row.signal_kind,underlyingOriginIdentity:row.underlying_origin_identity})] as const)));
+ const lineageKeyBySignal=new Map(materialLineages.results.map(row=>[row.id,`${row.profile_id}\u0000${row.signal_kind}\u0000${row.underlying_origin_identity}`]));
+ const projectedEvidence=evidence.results.map((row:Record<string,unknown>)=>{const key=lineageKeyBySignal.get(String(row.id)),chain=key?canonicalLineages.get(key):undefined;return chain?{...row,canonicalMaterialLineage:chain.map(member=>({signalId:member.id,signalDigest:member.signal_digest,lineageId:member.lineage_id,lineageDigest:member.lineage_digest,occurredAt:Number(member.occurred_at)}))}:row;});
+ const [decisionRows,cooldownRows,reentryRows,runEventRows]=await Promise.all([
+  database.prepare("SELECT d.id,d.prospect_id,d.decision,d.reason,d.review_at,d.created_at decision_at,d.audit_event_id,a.actor_id owner_subject FROM prospect_review_decisions d JOIN audit_events a ON a.id=d.audit_event_id AND a.workspace_id=d.workspace_id WHERE d.workspace_id=? ORDER BY d.prospect_id,d.created_at,d.id").bind(workspace.id).all(),
+  database.prepare("SELECT id,prospect_id,review_decision_id,assessment_id,reason,starts_at,ends_at,status,created_at FROM prospect_cooldowns WHERE workspace_id=? ORDER BY prospect_id,created_at,id").bind(workspace.id).all(),
+  database.prepare("SELECT id,prospect_id,cooldown_id,signal_id,prior_assessment_id,event_kind,event_json,event_digest,authority_command_id,audit_event_id,created_at FROM prospect_reentry_events WHERE workspace_id=? ORDER BY prospect_id,created_at,id").bind(workspace.id).all(),
+  database.prepare("SELECT id,run_id,event_type,event_json,created_at FROM prospecting_run_events WHERE workspace_id=? ORDER BY run_id,created_at,id").bind(workspace.id).all(),
+ ]);
+ const runEvents=byKey(runEventRows.results as Record<string,unknown>[],"run_id");
+ const latestRunAssignments=[...new Map(runs.results.map((row:Record<string,unknown>)=>[String(row.id),row])).values()];
+ const projectedRuns=latestRunAssignments.map((row:Record<string,unknown>)=>{
+  const ledger=(runEvents[String(row.id)]??[]).map(event=>({...event,detail:safeJson(text(event.event_json))}));
+  const claims=ledger.filter(event=>event.detail.stage==="claim");
+  const terminal=ledger.filter(event=>event.detail.stage==="terminal").at(-1);
+  const assignmentLedger=safeJson(text(row.quota_json));
+  return {
+   ...row,
+   provider:text(assignmentLedger.provider)||"not assigned",
+   model:text(assignmentLedger.model)||"not assigned",
+   allowedTools:Array.isArray(assignmentLedger.allowedTools)?assignmentLedger.allowedTools:[],
+   quotas:object(assignmentLedger.quotas)??{},
+   attempt:terminal&&Number.isSafeInteger(terminal.detail.attempt)
+    ? Number(terminal.detail.attempt)
+    : claims.length?Math.max(...claims.map(event=>Number(event.detail.attempt))):null,
+   terminalReason:terminal?text(terminal.detail.terminalReason)||"not recorded":null,
+   terminalRetryable:terminal?.detail.retryable,
+   events:ledger.map(event=>({id:event.id,type:event.event_type,createdAt:Number(event.created_at),detail:event.detail})),
+  };
+ });
+ const now=Date.now(), byProspect=<T extends Record<string,unknown>>(rows:T[])=>rows.reduce((result,row)=>{const id=String(row.prospect_id);(result[id]??=[]).push(row);return result;},{} as Record<string,T[]>), decisions=byProspect(decisionRows.results), cooldowns=byProspect(cooldownRows.results), reentries=byProspect(reentryRows.results), prospectByAssessment=new Map(queue.results.map((row:Record<string,unknown>)=>[String(row.assessment_id),String(row.id)]));
+ for(const event of reentryRows.results as Record<string,unknown>[]){const detail=safeJson(text(event.event_json)),currentProspectId=text(detail.reenteredProspectId)||prospectByAssessment.get(text(detail.assessmentId));if(!currentProspectId||currentProspectId===text(event.prospect_id))continue;const history=reentries[currentProspectId]??=[];if(!history.some((entry)=>String(entry.id)===String(event.id)))history.push({...event,prior_prospect_id:event.prospect_id});reentries[currentProspectId]=history;}
+ const assessmentById=new Map(assessments.results.map((row:Record<string,unknown>)=>[String(row.id),row]));
+ const evidenceById=new Map(projectedEvidence.map((row:Record<string,unknown>)=>[String(row.id),row]));
+ const queueRows=queue.results.map((row:Record<string,unknown>)=>{
+  const history=decisions[String(row.id)]??[], cooldownHistory=cooldowns[String(row.id)]??[], reentryHistory=reentries[String(row.id)]??[], latestCooldown=cooldownHistory.at(-1);
+  const assessment=assessmentById.get(String(row.assessment_id));
+  const freshness=parseArray(text(assessment?.evidence_json)).map(source=>evidenceById.get(text(source.id))??source).map(source=>({
+   id:text(source.id),
+   retrievedAt:Number(source.retrieved_at??source.retrievedAt),
+   recency:recency(text(source.signal_json))==="account_context_reconfirmation_required"?"account_context_reconfirmation_required":text(source.recency)||"current",
+   tier:Number(source.source_tier??source.tier),
+   material:Boolean(source.material),
+  })).sort((a,b)=>b.retrievedAt-a.retrievedAt||a.id.localeCompare(b.id));
+  return {
+   ...row,
+   account:{id:text(row.account_id),value:text(row.account_value)},
+   target:{id:text(row.target_id),value:text(row.target_value)},
+   evidenceFreshness:{state:freshness.some(item=>item.recency==="account_context_reconfirmation_required")?"reconfirmation_required":freshness.length?"current":"unknown",sources:freshness,newestRetrievedAt:freshness[0]?.retrievedAt??null},
+   decisionHistory:history,
+   cooldownHistory,
+   reentryHistory,
+   cooldownState:reentryHistory.length?"reentered":latestCooldown?(Number(latestCooldown.ends_at)<=now?"expired":"active"):"none",
+  };
+ });
+ const paths=reviewLineage(queue.results as Record<string,unknown>[],reentryRows.results as Record<string,unknown>[],prospectByAssessment);
+ const lineageRows=queueRows.map(row=>{const history=paths.get(String(row.id))??[String(row.id)],reentryHistory=history.flatMap(id=>paths.events.get(id)??[]),decisionHistory=history.flatMap(id=>decisions[id]??[]),cooldownHistory=history.flatMap(id=>cooldowns[id]??[]),latestCooldown=cooldownHistory.at(-1);return {...row,decisionHistory:orderedUnique(decisionHistory),cooldownHistory:orderedUnique(cooldownHistory),reentryHistory:orderedUnique(reentryHistory),cooldownState:reentryHistory.length?"reentered":latestCooldown?(Number(latestCooldown.ends_at)<=now?"expired":"active"):"none"};});
+ return {authority:"owner",profiles:profiles.results,runs:projectedRuns,evidence:projectedEvidence,assessments:assessments.results,queue:lineageRows.filter((x)=>x.state==="qualified"&&x.active===1&&x.outcome==="Passed"),decisions:lineageRows,readiness:null};
+}
+async function workspaceFor(database:D1Database,principal:Principal){const w=await database.prepare("SELECT id FROM workspaces WHERE owner_subject IN (?,?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject,principal.legacySubject??principal.subject,principal.subject).first<{id:string}>();if(!w)throw fail("Private workspace unavailable");return w;}
+type SignalRow={id:string;source_lineage_id:string;signal_digest:string;material:number;source_tier:number;independence_group:string;occurred_at:number|null;retrieved_at:number;lineage_digest:string;signal_json:string};
+type PriorInactive={id:string;assessment_id:string;state:string;cooldown_id:string|null;starts_at:number|null;ends_at:number|null;status:string|null;decision_id:string|null;decision_digest:string|null;decision_at:number|null};
+function assessmentProjection(id:string,evaluation:MiningQualification,prospectId?:string){return{id,evaluation,prospectId:prospectId??null,queueState:evaluation.outcome==="Passed"&&prospectId?"qualified":"absent"};}
+/** A re-entry event is an immutable child-to-prior edge. Keep the walk local to
+ * the admitted workspace; malformed, ambiguous, or cyclic edges cannot add
+ * another prospect's history to the owner projection. */
+function reviewLineage(queue:Record<string,unknown>[],events:Record<string,unknown>[],prospectByAssessment:Map<string,string>){
+ const ids=new Set(queue.map(row=>String(row.id))),assessmentByProspect=new Map(queue.map(row=>[String(row.id),String(row.assessment_id)])),parents=new Map<string,Record<string,unknown>[]>(),eventHistory=new Map<string,Record<string,unknown>[]>();
+ for(const event of events){const prior=text(event.prospect_id),detail=safeJson(text(event.event_json)),claimed=text(detail.reenteredProspectId),inferred=prospectByAssessment.get(text(detail.assessmentId)),current=claimed||inferred;
+  if(!prior||!current||prior===current||!ids.has(prior)||!ids.has(current)||(claimed&&inferred&&claimed!==inferred)||(text(detail.assessmentId)&&assessmentByProspect.get(current)!==text(detail.assessmentId)))continue;
+  const edge={...event,prior_prospect_id:prior,reentered_prospect_id:current};const childEdges=parents.get(current)??[];childEdges.push(edge);parents.set(current,childEdges);const priorEvents=eventHistory.get(prior)??[];priorEvents.push(edge);eventHistory.set(prior,priorEvents);
+ }
+ for(const rows of parents.values())rows.sort(historyOrder);for(const rows of eventHistory.values())rows.sort(historyOrder);
+ const paths=new Map<string,string[]>();
+ for(const current of ids){const path=[current],seen=new Set(path);let cursor=current;
+  for(let depth=0;depth<32;depth++){const edge=parents.get(cursor)?.at(-1),prior=edge&&text(edge.prior_prospect_id);if(!prior||seen.has(prior))break;path.push(prior);seen.add(prior);cursor=prior;}
+  paths.set(current,path.reverse());
+ }
+ return Object.assign(paths,{events:eventHistory});
+}
+function historyOrder(a:Record<string,unknown>,b:Record<string,unknown>){return Number(a.created_at)-Number(b.created_at)||String(a.id).localeCompare(String(b.id));}
+function orderedUnique<T extends Record<string,unknown>>(rows:T[]){return [...new Map(rows.sort(historyOrder).map(row=>[String(row.id),row])).values()];}
+function safeJson(s:string){try{const x=JSON.parse(s);return x&&typeof x==="object"&&!Array.isArray(x)?x as Record<string,unknown>:{};}catch{return {};}}
+function parseArray(s:string):Record<string,unknown>[]{try{const x=JSON.parse(s);return Array.isArray(x)?x.filter((value):value is Record<string,unknown>=>Boolean(object(value))):[];}catch{return[];}}
+function byKey(rows:Record<string,unknown>[],key:string){return rows.reduce((result,row)=>{const id=String(row[key]);(result[id]??=[]).push(row);return result;},{} as Record<string,Record<string,unknown>[]>);}
+function object(x:unknown){return x&&typeof x==="object"&&!Array.isArray(x)?x as Record<string,unknown>:null;}
+function rubricDigest(manifest:string){const parsed=safeJson(manifest);if(typeof parsed.rubricDigest==="string"&&/^[a-f0-9]{64}$/.test(parsed.rubricDigest))return parsed.rubricDigest;const inputs=parsed.confirmedCategoryInputs;if(!inputs||typeof inputs!=="object"||Array.isArray(inputs))return"0".repeat(64);const rubric=(inputs as Record<string,unknown>).rubric;if(!Array.isArray(rubric)||rubric.length!==1)return"0".repeat(64);const digest=(rubric[0] as Record<string,unknown>|null)?.digest;return typeof digest==="string"&&/^[a-f0-9]{64}$/.test(digest)?digest:"0".repeat(64);}
+function recency(signal:string){return safeJson(signal).recency==="account_context_reconfirmation_required"?"account_context_reconfirmation_required":"current";}
+function text(x:unknown){return typeof x==="string"?x:"";} function number(x:unknown){return Number.isInteger(x)?x:0;} function validKey(x:string){return typeof x==="string"&&x.length>0&&x.length<=160;}
+function stable(v:unknown):string{if(Array.isArray(v))return`[${v.map(stable).join(",")}]`;if(v&&typeof v==="object"){const x=v as Record<string,unknown>;return`{${Object.keys(x).sort().map(k=>`${JSON.stringify(k)}:${stable(x[k])}`).join(",")}}`;}return JSON.stringify(v);}
+async function sha256(v:string){const data=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return Array.from(new Uint8Array(data),x=>x.toString(16).padStart(2,"0")).join("");}
+function fail(message:string){return new ProspectReviewError(message);}

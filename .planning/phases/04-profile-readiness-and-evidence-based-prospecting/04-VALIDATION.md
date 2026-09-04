@@ -52,6 +52,6 @@ Use the existing Node built-in test runner, Vite module loading, Miniflare D1 he
 - Before any source deployment: `cd site && npm test && npm run lint && npm run build`.
 - Before phase verification: all automated tests green plus every manual gate approved with redacted evidence references.
 
-## Planning blocker
+## Plan decomposition status
 
-This validation map is intentionally not decomposed into plan task IDs. That decomposition must wait for Phase 3’s actual schema/port/schedule authority and Phase 4’s resulting plan topology.
+This validation map is decomposed across the checked `04-01-PLAN.md` through `04-12-PLAN.md` sequence. That plan topology does not waive Phase 3 acceptance, the hosted runner/scheduler gates, independent review, or owner lifecycle UAT, and no Phase 4 summary exists.

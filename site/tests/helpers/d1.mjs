@@ -2,45 +2,53 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { createServer } from "vite";
+import { PHASE2_FORBIDDEN_TABLE_NAMES } from "../../scripts/phase2-hosted-contract.mjs";
 
-export const MIGRATION_FILENAMES = [
+export const PHASE2_MIGRATION_FILENAMES = [
   "0000_jittery_meteorite.sql",
   "0001_true_spencer_smythe.sql",
   "0002_eager_supreme_intelligence.sql",
   "0003_acoustic_magik.sql",
   "0004_consensus_knowledge.sql",
+];
+
+export const MIGRATION_FILENAMES = [
+  ...PHASE2_MIGRATION_FILENAMES,
   "0005_even_mastermind.sql",
+  "0006_private-proof-run-binding.sql",
+  "0007_profile_prospecting.sql",
+  "0008_controlled_enrichment.sql",
+  "0009_gorgeous_captain_universe.sql",
 ];
 
 const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, 4);
 const appliedMigrations = new WeakMap();
 
-export const FORBIDDEN_OPERATIONAL_TABLES = [
-  "profile_readiness_activations",
+export const PHASE4_PERSISTENCE_TABLES = [
+  "profile_configuration_candidates",
+  "profile_configuration_activations",
   "prospecting_schedules",
   "prospecting_runs",
+  "prospecting_run_events",
   "runner_assignments",
-  "runner_connections",
-  "runs",
-  "accounts",
-  "targets",
-  "signals",
-  "candidates",
-  "prospects",
-  "contacts",
-  "schedules",
-  "approval_grants",
-  "provider_grants",
-  "provider_calls",
-  "outreach_packages",
-  "outreach_package_approvals",
-  "message_versions",
-  "message_approvals",
-  "message_dispatches",
-  "manual_calls",
-  "export_jobs",
-  "external_effects",
+  "runner_assignment_revocations",
+  "runner_submissions",
+  "prospecting_source_lineage",
+  "prospecting_signals",
+  "prospecting_candidates",
+  "qualification_assessments",
+  "profile_prospects",
+  "prospect_review_decisions",
+  "prospect_cooldowns",
+  "prospect_reentry_events",
 ];
+
+export const FORBIDDEN_OPERATIONAL_TABLES = PHASE2_FORBIDDEN_TABLE_NAMES;
+const SENSITIVE_FORBIDDEN_TABLES = new Set([
+  "credential_records",
+  "provider_credentials",
+  "provider_secrets",
+]);
 
 export async function createD1Fixture(name = "prospector-authority-test") {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
@@ -61,8 +69,25 @@ export async function createD1Fixture(name = "prospector-authority-test") {
 }
 
 export async function applyMigrations(database, filenames = MIGRATION_FILENAMES) {
-  assert.deepEqual(filenames, MIGRATION_FILENAMES, "Authority fixtures require the exact 0000-0005 migration chain");
+  assert.deepEqual(filenames, MIGRATION_FILENAMES, "Authority fixtures require the exact 0000-0009 migration chain");
   await applyMigrationFiles(database, filenames);
+}
+
+export async function applyPhase2Migrations(database, filenames = PHASE2_MIGRATION_FILENAMES) {
+  assert.deepEqual(filenames, PHASE2_MIGRATION_FILENAMES, "Phase 2 fixtures require the exact 0000-0004 migration chain");
+  await applyMigrationFiles(database, filenames);
+}
+
+export async function applyControlledEnrichmentBaseMigrations(database) {
+  await applyMigrationFiles(database, MIGRATION_FILENAMES.slice(0, 9));
+}
+
+export async function applyControlledEnrichmentUpgrade(database) {
+  await applyMigrationFiles(database, MIGRATION_FILENAMES.slice(9));
+}
+
+export async function applyPhase4Migrations(database) {
+  await applyMigrationFiles(database, MIGRATION_FILENAMES.slice(0, 8));
 }
 
 async function applyLegacyMigrations(database) {
@@ -127,15 +152,24 @@ export async function snapshotForbiddenOperationalRows(database) {
   const snapshot = {};
   for (const table of FORBIDDEN_OPERATIONAL_TABLES) {
     const exists = await database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").bind(table).first();
-    snapshot[table] = exists
-      ? { present: true, count: await countRows(database, table) }
-      : { present: false, count: null };
+    if (!exists) {
+      snapshot[table] = { present: false, count: null, rows: null };
+      continue;
+    }
+    const count = await countRows(database, table);
+    if (SENSITIVE_FORBIDDEN_TABLES.has(table)) {
+      assert.equal(count, 0, `${table} must remain absent; sensitive values are never read into test output`);
+      snapshot[table] = { present: true, count, rows: [] };
+      continue;
+    }
+    const rows = (await database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).results;
+    snapshot[table] = { present: true, count, rows };
   }
   return snapshot;
 }
 
 export async function assertForbiddenOperationalRowsUnchanged(database, before) {
-  assert.deepEqual(await snapshotForbiddenOperationalRows(database), before, "Phase 3 authority commands must not create downstream operational effects");
+  assert.deepEqual(await snapshotForbiddenOperationalRows(database), before, "Authority commands must not create downstream operational effects");
 }
 
 export async function countRows(database, table, where = "1 = 1", bindings = []) {

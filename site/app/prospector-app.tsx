@@ -1,7 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { KnowledgeWorkspace } from "./knowledge/knowledge-workspace";
+import { DiscoveryWorkspace } from "./discovery/discovery-workspace";
+import {
+  ProspectingWorkspace,
+  type ProspectingProjection,
+} from "./prospecting/prospecting-workspace";
+import {
+  WORKSPACE_VIEWS,
+  workspaceViewFromParam,
+  workspaceViewParam,
+  type WorkspaceView,
+} from "./workspace-view";
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
 type CapabilityItem = {
@@ -20,28 +31,21 @@ export type CapabilityApiState = {
   overallStatus: CapabilityStatus;
   capabilities: CapabilityItem[];
 };
-type View = "Pilot Status" | "Morning Brief" | "Knowledge" | "Market Discovery" | "Review Queue" | "Prospects" | "Exports & History";
-
-const views: { label: View; key: string }[] = [
-  { label: "Pilot Status", key: "01" },
-  { label: "Morning Brief", key: "02" },
-  { label: "Knowledge", key: "03" },
-  { label: "Market Discovery", key: "04" },
-  { label: "Review Queue", key: "05" },
-  { label: "Prospects", key: "06" },
-  { label: "Exports & History", key: "07" },
-];
+const TORONTO_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Toronto",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 
 const signals = [
   { company: "Eldorado Gold", target: "McIlvenna Bay", signal: "First concentrate produced; ramp-up toward 4,900 t/d", score: 9, tier: "T1", age: "2h", status: "Review" },
   { company: "Boliden", target: "Odda expansion", signal: "Commissioning activity and production ramp underway", score: 8, tier: "T1", age: "4h", status: "Review" },
   { company: "Alamos Gold", target: "Island Gold Phase 3+", signal: "Shaft expansion enters operational transition", score: 8, tier: "T2", age: "6h", status: "Review" },
   { company: "Covalent Lithium", target: "Mt Holland", signal: "Concentrator optimization remains a stated priority", score: 7, tier: "T2", age: "9h", status: "Needs evidence" },
-];
-
-const discovery = [
-  { market: "Bulk materials terminals", fit: "High", reason: "Shared uptime and fragmented equipment-data problem", buyer: "Terminal operations director" },
-  { market: "Marine port operations", fit: "Medium", reason: "ONE capabilities transfer; proof and buyer language differ", buyer: "Port operations VP" },
 ];
 
 // Kept as a stable source-level copy contract while the rendered controls live in KnowledgeWorkspace.
@@ -51,15 +55,40 @@ export function ProspectorApp({
   initialView = "Pilot Status",
   initialAccess = "authorized",
   initialCapabilityState = null,
+  initialProspectingProjection = EMPTY_PROSPECTING_PROJECTION,
 }: {
-  initialView?: View;
+  initialView?: WorkspaceView;
   initialAccess?: "authorized" | "unauthorized";
   initialCapabilityState?: CapabilityApiState | null;
+  initialProspectingProjection?: ProspectingProjection;
 } = {}) {
-  const [view, setView] = useState<View>(initialView);
+  const [view, setView] = useState<WorkspaceView>(initialView);
   const [access, setAccess] = useState(initialAccess);
   const [profile, setProfile] = useState("Operating sites");
   const [query, setQuery] = useState("");
+  const handleUnauthorized = useCallback(
+    () => setAccess("unauthorized"),
+    [],
+  );
+  const navigateToView = useCallback((nextView: WorkspaceView) => {
+    setView(nextView);
+    const url = new URL(window.location.href);
+    const parameter = workspaceViewParam(nextView);
+    if (parameter) url.searchParams.set("view", parameter);
+    else url.searchParams.delete("view");
+    const destination = `${url.pathname}${url.search}${url.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (destination !== current) window.history.pushState(null, "", destination);
+  }, []);
+
+  useEffect(() => {
+    const restoreView = () => {
+      const parameter = new URL(window.location.href).searchParams.get("view");
+      setView(workspaceViewFromParam(parameter));
+    };
+    window.addEventListener("popstate", restoreView);
+    return () => window.removeEventListener("popstate", restoreView);
+  }, []);
 
   const filteredSignals = useMemo(
     () => signals.filter((item) => `${item.company} ${item.target} ${item.signal}`.toLowerCase().includes(query.toLowerCase())),
@@ -82,17 +111,16 @@ export function ProspectorApp({
         </div>
 
         <nav>
-          {views.map((item) => (
-            <button key={item.label} type="button" className={view === item.label ? "active" : ""} onClick={() => setView(item.label)}>
+          {WORKSPACE_VIEWS.map((item) => (
+            <button key={item.label} type="button" className={view === item.label ? "active" : ""} aria-current={view === item.label ? "page" : undefined} onClick={() => navigateToView(item.label)}>
               <span>{item.key}</span>{item.label}
-              {item.label === "Review Queue" && <em>4 sample</em>}
             </button>
           ))}
         </nav>
 
         <div className="rail-foot">
           <div className="runner"><i /><div><b>Codex runner</b><span>Not connected · fixture mode</span></div></div>
-          <button type="button" onClick={() => setView("Pilot Status")}>Pilot settings <span>→</span></button>
+          <button type="button" onClick={() => navigateToView("Pilot Status")}>Pilot settings <span>→</span></button>
         </div>
       </aside>
 
@@ -112,12 +140,17 @@ export function ProspectorApp({
         </div>
 
         <div className="content">
-          {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={() => setAccess("unauthorized")} />}
-          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={setView} />}
-          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={() => setAccess("unauthorized")} />}
-          {view === "Market Discovery" && <MarketDiscovery />}
-          {view === "Review Queue" && <ReviewQueue items={filteredSignals} />}
-          {view === "Prospects" && <Prospects items={filteredSignals} />}
+          {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
+          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={navigateToView} />}
+          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} />}
+          {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
+          {(view === "Review Queue" || view === "Prospects") && (
+            <ProspectingWorkspace
+              projection={initialProspectingProjection}
+              mode={view === "Review Queue" ? "review" : "prospects"}
+              onUnauthorized={handleUnauthorized}
+            />
+          )}
           {view === "Exports & History" && <Exports />}
         </div>
       </section>
@@ -346,11 +379,10 @@ function capabilitySentence(item: CapabilityItem) {
 }
 
 function formatToronto(value: number) {
-  return new Date(value).toLocaleString("en-CA", {
-    timeZone: "America/Toronto",
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const parts = TORONTO_TIMESTAMP_FORMATTER.formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")} America/Toronto`;
 }
 
 function normalizeCapabilityState(value: unknown): CapabilityApiState {
@@ -408,7 +440,7 @@ async function fetchCapabilityState(): Promise<
   };
 }
 
-function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: View) => void }) {
+function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: WorkspaceView) => void }) {
   return <>
     <PageHeading eyebrow="WEDNESDAY · 29 JULY · SYNTHETIC FIXTURE" title="Good morning, Steven." copy="A non-operational example of how evidence-backed work will be separated from decisions." action={<button className="primary" type="button" disabled title="Available after Wave 0">Prospecting disabled</button>} />
 
@@ -464,18 +496,15 @@ function SignalRow({ item }: { item: (typeof signals)[number] }) {
   </article>;
 }
 
-function MarketDiscovery() {
-  return <><PageHeading eyebrow="PRODUCT · ONE · SYNTHETIC FIXTURE" title="Market Discovery" copy="An interaction example only. No proposal is persisted or activated." action={<button className="primary" type="button" disabled title="Available after Wave 0">Discovery disabled</button>} /><div className="proposal-grid">{discovery.map((item) => <article className="panel proposal" key={item.market}><span className="fit-pill">Synthetic · {item.fit} fit</span><h2>{item.market}</h2><p>{item.reason}</p><dl><div><dt>Likely buyer</dt><dd>{item.buyer}</dd></div><div><dt>Risk</dt><dd>Proof and language need market validation</dd></div></dl><div className="proposal-actions"><button type="button" disabled>Explore disabled</button><button type="button" disabled>Defer disabled</button><button type="button" disabled>Dismiss disabled</button></div></article>)}</div></>;
-}
-
-function ReviewQueue({ items }: { items: typeof signals }) {
-  return <><PageHeading eyebrow="OPERATING SITES · SYNTHETIC FIXTURE" title="Review Queue" copy="A layout preview. Qualification and decisions are not yet operational." /><section className="panel queue"><div className="queue-head"><span>SCORE</span><span>PROSPECT & SIGNAL</span><span>EVIDENCE</span><span>DECISION</span></div>{items.map((item) => <SignalRow key={item.company} item={item} />)}</section></>;
-}
-
-function Prospects({ items }: { items: typeof signals }) {
-  return <><PageHeading eyebrow="ONE FOR MINING · SYNTHETIC FIXTURE" title="Prospect Workspace" copy="A layout preview. No account or qualification shown here exists in live storage." /><section className="prospect-grid">{items.map((item) => <article className="panel prospect-card" key={item.company}><div className="prospect-top"><span>Synthetic · {item.tier}</span><b>{item.score}/10 sample</b></div><h2>{item.company}</h2><p>{item.target}</p><div className="mini-steps"><i className="on" /><i className="on" /><i /><i /><i /></div><small>Fixture candidate · not operationally qualified</small><button className="outline" type="button" disabled>Prospect disabled</button></article>)}</section></>;
-}
-
 function Exports() {
   return <><PageHeading eyebrow="PORTABILITY & HANDOFF" title="Exports & History" copy="These controls stay disabled until live eligibility and restore safety are proven." /><div className="export-grid"><section className="panel export-card"><span className="file-mark">CSV</span><h2>CRM Handoff</h2><p>Planned: one row per verified, non-suppressed contact with stable Prospect IDs and approved package references.</p><dl><div><dt>Eligible now</dt><dd>0 live prospects</dd></div><div><dt>Last export</dt><dd>Never</dd></div></dl><button className="primary" type="button" disabled title="Available after Wave 3">CSV disabled</button></section><section className="panel export-card"><span className="file-mark safe">LOCK</span><h2>Company Workspace Export</h2><p>Planned: encrypted, versioned, integrity-checked knowledge, history, objects, and suppression tombstones.</p><dl><div><dt>Restore drill</dt><dd>Not yet completed</dd></div><div><dt>Hosted retention</dt><dd>Not activated</dd></div></dl><button className="outline" type="button" disabled title="Available after Wave 0">Export disabled</button></section></div></>;
 }
+
+const EMPTY_PROSPECTING_PROJECTION: ProspectingProjection = Object.freeze({
+  authority: "owner",
+  readiness: null,
+  runs: [],
+  evidence: [],
+  assessments: [],
+  queue: [],
+});

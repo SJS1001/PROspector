@@ -53,7 +53,7 @@ test("the knowledge route remains trusted-identity-only and does not expose an u
     );
   }
   const source = await readFile(routeUrl, "utf8");
-  assert.match(source, /getChatGPTUser/);
+  assert.match(source, /runtimeIdentity/);
   assert.doesNotMatch(source, /authenticated-user-email|request\.headers/i);
   assert.doesNotMatch(source, /multipart|formData\(|file upload|uploadFile/i);
 });

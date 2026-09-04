@@ -2,22 +2,126 @@
 
 This ledger is status-only evidence. It **never grants authority**, changes a gate, authorizes a deployment, or substitutes for a human decision. `human_needed` is a pause and never completes a task.
 
+## Controlling greenfield disposition — 2026-08-27
+
+The owner permanently retired the inaccessible original project and prohibited
+all further access attempts. Its journal, schema, and provider provenance are
+intentionally waived because no original state will be reused. This waiver is
+not proof that a migration occurred and does not accept any historical schema.
+
+Active work starts from the checked repository plus a new empty local database
+under Plan 02-22. The incident reconciliation, Plan 02-21, and the old recovery
+Plan 02-99 are retired history. New Plan 02-99 separately blocks any future
+hosted acceptance until a newly provisioned greenfield target proves its own
+empty baseline, exact checked source/migrations, private boundary, and zero
+effects. No hosted write or target provisioning is authorized now.
+
+## Current greenfield continuation — 2026-09-03
+
+Under separate owner authorizations, Stage 1 created one fresh D1 database and
+one private R2 bucket, and Stage 2 applied the checked `0000`–`0009` migration
+chain. Read-only evidence records the exact ten-row journal and expected schema,
+zero application rows, clean integrity, and zero completed R2 objects. No
+Worker/version, Access policy, secret, route, deployment, application request,
+provider, export, or outbound effect exists. Cloudflare rejected the original
+one `versions upload` bootstrap attempt before creation because a new Worker
+requires a first deployment; it was not retried and caused no hosted delta. On
+2026-09-03 the owner then authorized the revised Stage 3A procedure: update and
+validate the runbook/verifier, perform exactly one initial `wrangler deploy`
+with public and scheduled ingress disabled, and stop after read-only proof.
+That command created exactly one bootstrap version and one 100% deployment and
+reported no route target, then returned nonzero when its empty-schedule PUT was
+forbidden. It was not retried. Authenticated read-only dashboard evidence
+proves production and preview routing disabled, no route/custom domain, and
+zero Cron triggers; version preview-capability metadata is not route state.
+The corrected verifier accepts the exact lineage and the unreachable bootstrap
+checkpoint passed. Full D1/R2 zero-delta reads passed. Access, secrets, runtime-candidate generation,
+another upload, routes, requests, and effects remain separately gated. This
+partial target is not Plan 02-99 acceptance.
+
+The owner then separately authorized and personally completed Stage 3B0
+onboarding. Read-only verification proved the exact non-secret
+`digitalrain-prospector` team, Zero Trust Free plan, and the automatically
+provisioned Cloudflare identity provider with account-member restriction
+enabled. No Access application/policy, Worker route, secret, upload, request,
+or effect was created. Stage 3B0 is complete. On 2026-09-04 the owner explicitly
+confirmed email entry and reusable-policy save. The dedicated exact-owner
+policy is saved and independently verified with required Cloudflare login,
+inherited duration, and zero application associations. All traffic and one
+hour are selected in the Worker attachment dialog but unapplied pending
+confirmation. No Worker association or effective one-hour session is claimed.
+Both URL switches remain off with no route/custom domain; D1/R2 and Cron
+evidence was not recollected. See `02-99-STAGE3-EVIDENCE.md`.
+
 | Release stage | Status | Non-authorizing evidence field |
 |---|---|---|
-| Phase 1 real-principal prerequisite | status: blocked (`human_needed`, 2026-07-30) | Existing project resolved as owner-only; no controlled second real principal/zero-delta evidence is available. |
-| Old-schema preflight | status: blocked (`human_needed`, 2026-07-30) | Sites project access is confirmed, but no approved hosted-D1 query/result-adapter surface is available; no deploy or migration was attempted. |
-| Compatibility deployment | status: blocked | existing private Sites project deployment identifier: pending |
-| Additive 0004 | status: blocked | migration identifier / timestamp: pending |
-| Post-migration proof | status: blocked | counts / foreign-key status / opaque digest reference: pending |
-| Independent review | status: blocked | independent review reference: pending |
-| Exact-source deployment | status: blocked | reviewed source digest / deployment identifier: pending |
-| Post-deploy real-principal/negative/log proof | status: blocked | boundary proof reference / redacted timestamp: pending |
-| Explicit consensus_knowledge authorization | status: blocked | owner authorization reference: pending |
-| Gate activation | status: blocked | exact tuple digest / accepted timestamp: pending |
-| Owner lifecycle | status: blocked | owner lifecycle evidence reference: pending |
+| Greenfield local baseline | status: **Plan 02-22 complete; local only** | Reproduced an empty disposable database from the checked migration chain and explicitly recorded no original-project migration claim. |
+| Future greenfield target | status: **partially provisioned; Stage 2, revised Stage 3A, and Stage 3B0 complete; Stage 3B policy saved but unattached** | Recorded exact D1/R2 and bootstrap evidence remains the baseline. Both URL switches and absent routes were rechecked on 2026-09-04. The dedicated reusable policy has one owner-email Allow rule, required Cloudflare login, inherited duration, and zero application associations. Worker attachment/effective session, secrets, final runtime version, principals, and owner acceptance remain unverified. |
+| Phase 1 real-principal prerequisite | status: historical evidence only; fresh greenfield proof required | The 2026-08-01 redacted evidence belonged to the retired Sites release. It cannot satisfy Plan 02-99; the new target must prove owner/non-owner isolation and zero state delta independently. |
+| Old-schema preflight | status: historical acceptance; current reliance blocked | The owner accepted redacted Plan 02-12 evidence on 2026-08-01. The later live-schema observation does not establish when the schema diverged, so this evidence cannot classify the current database or restore Plan 02-13 acceptance. |
+| Compatibility deployment | status: **incident-blocked; acceptance invalidated 2026-08-24** | The required schema-0003/no-migration premise is contradicted by the supplied read-only live observation, and Git proves the deployed source was not the reviewed Phase 2 lineage. The historical Plan 02-13 summary is superseded by the forensic report. |
+| Read-only incident reconciliation | status: **retired incomplete history** | The partial observations remain historical; missing provenance is waived because no original state will be reused. Do not resume collection. |
+| Recovery design and independent review | status: **retired** | Plan 02-21 is outside executor discovery. Original-target recovery is permanently abandoned. |
+| Recovery plan drafting authorization | status: **not authorized** | A new exact owner decision naming the classified target, design path/digest, backup/restore requirements, intended actor, review, and stop conditions may authorize only drafting and checking a future path-specific plan. It cannot authorize that uncreated plan to run. |
+| Recovery write authorization | status: **not authorized** | A future checked plan must require a separate artifact-bound owner checkpoint after implementation, local rehearsal, backup/restore proof, and independent exact-artifact review. |
+| Terminal Phase 2 verification and acceptance | status: **new Plan 02-99 incomplete** | Requires separately authorized evidence from one future new empty greenfield target. It performs no hosted action and cannot summarize from local proof. |
+| Additive 0004 | status: **permanently non-executable for current target** | The clean schema-0003 premise is false for the current target. Do not apply either known 0004 file over the live state. |
+| Post-migration proof | status: non-executable; replan required | Plans 02-15 through 02-20 require a new exact baseline after an authorized recovery and cannot resume from Plan 02-14's original contract. |
+| Independent review | status: non-executable | No reconciled source/schema artifact exists for review. |
+| Exact-source deployment | status: non-executable | Reconciled immutable source and target-bound evidence are absent. |
+| Post-deploy real-principal/negative/log proof | status: non-executable | Upstream incident reconciliation and reviewed deployment are absent. |
+| Explicit consensus_knowledge authorization | status: non-executable | Upstream release stages are unaccepted. |
+| Gate activation | status: non-executable; gate absent | Preserve the absent gate. No gate writer or activation is authorized. |
+| Owner lifecycle | status: non-executable | Upstream release and activation stages are unaccepted. |
 
-The existing private Sites project must be reused without clone, replace, delete, rename, or public exposure. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after the later exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
+The original project must not be accessed or reused. The fresh greenfield target has the recorded D1/R2 resources and unreachable bootstrap Worker version/deployment. Both URL switches and absent routes were rechecked on 2026-09-04; zero Cron remains prior evidence. Stage 3B0 established the Zero Trust organization and restricted default identity provider. Stage 3B has now saved only the dedicated reusable policy; no Worker Access application exists yet. Secrets are never revealed, rotated, or removed. Arbitrary file upload remains disabled: only bounded UTF-8 `import_plain_text` to Proposed Knowledge can be considered after a future target's exact `consensus_knowledge` gate activation. Multipart/file upload, batch promotion, filename or path authority, HTML/binary parser dispatch, operational imports, and every later effect remain disabled. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, Runners, Gmail, calling, messaging, and outbound effects remain disabled.
 
 No automated test, local fixture, status row, deployment record, digest, or text in this ledger can satisfy an absent human evidence requirement.
 
-The 2026-07-30 inspection was read-only. It confirmed the exact existing project remains active, private/custom, owner-only, and at saved version 10 with zero accepted editors. No access policy, secret, deployment, database, object, or gate state was changed. Plan 02-12 remains incomplete and no `02-12-SUMMARY.md` exists.
+The 2026-07-30 inspection was read-only. It confirmed the exact existing project remains active, private/custom, owner-only, and at saved version 10 with zero accepted editors. No access policy, secret, deployment, database, object, or gate state was changed.
+
+## Historical checkpoints and incident disposition
+
+On 2026-08-01, the resolving owner account restored the existing project from
+temporary public access to its custom owner-only policy. Later that day, the
+owner accepted a redacted evidence set for Plan 02-12 and then accepted the
+Plan 02-13 route observations as a schema-0003 compatibility deployment. Those
+records remain historical evidence of what was reported and accepted at the
+time; raw hosted evidence remains outside Git.
+
+The committed 2026-08-24 forensic report supersedes the Plan 02-13 acceptance
+and its release-order conclusion. A supplied read-only owner observation found
+0004-created tables while the gate remained empty. Git also proves that the
+deployed source was reconstructed from superseded blobs rather than the
+reviewed Phase 2 lineage. The observation does not prove which migration SQL
+ran, whether it ran completely, what the migration journal records, or which
+actor or mechanism wrote the schema. The exact applied migration digest and
+actor therefore remain unknown.
+
+Plans 02-13 through 02-21 and the old recovery Plan 02-99 are now retired and
+earn no completion credit. Their former original-target recovery steps are
+non-executable. All hosted writes remain frozen: do not deploy, migrate,
+compensate, restore, alter access, modify secrets, or provision a target. See
+`docs/GREENFIELD-BASELINE.md` for the controlling decision; the forensic report
+and `02-INCIDENT-RECONCILIATION.md` remain historical evidence only.
+
+## 2026-08-25 constrained read-only classification
+
+The owner-authorized inspection resolved the same private owner-only project at
+saved version 11/source `e07e3f9`, found zero activation-gate rows, and obtained
+a complete 42-table user-table overview. The live `knowledge_drifts`,
+`replacement_candidates`, and `knowledge_versions` column signatures exclude
+a complete reviewed `b93c71d…` migration and align with a superseded
+pre-`e66dbf0` family. They cannot distinguish exact `aa89768…` from another
+intermediate variant without the missing journal, canonical schema,
+trigger/index/foreign-key, and provider-audit evidence. No tables from the
+normal 0005 through 0009 chain were observed. This is a constrained
+`partial/mixed/unknown` classification, not recovery authority.
+
+The connector exposed no arbitrary read-only SQL for `d1_migrations`,
+`sqlite_schema`, triggers, indexes, foreign keys, or provider audit. The
+remaining evidence must come from a provider-supported read-only
+database/control-plane view. The browser session deliberately avoided
+application API calls that could issue or consume a CSRF token. No hosted
+write, route mutation, deployment, access change, secret operation, repair,
+restore, or gate action occurred.

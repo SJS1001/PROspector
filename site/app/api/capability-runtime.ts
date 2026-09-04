@@ -8,9 +8,12 @@ import {
 import type { CapabilityHandlerDependencies } from "../../domain/capability-handler";
 import { consumeCsrfToken, issueCsrfToken } from "../../domain/csrf";
 import type { InterviewPrincipal } from "../../domain/interview";
-import { getChatGPTUser } from "../chatgpt-auth";
+import {
+  runtimeIdentity,
+  type RuntimeIdentityBindings,
+} from "../runtime-identity";
 
-export type CapabilityBindings = {
+export type CapabilityBindings = RuntimeIdentityBindings & {
   DB: D1Database;
   FILES?: R2Bucket;
   OWNER_SUBJECT_PEPPER: string;
@@ -25,10 +28,7 @@ export function capabilityDependencies(
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     getIdentity: async () => {
-      const user = await getChatGPTUser();
-      return user
-        ? { email: user.email, displayName: user.displayName }
-        : null;
+      return runtimeIdentity(undefined, bindings);
     },
     getWorkspace: (principal) => workspaceFor(bindings.DB, principal),
     readEvidence: (workspaceId) => readEvidence(bindings.DB, workspaceId),

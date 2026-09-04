@@ -78,19 +78,6 @@ async function seedProductAuthority(
   const product = model.products.find((node) => node.name === "ONE");
   assert.ok(product, "the Phase 2 commercial aggregate must expose ONE");
 
-  if (removeDescendants) {
-    await fixture.database
-      .prepare(
-        "DELETE FROM customer_profiles WHERE play_id IN (SELECT id FROM market_plays WHERE product_id = ?)",
-      )
-      .bind(product.id)
-      .run();
-    await fixture.database
-      .prepare("DELETE FROM market_plays WHERE product_id = ?")
-      .bind(product.id)
-      .run();
-  }
-
   const confirmed = [];
   const proposed = [];
   for (const [index, category] of REQUIRED_CATEGORIES.entries()) {
@@ -129,6 +116,22 @@ async function seedProductAuthority(
     }
   }
 
+  // Knowledge commands intentionally ensure the Phase 2 commercial seed exists.
+  // Remove descendants after those commands so this fixture proves Product
+  // readiness is independent of Market Play and Profile existence.
+  if (removeDescendants) {
+    await fixture.database
+      .prepare(
+        "DELETE FROM customer_profiles WHERE play_id IN (SELECT id FROM market_plays WHERE product_id = ?)",
+      )
+      .bind(product.id)
+      .run();
+    await fixture.database
+      .prepare("DELETE FROM market_plays WHERE product_id = ?")
+      .bind(product.id)
+      .run();
+  }
+
   const row = await fixture.database
     .prepare("SELECT id, lifecycle, revision FROM products WHERE id = ?")
     .bind(product.id)
@@ -157,7 +160,8 @@ test("migration/schema/forbidden Phase 3 authority is additive, constrained, and
   const fixture = await createD1Fixture("product-discovery-schema");
   try {
     await applyMigrations(fixture.database);
-    assert.match(MIGRATION_FILENAMES.at(-1), /^0005_[a-z0-9_]+\.sql$/);
+    assert.ok(MIGRATION_FILENAMES.some((name) => /^0005_[a-z0-9_]+\.sql$/.test(name)));
+    assert.ok(MIGRATION_FILENAMES.some((name) => /^0006_[a-z0-9_-]+\.sql$/.test(name)));
 
     const requiredTables = [
       "product_discovery_configuration_prerequisites",
@@ -746,42 +750,50 @@ test("D-04 confirmed Product replacement activation creates one immutable materi
       owner,
       {
         proposalId: proposed.id,
-        decision: "correct",
-        correction: { excerpt: "Materially changed confirmed capability policy." },
-        predecessorVersionId: current.id,
+        decision: "accept",
         expectedRevision: proposed.revision,
         idempotencyKey: key(453),
       },
     );
+    const eligible = (
+      await authority.replacement.readEligibleReplacementCandidates(
+        fixture.database,
+        owner,
+      )
+    ).find(
+      (item) =>
+        item.currentVersionId === current.id &&
+        item.proposedVersionId === changed.version.id,
+    );
+    assert.ok(
+      eligible?.candidate,
+      "the replacement candidate must be created from the exact server projection",
+    );
     const candidate = await authority.replacement.createReplacementCandidate(
       fixture.database,
       owner,
+      { ...eligible.candidate, idempotencyKey: key(454) },
+    );
+    const drift = await fixture.database
+      .prepare(
+        "SELECT kd.proposal_id, kp.revision FROM knowledge_drifts kd JOIN knowledge_proposals kp ON kp.id = kd.proposal_id AND kp.workspace_id = kd.workspace_id WHERE kd.proposed_version_id = ? AND kd.workspace_id = (SELECT workspace_id FROM products WHERE id = ?) LIMIT 1",
+      )
+      .bind(changed.version.id, authority.product.id)
+      .first();
+    await authority.knowledge.reviewKnowledgeProposal(
+      fixture.database,
+      owner,
       {
-        currentVersionId: current.id,
-        proposedVersionId: changed.version.id,
-        ownerType: "product",
-        ownerId: authority.product.id,
-        kind: "product_discovery",
-        manifest: {
-          ...ready.configuration.manifest,
-          confirmedVersions: exactVersions([
-            ...authority.confirmed.filter((version) => version.id !== current.id),
-            changed.version,
-          ]),
-        },
-        riskKind: "capability",
-        dependencyEdges: [
-          {
-            fromType: "version",
-            fromId: current.id,
-            toType: "configuration",
-            toId: ready.configuration.id,
-          },
-        ],
-        artifacts: [],
-        expectedOwnerRevision: ready.configuration.revision,
-        idempotencyKey: key(454),
+        proposalId: drift.proposal_id,
+        decision: "accept",
+        expectedRevision: drift.revision,
+        idempotencyKey: key(458),
       },
+    );
+    const reviewedCandidate = await authority.replacement.readReplacementState(
+      fixture.database,
+      owner,
+      candidate.id,
     );
     const activated = await authority.replacement.activateReplacement(
       fixture.database,
@@ -790,7 +802,7 @@ test("D-04 confirmed Product replacement activation creates one immutable materi
         candidateId: candidate.id,
         impactDigest: candidate.impactDigest,
         expectedOwnerRevision: ready.configuration.revision,
-        expectedCandidateRevision: candidate.revision,
+        expectedCandidateRevision: reviewedCandidate.revision,
         idempotencyKey: key(455),
       },
     );

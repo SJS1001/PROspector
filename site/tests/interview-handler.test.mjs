@@ -99,7 +99,7 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
       new URL("../app/api/interview/route.ts", import.meta.url),
       "utf8",
     );
-    assert.match(routeSource, /getChatGPTUser/);
+    assert.match(routeSource, /runtimeIdentity/);
     assert.doesNotMatch(routeSource, /authenticated-user-email|request\.headers/i);
   } finally {
     await vite.close();

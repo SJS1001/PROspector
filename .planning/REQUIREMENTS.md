@@ -9,14 +9,14 @@ Requirements for the initial private operating pilot. Each requirement maps to e
 
 ### Product Boundary and Workspace
 
-- [x] **REQ-private-human-governed-gtm**: The operator can use PROspector as a private, human-governed go-to-market workspace in which consequential knowledge and external actions require explicit confirmation, no workflow silently authorizes spend or outreach, and no CRM opportunity/revenue model is introduced.
-- [x] **REQ-company-workspace-isolation**: The owner can operate exactly one isolated Company Workspace whose data is not pooled, whose pilot invitations are disabled, and whose history is auditable and exportable.
+- [ ] **REQ-private-human-governed-gtm**: The operator can use PROspector as a private, human-governed go-to-market workspace in which consequential knowledge and external actions require explicit confirmation, no workflow silently authorizes spend or outreach, and no CRM opportunity/revenue model is introduced.
+- [ ] **REQ-company-workspace-isolation**: The owner can operate exactly one isolated Company Workspace whose data is not pooled, whose pilot invitations are disabled, and whose history is auditable and exportable.
 
 ### Commercial Knowledge
 
-- [x] **REQ-commercial-hierarchy**: The operator can represent `Company -> Product -> Market Play -> Customer Profile -> Offer`, with Company-wide Organization/Contact identity and Market Play-specific Account, Target, relevance, evidence, qualification, and outreach state.
-- [x] **REQ-consensus-interview**: The operator can complete a research-first, one-question-at-a-time Consensus Interview that visibly separates evidence, inference, recommendation, and confirmed knowledge and records explicit confirmation, correction, rejection, or rescoping.
-- [x] **REQ-versioned-knowledge-and-drift**: The operator can review Proposed Knowledge and drift without mutating Confirmed Knowledge or active typed configurations in place; replacement activation preserves snapshots, invalidates affected approvals, and pauses only dependency-reached high-risk outbound.
+- [ ] **REQ-commercial-hierarchy**: The operator can represent `Company -> Product -> Market Play -> Customer Profile -> Offer`, with Company-wide Organization/Contact identity and Market Play-specific Account, Target, relevance, evidence, qualification, and outreach state.
+- [ ] **REQ-consensus-interview**: The operator can complete a research-first, one-question-at-a-time Consensus Interview that visibly separates evidence, inference, recommendation, and confirmed knowledge and records explicit confirmation, correction, rejection, or rescoping.
+- [ ] **REQ-versioned-knowledge-and-drift**: The operator can review Proposed Knowledge and drift without mutating Confirmed Knowledge or active typed configurations in place; replacement activation preserves snapshots, invalidates affected approvals, and pauses only dependency-reached high-risk outbound.
 
 ### Product Discovery
 
@@ -71,11 +71,11 @@ These items are acknowledged directions, not committed v1 scope. Promotion to v1
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-private-human-governed-gtm | Phase 1 | Complete |
-| REQ-company-workspace-isolation | Phase 1 | Complete |
-| REQ-commercial-hierarchy | Phase 2 | Complete |
-| REQ-consensus-interview | Phase 2 | Complete |
-| REQ-versioned-knowledge-and-drift | Phase 2 | Complete |
+| REQ-private-human-governed-gtm | Phase 1 | Local implementation complete; greenfield acceptance pending under Plan 02-99 |
+| REQ-company-workspace-isolation | Phase 1 | Local implementation complete; greenfield identity/isolation acceptance pending under Plan 02-99 |
+| REQ-commercial-hierarchy | Phase 2 | Local implementation complete; terminal Phase 2 acceptance pending under Plan 02-99 |
+| REQ-consensus-interview | Phase 2 | Local implementation complete; terminal Phase 2 acceptance pending under Plan 02-99 |
+| REQ-versioned-knowledge-and-drift | Phase 2 | Local implementation complete; terminal Phase 2 acceptance pending under Plan 02-99 |
 | REQ-product-readiness | Phase 3 | Pending |
 | REQ-market-discovery | Phase 3 | Pending |
 | REQ-profile-readiness | Phase 4 | Pending |
@@ -98,4 +98,4 @@ These items are acknowledged directions, not committed v1 scope. Promotion to v1
 
 ---
 *Requirements defined: 2026-07-29*  
-*Last updated: 2026-07-29 after approved ingest synthesis and roadmap creation*
+*Last updated: 2026-09-03 after the completion precheck reconciled local plan credit with the still-pending greenfield acceptance gate*

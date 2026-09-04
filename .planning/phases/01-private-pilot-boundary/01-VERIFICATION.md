@@ -1,10 +1,13 @@
 ---
 phase: 01-private-pilot-boundary
 verified: 2026-07-30T16:03:18Z
-status: human_needed
-score: 7/8 must-haves verified
+status: superseded
+score: 7/8 historical must-haves verified; retired hosted release not accepted
 overrides_applied: 0
-human_verification:
+superseded_at: 2026-09-03T02:05:35Z
+superseded_by: 02-99-PLAN.md greenfield hosted acceptance
+human_verification: []
+retired_human_verification:
   - test: "Use a controlled second real Sites principal against the production app, interview API, capability API, and capability-probe route, then inspect owner-side state."
     expected: "Every surface returns only neutral denial and the owner confirms zero new workspace, object, proof, CSRF, interview, knowledge, or audit state."
     why_human: "The hosting boundary must assert the second identity; local identities, mocks, and forged headers cannot prove this condition."
@@ -23,8 +26,25 @@ human_verification:
 
 **Phase Goal:** The owner can safely use a private, isolated, portable pilot boundary in which human authority is explicit and unproven capabilities cannot expose sensitive data or create external effects.
 **Verified:** 2026-07-30T16:03:18Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Status:** SUPERSEDED — historical evidence only
+**Re-verification:** No — the referenced Sites release was retired before its
+four hosted checks were completed
+
+## Supersession Notice
+
+This report records the July 2026 verification state of the now-inaccessible
+Sites release. On 2026-08-27 the owner permanently retired that target and
+selected a clean greenfield baseline without reusing its data, objects,
+credentials, deployment, or provenance. The four checks formerly listed as
+active human verification below were **not performed and are not passed**. They
+must not be attempted against the retired target.
+
+Their current equivalents are terminal gates in Phase 2 Plan 02-99 against a
+separately authorized greenfield target: real owner/non-owner identity proof,
+authenticated negative-mutation and zero-delta proof, hosted secret/log
+hygiene, and fresh independent review of the exact reachable release. This
+supersession removes stale operational work; it does not turn historical local
+or hosted evidence into greenfield acceptance.
 
 ## Goal Achievement
 
@@ -39,7 +59,7 @@ human_verification:
 | 5 | The owner can see an auditable Pilot Status surface while leads, contacts, credentials, imports, schedules, exports, outreach, paid work, runners, and provider effects remain disabled. | ✓ VERIFIED | Server-rendered `Home` obtains the owner-only capability model before rendering (`site/app/page.tsx:9-30`). `PilotStatus` renders status counts, timestamps/references, eight capability cards, and the unavailable-effects boundary; fixture controls are natively disabled (`site/app/prospector-app.tsx:108-126,144-280`). Render and fixture-safety tests pass. |
 | 6 | The fixed R2 proof performs write/read/digest/delete/absence inside the admitted workspace and records auditable minimized evidence; any failed step cannot prove storage. | ✓ VERIFIED | `runObjectStorageProof` executes and checks all five steps, attempts cleanup, and returns Blocked on failure (`site/domain/capabilities.ts:204-268`). The R2 adapter cannot escape its hashed workspace prefix. Runtime wiring records the result to workspace-scoped `audit_events` (`site/app/api/capability-runtime.ts:43-49,123-150`). Success, corrupt-read, delete-failure, and residual-object tests pass. |
 | 7 | A redacted hosted record binds exact source/deployment provenance and records owner D1/R2 durability, anonymous denial, audit visibility, and provider-neutral behavior without operational data in Git. | ✓ VERIFIED | `01-HOSTED-PROOF.md` identifies application commit `e74ed96`, Sites source `d6b3b619...`, version 10, deployment, R2 five-step evidence, durable reload reference, and owner D1 lifecycle identifiers. The production denied-mode harness independently passed during this verification with HTTP 401 and neutral output. Repository searches found secret *names* only in server wiring/docs, not values. The provider-specific R2 type is confined to the adapter. |
-| 8 | The exact hosted release is proven against a real second principal and authenticated negative mutations, its secret/log hygiene is control-plane verified, and the post-change version has fresh independent red-team approval. | ? UNCERTAIN | `01-HOSTED-PROOF.md` explicitly marks controlled second-principal denial and zero-delta checks pending, hosted foreign-origin/missing-CSRF/malformed/replay checks pending, and the fresh red-team stage `REDTEAM-BLOCKED`. Existing independent CLEAN reviews target version 8, while security-sensitive CSRF/log changes produced version 10. These require the human checks in this report. |
+| 8 | The exact hosted release is proven against a real second principal and authenticated negative mutations, its secret/log hygiene is control-plane verified, and the post-change version has fresh independent red-team approval. | ↪ SUPERSEDED | `01-HOSTED-PROOF.md` records that these checks remained pending for version 10. They were never completed before the target was retired; equivalent evidence must be produced afresh under greenfield Plan 02-99. |
 
 **Score:** 7/8 truths verified
 
@@ -116,7 +136,7 @@ human_verification:
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
 | `REQ-private-human-governed-gtm` | 01-01 through 01-05 | Explicit knowledge/effect authority; no silent spend/outreach/CRM lifecycle | ✓ SATISFIED | Separate Answer/Confirmation persistence, fixed proof-only mutation, disabled effects, no CRM lifecycle route or handler, full tests green. |
-| `REQ-company-workspace-isolation` | 01-01 through 01-05 | Exactly one auditable Company Workspace with no invitations or pooled data | ? NEEDS HUMAN | Unique owner subject, server admission, row scoping, opaque object prefix, local negative tests, and live anonymous 401 are verified; the required real hosted second-principal zero-delta proof remains pending. |
+| `REQ-company-workspace-isolation` | 01-01 through 01-05 | Exactly one auditable Company Workspace with no invitations or pooled data | ↪ SUPERSEDED | The retired release's real second-principal proof was never performed. Plan 02-99 now owns equivalent owner/non-owner and zero-delta acceptance against the greenfield target; no migration or pass claim is made here. |
 
 No Phase 1 requirement is orphaned: both roadmap requirements appear in every Phase 1 plan and no additional requirement is mapped to Phase 1.
 
@@ -126,9 +146,12 @@ No Phase 1 requirement is orphaned: both roadmap requirements appear in every Ph
 |---|---|---|---|---|
 | Phase-modified source set | — | `TBD` / `FIXME` / `XXX` debt markers | None | No blocker debt marker found. |
 | `site/app/prospector-app.tsx` | 31-48 | Static prospect/discovery arrays | ℹ Info | Explicitly labelled synthetic fixture data; no live data claim and consequential controls are disabled. |
-| Version-10 review evidence | — | Latest independent CLEAN review predates security-sensitive version-10 changes | ⚠ Warning | Requires fresh independent review; routed to human verification rather than treated as evidence. |
+| Version-10 review evidence | — | Latest independent CLEAN review predates security-sensitive version-10 changes | ℹ Historical | Version 10 was retired without acceptance. Do not review or access it; fresh exact-release review remains a greenfield Plan 02-99 gate. |
 
-### Human Verification Required
+### Retired Hosted Verification History (Do Not Execute)
+
+The following four checks explain why the retired Sites release was never
+accepted. They are preserved for audit history only and are not active work.
 
 #### 1. Controlled second hosted principal and zero-delta proof
 
@@ -156,9 +179,15 @@ No Phase 1 requirement is orphaned: both roadmap requirements appear in every Ph
 
 ### Gaps Summary
 
-No observable implementation gap was found in the local Phase 1 boundary: source exists, is substantive, is wired, receives real D1/R2 data on its operational paths, and passes lint/build plus all 15 tests. The escalation gate remains open because the roadmap's controlled-hosted-proof contract is not fully auditable from this environment. The real second-principal/zero-delta check, authenticated hosted mutation run, control-plane secret/log inspection, and fresh version-10 independent red team must be completed before Phase 1 can be marked passed.
+No observable implementation gap was found in the historical local Phase 1
+boundary, but the retired release did not complete the four hosted acceptance
+checks above and is not marked passed. Those checks are permanently
+non-executable because the target is outside the execution path.
 
-No item was deferred to a later roadmap phase: these checks are specific Phase 1 closure gates, even though later phases own scheduler, runner, Gmail, export, and restore implementation.
+Plan 02-99 carries the corresponding acceptance requirements for the new
+greenfield boundary. Until its exact hosted evidence and owner acceptance
+exist, neither this historical report nor local tests satisfy the active hosted
+gate.
 
 ---
 

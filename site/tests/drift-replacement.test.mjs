@@ -81,6 +81,7 @@ test("replacement candidate creation rolls back when the active configuration lo
     const owner = await fixture.database.prepare("SELECT w.id AS workspace_id, c.id AS company_id, p.id AS product_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id JOIN products p ON p.company_id = c.id AND p.workspace_id = w.id WHERE w.owner_subject = ? AND p.name = 'ONE'").bind(principal.subject).first();
     const now = Date.now();
     await fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('active-config-race', ?, ?, ?, 1, ?, 'product', ?, 'product_discovery', 'active-digest-race', '{}', 1)").bind(owner.workspace_id, now, now, owner.company_id, owner.product_id).run();
+    await fixture.database.prepare("INSERT INTO configuration_knowledge_dependencies (configuration_id, knowledge_version_id, created_at) VALUES ('active-config-race', ?, ?)").bind(current.version.id, now).run();
     let raced = false;
     const racingDatabase = {
       prepare: (...args) => fixture.database.prepare(...args),
@@ -92,10 +93,11 @@ test("replacement candidate creation rolls back when the active configuration lo
         return fixture.database.batch(statements);
       },
     };
+    const bindings = await replacement.readEligibleReplacementCandidates(fixture.database, principal);
+    const binding = bindings.find((item) => item.currentVersionId === current.version.id && item.proposedVersionId === proposed.version.id);
+    assert.ok(binding, "the server issues the sole eligible replacement binding");
     await assert.rejects(replacement.createReplacementCandidate(racingDatabase, principal, {
-      currentVersionId: current.version.id, proposedVersionId: proposed.version.id, ownerType: "product", ownerId: owner.product_id,
-      kind: "product_discovery", manifest: { version: 2 }, riskKind: "capability", dependencyEdges: [], expectedOwnerRevision: 1,
-      idempotencyKey: "0198a4b0-0000-7000-8000-000000000284",
+      ...binding.candidate, expectedOwnerRevision: 1, idempotencyKey: "0198a4b0-0000-7000-8000-000000000284",
     }), /conflict|refresh|partial/i);
     for (const table of ["knowledge_drifts", "drift_impact_snapshots", "replacement_candidates"]) {
       const row = await fixture.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
@@ -154,5 +156,43 @@ test("replacement activation requires an accepted proposal-backed open Drift rev
     const refreshed = await replacement.readReplacementState(fixture.database, principal, candidate.id);
     const activated = await replacement.activateReplacement(fixture.database, principal, { candidateId: candidate.id, impactDigest: candidate.impactDigest, expectedOwnerRevision: 1, expectedCandidateRevision: refreshed.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000415" });
     assert.equal(activated.status, "activated");
+  } finally { await fixture.dispose(); }
+});
+
+test("replacement creation re-derives authority from an eligible server projection and rejects stale or forged bindings", async () => {
+  const fixture = await createD1Fixture("replacement-server-authority");
+  try {
+    await applyMigrations(fixture.database);
+    const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const replacement = await fixture.vite.ssrLoadModule(new URL("../domain/replacement.ts", import.meta.url).pathname);
+    const principal = { subject: "replacement-authority-owner", legacySubject: "replacement-authority-legacy", displayName: "Owner" };
+    const propose = async (suffix, excerpt) => {
+      const proposal = await knowledge.createKnowledgeProposal(fixture.database, principal, {
+        origin: "owner_edit", destination: { scopeType: "product", locator: "ONE" }, kind: "capability", value: { excerpt },
+        source: { reference: "opaque:authority:" + suffix, custody: "synthetic-test", retrievedAt: 1_700_000_000_000 }, privacy: "private",
+        license: { use: "internal_review_only" }, reuseEligibility: "company_only", idempotencyKey: "0198a4b0-0000-7000-8000-0000000005" + suffix,
+      });
+      return (await knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: proposal.id, decision: "accept", expectedRevision: proposal.revision, idempotencyKey: "0198a4b0-0000-7000-8000-0000000006" + suffix })).version;
+    };
+    const current = await propose("10", "Current authoritative capability.");
+    const proposed = await propose("11", "Proposed authoritative capability.");
+    const owner = await fixture.database.prepare("SELECT w.id AS workspace_id, c.id AS company_id, p.id AS product_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id JOIN products p ON p.company_id = c.id AND p.workspace_id = w.id WHERE w.owner_subject = ? AND p.name = 'ONE'").bind(principal.subject).first();
+    const now = Date.now();
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('active-config-authority', ?, ?, ?, 1, ?, 'product', ?, 'product_discovery', 'active-digest-authority', ?, 1)").bind(owner.workspace_id, now, now, owner.company_id, owner.product_id, JSON.stringify({ server: true })),
+      fixture.database.prepare("INSERT INTO configuration_knowledge_dependencies (configuration_id, knowledge_version_id, created_at) VALUES ('active-config-authority', ?, ?)").bind(current.id, now),
+    ]);
+    const binding = (await replacement.readEligibleReplacementCandidates(fixture.database, principal)).find((item) => item.currentVersionId === current.id && item.proposedVersionId === proposed.id);
+    assert.ok(binding?.candidate, "only a server-derived eligible binding reaches the browser");
+    await assert.rejects(replacement.createReplacementCandidate(fixture.database, principal, {
+      ...binding.candidate, eligibleProjectionDigest: "0".repeat(64), expectedOwnerRevision: binding.candidate.expectedOwnerRevision,
+      manifest: { forged: true }, riskKind: "suppression", dependencyEdges: [{ fromType: "source", fromId: "forged", toType: "artifact", toId: "forged" }], artifacts: [{ artifactId: "forged" }], ownerId: "forged",
+      idempotencyKey: "0198a4b0-0000-7000-8000-000000000612",
+    }), /projection|refresh|eligible/i);
+    await fixture.database.prepare("UPDATE typed_configurations SET revision = 2 WHERE id = 'active-config-authority'").run();
+    await assert.rejects(replacement.createReplacementCandidate(fixture.database, principal, {
+      ...binding.candidate, idempotencyKey: "0198a4b0-0000-7000-8000-000000000613",
+    }), /projection|refresh|eligible/i);
+    assert.equal(Number((await fixture.database.prepare("SELECT COUNT(*) AS count FROM replacement_candidates").first()).count), 0);
   } finally { await fixture.dispose(); }
 });

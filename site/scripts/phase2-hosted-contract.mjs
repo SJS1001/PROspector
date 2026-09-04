@@ -1,0 +1,27 @@
+export const PHASE2_FORBIDDEN_TABLES = Object.freeze([
+  Object.freeze({ name: "runner_connections", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "runs", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "signals", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "candidates", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "prospects", oldSchema: "present", postMigration: "preserve", countAlias: "prospect_count" }),
+  Object.freeze({ name: "contacts", oldSchema: "absent", postMigration: "present_empty", countAlias: "contact_count" }),
+  Object.freeze({ name: "schedules", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "approval_grants", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "provider_grants", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "provider_calls", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "outreach_packages", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "outreach_package_approvals", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "message_versions", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "message_approvals", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "message_dispatches", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "manual_calls", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "export_jobs", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "external_effects", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "credential_records", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "provider_credentials", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "provider_secrets", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "workspace_archives", oldSchema: "absent", postMigration: "absent" }),
+  Object.freeze({ name: "workspace_archive_objects", oldSchema: "absent", postMigration: "absent" }),
+]);
+
+export const PHASE2_FORBIDDEN_TABLE_NAMES = Object.freeze(PHASE2_FORBIDDEN_TABLES.map(({ name }) => name));

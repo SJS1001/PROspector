@@ -314,7 +314,12 @@ export async function readInterviewState(
     evidenceFindings: evidenceProjection(structuredResearch.evidenceFindings),
     inferenceDetail: structuredResearch.inference,
     recommendationDetail: current.recommendation ? { rationale: current.recommendation, value: null } : null,
-    destination: interviewDestination(current.scope_type, current.scope_id),
+    destination: await projectedInterviewDestination(
+      database,
+      workspace.id,
+      current.scope_type,
+      current.scope_id,
+    ),
     prerequisiteKnowledge: structuredResearch.prerequisiteKnowledge,
   };
   const base = {
@@ -342,7 +347,7 @@ export async function readInterviewState(
       ...base,
       question: {
         id: snapshot.questionId,
-        revision: snapshot.questionRevision,
+        revision: current.question_revision,
         ordinal: current.question_ordinal,
         prompt: generalized ? current.prompt : (snapshot as ProposalSnapshot).prompt,
         premise: generalized ? (snapshot as GeneralizedProposalSnapshot).evidenceFindings[0]?.excerpt ?? "No reliable evidence was recorded." : (snapshot as ProposalSnapshot).premise,
@@ -603,7 +608,11 @@ export async function submitInterviewAnswer(
 
   // The proposal repository is the sole creator of Proposed Knowledge and its
   // provenance.  Repository-seeded evidence is bounded plain text only.
-  let proposal: { id: string; digest: string };
+  let proposal: {
+    id: string;
+    digest: string;
+    destination: InterviewDestination & { id: string; locator: string };
+  };
   try {
     proposal = await createKnowledgeProposal(database, principal, {
       origin: "owner_edit", destination, kind: "data_readiness_scoring", value,
@@ -618,7 +627,7 @@ export async function submitInterviewAnswer(
     schema: "consensus-interview/v1", questionId: current.id, questionRevision: current.revision,
     sessionRevision: current.session_revision, evidenceFindings: research.evidenceFindings,
     inference: research.inference, recommendation: { rationale: current.recommendation, value: { excerpt: current.recommendation } },
-    destination, prerequisiteKnowledge: research.prerequisiteKnowledge, answer: input.answer, value,
+    destination: proposal.destination, prerequisiteKnowledge: research.prerequisiteKnowledge, answer: input.answer, value,
     ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}), knowledgeProposalId: proposal.id,
     knowledgeProposalDigest: proposal.digest, kind: "data_readiness_scoring",
   };
@@ -1111,6 +1120,33 @@ function interviewDestination(scopeType: string, id: string): InterviewDestinati
   return ["company", "product", "market_play", "customer_profile", "offer"].includes(normalized)
     ? { scopeType: normalized as InterviewDestination["scopeType"], id }
     : null;
+}
+
+async function projectedInterviewDestination(
+  database: D1Database,
+  workspaceId: string,
+  scopeType: string,
+  scopeId: string,
+): Promise<InterviewDestination | null> {
+  const stored = interviewDestination(scopeType, scopeId);
+  if (!stored || stored.scopeType !== "company" || scopeId !== workspaceId)
+    return stored;
+
+  const companyTable = await database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'companies' LIMIT 1")
+    .first<{ name: string }>();
+  if (!companyTable) return stored;
+
+  const companies = await database
+    .prepare("SELECT id, name FROM companies WHERE workspace_id = ? ORDER BY created_at, id LIMIT 2")
+    .bind(workspaceId)
+    .all<{ id: string; name: string }>();
+  if (companies.results.length !== 1) return stored;
+  return {
+    scopeType: "company",
+    id: companies.results[0].id,
+    locator: companies.results[0].name,
+  };
 }
 
 function stableJson(value: unknown) {

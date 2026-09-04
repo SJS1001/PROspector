@@ -29,8 +29,12 @@ npm audit --omit=dev
 ```
 
 The local site uses simulated D1 and R2 bindings. Hosted capability proof is
-available at `/api/capabilities`; owner identity is only expected on the private
-Sites deployment.
+available at `/api/capabilities`. A future direct Cloudflare target must set
+`TRUSTED_IDENTITY_PROVIDER=cloudflare-access` plus both
+`CLOUDFLARE_ACCESS_ISSUER` and `CLOUDFLARE_ACCESS_AUDIENCE`. Missing, unknown,
+partial, or conflicting identity configuration denies access; neither Sites
+headers nor `LOCAL_DEMO` can act as a fallback. Do not add the Cloudflare
+bindings to the disposable localhost `.dev.vars` file.
 
 The hosted interview requires a secret `OWNER_SUBJECT_PEPPER` binding of at
 least 32 characters. It is used to derive a non-enumerable owner subject; it

@@ -1,5 +1,8 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import {
+  isLocalDemoRequest,
+  runtimeIdentity,
+} from "../../runtime-identity";
 import {
   handleInterviewGet,
   handleInterviewPost,
@@ -8,19 +11,23 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return handleInterviewGet(dependencies());
+export async function GET(request: Request) {
+  return handleInterviewGet(dependencies(request));
 }
 
 export async function POST(request: Request) {
-  return handleInterviewPost(request, dependencies());
+  return handleInterviewPost(request, dependencies(request));
 }
 
-function dependencies(): InterviewHandlerDependencies {
+function dependencies(request: Request): InterviewHandlerDependencies {
   const bindings = env as unknown as {
     DB?: D1Database;
     OWNER_SUBJECT_PEPPER?: string;
     PILOT_OWNER_EMAIL?: string;
+    TRUSTED_IDENTITY_PROVIDER?: string;
+    LOCAL_DEMO?: string;
+    CLOUDFLARE_ACCESS_ISSUER?: string;
+    CLOUDFLARE_ACCESS_AUDIENCE?: string;
   };
   if (
     !bindings.DB ||
@@ -32,9 +39,11 @@ function dependencies(): InterviewHandlerDependencies {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
+    csrfCookieMode: isLocalDemoRequest(request, bindings)
+      ? "local-demo"
+      : "secure",
     getIdentity: async () => {
-      const user = await getChatGPTUser();
-      return user ? { email: user.email, displayName: user.displayName } : null;
+      return runtimeIdentity(request, bindings);
     },
   };
 }
