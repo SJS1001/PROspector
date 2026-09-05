@@ -100,12 +100,34 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
           JOIN interview_sessions s ON s.id = ? AND s.workspace_id = kp.workspace_id AND s.state = 'awaiting_confirmation' AND s.revision = ?
           JOIN interview_questions q ON q.id = ? AND q.workspace_id = kp.workspace_id AND q.status = 'answered' AND q.revision = ?
           ` : ""}WHERE kp.id = ? AND kp.workspace_id = ? AND kp.revision = ? AND kp.status = 'proposed'
-            ${guard ? "AND ans.session_id = s.id AND ans.question_id = q.id" : ""})
-          ${predecessor ? "AND EXISTS (SELECT 1 FROM knowledge_versions pv JOIN knowledge_items pi ON pi.id = pv.knowledge_item_id AND pi.workspace_id = pv.workspace_id WHERE pv.id = ? AND pv.workspace_id = ? AND pv.status = 'confirmed' AND pi.current_version_id = pv.id)" : ""}`;
+            ${guard ? "AND ans.session_id = s.id AND ans.question_id = q.id" : ""}
+            ${guard?.requireMissingCurrentSlot ? `AND NOT EXISTS (
+              SELECT 1 FROM knowledge_items existing_item
+              JOIN knowledge_versions existing_version
+                ON existing_version.id = existing_item.current_version_id
+                AND existing_version.workspace_id = existing_item.workspace_id
+              WHERE existing_item.workspace_id = kp.workspace_id
+                AND existing_version.status = 'confirmed'
+                AND existing_version.scope_type = kp.destination_scope_type
+                AND existing_version.scope_id = kp.destination_scope_id
+                AND existing_version.kind = kp.kind
+            )` : ""})
+          ${predecessor ? "AND EXISTS (SELECT 1 FROM knowledge_versions pv JOIN knowledge_items pi ON pi.id = pv.knowledge_item_id AND pi.workspace_id = pv.workspace_id WHERE pv.id = ? AND pv.workspace_id = ? AND pv.status = 'confirmed' AND pi.current_version_id = pv.id)" : ""}
+          ${guard ? `AND NOT EXISTS (
+            SELECT 1 FROM json_each(?) expected
+            WHERE NOT EXISTS (
+              SELECT 1 FROM knowledge_versions kv
+              JOIN knowledge_items ki ON ki.id = kv.knowledge_item_id AND ki.workspace_id = kv.workspace_id
+              WHERE kv.id = json_extract(expected.value, '$.id') AND kv.workspace_id = ?
+                AND kv.status = 'confirmed' AND ki.current_version_id = kv.id
+                AND COALESCE(kv.value_digest, kv.source_digest) = json_extract(expected.value, '$.digest')
+            )
+          )` : ""}`;
   const commandBindings: unknown[] = [commandId, workspace.id, now, now, input.idempotencyKey, operationDigest, input.expectedRevision, proposal.id];
   if (guard) commandBindings.push(guard.answerId, guard.sessionId, guard.sessionRevision, guard.questionId, guard.questionRevision);
   commandBindings.push(proposal.id, workspace.id, input.expectedRevision);
   if (predecessor) commandBindings.push(predecessor.id, workspace.id);
+  if (guard) commandBindings.push(orderedSnapshot(guard.prerequisiteKnowledge), workspace.id);
   const command = database.prepare(commandSql).bind(...commandBindings);
   const statements: D1PreparedStatement[] = [
     command,
@@ -140,7 +162,7 @@ export async function reuseKnowledge(database: D1Database, principal: InterviewP
 
 type ProposalInput = { origin: AcceptedOrigin; destination: Destination; kind: string; value: { excerpt: string }; source: { reference: string; custody: string; retrievedAt: number }; privacy: "public" | "private" | "restricted"; license: { use: string }; reuseEligibility: string; idempotencyKey: string };
 type ReviewInput = { proposalId: string; decision: "accept" | "reject" | "correct" | "rescope"; correction?: { excerpt: string }; destination?: Destination; predecessorVersionId?: string; expectedRevision: number; idempotencyKey: string };
-type InterviewReviewGuard = { answerId: string; sessionId: string; questionId: string; sessionRevision: number; questionRevision: number };
+type InterviewReviewGuard = { answerId: string; sessionId: string; questionId: string; sessionRevision: number; questionRevision: number; prerequisiteKnowledge: Array<{ id: string; digest: string }>; requireMissingCurrentSlot: boolean };
 async function workspaceForKnowledge(database: D1Database, principal: InterviewPrincipal) { const key = (await sha256(`knowledge-bootstrap:${principal.subject}`)).slice(0, 32); await initializeCommercialModel(database, principal, { idempotencyKey: key }); const row = await database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id WHERE w.owner_subject IN (?, ?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; company_id: string }>(); if (!row) throw new KnowledgeConflictError("Commercial workspace is unavailable"); return { id: row.id, companyId: row.company_id }; }
 async function resolveDestination(database: D1Database, workspaceId: string, destination: Destination) {
   const mapping = destination.scopeType === "company"

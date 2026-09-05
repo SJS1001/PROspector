@@ -100,11 +100,13 @@ test("local demo routes only interview authority commands through the dedicated 
         returnsKnowledgeProjection: false,
       });
       assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/interview");
+      assert.equal(knowledgeMutationTransport("advance_local_interview", hostname).endpoint, "/api/interview");
       assert.equal(knowledgeMutationTransport("propose_owner_edit", hostname).endpoint, "/api/knowledge");
     }
     for (const hostname of ["", "localhost.", "127.0.0.2", "0.0.0.0", "example.test"]) {
       assert.equal(knowledgeMutationTransport("submit_interview_answer", hostname).endpoint, "/api/knowledge");
       assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/knowledge");
+      assert.equal(knowledgeMutationTransport("advance_local_interview", hostname).endpoint, "/api/knowledge");
     }
   } finally {
     await vite.close();

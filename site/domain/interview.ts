@@ -31,6 +31,8 @@ type QuestionView = {
   recommendationDetail: { rationale: string; value: { excerpt: string } | null } | null;
   destination: InterviewDestination | null;
   prerequisiteKnowledge: Array<{ id: string; digest: string }>;
+  requiresOwnerInput: boolean;
+  knowledgeKind: string;
 };
 
 type ProposalSnapshot = {
@@ -98,6 +100,7 @@ type GeneralizedProposalSnapshot = {
   knowledgeProposalId: string;
   knowledgeProposalDigest: string;
   kind: string;
+  requiresOwnerInput?: boolean;
 };
 
 export type InterviewState =
@@ -133,6 +136,7 @@ export type InterviewState =
         confirmedAt: number;
         auditEventId: string;
       };
+      localProgression?: import("./interview-question-composer").LocalInterviewProgression;
     };
 
 export class InterviewConflictError extends Error {
@@ -322,7 +326,7 @@ export async function readInterviewState(
     recommendation: current.recommendation,
     evidenceFindings: evidenceProjection(structuredResearch.evidenceFindings),
     inferenceDetail: structuredResearch.inference,
-    recommendationDetail: current.recommendation ? { rationale: current.recommendation, value: structuredResearch.recommendationValue } : null,
+    recommendationDetail: !structuredResearch.requiresOwnerInput && current.recommendation ? { rationale: current.recommendation, value: structuredResearch.recommendationValue } : null,
     destination: await projectedInterviewDestination(
       database,
       workspace.id,
@@ -330,6 +334,8 @@ export async function readInterviewState(
       current.scope_id,
     ),
     prerequisiteKnowledge: structuredResearch.prerequisiteKnowledge,
+    requiresOwnerInput: structuredResearch.requiresOwnerInput,
+    knowledgeKind: structuredResearch.knowledgeKind,
   };
   const base = {
     displayName: principal.displayName,
@@ -365,9 +371,11 @@ export async function readInterviewState(
         recommendation: generalized ? (snapshot as GeneralizedProposalSnapshot).recommendation.rationale : (snapshot as ProposalSnapshot).recommendation,
         evidenceFindings: generalized ? evidenceProjection((snapshot as GeneralizedProposalSnapshot).evidenceFindings) : [],
         inferenceDetail: generalized ? (snapshot as GeneralizedProposalSnapshot).inference : null,
-        recommendationDetail: generalized ? { rationale: (snapshot as GeneralizedProposalSnapshot).recommendation.rationale, value: (snapshot as GeneralizedProposalSnapshot).recommendation.value ?? null } : null,
+        recommendationDetail: generalized && !structuredResearch.requiresOwnerInput ? { rationale: (snapshot as GeneralizedProposalSnapshot).recommendation.rationale, value: (snapshot as GeneralizedProposalSnapshot).recommendation.value ?? null } : null,
         destination: generalized ? (snapshot as GeneralizedProposalSnapshot).destination : interviewDestination(current.scope_type, current.scope_id),
         prerequisiteKnowledge: generalized ? (snapshot as GeneralizedProposalSnapshot).prerequisiteKnowledge : [],
+        requiresOwnerInput: generalized ? structuredResearch.requiresOwnerInput : false,
+        knowledgeKind: generalized ? (snapshot as GeneralizedProposalSnapshot).kind : structuredResearch.knowledgeKind,
       },
       answer: {
         id: current.answer_id,
@@ -605,6 +613,8 @@ export async function submitInterviewAnswer(
     throw new InterviewConflictError("This question changed; reload before answering");
 
   const research = researchFirst(current.research_json);
+  if (research.requiresOwnerInput && input.answer === "use_recommendation")
+    throw new InterviewConflictError("This question requires an owner-written answer");
   let storedDestination = await projectedInterviewDestination(
     database,
     workspace.id,
@@ -663,6 +673,7 @@ export async function submitInterviewAnswer(
     destination: proposal.destination, prerequisiteKnowledge: research.prerequisiteKnowledge, answer: input.answer, value,
     ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}), knowledgeProposalId: proposal.id,
     knowledgeProposalDigest: proposal.digest, kind: research.knowledgeKind,
+    requiresOwnerInput: research.requiresOwnerInput,
   };
   const proposalJson = stableJson(snapshot);
   const proposalDigest = await sha256(proposalJson);
@@ -724,7 +735,15 @@ export async function recordInterviewDecision(
       ...(input.decision === 'correct' ? { correction: input.value } : {}),
       ...(input.decision === 'rescope' ? { destination: input.destination } : {}),
       predecessorVersionId: input.predecessorVersionId, expectedRevision: 1, idempotencyKey: reviewKey,
-    }, { answerId: input.answerId, sessionId: answer.session_id, questionId: answer.question_id, sessionRevision: input.expectedSessionRevision, questionRevision: answer.question_revision });
+    }, {
+      answerId: input.answerId,
+      sessionId: answer.session_id,
+      questionId: answer.question_id,
+      sessionRevision: input.expectedSessionRevision,
+      questionRevision: answer.question_revision,
+      prerequisiteKnowledge: snapshot.prerequisiteKnowledge,
+      requireMissingCurrentSlot: snapshot.requiresOwnerInput === true,
+    });
   } catch (error) { throw new InterviewConflictError(error instanceof Error ? error.message : "Decision conflicted"); }
   if (prepared.existingDecisionId) throw new InterviewConflictError("Incomplete prior decision requires review");
   const now = prepared.now;
@@ -1116,6 +1135,7 @@ function researchFirst(raw: string): {
   prerequisiteKnowledge: Array<{ id: string; digest: string }>;
   recommendationValue: { excerpt: string } | null;
   knowledgeKind: string;
+  requiresOwnerInput: boolean;
 } {
   const research = JSON.parse(raw) as {
     evidenceFindings?: InterviewEvidenceFinding[];
@@ -1125,6 +1145,7 @@ function researchFirst(raw: string): {
     prerequisites?: Array<{ id: string; digest: string }>;
     recommendationValue?: { excerpt?: string };
     knowledgeKind?: string;
+    requiresOwnerInput?: boolean;
   };
   const evidenceFindings = Array.isArray(research.evidenceFindings)
     ? research.evidenceFindings.map((finding) => ({ ...finding, excerpt: String(finding.excerpt).slice(0, 12_000) }))
@@ -1152,6 +1173,7 @@ function researchFirst(raw: string): {
     knowledgeKind: typeof research.knowledgeKind === "string" && research.knowledgeKind.trim()
       ? research.knowledgeKind
       : "data_readiness_scoring",
+    requiresOwnerInput: research.requiresOwnerInput === true,
   };
 }
 
@@ -1226,9 +1248,10 @@ async function parseGeneralizedSnapshot(raw: string, expectedDigest: string): Pr
     !snapshot.destination || typeof snapshot.destination.scopeType !== "string" || (typeof snapshot.destination.id !== "string" && typeof snapshot.destination.locator !== "string") ||
     !Array.isArray(snapshot.prerequisiteKnowledge) || typeof snapshot.knowledgeProposalId !== "string" ||
     typeof snapshot.knowledgeProposalDigest !== "string" || !snapshot.value || typeof snapshot.value.excerpt !== "string" ||
-    typeof snapshot.kind !== "string") throw new InterviewConflictError("The submitted snapshot is incomplete");
+    typeof snapshot.kind !== "string" || (snapshot.requiresOwnerInput !== undefined && typeof snapshot.requiresOwnerInput !== "boolean")) throw new InterviewConflictError("The submitted snapshot is incomplete");
   const sorted = [...snapshot.prerequisiteKnowledge].sort((left, right) => `${left.id}:${left.digest}`.localeCompare(`${right.id}:${right.digest}`));
   if (stableJson(sorted) !== stableJson(snapshot.prerequisiteKnowledge)) throw new InterviewConflictError("Prerequisites were not stored in canonical order");
+  if (new Set(sorted.map((item) => item.id)).size !== sorted.length || sorted.some((item) => typeof item.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(item.id) || typeof item.digest !== "string" || !/^[a-f0-9]{64}$/.test(item.digest))) throw new InterviewConflictError("Prerequisites failed integrity checks");
   return snapshot as GeneralizedProposalSnapshot;
 }
 

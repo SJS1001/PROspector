@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-import { runtimeIdentity } from "../../runtime-identity";
+import { isLocalDemoRequest, runtimeIdentity } from "../../runtime-identity";
 import { handleKnowledgeGet, handleKnowledgePost, type KnowledgeHandlerDependencies } from "../../../domain/knowledge-handler";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,7 @@ function dependencies(request: Request): KnowledgeHandlerDependencies {
     throw new Error("Secure knowledge bindings are unavailable");
   return {
     database: bindings.DB, subjectPepper: bindings.OWNER_SUBJECT_PEPPER, pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
+    enableLocalDemoProgression: isLocalDemoRequest(request, bindings),
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },

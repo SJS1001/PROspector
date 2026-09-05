@@ -42,6 +42,7 @@ function dependencies(request: Request): InterviewHandlerDependencies {
     csrfCookieMode: isLocalDemoRequest(request, bindings)
       ? "local-demo"
       : "secure",
+    enableLocalDemoProgression: isLocalDemoRequest(request, bindings),
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },
