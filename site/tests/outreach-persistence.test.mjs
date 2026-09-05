@@ -308,6 +308,127 @@ test("0015 fences a legacy dispatching history from retry and receipt authority"
   }
 });
 
+test("lease compatibility catch admits only the exact missing preparation table and rethrows every unrelated database error", async () => {
+  const fixture = await createD1Fixture("outreach-lease-compatibility-catch");
+  try {
+    const context = await prepareInertDispatchAttempt(fixture);
+    const outboxModule = await fixture.vite.ssrLoadModule(new URL("../domain/outbox.ts", import.meta.url).pathname);
+    const preparationRead = /FROM outreach_dispatch_attempt_preparations preparation\b/u;
+    const claimInput = { outboxItemId: context.input.outboxItemId, holderId: "synthetic-worker-two" };
+    const voidInput = {
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      expectedLeaseGeneration: context.input.leaseGeneration,
+    };
+    const reprepareInput = {
+      outboxItemId: context.input.outboxItemId,
+      preparationId: context.preparation.preparationId,
+      priorVoidEventId: "synthetic-void",
+      preCallReceiptId: context.receipt.receiptId,
+      holderId: "synthetic-worker-two",
+      leaseGeneration: 2,
+    };
+    const blocked = {
+      kind: "blocked",
+      reason: "lease_unavailable",
+      providerInvocationAuthorized: false,
+      providerCalls: 0,
+    };
+    const snapshot = async () => [
+      await countRows(fixture.database, "outreach_outbox_events"),
+      await countRows(fixture.database, "outreach_dispatch_attempt_preparations"),
+      await countRows(fixture.database, "outreach_dispatch_attempt_preparation_events"),
+    ];
+    const before = await snapshot();
+    assert.deepEqual(before, [2, 1, 0]);
+    const faulted = (fault, statementPattern = preparationRead) => {
+      let faults = 0;
+      const boundary = outboxModule.createD1OutboxRepository(
+        interceptStatements(fixture.database, (sql, execute) => {
+          if (!statementPattern.test(sql)) return execute();
+          faults += 1;
+          return fault(execute);
+        }),
+        { ...scope(context.prepared.seeded), now: () => context.receipt.validUntil },
+      );
+      return { boundary, faults: () => faults };
+    };
+    const missingPreparationTable = () => new Error("D1_ERROR: no such table: outreach_dispatch_attempt_preparations: SQLITE_ERROR");
+
+    // Control: with the preparation read intact, the expired inert attempt blocks a fresh lease.
+    const intact = faulted((execute) => execute());
+    assert.deepEqual(await intact.boundary.claimDispatchLease(claimInput), blocked);
+
+    // Compatibility path: only the exact SQLite/D1 missing-table condition, even below a D1 cause
+    // chain, reads as the pre-0016 state; the 0017 database fence still blocks the lease.
+    const compatible = faulted(async () => {
+      throw new Error("D1_ERROR: query failed", { cause: new Error("statement failed", { cause: missingPreparationTable() }) });
+    });
+    assert.deepEqual(await compatible.boundary.claimDispatchLease(claimInput), blocked);
+    assert.equal(compatible.faults(), 1);
+    assert.deepEqual(await snapshot(), before);
+
+    const cyclic = new Error("D1_ERROR: internal error: SQLITE_INTERNAL");
+    cyclic.cause = cyclic;
+    const unrelated = [
+      ["missing 0017 lifecycle table", new Error("D1_ERROR: no such table: outreach_dispatch_attempt_preparation_events: SQLITE_ERROR")],
+      ["longer table name sharing the prefix", new Error("D1_ERROR: no such table: outreach_dispatch_attempt_preparations_archive: SQLITE_ERROR")],
+      ["schema-qualified reference raised inside a trigger", new Error("D1_ERROR: no such table: main.outreach_dispatch_attempt_preparations: SQLITE_ERROR")],
+      ["missing joined workspace table", new Error("D1_ERROR: no such table: workspaces: SQLITE_ERROR")],
+      ["missing column after schema drift", new Error("D1_ERROR: no such column: preparation.lease_generation: SQLITE_ERROR")],
+      ["locked database", new Error("D1_ERROR: database is locked: SQLITE_BUSY")],
+      ["constraint failure naming the table", new Error("D1_ERROR: UNIQUE constraint failed: outreach_dispatch_attempt_preparations.id: SQLITE_CONSTRAINT")],
+      ["runtime type error", new TypeError("Cannot read properties of undefined (reading 'first')")],
+      ["cyclic cause chain", cyclic],
+      ["unrelated cause chain", new Error("D1_ERROR: query failed", { cause: new Error("D1_ERROR: no such table: outreach_dispatch_attempt_preparation_events: SQLITE_ERROR") })],
+      ["plain object carrying the exact message", { message: "no such table: outreach_dispatch_attempt_preparations" }],
+      ["string primitive carrying the exact message", "no such table: outreach_dispatch_attempt_preparations"],
+      ["exact condition raised by the latest-event read", missingPreparationTable(), /FROM outreach_outbox_events\b/u],
+      ["exact condition raised by the lifecycle read", missingPreparationTable(), /FROM outreach_dispatch_attempt_preparation_events\b/u],
+    ];
+    for (const [label, injected, statementPattern] of unrelated) {
+      const rejected = faulted(async () => { throw injected; }, statementPattern);
+      await assert.rejects(rejected.boundary.claimDispatchLease(claimInput), (error) => error === injected, label);
+      assert.equal(rejected.faults(), 1, label);
+      assert.deepEqual(await snapshot(), before, label);
+    }
+    for (const [label, injected] of [
+      ["synchronous throw", new Error("D1_ERROR: no such table: outreach_dispatch_attempt_preparation_events: SQLITE_ERROR")],
+      ["synchronous throw of the exact message on the lifecycle read", missingPreparationTable()],
+    ]) {
+      const pattern = label.includes("lifecycle") ? /FROM outreach_dispatch_attempt_preparation_events\b/u : preparationRead;
+      const rejected = faulted(() => { throw injected; }, pattern);
+      await assert.rejects(rejected.boundary.claimDispatchLease(claimInput), (error) => error === injected, label);
+      assert.equal(rejected.faults(), 1, label);
+    }
+
+    // The catch belongs to the lease path only: void and reprepare rethrow the exact condition.
+    for (const [label, run] of [
+      ["void", (boundary) => boundary.voidExpiredDispatchPreparation(voidInput)],
+      ["reprepare", (boundary) => boundary.reprepareDispatchAttempt(reprepareInput)],
+    ]) {
+      const injected = missingPreparationTable();
+      const rejected = faulted(async () => { throw injected; });
+      await assert.rejects(run(rejected.boundary), (error) => error === injected, label);
+      assert.equal(rejected.faults(), 1, label);
+      assert.deepEqual(await snapshot(), before, label);
+    }
+
+    // The database is intact afterwards: explicit expiry void reopens exactly one new lease generation.
+    const recovered = outboxModule.createD1OutboxRepository(fixture.database, {
+      ...scope(context.prepared.seeded),
+      now: () => context.receipt.validUntil,
+    });
+    assert.equal((await recovered.voidExpiredDispatchPreparation(voidInput)).kind, "voided_before_invocation");
+    const lease = await recovered.claimDispatchLease(claimInput);
+    assert.equal(lease.kind, "claimed");
+    assert.equal(lease.leaseGeneration, 2);
+    assert.deepEqual(await snapshot(), [3, 1, 1]);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("package version creation is atomic, immutable, version-fenced, and exactly replayable", async () => {
   const fixture = await createD1Fixture("outreach-package");
   try {
@@ -2712,6 +2833,21 @@ test("freshness expiry and workspace Company suppression cannot authorize approv
     assert.equal(await countRows(fixture.database, "outreach_message_approvals"), 0);
   } finally { await fixture.dispose(); }
 });
+
+function interceptStatements(database, intercept) {
+  const wrap = (statement, sql) => Object.freeze({
+    bind: (...values) => wrap(statement.bind(...values), sql),
+    first: (...args) => intercept(sql, () => statement.first(...args)),
+    all: (...args) => intercept(sql, () => statement.all(...args)),
+    run: (...args) => intercept(sql, () => statement.run(...args)),
+    raw: (...args) => intercept(sql, () => statement.raw(...args)),
+  });
+  return Object.freeze({
+    prepare: (sql) => wrap(database.prepare(sql), sql),
+    batch() { throw new Error("unexpected batch outside the intercepted statement path"); },
+    exec() { throw new Error("unexpected exec outside the intercepted statement path"); },
+  });
+}
 
 function suppressionInput() {
   return { subjectKind: "exact_email", subjectDigest: "b".repeat(64), channel: "email", reason: "unsubscribe", sourceEventDigest: "c".repeat(64), aliasDigests: ["d".repeat(64)], effectiveAt: OUTREACH_NOW - 1, idempotencyKey: "outreach-suppression-command" };
