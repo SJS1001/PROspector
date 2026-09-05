@@ -161,6 +161,15 @@ export async function readInterviewState(
   const workspace = await workspaceForPrincipal(database, principal);
   if (!workspace) return { status: "uninitialized", displayName: principal.displayName };
 
+  // An internally issued follow-up question takes precedence over historical
+  // confirmations. Without this guard a completed Q1 would permanently hide Q2.
+  const liveSession = await database.prepare(
+    `SELECT id FROM interview_sessions
+     WHERE workspace_id = ? AND state IN ('awaiting_answer', 'awaiting_confirmation')
+       AND active_question_id IS NOT NULL
+     ORDER BY updated_at DESC, id DESC LIMIT 1`,
+  ).bind(workspace.id).first<{ id: string }>();
+
   const confirmed = await database
     .prepare(
       `SELECT c.knowledge_version_id, c.created_at, k.value_json, a.id AS audit_id
@@ -184,7 +193,7 @@ export async function readInterviewState(
       value_json: string;
       audit_id: string;
     }>();
-  if (confirmed) {
+  if (confirmed && !liveSession) {
     return {
       status: "confirmed",
       displayName: principal.displayName,
@@ -209,7 +218,7 @@ export async function readInterviewState(
      WHERE c.workspace_id = ? AND c.operation_digest <> 'legacy-unbound'
      ORDER BY c.created_at DESC LIMIT 1`,
   ).bind(workspace.id).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>() : null;
-  if (generalizedDecision) return {
+  if (generalizedDecision && !liveSession) return {
     status: "confirmed",
     displayName: principal.displayName,
     workspace: { id: workspace.id, companyName: workspace.company_name },
@@ -247,7 +256,7 @@ export async function readInterviewState(
     )
     .bind(workspace.id)
     .first<{ id: string }>();
-  if (unbound) {
+  if (unbound && !liveSession) {
     return {
       status: "review_required",
       displayName: principal.displayName,
@@ -270,7 +279,7 @@ export async function readInterviewState(
          ON ans.question_id = q.id AND ans.workspace_id = q.workspace_id
        WHERE s.workspace_id = ?
          AND s.state IN ('awaiting_answer', 'awaiting_confirmation')
-       ORDER BY s.created_at DESC LIMIT 1`,
+       ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`,
     )
     .bind(workspace.id)
     .first<{
@@ -306,14 +315,14 @@ export async function readInterviewState(
     ordinal: current.question_ordinal,
     prompt: current.prompt,
     premise: research.premise ?? research.evidence ?? "No premise was recorded.",
-    inference: research.inference ?? "No inference was recorded.",
+    inference: structuredResearch.inference.value,
     provenance:
       research.provenance ??
       "Legacy policy question created before provenance was stored separately.",
     recommendation: current.recommendation,
     evidenceFindings: evidenceProjection(structuredResearch.evidenceFindings),
     inferenceDetail: structuredResearch.inference,
-    recommendationDetail: current.recommendation ? { rationale: current.recommendation, value: null } : null,
+    recommendationDetail: current.recommendation ? { rationale: current.recommendation, value: structuredResearch.recommendationValue } : null,
     destination: await projectedInterviewDestination(
       database,
       workspace.id,
@@ -581,22 +590,43 @@ export async function submitInterviewAnswer(
     "SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1",
   ).bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
   const current = await database.prepare(
-    `SELECT q.id, q.revision, q.session_id, s.revision AS session_revision, q.prompt,
-            q.research_json, q.recommendation
+    `SELECT q.id, q.revision, q.session_id, s.revision AS session_revision,
+            s.scope_type, s.scope_id, q.prompt, q.research_json, q.recommendation
      FROM interview_questions q JOIN interview_sessions s
        ON s.id = q.session_id AND s.workspace_id = q.workspace_id
      WHERE q.workspace_id = ? AND q.id = ? AND q.status = 'active'
        AND s.active_question_id = q.id AND s.state = 'awaiting_answer' LIMIT 1`,
   ).bind(workspace.id, input.questionId).first<{
     id: string; revision: number; session_id: string; session_revision: number;
+    scope_type: string; scope_id: string;
     prompt: string; research_json: string; recommendation: string;
   }>();
   if (!current || current.revision !== input.expectedRevision)
     throw new InterviewConflictError("This question changed; reload before answering");
 
   const research = researchFirst(current.research_json);
-  const destination = input.destination ?? { scopeType: "company" as const, locator: workspace.company_name };
-  const value = input.value ?? { excerpt: current.recommendation };
+  let storedDestination = await projectedInterviewDestination(
+    database,
+    workspace.id,
+    current.scope_type,
+    current.scope_id,
+  );
+  // The legacy bootstrap stores the workspace ID as its Company scope. The
+  // workspace's persisted Company name is still authoritative metadata and
+  // lets the Knowledge repository resolve/create that exact Company aggregate.
+  if (
+    current.scope_type === "company" &&
+    current.scope_id === workspace.id &&
+    storedDestination?.id === workspace.id
+  ) {
+    storedDestination = { scopeType: "company", locator: workspace.company_name };
+  }
+  if (!storedDestination) throw new InterviewConflictError("The question destination is unavailable");
+  if (input.answer !== "change_scope" && input.destination && stableJson(input.destination) !== stableJson(storedDestination)) {
+    throw new InterviewConflictError("The answer cannot replace the stored question destination");
+  }
+  const destination = input.answer === "change_scope" ? input.destination! : storedDestination;
+  const value = input.value ?? research.recommendationValue ?? { excerpt: current.recommendation };
   const operationDigest = await sha256(JSON.stringify({
     action: "submit_interview_answer", questionId: current.id, expectedRevision: input.expectedRevision,
     answer: input.answer, value, reason: input.reason?.trim() ?? null, destination,
@@ -615,7 +645,7 @@ export async function submitInterviewAnswer(
   };
   try {
     proposal = await createKnowledgeProposal(database, principal, {
-      origin: "owner_edit", destination, kind: "data_readiness_scoring", value,
+      origin: "owner_edit", destination, kind: research.knowledgeKind, value,
       source: { reference: `interview:${current.id}`, custody: "owner-reviewed interview snapshot", retrievedAt: Date.now() },
       privacy: "private", license: { use: "internal_review_only" }, reuseEligibility: "company_only",
       idempotencyKey: derivedKey(input.idempotencyKey, "proposal"),
@@ -626,10 +656,13 @@ export async function submitInterviewAnswer(
   const snapshot: GeneralizedProposalSnapshot = {
     schema: "consensus-interview/v1", questionId: current.id, questionRevision: current.revision,
     sessionRevision: current.session_revision, evidenceFindings: research.evidenceFindings,
-    inference: research.inference, recommendation: { rationale: current.recommendation, value: { excerpt: current.recommendation } },
+    inference: research.inference, recommendation: {
+      rationale: current.recommendation,
+      value: research.recommendationValue ?? { excerpt: current.recommendation },
+    },
     destination: proposal.destination, prerequisiteKnowledge: research.prerequisiteKnowledge, answer: input.answer, value,
     ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}), knowledgeProposalId: proposal.id,
-    knowledgeProposalDigest: proposal.digest, kind: "data_readiness_scoring",
+    knowledgeProposalDigest: proposal.digest, kind: research.knowledgeKind,
   };
   const proposalJson = stableJson(snapshot);
   const proposalDigest = await sha256(proposalJson);
@@ -1081,10 +1114,17 @@ function researchFirst(raw: string): {
   evidenceFindings: InterviewEvidenceFinding[];
   inference: { label: string; value: string };
   prerequisiteKnowledge: Array<{ id: string; digest: string }>;
+  recommendationValue: { excerpt: string } | null;
+  knowledgeKind: string;
 } {
   const research = JSON.parse(raw) as {
     evidenceFindings?: InterviewEvidenceFinding[];
-    premise?: string; evidence?: string; inference?: string; prerequisites?: Array<{ id: string; digest: string }>;
+    premise?: string;
+    evidence?: string;
+    inference?: string | { label?: string; value?: string };
+    prerequisites?: Array<{ id: string; digest: string }>;
+    recommendationValue?: { excerpt?: string };
+    knowledgeKind?: string;
   };
   const evidenceFindings = Array.isArray(research.evidenceFindings)
     ? research.evidenceFindings.map((finding) => ({ ...finding, excerpt: String(finding.excerpt).slice(0, 12_000) }))
@@ -1099,8 +1139,19 @@ function researchFirst(raw: string): {
     : [];
   return {
     evidenceFindings,
-    inference: { label: "Inference", value: research.inference ?? "No inference was recorded." },
+    inference: {
+      label: "Inference",
+      value: typeof research.inference === "string"
+        ? research.inference
+        : research.inference?.value ?? "No inference was recorded.",
+    },
     prerequisiteKnowledge,
+    recommendationValue: typeof research.recommendationValue?.excerpt === "string"
+      ? { excerpt: research.recommendationValue.excerpt }
+      : null,
+    knowledgeKind: typeof research.knowledgeKind === "string" && research.knowledgeKind.trim()
+      ? research.knowledgeKind
+      : "data_readiness_scoring",
   };
 }
 
