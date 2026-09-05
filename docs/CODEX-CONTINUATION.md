@@ -12,6 +12,9 @@
 
 For the newer owner-authorized offline implementation branch, read
 [`implementation-lanes/2026-09-04-recovered-integration.md`](implementation-lanes/2026-09-04-recovered-integration.md).
+Also read
+[`implementation-lanes/2026-09-05-completion-inventory.md`](implementation-lanes/2026-09-05-completion-inventory.md)
+for the current evidence-backed Phase 4-7 runtime and acceptance gap map.
 It records recovered cloud commits, local review corrections, focused evidence,
 and exact remaining work on `codex/cloud-wave1-integration`. PR #2 is merged in
 that branch's main base, not an open draft. Preflight remains on hold. New local
