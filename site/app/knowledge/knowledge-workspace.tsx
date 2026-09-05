@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommercialHierarchyNode, CommercialModelProjection } from "../../domain/commercial-model";
 import type { InterviewState } from "../../domain/interview";
 import { CommercialModelView, type CommercialCommand } from "./commercial-model";
-import { ConsensusInterviewView, type InterviewAnswerCommand, type InterviewDecisionCommand } from "./consensus-interview";
+import { ConsensusInterviewView, type InterviewAdvanceCommand, type InterviewAnswerCommand, type InterviewDecisionCommand } from "./consensus-interview";
 import { knowledgeMutationTransport } from "./mutation-transport";
 import { DriftReplacementsView, type DriftProjection, type DriftReviewCommand, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
 import { KnowledgeLibraryView, type KnowledgeIntakeCommand, type KnowledgeItemProjection, type KnowledgeReviewCommand } from "./knowledge-library";
@@ -120,7 +120,7 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
 function InterviewPane({ state, commercial, destinations, selectedPath, pendingAction, dispatch }: { state: InterviewState; commercial: CommercialModelProjection; destinations: readonly CommercialHierarchyNode[]; selectedPath: readonly CommercialHierarchyNode[]; pendingAction: string | null; dispatch: (action: string, logicalKey: string, fields: Record<string, unknown>) => Promise<void> }) {
   if (state.status === "uninitialized") return <section className="panel"><h2>Commercial workspace is unavailable</h2><p>Authoritative workspace initialization must be completed by the admitted server boundary.</p></section>;
   const selected = selectedPath.at(-1);
-  return <div className="interview-layout"><ConsensusInterviewView state={state} destinations={destinations} pendingAction={pendingAction} answerOperationKey="interview-answer" decisionOperationKey="interview-decision" onSubmitAnswer={(command) => void dispatch("submit_interview_answer", `answer:${command.questionId}:${command.expectedRevision}`, answerPayload(command))} onRecordDecision={(command) => void dispatch("record_interview_decision", `decision:${command.answerId}:${command.decision}`, decisionPayload(command))} /><aside className="panel interview-scope" aria-label="Selected commercial scope"><span className="eyebrow">SELECTED COMMERCIAL SCOPE</span><h2>{selected?.name ?? commercial.workspace.companyName}</h2><ol>{selectedPath.map((node, index) => <li key={node.id} className={index === selectedPath.length - 1 ? "current" : "done"}><span>{node.type.replaceAll("_", " ")}</span><b>{node.name}</b></li>)}</ol><p>This is the browsing scope selected in the Commercial Model. It does not change the question destination shown in the decision card or authorize a later operational effect.</p></aside></div>;
+  return <div className="interview-layout"><ConsensusInterviewView state={state} destinations={destinations} pendingAction={pendingAction} answerOperationKey="interview-answer" decisionOperationKey="interview-decision" onSubmitAnswer={(command) => void dispatch("submit_interview_answer", `answer:${command.questionId}:${command.expectedRevision}`, answerPayload(command))} onRecordDecision={(command) => void dispatch("record_interview_decision", `decision:${command.answerId}:${command.decision}`, decisionPayload(command))} onAdvance={(command) => void dispatch("advance_local_interview", `advance:${command.expectedQueueDigest}`, advancePayload(command))} /><aside className="panel interview-scope" aria-label="Selected commercial scope"><span className="eyebrow">SELECTED COMMERCIAL SCOPE</span><h2>{selected?.name ?? commercial.workspace.companyName}</h2><ol>{selectedPath.map((node, index) => <li key={node.id} className={index === selectedPath.length - 1 ? "current" : "done"}><span>{node.type.replaceAll("_", " ")}</span><b>{node.name}</b></li>)}</ol><p>This is the browsing scope selected in the Commercial Model. It does not change the question destination shown in the decision card or authorize a later operational effect.</p></aside></div>;
 }
 
 function draftPayload(command: CommercialCommand) { return { type: command.type, parentId: command.parentId, name: command.name, expectedRevision: command.expectedRevision }; }
@@ -130,6 +130,7 @@ function reviewPayload(command: KnowledgeReviewCommand) { const { operationKey, 
 function driftReviewPayload(command: DriftReviewCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function answerPayload(command: InterviewAnswerCommand) { const { operationKey, value, ...payload } = command; void operationKey; return { ...payload, ...(value ? { value: { excerpt: value } } : {}) }; }
 function decisionPayload(command: InterviewDecisionCommand) { const { operationKey, value, ...payload } = command; void operationKey; return { ...payload, ...(value ? { value: { excerpt: value } } : {}) }; }
+function advancePayload(command: InterviewAdvanceCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function candidatePayload(command: ReplacementCandidateCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function activationPayload(command: ReplacementActivationCommand) { const { operationKey, ...payload } = command; void operationKey; return payload; }
 function commercialNodes(commercial: CommercialModelProjection) { const nodes = new Map<string, CommercialHierarchyNode>(); for (const node of [...commercial.path, ...commercial.products, ...commercial.plays, ...commercial.profiles, ...commercial.offers]) nodes.set(node.id, node); return [...nodes.values()]; }
@@ -137,9 +138,9 @@ function scopePathFor(selected: CommercialHierarchyNode, nodes: readonly Commerc
 function commercialLocator(commercial: CommercialModelProjection, id: string) { return [...commercial.path, ...commercial.products, ...commercial.plays, ...commercial.profiles, ...commercial.offers].find((node) => node.id === id)?.name; }
 function withKnowledgeLocators(items: readonly KnowledgeItemProjection[], commercial: CommercialModelProjection) { return items.map((item) => ({ ...item, destination: { ...item.destination, locator: item.destination.locator ?? commercialLocator(commercial, item.destination.id) } })); }
 function countsByDestination(items: readonly KnowledgeItemProjection[]) { const counts = new Map<string, { confirmed: number; proposed: number }>(); for (const item of items) { const current = counts.get(item.destination.id) ?? { confirmed: 0, proposed: 0 }; if (item.type === "knowledge_version") current.confirmed += 1; else current.proposed += 1; counts.set(item.destination.id, current); } return counts; }
-function pendingCopy(pending: string) { if (pending.startsWith("answer:")) return "Submitting answer…"; if (pending.startsWith("decision:")) return "Recording owner decision…"; if (pending.startsWith("review:")) return "Recording proposal review…"; if (pending.startsWith("candidate:")) return "Creating replacement candidate…"; if (pending.startsWith("activate:")) return "Activating replacement…"; if (pending.startsWith("owner-edit:")) return "Creating Proposed Knowledge…"; if (pending.startsWith("draft:")) return "Creating hierarchy draft…"; return "Creating Proposed Knowledge…"; }
+function pendingCopy(pending: string) { if (pending.startsWith("advance:")) return "Opening next interview question…"; if (pending.startsWith("answer:")) return "Submitting answer…"; if (pending.startsWith("decision:")) return "Recording owner decision…"; if (pending.startsWith("review:")) return "Recording proposal review…"; if (pending.startsWith("candidate:")) return "Creating replacement candidate…"; if (pending.startsWith("activate:")) return "Activating replacement…"; if (pending.startsWith("owner-edit:")) return "Creating Proposed Knowledge…"; if (pending.startsWith("draft:")) return "Creating hierarchy draft…"; return "Creating Proposed Knowledge…"; }
 
-function normalizeProjection(value: unknown): Projection {
+export function normalizeProjection(value: unknown): Projection {
   if (!isRecord(value) || !isRecord(value.commercial) || !isRecord(value.interview) || !Array.isArray(value.library) || !Array.isArray(value.drift) || !Array.isArray(value.replacements)) throw new Error("malformed_projection");
   const commercial = value.commercial as unknown as CommercialModelProjection;
   const collections = [commercial.path, commercial.products, commercial.plays, commercial.profiles, commercial.offers];
@@ -159,14 +160,30 @@ function isRecord(value: unknown): value is Record<string, unknown> { return Boo
 function validNode(value: unknown): value is CommercialHierarchyNode { return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && ["company", "product", "market_play", "customer_profile", "offer"].includes(String(value.type)) && (value.parentId === null || typeof value.parentId === "string") && typeof value.revision === "number"; }
 function validInterviewProjection(value: unknown): value is InterviewState {
   if (!isRecord(value) || typeof value.status !== "string") return false;
-  if (!["active", "awaiting_confirmation"].includes(value.status)) return ["uninitialized", "review_required", "confirmed"].includes(value.status);
+  if (value.status === "confirmed") return value.localProgression === undefined || validLocalProgression(value.localProgression);
+  if (!["active", "awaiting_confirmation"].includes(value.status)) return ["uninitialized", "review_required"].includes(value.status);
   if (!isRecord(value.question) || !Number.isInteger(value.question.ordinal) || !Number.isInteger(value.question.revision)) return false;
+  if (typeof value.question.requiresOwnerInput !== "boolean" || typeof value.question.knowledgeKind !== "string" || !value.question.knowledgeKind.trim() || value.question.knowledgeKind.length > 120) return false;
   if (!Array.isArray(value.question.evidenceFindings) || !value.question.evidenceFindings.every((finding) => isRecord(finding) && typeof finding.excerpt === "string")) return false;
-  if (!Array.isArray(value.question.prerequisiteKnowledge) || !value.question.prerequisiteKnowledge.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.digest === "string")) return false;
+  if (!Array.isArray(value.question.prerequisiteKnowledge) || !value.question.prerequisiteKnowledge.every((item) => hasExactKeys(item, ["digest", "id"]) && boundedClientId(item.id) && typeof item.digest === "string" && /^[a-f0-9]{64}$/.test(item.digest))) return false;
+  const prerequisiteKeys = value.question.prerequisiteKnowledge.map((item) => `${item.id}:${item.digest}`);
+  const prerequisiteIds = value.question.prerequisiteKnowledge.map((item) => item.id);
+  if (new Set(prerequisiteIds).size !== prerequisiteKeys.length || JSON.stringify(prerequisiteKeys) !== JSON.stringify([...prerequisiteKeys].sort())) return false;
   if (value.question.inferenceDetail !== null && (!isRecord(value.question.inferenceDetail) || typeof value.question.inferenceDetail.label !== "string" || typeof value.question.inferenceDetail.value !== "string")) return false;
   if (value.question.recommendationDetail !== null && (!isRecord(value.question.recommendationDetail) || typeof value.question.recommendationDetail.rationale !== "string")) return false;
+  if (value.question.requiresOwnerInput && value.question.recommendationDetail !== null) return false;
   return value.question.destination === null || (isRecord(value.question.destination) && typeof value.question.destination.scopeType === "string" && typeof value.question.destination.id === "string");
 }
+function validLocalProgression(value: unknown) {
+  if (!hasExactKeys(value, ["completedSlots", "mode", "next", "queueDigest", "status", "totalSlots"]) || value.mode !== "local_demo" || !["ready", "complete"].includes(String(value.status)) || typeof value.queueDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.queueDigest) || !Number.isInteger(value.completedSlots) || !Number.isInteger(value.totalSlots) || Number(value.completedSlots) < 0 || Number(value.totalSlots) < 1 || Number(value.completedSlots) > Number(value.totalSlots)) return false;
+  if (value.status === "complete") return value.next === null && value.completedSlots === value.totalSlots;
+  if (value.completedSlots >= value.totalSlots || !hasExactKeys(value.next, ["destination", "knowledgeKind", "label", "recommendation", "requiresOwnerInput"]) || !["Company", "Product", "Market Play", "Customer Profile", "Offer"].includes(String(value.next.label)) || value.next.requiresOwnerInput !== true || value.next.recommendation !== null || typeof value.next.knowledgeKind !== "string" || !value.next.knowledgeKind.trim() || value.next.knowledgeKind.length > 120) return false;
+  return hasExactKeys(value.next.destination, ["id", "locator", "scopeType"]) && boundedClientId(value.next.destination.id) && typeof value.next.destination.locator === "string" && Boolean(value.next.destination.locator.trim()) && value.next.destination.locator.length <= 500 && ["company", "product", "market_play", "customer_profile"].includes(String(value.next.destination.scopeType));
+}
+function hasExactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return isRecord(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+function boundedClientId(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value); }
 function validDriftProjection(value: unknown): value is DriftProjection {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.status !== "string" || typeof value.riskKind !== "string") return false;
   if (value.paths !== undefined && (!Array.isArray(value.paths) || !value.paths.every((path) => typeof path === "string"))) return false;

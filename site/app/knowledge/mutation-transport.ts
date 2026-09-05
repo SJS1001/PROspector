@@ -1,6 +1,7 @@
 const LOCAL_INTERVIEW_ACTIONS = new Set([
   "submit_interview_answer",
   "record_interview_decision",
+  "advance_local_interview",
 ]);
 
 export type KnowledgeMutationTransport = {

@@ -19,6 +19,7 @@ import {
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { createReplacementCandidate, activateReplacement, readEligibleReplacementCandidates, ReplacementConflictError } from "./replacement";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
+import { attachLocalInterviewProgression } from "./interview-question-composer";
 
 export const KNOWLEDGE_ACTIONS = [
   "initialize_commercial_model", "create_hierarchy_draft", "propose_owner_edit",
@@ -35,6 +36,7 @@ export type KnowledgeHandlerDependencies = {
   database: D1Database;
   subjectPepper: string;
   pilotOwnerEmail: string;
+  enableLocalDemoProgression?: boolean;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -42,7 +44,7 @@ export async function handleKnowledgeGet(dependencies: KnowledgeHandlerDependenc
   try {
     const principal = await authenticatedPrincipal(dependencies);
     if (!await phase2SchemaAvailable(dependencies.database)) return json({ error: OLD_SCHEMA_PROJECTION });
-    return projectionResponse(dependencies.database, principal);
+    return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isKnownDomainError(error)) return json({ error: "knowledge_unavailable" }, 409);
@@ -64,7 +66,7 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
       return json({ error: "unsupported_action" }, 400);
     assertClosedCommand(body);
     await dispatch(body, dependencies.database, principal);
-    return projectionResponse(dependencies.database, principal);
+    return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
@@ -136,14 +138,17 @@ function assertClosedCommand(body: Record<string, unknown>) {
   }
 }
 
-async function projectionResponse(database: D1Database, principal: InterviewPrincipal) {
+async function projectionResponse(database: D1Database, principal: InterviewPrincipal, enableLocalDemoProgression = false) {
   // The library bootstrap already establishes the default commercial model.
   // Complete it before projecting the interview so a fresh workspace never
   // races its legacy workspace-scoped question against the company hierarchy.
   const library = await readKnowledgeLibrary(database, principal);
-  const [commercial, interview, drift, replacements] = await Promise.all([
+  const [commercial, interviewState, drift, replacements] = await Promise.all([
     readCommercialModel(database, principal), readInterviewState(database, principal), readDrift(database, principal), readReplacements(database, principal),
   ]);
+  const interview = enableLocalDemoProgression
+    ? await attachLocalInterviewProgression(database, principal, interviewState)
+    : interviewState;
   return withCsrfCookie(json({ commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
 }
 
