@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFile } from "node:fs/promises";
 import { applyMigrations, createD1Fixture } from "./helpers/d1.mjs";
+import { createApprovedProspectLifecycle } from "./helpers/phase5-integration.mjs";
 
 const root = new URL("..", import.meta.url);
 async function source(path) { return readFile(new URL(path, root), "utf8"); }
@@ -50,6 +51,103 @@ test("admitted Contacts confirmation is reject-only and returns no provider auth
   try {
     const response = await loaded.handleContactsPost(mutation({ action: "create_grant_confirmation", prospectId: "synthetic", expectedProspectRevision: 1, idempotencyKey: "a".repeat(20) }, { cookie: await csrf(loaded, fixture) }), dependencies({ database: fixture.database }));
     assert.equal(response.status, 409); const body = await response.json(); assert.equal(body.error, "contacts_capability_unavailable"); assert.equal(body.projection.authority.providerCall, false);
+  } finally { await fixture.dispose(); }
+});
+
+test("active Contacts projects an approved prospect before any contact exists and excludes stale authority", async () => {
+  const fixture = await createD1Fixture("contacts-approved-prospect-bootstrap");
+  try {
+    await applyMigrations(fixture.database);
+    const lifecycle = await createApprovedProspectLifecycle(fixture);
+    const interview = await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname);
+    const principal = await interview.principalFromIdentity("owner@example.invalid", "Owner", "contacts-test-pepper-at-least-32-bytes");
+    await fixture.database.prepare("UPDATE workspaces SET owner_subject=? WHERE id=?").bind(principal.subject, lifecycle.workspaceId).run();
+    assert.equal(Number((await fixture.database.prepare("SELECT count(*) count FROM contacts WHERE workspace_id=?").bind(lifecycle.workspaceId).first()).count), 0);
+    assert.equal(Number((await fixture.database.prepare("SELECT count(*) count FROM contact_eligibility_snapshots WHERE workspace_id=?").bind(lifecycle.workspaceId).first()).count), 0);
+    const loaded = await fixture.vite.ssrLoadModule(new URL("../domain/contacts-handler.ts", import.meta.url).pathname);
+    const commandService = { async createGrant() {}, async runGrantedOperation() {}, async applyIdentityMerge() {}, async applyIdentitySplit() {} };
+    const active = dependencies({ database: await activatedDatabase(fixture.database), phase4Accepted: async () => true, commandService });
+    const read = async (deps = active) => loaded.handleContactsGet(new Request("https://prospector.test/api/contacts"), deps);
+
+    let response = await read();
+    assert.equal(response.status, 200);
+    let body = await response.json();
+    const revision = Number((await fixture.database.prepare("SELECT revision FROM profile_prospects WHERE id=?").bind(lifecycle.prospectId).first()).revision);
+    assert.deepEqual(body.approvedProspects, { items: [{ prospectId: lifecycle.prospectId, prospectRevision: revision }], truncated: false });
+    assert.deepEqual(body.eligibility, []);
+    assert.deepEqual(body.verifiedContacts, [], "verified contacts are downstream evidence, not a Stage 1 prerequisite");
+
+    body = await (await read(dependencies({ database: await activatedDatabase(fixture.database), phase4Accepted: async () => false, commandService }))).json();
+    assert.deepEqual(body.approvedProspects, { items: [], truncated: false }, "the query is gate-off fail-closed");
+
+    await fixture.database.prepare("UPDATE profile_prospects SET active=0 WHERE id=?").bind(lifecycle.prospectId).run();
+    assert.deepEqual((await (await read()).json()).approvedProspects.items, [], "inactive prospects are absent");
+    await fixture.database.prepare("UPDATE profile_prospects SET active=1 WHERE id=?").bind(lifecycle.prospectId).run();
+    await fixture.database.prepare("UPDATE profile_prospects SET state='qualified' WHERE id=?").bind(lifecycle.prospectId).run();
+    assert.deepEqual((await (await read()).json()).approvedProspects.items, [], "an active but non-approved prospect is absent");
+    await fixture.database.prepare("UPDATE profile_prospects SET state='approved' WHERE id=?").bind(lifecycle.prospectId).run();
+    await fixture.database.prepare("UPDATE prospecting_candidates SET status='rejected' WHERE id=(SELECT candidate_id FROM profile_prospects WHERE id=?)").bind(lifecycle.prospectId).run();
+    assert.deepEqual((await (await read()).json()).approvedProspects.items, [], "rejected candidates are absent");
+    await fixture.database.prepare("UPDATE prospecting_candidates SET status='observed' WHERE id=(SELECT candidate_id FROM profile_prospects WHERE id=?)").bind(lifecycle.prospectId).run();
+    await fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id=?").bind(lifecycle.configurationId).run();
+    assert.deepEqual((await (await read()).json()).approvedProspects.items, [], "inactive or stale configurations are absent");
+    await fixture.database.prepare("UPDATE typed_configurations SET active=1 WHERE id=?").bind(lifecycle.configurationId).run();
+    const assessmentId = (await fixture.database.prepare("SELECT assessment_id FROM profile_prospects WHERE id=?").bind(lifecycle.prospectId).first()).assessment_id;
+    await fixture.database.prepare("DROP TRIGGER qualification_assessment_immutable_update").run();
+    await fixture.database.prepare("UPDATE qualification_assessments SET outcome='NotQualified' WHERE id=?").bind(assessmentId).run();
+    assert.deepEqual((await (await read()).json()).approvedProspects.items, [], "a non-Passed assessment is absent");
+    await fixture.database.prepare("UPDATE qualification_assessments SET outcome='Passed',configuration_digest=? WHERE id=?").bind("b".repeat(64), assessmentId).run();
+    assert.deepEqual((await (await read()).json()).approvedProspects.items, [], "assessment/configuration digest drift is absent");
+    await fixture.database.prepare("UPDATE qualification_assessments SET configuration_digest=? WHERE id=?").bind(lifecycle.configurationDigest, assessmentId).run();
+    await fixture.database.prepare("UPDATE profile_prospects SET revision=revision+1,updated_at=updated_at+1 WHERE id=?").bind(lifecycle.prospectId).run();
+    body = await (await read()).json();
+    assert.equal(body.approvedProspects.items[0].prospectRevision, revision + 1);
+    assert.equal(body.approvedProspects.items.some((item) => item.prospectRevision === revision), false, "a stale projected revision is not retained");
+
+    const foreign = await read({ ...active, getIdentity: async () => ({ email: "foreign@example.invalid", displayName: "Foreign" }) });
+    assert.equal(foreign.status, 404, "a foreign principal receives no prospect projection");
+  } finally { await fixture.dispose(); }
+});
+
+test("approved prospect projection is closed, explicitly selected, and deterministically truncated", async () => {
+  const { fixture, loaded } = await handler();
+  try {
+    const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
+    const workspace = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contacts-workspace.tsx", import.meta.url).pathname);
+    const base = { capability: { available: true, status: "ready", reason: "Synthetic authority." }, eligibility: [], verifiedContacts: [], suggestions: [], needsReview: [], approvedProspects: { items: [{ prospectId: "prospect-approved", prospectRevision: 7 }], truncated: false }, identity: [], authority: { stage: "ready", grantCreation: "available", operation: "requires_grant", providerCall: false } };
+    const normalized = leaves.normalizeContactsProjection(base);
+    assert.ok(normalized);
+    assert.deepEqual(normalized.verifiedContacts, []);
+    assert.equal(workspace.selectStageOneGrantCandidate(normalized, ""), null, "there is no automatic selection");
+    assert.deepEqual(workspace.selectStageOneGrantCandidate(normalized, "prospect-approved"), { prospectId: "prospect-approved", prospectRevision: 7 });
+    assert.equal(workspace.selectStageOneGrantCandidate(normalized, "prospect-missing"), null, "a drifted selection cannot remain actionable");
+    for (const approvedProspects of [
+      { items: [{ prospectId: "prospect-approved", prospectRevision: 7, provider: "forged" }], truncated: false },
+      { items: [{ prospectId: "prospect-approved", prospectRevision: 7 }], truncated: false, cursor: "forged" },
+      { items: [{ prospectId: "mailto:test@example.invalid", prospectRevision: 7 }], truncated: false, cursor: "forged" },
+      { items: [{ prospectId: "1234567890", prospectRevision: 7 }], truncated: false },
+      { items: [{ prospectId: "prospect-approved", prospectRevision: 0 }], truncated: false },
+      { items: [{ prospectId: "prospect-approved", prospectRevision: 1.5 }], truncated: false },
+      { items: [{ prospectId: "prospect-approved", prospectRevision: 7 }, { prospectId: "prospect-approved", prospectRevision: 8 }], truncated: false },
+    ]) assert.equal(leaves.normalizeContactsProjection({ ...base, approvedProspects }), null);
+    assert.equal(leaves.normalizeContactsProjection({ ...base, capability: { available: false, status: "blocked", reason: "Blocked." }, approvedProspects: base.approvedProspects }), null, "blocked authority cannot carry candidates");
+
+    const rows = Array.from({ length: 21 }, (_, index) => ({ prospect_id: `prospect-${String(21 - index).padStart(2, "0")}`, prospect_revision: index + 1 }));
+    const activeDatabase = await activatedDatabase(fixture.database);
+    const projectedDatabase = {
+      prepare(sql) {
+        if (String(sql).includes("SELECT p.id prospect_id,p.revision prospect_revision")) return { bind() { return { async all() { return { results: rows }; } }; } };
+        return activeDatabase.prepare(sql);
+      },
+      batch: activeDatabase.batch,
+    };
+    const commandService = { async createGrant() {}, async runGrantedOperation() {}, async applyIdentityMerge() {}, async applyIdentitySplit() {} };
+    const response = await loaded.handleContactsGet(new Request("https://prospector.test/api/contacts"), dependencies({ database: projectedDatabase, phase4Accepted: async () => true, commandService }));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.approvedProspects.items.length, 20);
+    assert.equal(body.approvedProspects.truncated, true);
+    assert.deepEqual(body.approvedProspects.items, rows.slice(0, 20).map((row) => ({ prospectId: row.prospect_id, prospectRevision: row.prospect_revision })));
   } finally { await fixture.dispose(); }
 });
 
@@ -250,6 +348,11 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
     let posts = 0;
     const beforeReadiness = await workspace.postContactConfirmation(async () => { posts += 1; return new Response("unexpected"); }, { authorityReady: false, confirmed: true, pending: false, idempotencyKey: "stable-synthetic-key" }, { prospectId: "projected-prospect", expectedProspectRevision: 1 });
     assert.equal(beforeReadiness, null); assert.equal(posts, 0, "a deferred authoritative GET leaves Stage 1 unable to issue POST");
+    let submitted;
+    await workspace.postContactConfirmation(async (url, init) => { submitted = { url, init }; return new Response("accepted", { status: 202 }); }, { authorityReady: true, confirmed: true, pending: false, idempotencyKey: "stable-synthetic-key" }, { prospectId: "projected-prospect", expectedProspectRevision: 7 });
+    assert.equal(submitted.url, "/api/contacts");
+    assert.deepEqual(JSON.parse(submitted.init.body), { action: "create_grant_confirmation", prospectId: "projected-prospect", expectedProspectRevision: 7, idempotencyKey: "stable-synthetic-key" });
+    assert.deepEqual(Object.keys(JSON.parse(submitted.init.body)).sort(), ["action", "expectedProspectRevision", "idempotencyKey", "prospectId"]);
     const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
     const projected = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: {
       capability: { available: false, status: "blocked", reason: "Current capability is blocked." },
@@ -257,6 +360,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
       verifiedContacts: [{ id: "verified-1", contactId: "contact-1", prospectId: "prospect-1", state: "ContactReady", eligible: true, reasonCodes: [], observations: [{ kind: "email", verificationClass: "mailbox_verified", sourceCategory: "mailbox_check", freshness: "stale", verifiedAt: 1_700_000_000_000 }] }],
       suggestions: [{ id: "suggestion-1", contactId: "contact-2", prospectId: "prospect-2", state: "ContactSuggestion", eligible: false, reasonCodes: ["verification_pending"] }],
       needsReview: [{ id: "review-1", contactId: "contact-3", prospectId: "prospect-3", state: "NeedsReview", eligible: false, reasonCodes: ["contact_evidence_stale"] }],
+      approvedProspects: { items: [], truncated: false },
       identity: [{ id: "identity-1", subjectKind: "contact", kind: "merge", revision: 2, candidateRevisions: [{ subjectId: "contact-1", revision: 1 }, { subjectId: "contact-2", revision: 1 }], sourceLineageIds: ["lineage-1"] }],
       authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false },
     } }));
@@ -281,10 +385,13 @@ test("shared unknown-confirmation recovery clears confirmation, uses GET only, a
     assert.equal(post.status, 503);
     let current = confirmation.finishAuthorityRefresh(confirmation.startAuthorityRefresh(confirmation.INITIAL_CONTACT_CONFIRMATION_STATE), 1, true);
     current = confirmation.setExplicitConfirmation(current, true);
+    const reset = workspace.resetStageOneForAuthorityRefresh(current);
+    assert.equal(reset.selectedProspectId, "", "refresh clears the selected prospect");
+    assert.deepEqual({ ready: reset.confirmation.authorityReady, confirmed: reset.confirmation.confirmed, pending: reset.confirmation.pending }, { ready: false, confirmed: false, pending: false }, "refresh clears confirmation and any pending mutation while loading new authority");
     current = confirmation.beginConfirmationRequest(current).state;
     const recovery = workspace.beginUnknownContactConfirmationRecovery(current);
     assert.deepEqual({ ready: recovery.state.authorityReady, confirmed: recovery.state.confirmed, pending: recovery.state.pending }, { ready: false, confirmed: false, pending: false });
-    const refreshed = await workspace.finishUnknownContactConfirmationRecovery(async (url, init) => { calls.push({ url, method: init.method ?? "GET" }); return Response.json({ capability: { available: false, status: "blocked", reason: "Blocked." }, eligibility: [], verifiedContacts: [], suggestions: [], needsReview: [], identity: [], authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false } }); }, recovery);
+    const refreshed = await workspace.finishUnknownContactConfirmationRecovery(async (url, init) => { calls.push({ url, method: init.method ?? "GET" }); return Response.json({ capability: { available: false, status: "blocked", reason: "Blocked." }, eligibility: [], verifiedContacts: [], suggestions: [], needsReview: [], approvedProspects: { items: [], truncated: false }, identity: [], authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false } }); }, recovery);
     const applied = workspace.applyUnknownContactConfirmationRecovery(recovery.state, refreshed);
     assert.equal(refreshed.projection?.authority.providerCall, false); assert.equal(applied.authorityReady, true); assert.equal(applied.confirmed, false);
     assert.deepEqual(calls, [{ url: "/api/contacts", method: "POST" }, { url: "/api/contacts", method: "GET" }], "recovery performs one safe GET and never retries POST");
@@ -421,7 +528,7 @@ test("Contacts command outcomes stay closed and local-demo uses the non-Secure C
     ];
     assert.deepEqual(clientOutcomes.map((outcome) => Object.keys(outcome).sort()), [["grantId", "kind", "status", "tupleDigest"], ["grantId", "kind", "operationId", "resultDigest", "revision", "status"], ["action", "kind", "resultDigest", "revision", "status", "suggestionId"], ["kind", "status"]]);
     const activeRow = { id: "row-one", contactId: "contact-one", prospectId: "prospect-one", prospectRevision: 8, state: "ContactReady", eligible: true, reasonCodes: [] };
-    const baseActive = { capability: { available: true, status: "ready", reason: "Synthetic authority." }, eligibility: [activeRow], verifiedContacts: [activeRow], suggestions: [], needsReview: [], identity: [], authority: { stage: "ready", grantCreation: "available", operation: "requires_grant", providerCall: false } };
+    const baseActive = { capability: { available: true, status: "ready", reason: "Synthetic authority." }, eligibility: [activeRow], verifiedContacts: [activeRow], suggestions: [], needsReview: [], approvedProspects: { items: [{ prospectId: "prospect-one", prospectRevision: 8 }], truncated: false }, identity: [], authority: { stage: "ready", grantCreation: "available", operation: "requires_grant", providerCall: false } };
     const active = leaves.normalizeContactsProjection(baseActive); assert.equal(active.capability.available, true); assert.equal(active.verifiedContacts[0].prospectRevision, 8);
     assert.equal(leaves.normalizeContactsProjection({ ...baseActive, verifiedContacts: [{ ...activeRow, prospectRevision: 9 }] }), null, "an inconsistent active projection cannot authorize Stage 1");
     const oneCandidateMerge = { id: "merge-one", subjectKind: "contact", kind: "merge", revision: 1, candidateRevisions: [{ subjectId: "contact-one", revision: 1 }], sourceLineageIds: ["lineage-one"] };

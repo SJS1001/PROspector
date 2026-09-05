@@ -89,6 +89,7 @@ export async function handleContactsPost(request: Request, dependencies: Contact
 type SnapshotRow = { id: string; contact_id: string; prospect_id: string; configuration_id: string; configuration_digest: string; configuration_revision: number; prospect_revision: number; state: string; eligible: number; observation_ids_json: string; reason_codes_json: string; projected_at: number; current_prospect_revision: number | null; prospect_active: number | null; prospect_state: string | null; current_configuration_id: string | null; current_configuration_digest: string | null; current_configuration_revision: number | null; configuration_active: number | null };
 type ObservationRow = { id: string; contact_id: string; assignment_id: string; kind: string; verification_class: string; method: string; source_reference: string; retrieved_at: number; observed_at: number; verified_at: number | null; configuration_id: string; configuration_digest: string; assignment_prospect_id: string | null; assignment_contact_id: string | null; assignment_configuration_id: string | null; assignment_configuration_digest: string | null; receipt_reservation_id: string | null };
 type IdentityRow = { id: string; subject_kind: string; kind: string; revision: number; candidate_revisions_json: string; source_lineage_ids_json: string; suggestion_digest: string; created_at: number };
+type ApprovedProspectRow = { prospect_id: string; prospect_revision: number };
 
 async function projection(dependencies: ContactsHandlerDependencies, principal: Principal, knownWorkspaceId?: string) {
   const database = dependencies.database;
@@ -100,10 +101,25 @@ async function projection(dependencies: ContactsHandlerDependencies, principal: 
   const effectiveAttestor = dependencies.contactSettlementAttestor && await contactAttestationActivated(database, workspaceId)
     ? dependencies.contactSettlementAttestor
     : undefined;
-  const [snapshots, observations, identities] = await Promise.all([
+  const [snapshots, observations, identities, approved] = await Promise.all([
     database.prepare("SELECT s.id,s.contact_id,s.prospect_id,s.configuration_id,s.configuration_digest,s.configuration_revision,s.prospect_revision,s.state,s.eligible,s.observation_ids_json,s.reason_codes_json,s.projected_at,p.revision AS current_prospect_revision,p.active AS prospect_active,p.state AS prospect_state,c.id AS current_configuration_id,c.digest AS current_configuration_digest,c.revision AS current_configuration_revision,c.active AS configuration_active FROM contact_eligibility_snapshots s LEFT JOIN profile_prospects p ON p.id=s.prospect_id AND p.workspace_id=s.workspace_id LEFT JOIN typed_configurations c ON c.id=s.configuration_id AND c.workspace_id=s.workspace_id AND c.owner_type='profile' AND c.owner_id=p.profile_id AND c.kind='profile_effective' WHERE s.workspace_id=? ORDER BY s.projected_at DESC,s.id DESC").bind(workspaceId).all<SnapshotRow>(),
     database.prepare("SELECT o.id,o.contact_id,o.assignment_id,o.kind,o.verification_class,o.method,o.source_reference,o.retrieved_at,o.observed_at,o.verified_at,o.configuration_id,o.configuration_digest,a.prospect_id AS assignment_prospect_id,a.contact_id AS assignment_contact_id,a.configuration_id AS assignment_configuration_id,a.configuration_digest AS assignment_configuration_digest,receipt.reservation_id AS receipt_reservation_id FROM contact_point_observations o LEFT JOIN contact_evidence_assignments a ON a.id=o.assignment_id AND a.workspace_id=o.workspace_id LEFT JOIN contact_verification_receipts receipt ON receipt.id=o.verification_receipt_id AND receipt.workspace_id=o.workspace_id WHERE o.workspace_id=? ORDER BY o.observed_at DESC,o.id DESC").bind(workspaceId).all<ObservationRow>(),
     database.prepare("SELECT id,subject_kind,kind,revision,candidate_revisions_json,source_lineage_ids_json,suggestion_digest,created_at FROM identity_suggestions WHERE workspace_id=? AND owner_subject=? ORDER BY created_at DESC,id DESC").bind(workspaceId, principal.subject).all<IdentityRow>(),
+    active
+      ? database.prepare(`SELECT p.id prospect_id,p.revision prospect_revision
+          FROM profile_prospects p
+          JOIN workspaces w ON w.id=p.workspace_id
+          JOIN typed_configurations c ON c.workspace_id=p.workspace_id AND c.owner_type='profile'
+            AND c.owner_id=p.profile_id AND c.kind='profile_effective' AND c.active=1
+          JOIN prospecting_candidates pc ON pc.id=p.candidate_id AND pc.workspace_id=p.workspace_id
+            AND pc.profile_id=p.profile_id AND pc.configuration_id=c.id AND pc.status IN ('observed','qualified')
+          JOIN qualification_assessments qa ON qa.id=p.assessment_id AND qa.workspace_id=p.workspace_id
+            AND qa.candidate_id=pc.id AND qa.configuration_id=c.id AND qa.configuration_digest=c.digest
+            AND qa.outcome='Passed'
+          WHERE p.workspace_id=? AND w.owner_subject IN (?,?) AND p.active=1 AND p.state='approved'
+          ORDER BY p.updated_at DESC,p.id DESC LIMIT 21`)
+        .bind(workspaceId, principal.subject, principal.legacySubject ?? principal.subject).all<ApprovedProspectRow>()
+      : Promise.resolve({ results: [] as ApprovedProspectRow[] }),
   ]);
   const observationsById = new Map(observations.results.map(normalizeObservation).filter((row): row is NonNullable<ReturnType<typeof normalizeObservation>> => row !== null).map((row) => [row.id, row]));
   const current = new Map<string, NonNullable<ReturnType<typeof normalizeSnapshot>>>();
@@ -111,6 +127,8 @@ async function projection(dependencies: ContactsHandlerDependencies, principal: 
   const eligibility = await Promise.all([...current.values()].map((row) =>
     recheckSnapshot(row, observationsById, Date.now(), database, workspaceId, effectiveAttestor)
   ));
+  const approvedProspectRows = approved.results.map((row) => ({ prospectId: row.prospect_id, prospectRevision: Number(row.prospect_revision) }));
+  if (approvedProspectRows.some((row) => !opaqueId(row.prospectId) || !positive(row.prospectRevision)) || new Set(approvedProspectRows.map((row) => row.prospectId)).size !== approvedProspectRows.length) throw new Error("invalid_approved_prospect_projection");
   return {
     capability: active
       ? { available: true, status: "ready", reason: "Contacts command authority is available for this server projection." }
@@ -119,6 +137,7 @@ async function projection(dependencies: ContactsHandlerDependencies, principal: 
     verifiedContacts: eligibility.filter((row) => row.state === "ContactReady" && row.eligible),
     suggestions: eligibility.filter((row) => row.state === "ContactSuggestion"),
     needsReview: eligibility.filter((row) => row.state === "NeedsReview" || row.reasonCodes.length > 0),
+    approvedProspects: { items: approvedProspectRows.slice(0, 20), truncated: approvedProspectRows.length > 20 },
     identity: identities.results.map(normalizeIdentity).filter((row): row is NonNullable<ReturnType<typeof normalizeIdentity>> => row !== null),
     authority: active
       ? { stage: "ready", grantCreation: "available", operation: "requires_grant", providerCall: false }

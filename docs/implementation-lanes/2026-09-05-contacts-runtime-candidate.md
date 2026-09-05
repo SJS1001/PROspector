@@ -44,7 +44,13 @@ reviewable.
 ## Browser behavior
 
 The client accepts active authority only from a normalized server projection.
-Stage 1 uses a verified projected prospect ID and prospect revision. Stage 2 stays
+Stage 1 uses a separately projected current Approved Prospect ID and revision; it
+does not require a verified contact or an eligibility snapshot before the first
+grant can be created. The owner must explicitly select one of at most 20 rows, and
+every refresh clears both selection and confirmation. The server queries these
+rows only while both existing active gates are true, applies the same current
+prospect/configuration/candidate/assessment predicates as grant issuance, and
+reports when the deterministic 20-row window is truncated. Stage 2 stays
 disabled until the complete immutable grant summary is approved for owner display.
 Merge requires the owner to choose a primary from at least two projected candidates;
 split remains disabled until its exact impact can be displayed.
@@ -78,3 +84,8 @@ gates and zero-call denial, minimal frozen service commands, result sanitization
 settled and reconciliation outcomes, identity merge/split shape, local-demo CSRF
 cookie mode, active client normalization, separate confirmations, and GET-only
 unknown-outcome recovery.
+
+Existing contact evidence/history lists still have their earlier pagination debt:
+their D1 reads are unbounded and the client silently caps each list at 20. That is
+a separate backlog item; this slice neither claims to solve it nor extends that
+contract to Approved Prospect selection.
