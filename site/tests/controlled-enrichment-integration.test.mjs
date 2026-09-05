@@ -74,7 +74,7 @@ test("forward candidate repairs real Approved Prospect issuance and reservation 
     assert.ok(cookie);
     const denied = await contacts.handleContactsPost(new Request("https://prospector.test/api/contacts",{
       method:"POST",headers:{"content-type":"application/json",cookie,origin:"https://prospector.test","sec-fetch-site":"same-origin","x-prospector-intent":contacts.CONTACTS_MUTATION_INTENT},
-      body:JSON.stringify({action:"run_granted_operation",grantId:"synthetic-unavailable-grant",idempotencyKey:"p5i-runtime-denial"}),
+      body:JSON.stringify({action:"run_granted_operation",grantId:"synthetic-unavailable-grant"}),
     }),dependencies);
     assert.equal(denied.status,409);
     assert.equal((await denied.json()).error,"contacts_capability_unavailable");
