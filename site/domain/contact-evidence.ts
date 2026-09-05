@@ -458,9 +458,10 @@ export function normalizeBusinessPhone(value: unknown): string | null {
  * issued only by ingestContactEvidence. JSON copies and provider-shaped objects
  * therefore fail closed even when every field is well formed.
  *
- * Persisted observations intentionally remain invalid after deserialization until
- * a future authenticated repository rehydration seam can verify durable authority
- * and issue a fresh internal receipt. No public bypass exists in this module.
+ * Persisted observations intentionally remain invalid after deserialization. The
+ * separate contact-settlement-persistence seam can re-verify durable authority and
+ * issue a minimal internal eligibility view; it never turns a deserialized raw
+ * observation back into this object type. No public bypass exists in this module.
  */
 export function isDefensivelyValidContactObservation(value: unknown): value is ContactObservation {
   const observation = record(value);

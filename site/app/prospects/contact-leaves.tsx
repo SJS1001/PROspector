@@ -1,49 +1,78 @@
 import React from "react";
 
-export type ContactProjectionRow = {
-  id: string; contactId: string; prospectId: string; state: string; eligible: boolean;
-  reasonCodes: readonly string[]; observations?: readonly { verificationClass: string }[];
-};
-export type IdentityProjectionRow = {
-  id: string; subjectKind: string; kind: string; revision: number;
-  candidateRevisions: readonly { subjectId: string; revision: number }[]; sourceLineageIds: readonly string[];
-};
-export type ContactsProjection = {
-  capability: { available: boolean; status: string; reason: string };
-  eligibility: readonly ContactProjectionRow[]; verifiedContacts: readonly ContactProjectionRow[];
-  suggestions: readonly ContactProjectionRow[]; needsReview: readonly ContactProjectionRow[];
-  identity: readonly IdentityProjectionRow[];
-  authority: { stage: string; grantCreation: string; operation: string; providerCall: boolean };
-};
+export type ContactProjectionRow = { id: string; contactId: string; prospectId: string; prospectRevision?: number; state: string; eligible: boolean; reasonCodes: readonly string[]; observations?: readonly ContactObservationProjection[] };
+export type ContactObservationProjection = { kind: string; verificationClass: string; sourceCategory: string; freshness: "current" | "stale" | "unverified"; verifiedAt: number | null };
+export type IdentityProjectionRow = { id: string; subjectKind: string; kind: string; revision: number; candidateRevisions: readonly { subjectId: string; revision: number }[]; sourceLineageIds: readonly string[] };
+export type ContactsProjection = { capability: { available: boolean; status: string; reason: string }; eligibility: readonly ContactProjectionRow[]; verifiedContacts: readonly ContactProjectionRow[]; suggestions: readonly ContactProjectionRow[]; needsReview: readonly ContactProjectionRow[]; identity: readonly IdentityProjectionRow[]; authority: { stage: string; grantCreation: string; operation: string; providerCall: boolean } };
+export type ContactsCommandProjection = { kind: "grant" | "operation" | "identity"; status: "created" | "replayed" | "settled" | "reconciliation_required" | "applied" | "conflict" | "stale" | "wrong_scope" | "blocked"; action?: "merge" | "split"; grantId?: string; operationId?: string; suggestionId?: string; tupleDigest?: string; resultDigest?: string; providerId?: string; providerVersion?: string; unitCostMinor?: number; currency?: string; expiresAt?: number; revision?: number };
 
 const MAX_ROWS = 20;
+const CONTACT_STATES = ["ContactReady", "ContactSuggestion", "NeedsReview", "NonContactable"] as const;
+const REASON_CODES = ["contact_attestation_invalid", "contact_attestation_unavailable", "contact_authority_configuration_mismatch", "contact_authority_scope_mismatch", "contact_configuration_mismatch", "contact_evidence_invalid", "contact_evidence_stale", "contact_lineage_drifted", "contact_scope_mismatch", "invalid_contact_authority", "invalid_contact_input", "invalid_contact_strategy", "invalid_contact_target", "invalid_evaluation_time", "no_contact_evidence", "verification_class_ineligible", "verification_pending"] as const;
+const OBSERVATION_KINDS = ["email", "phone"] as const;
+const VERIFICATION_CLASSES = ["suggested", "domain_valid", "mailbox_verified", "source_verified", "invalid"] as const;
+
+const BLOCKED_CAPABILITY_REASON = "Contacts are unavailable until the separate capability gate is proven.";
+export const BLOCKED_CONTACTS_PROJECTION: ContactsProjection = Object.freeze({ capability: { available: false, status: "blocked", reason: BLOCKED_CAPABILITY_REASON }, eligibility: [], verifiedContacts: [], suggestions: [], needsReview: [], identity: [], authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false } });
+
+/** Reject malformed server JSON before it can make a control ready or reach a leaf.
+ * Public references remain useful only when they match the server's opaque-ID form. */
+export function normalizeContactsProjection(value: unknown): ContactsProjection | null {
+  if (!record(value) || !capability(value.capability) || !authority(value.authority) || ![value.eligibility, value.verifiedContacts, value.suggestions, value.needsReview, value.identity].every(Array.isArray)) return null;
+  const eligibility = contactRows(value.eligibility), verifiedContacts = contactRows(value.verifiedContacts), suggestions = contactRows(value.suggestions), needsReview = contactRows(value.needsReview), identity = identityRows(value.identity);
+  if (value.capability.available && (verifiedContacts.some((row) => row.state !== "ContactReady" || !row.eligible || !positive(row.prospectRevision) || !eligibility.some((item) => sameContactAuthority(item, row))) || identity.length !== value.identity.length)) return null;
+  return { capability: value.capability, eligibility, verifiedContacts, suggestions, needsReview, identity, authority: value.authority };
+}
+
+export function normalizeContactsCommand(value: unknown): ContactsCommandProjection | null {
+  if (!record(value) || !member(value.kind, ["grant", "operation", "identity"]) || !member(value.status, ["created", "replayed", "settled", "reconciliation_required", "applied", "conflict", "stale", "wrong_scope", "blocked"])) return null;
+  if (!validKindStatus(value.kind, value.status)) return null;
+  if (member(value.status, ["conflict", "stale", "wrong_scope", "blocked"])) return { kind: value.kind, status: value.status };
+  if (value.kind === "operation") return member(value.status, ["settled", "reconciliation_required"]) && opaqueId(value.grantId) && opaqueId(value.operationId) && typeof value.resultDigest === "string" && /^[a-f0-9]{64}$/.test(value.resultDigest) && positive(value.revision) ? { kind: value.kind, status: value.status, grantId: value.grantId, operationId: value.operationId, resultDigest: value.resultDigest, revision: value.revision } : null;
+  if (value.kind === "identity") return value.status === "applied" && member(value.action, ["merge", "split"]) && opaqueId(value.suggestionId) && typeof value.resultDigest === "string" && /^[a-f0-9]{64}$/.test(value.resultDigest) && positive(value.revision) ? { kind: value.kind, action: value.action, status: value.status, suggestionId: value.suggestionId, resultDigest: value.resultDigest, revision: value.revision } : null;
+  const out: Record<string, unknown> = { kind: value.kind, status: value.status };
+  for (const key of ["grantId", "operationId", "suggestionId"] as const) if (value[key] !== undefined) { if (!opaqueId(value[key])) return null; out[key] = value[key]; }
+  for (const key of ["providerId", "providerVersion"] as const) if (value[key] !== undefined) { if (!providerReference(value[key])) return null; out[key] = value[key]; }
+  for (const key of ["tupleDigest", "resultDigest"] as const) if (value[key] !== undefined) { if (typeof value[key] !== "string" || !/^[a-f0-9]{64}$/.test(value[key])) return null; out[key] = value[key]; }
+  if (value.currency !== undefined) { if (typeof value.currency !== "string" || !/^[A-Z]{3}$/.test(value.currency)) return null; out.currency = value.currency; }
+  if (value.unitCostMinor !== undefined) { if (!nonNegative(value.unitCostMinor)) return null; out.unitCostMinor = value.unitCostMinor; }
+  for (const key of ["expiresAt", "revision"] as const) if (value[key] !== undefined) { if (!positive(value[key])) return null; out[key] = value[key]; }
+  if (value.kind === "grant" && (value.status === "created" || value.status === "replayed") && !opaqueId(value.grantId)) return null;
+  return out as ContactsCommandProjection;
+}
 
 /** A read-only presentation of server-projected, opaque identifiers and status.
  * It intentionally omits contact values, source locators, and provider details. */
 export function ContactsReadFirst({ projection }: { projection: ContactsProjection }) {
-  const eligibility = contactRows(projection.eligibility), verified = contactRows(projection.verifiedContacts);
-  const suggestions = contactRows(projection.suggestions), review = contactRows(projection.needsReview), identity = identityRows(projection.identity);
+  const safe = normalizeContactsProjection(projection) ?? BLOCKED_CONTACTS_PROJECTION;
   return <>
-    <section className="panel contacts-eligibility" aria-labelledby="contacts-eligibility"><h2 id="contacts-eligibility">Eligibility</h2><p role="status">{text(projection.capability.reason, "Contacts status is unavailable.")}</p><p>No provider call will be made.</p><ContactRows rows={eligibility} empty="No eligibility status is currently projected." /></section>
-    <section className="panel" aria-labelledby="verified-contacts"><h2 id="verified-contacts">Verified contacts</h2><p>Only current server-projected ContactReady status is shown; contact values remain hidden.</p><ContactRows rows={verified} empty="No current mailbox-verified or source-verified business contact points are projected." /></section>
-    <section className="panel" aria-labelledby="contact-suggestions"><h2 id="contact-suggestions">Contact Suggestions</h2><p>Suggestions are not ContactReady and cannot be used for outreach, calling, export, or CRM.</p><ContactRows rows={suggestions} empty="No contact suggestions are currently projected." /><h3>Needs review</h3><ContactRows rows={review} empty="No contacts currently require review." /></section>
-    <section className="panel" aria-labelledby="authority-identity"><h2 id="authority-identity">Authority and identity</h2><p>Grant creation, reservation, and identity changes are blocked. Stale contacts need review; uncertain reservations have no retry path.</p>{identity.length ? <ul>{identity.map((row) => <li key={row.id}>Identity {row.subjectKind} {row.kind}, revision {row.revision}; {row.candidateRevisions.length} candidate{row.candidateRevisions.length === 1 ? "" : "s"} and {row.sourceLineageIds.length} lineage record{row.sourceLineageIds.length === 1 ? "" : "s"}.</li>)}</ul> : <p>No identity suggestions are currently projected.</p>}</section>
+    <section className="panel contacts-eligibility" aria-labelledby="contacts-eligibility"><h2 id="contacts-eligibility">Eligibility</h2><p role="status">{safe.capability.reason}</p><p>No provider call will be made.</p><ContactRows rows={safe.eligibility} empty="No eligibility status is currently projected." /></section>
+    <section className="panel" aria-labelledby="verified-contacts"><h2 id="verified-contacts">Verified contacts</h2><p>Only current server-projected ContactReady status is shown; contact values remain hidden.</p><ContactRows rows={safe.verifiedContacts} empty="No current mailbox-verified or source-verified business contact points are projected." /></section>
+    <section className="panel" aria-labelledby="contact-suggestions"><h2 id="contact-suggestions">Contact Suggestions</h2><p>Suggestions are not ContactReady and cannot be used for outreach, calling, export, or CRM.</p><ContactRows rows={safe.suggestions} empty="No contact suggestions are currently projected." /><h3>Needs review</h3><ContactRows rows={safe.needsReview} empty="No contacts currently require review." /></section>
+    <section className="panel" aria-labelledby="authority-identity"><h2 id="authority-identity">Authority and identity</h2><p>{safe.capability.available ? "Only the exact server-projected candidates below may be submitted." : "Grant creation, reservation, and identity changes are blocked."} Stale contacts need review; uncertain reservations have no retry path.</p>{safe.identity.length ? <ul>{safe.identity.map((row) => <li key={row.id}>Identity {row.subjectKind} {row.kind}, revision {row.revision}; {row.candidateRevisions.length} candidate{row.candidateRevisions.length === 1 ? "" : "s"} and {row.sourceLineageIds.length} lineage record{row.sourceLineageIds.length === 1 ? "" : "s"}.</li>)}</ul> : <p>No identity suggestions are currently projected.</p>}</section>
   </>;
 }
 
-function ContactRows({ rows, empty }: { rows: readonly ContactProjectionRow[]; empty: string }) {
-  return rows.length ? <ul>{rows.map((row) => <li key={row.id}><strong>{text(row.state, "Unknown status")}</strong> for contact {text(row.contactId, "unknown")} on prospect {text(row.prospectId, "unknown")}{row.reasonCodes.length ? <> — {row.reasonCodes.join(", ")}</> : null}{row.observations?.length ? <> — {row.observations.map((item) => item.verificationClass).join(", ")}</> : null}</li>)}</ul> : <p>{empty}</p>;
-}
-function contactRows(value: readonly ContactProjectionRow[]) { return Array.isArray(value) ? value.filter(contactRow).slice(0, MAX_ROWS) : []; }
-function identityRows(value: readonly IdentityProjectionRow[]) { return Array.isArray(value) ? value.filter(identityRow).slice(0, MAX_ROWS) : []; }
-function contactRow(value: unknown): value is ContactProjectionRow { if (!record(value) || !id(value.id) || !id(value.contactId) || !id(value.prospectId) || !short(value.state, 64) || typeof value.eligible !== "boolean" || !strings(value.reasonCodes, 32)) return false; return value.observations === undefined || Array.isArray(value.observations) && value.observations.every((item) => record(item) && short(item.verificationClass, 64)); }
-function identityRow(value: unknown): value is IdentityProjectionRow { return record(value) && id(value.id) && short(value.subjectKind, 64) && short(value.kind, 64) && Number.isSafeInteger(value.revision) && value.revision > 0 && Array.isArray(value.candidateRevisions) && value.candidateRevisions.length <= 100 && value.candidateRevisions.every((item) => record(item) && id(item.subjectId) && Number.isSafeInteger(item.revision) && item.revision > 0) && strings(value.sourceLineageIds, 100); }
-function strings(value: unknown, maximum: number): value is readonly string[] { return Array.isArray(value) && value.length <= maximum && value.every((item) => short(item, 160)); }
+function ContactRows({ rows, empty }: { rows: readonly ContactProjectionRow[]; empty: string }) { return rows.length ? <ul>{rows.map((row) => <li key={row.id}><strong>{row.state}</strong> for contact {row.contactId} on prospect {row.prospectId}{row.reasonCodes.length ? <> — {row.reasonCodes.join(", ")}</> : null}{row.observations?.length ? <ul aria-label="Contact evidence">{row.observations.map((item, index) => <li key={`${row.id}-evidence-${index}`}><dl><dt>Observation kind</dt><dd>{item.kind}</dd><dt>Verification class</dt><dd>{item.verificationClass}</dd><dt>Source category</dt><dd>{item.sourceCategory}</dd><dt>Freshness</dt><dd>{item.freshness}</dd><dt>Verified at</dt><dd>{verifiedTime(item.verifiedAt)}</dd></dl></li>)}</ul> : <p>No bounded verification evidence is available for this contact.</p>}</li>)}</ul> : <p>{empty}</p>; }
+function contactRows(value: unknown) { return Array.isArray(value) ? value.slice(0, MAX_ROWS).map(contactRow).filter((row): row is ContactProjectionRow => row !== null) : []; }
+function identityRows(value: unknown) { return Array.isArray(value) ? value.slice(0, MAX_ROWS).map(identityRow).filter((row): row is IdentityProjectionRow => row !== null) : []; }
+function contactRow(value: unknown): ContactProjectionRow | null { if (!record(value) || !opaqueId(value.id) || !opaqueId(value.contactId) || !opaqueId(value.prospectId) || (value.prospectRevision !== undefined && !positive(value.prospectRevision)) || !member(value.state, CONTACT_STATES) || typeof value.eligible !== "boolean" || !reasonCodes(value.reasonCodes)) return null; const observations = value.observations === undefined ? undefined : observationsFor(value.observations); if (observations === null) return null; return { id: value.id, contactId: value.contactId, prospectId: value.prospectId, ...(value.prospectRevision === undefined ? {} : { prospectRevision: value.prospectRevision }), state: value.state, eligible: value.eligible, reasonCodes: value.reasonCodes, ...(observations === undefined ? {} : { observations }) }; }
+function sameContactAuthority(left: ContactProjectionRow, right: ContactProjectionRow) { return left.id === right.id && left.contactId === right.contactId && left.prospectId === right.prospectId && left.prospectRevision === right.prospectRevision && left.state === right.state && left.eligible === right.eligible; }
+function observationsFor(value: unknown): readonly ContactObservationProjection[] | null { if (!Array.isArray(value) || value.length > 32) return null; const observations = value.map(observation); return observations.every((item): item is ContactObservationProjection => item !== null) ? observations : null; }
+function observation(value: unknown): ContactObservationProjection | null { return record(value) && member(value.kind, OBSERVATION_KINDS) && member(value.verificationClass, VERIFICATION_CLASSES) && member(value.sourceCategory, ["inferred_pattern", "domain_check", "mailbox_check", "authoritative_business_source"]) && member(value.freshness, ["current", "stale", "unverified"]) && (value.verifiedAt === null || validTimestamp(value.verifiedAt)) ? { kind: value.kind, verificationClass: value.verificationClass, sourceCategory: value.sourceCategory, freshness: value.freshness, verifiedAt: value.verifiedAt } : null; }
+function identityRow(value: unknown): IdentityProjectionRow | null { if (!record(value) || !opaqueId(value.id) || !member(value.subjectKind, ["contact", "organization"]) || !member(value.kind, ["merge", "split"]) || !positive(value.revision) || !Array.isArray(value.candidateRevisions) || value.candidateRevisions.length > 100 || !opaqueIds(value.sourceLineageIds, 100)) return null; const candidateRevisions = value.candidateRevisions.map((item) => record(item) && opaqueId(item.subjectId) && positive(item.revision) ? { subjectId: item.subjectId, revision: item.revision } : null); if (!candidateRevisions.every((item): item is { subjectId: string; revision: number } => item !== null) || (value.kind === "merge" ? candidateRevisions.length < 2 : candidateRevisions.length !== 1)) return null; return { id: value.id, subjectKind: value.subjectKind, kind: value.kind, revision: value.revision, candidateRevisions, sourceLineageIds: value.sourceLineageIds }; }
+function capability(value: unknown): value is ContactsProjection["capability"] { return record(value) && ((value.available === false && value.status === "blocked") || (value.available === true && value.status === "ready")) && typeof value.reason === "string" && value.reason.length <= 240; }
+function authority(value: unknown): value is ContactsProjection["authority"] { return record(value) && value.providerCall === false && ((value.stage === "reject_only" && value.grantCreation === "blocked" && value.operation === "blocked") || (value.stage === "ready" && value.grantCreation === "available" && value.operation === "requires_grant")); }
+function reasonCodes(value: unknown): value is readonly string[] { return Array.isArray(value) && value.length <= 32 && value.every((item) => member(item, REASON_CODES)); }
+function opaqueIds(value: unknown, maximum: number): value is readonly string[] { return Array.isArray(value) && value.length <= maximum && value.every(opaqueId); }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
-function id(value: unknown) { return short(value, 160); }
-function short(value: unknown, maximum: number): value is string { return typeof value === "string" && value.trim().length > 0 && value.length <= maximum; }
-function text(value: unknown, fallback: string) { return short(value, 240) ? value : fallback; }
+function opaqueId(value: unknown): value is string { return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value) && !/^\d{7,15}$/.test(value.replace(/[-_]/g, "")); }
+function positive(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
+function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+function providerReference(value: unknown): value is string { return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/.test(value); }
+function validKindStatus(kind: string, status: string) { return kind === "grant" ? ["created", "replayed", "conflict", "stale", "wrong_scope", "blocked"].includes(status) : kind === "operation" ? ["settled", "reconciliation_required", "conflict", "stale", "wrong_scope", "blocked"].includes(status) : kind === "identity" && ["applied", "conflict", "stale", "wrong_scope", "blocked"].includes(status); }
+function validTimestamp(value: unknown): value is number { return positive(value) && value <= 8_640_000_000_000_000; }
+function member<T extends readonly string[]>(value: unknown, allowed: T): value is T[number] { return typeof value === "string" && allowed.includes(value); }
+function verifiedTime(timestamp: number | null) { if (timestamp === null) return "Unknown verification time"; try { return new Date(timestamp).toISOString(); } catch { return "Unknown verification time"; } }
 
-export function DisabledContactAction({ children, explanation, explanationId }: { children: string; explanation: string; explanationId: string }) {
-  return <p><button type="button" disabled aria-describedby={explanationId}>{children}</button> <span id={explanationId} tabIndex={0}>{explanation}</span></p>;
-}
+export function DisabledContactAction({ children, explanation, explanationId }: { children: string; explanation: string; explanationId: string }) { return <p><button type="button" disabled aria-describedby={explanationId}>{children}</button> <span id={explanationId} tabIndex={0}>{explanation}</span></p>; }

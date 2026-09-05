@@ -38,8 +38,8 @@ test("0008 foundation plus additive 0009 hardening install with aligned metadata
     assert.deepEqual(foreignKeys, []);
     const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
     const snapshot = JSON.parse(await readFile(new URL("../drizzle/meta/0009_snapshot.json", import.meta.url), "utf8"));
-    assert.equal(journal.entries.at(-1).idx, 9);
-    assert.equal(journal.entries.at(-1).tag, "0009_gorgeous_captain_universe");
+    assert.equal(journal.entries[9].idx, 9);
+    assert.equal(journal.entries[9].tag, "0009_gorgeous_captain_universe");
     assert.equal(snapshot.prevId, JSON.parse(await readFile(new URL("../drizzle/meta/0008_snapshot.json", import.meta.url), "utf8")).id);
     for (const table of expectedTables) assert.equal(snapshot.tables[table]?.name, table);
     const migrations = await Promise.all([

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { runtimeIdentity } from "../../runtime-identity";
+import { isLocalDemoRequest, runtimeIdentity } from "../../runtime-identity";
 import { handleContactsGet, handleContactsPost, type ContactsHandlerDependencies } from "../../../domain/contacts-handler";
 import { bindRuntimeContactSettlementAttestor } from "../../../domain/contact-settlement-runtime";
 
@@ -14,6 +14,7 @@ async function dependencies(request: Request): Promise<ContactsHandlerDependenci
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
+    csrfCookieMode: isLocalDemoRequest(request, bindings) ? "local-demo" : "secure",
     contactSettlementAttestor: await bindRuntimeContactSettlementAttestor(
       bindings.CONTACT_SETTLEMENT_ATTESTATION_KEYS_JSON,
     ) ?? undefined,
