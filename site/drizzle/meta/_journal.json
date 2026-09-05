@@ -71,6 +71,62 @@
       "when": 1785490368831,
       "tag": "0009_gorgeous_captain_universe",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788539954646,
+      "tag": "0010_governed_outreach",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1788544237159,
+      "tag": "0011_enrichment_candidate_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1788546839204,
+      "tag": "0012_governed_outreach_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1788547952000,
+      "tag": "0013_governed_outreach_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788549250616,
+      "tag": "0014_governed-outreach-authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1788552326570,
+      "tag": "0015_governed-outreach-pre-call",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1788557123914,
+      "tag": "0016_governed-outreach-attempt-preparation",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1788558207793,
+      "tag": "0017_governed-outreach-preparation-recovery",
+      "breakpoints": true
     }
   ]
 }

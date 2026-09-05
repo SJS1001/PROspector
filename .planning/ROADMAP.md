@@ -9,6 +9,11 @@ PROspector moves from its narrow hosted interview proof to a safe private operat
 
 ## Phases
 
+The 2026-09-04 owner-authorized offline cloud-wave candidate is tracked in
+`docs/implementation-lanes/2026-09-04-recovered-integration.md`. It advances code
+and focused tests, not phase acceptance; the unchecked phases below and their
+external dependencies remain incomplete. Canonical preflight remains held.
+
 **Phase Numbering:**
 
 - Integer phases (1, 2, 3): planned milestone work.

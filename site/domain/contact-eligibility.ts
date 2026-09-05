@@ -1,4 +1,8 @@
 import { isDefensivelyValidContactObservation, type ContactObservation } from "./contact-evidence";
+import {
+  isVerifiedPersistedContactEligibilityEvidence,
+  type PersistedContactEligibilityEvidence,
+} from "./contact-settlement-persistence";
 
 export const DEFAULT_CONTACT_FRESHNESS_MS = Object.freeze({
   mailboxVerifiedEmail: 30 * 24 * 60 * 60 * 1000,
@@ -31,6 +35,7 @@ export type ContactEligibilityTarget = Readonly<{
   prospectId: string;
   contactId: string;
 }>;
+type ContactEligibilityEvidence = ContactObservation | PersistedContactEligibilityEvidence;
 export type DownstreamBoundary = "package_approval" | "crm_export" | "click_to_call" | "final_send";
 export type DownstreamEffectSnapshot = Readonly<{
   packageMutations: 0;
@@ -70,7 +75,7 @@ const MAX_FRESHNESS_MS = 366 * 24 * 60 * 60 * 1000;
  */
 export function projectContactEligibility(value: {
   target?: ContactEligibilityTarget;
-  points?: readonly ContactObservation[];
+  points?: readonly ContactEligibilityEvidence[];
   strategy?: ContactStrategy;
   authority?: ContactEligibilityAuthority;
   now?: number;
@@ -102,10 +107,13 @@ export function projectContactEligibility(value: {
   const authorityBlocked = reasonCodes.length > 0;
 
   const suppliedPoints = input?.points ?? [];
-  const points: ContactObservation[] = [];
+  const points: ContactEligibilityEvidence[] = [];
   let hasInvalidEvidence = false;
   for (const point of suppliedPoints) {
-    if (isDefensivelyValidContactObservation(point)) points.push(point);
+    if (
+      isDefensivelyValidContactObservation(point)
+      || isVerifiedPersistedContactEligibilityEvidence(point)
+    ) points.push(point);
     else hasInvalidEvidence = true;
   }
   const projected = points.map((point) => projectPoint(point, target, strategy, evaluationTime));
@@ -153,7 +161,7 @@ function blockedRecheck(boundary: DownstreamBoundary, input: unknown): Downstrea
   return freeze({ boundary, blocked: true as const, eligibility, effectsBefore, effectsAfter });
 }
 
-function projectPoint(point: ContactObservation, target: ContactEligibilityTarget | null, strategy: Freshness | null, now: number) {
+function projectPoint(point: ContactEligibilityEvidence, target: ContactEligibilityTarget | null, strategy: Freshness | null, now: number) {
   const eligibleClass = point.verificationClass === "mailbox_verified" || point.verificationClass === "source_verified";
   if (!eligibleClass) return freeze({ observationId: point.id, state: point.verificationClass === "invalid" ? "invalid" as const : "suggestion" as const, freshnessExpiresAt: null, verificationClass: point.verificationClass });
   if (
@@ -193,7 +201,7 @@ function normalizeStrategy(value: unknown): Freshness | null {
   return mailboxVerifiedEmailFreshnessMs && sourceVerifiedEmailFreshnessMs && verifiedBusinessPhoneFreshnessMs
     ? Object.freeze({ configurationId: strategy.configurationId as string, configurationDigest: strategy.configurationDigest, mailboxVerifiedEmailFreshnessMs, sourceVerifiedEmailFreshnessMs, verifiedBusinessPhoneFreshnessMs }) : null;
 }
-function freshnessFor(point: ContactObservation, strategy: Freshness) {
+function freshnessFor(point: ContactEligibilityEvidence, strategy: Freshness) {
   if (point.verificationClass === "mailbox_verified" && point.kind === "email") return strategy.mailboxVerifiedEmailFreshnessMs;
   if (point.verificationClass === "source_verified" && point.kind === "email") return strategy.sourceVerifiedEmailFreshnessMs;
   if (point.verificationClass === "source_verified" && point.kind === "phone") return strategy.verifiedBusinessPhoneFreshnessMs;
@@ -336,7 +344,12 @@ function snapshotPointArray(value: unknown): readonly unknown[] | null {
     if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
     const safeSnapshot = snapshotEligibilityNode(descriptor.value, 0, new Set<object>());
     if (safeSnapshot === invalidEligibilitySnapshot) return null;
-    points.push(isDefensivelyValidContactObservation(descriptor.value) ? descriptor.value : safeSnapshot);
+    points.push(
+      isDefensivelyValidContactObservation(descriptor.value)
+      || isVerifiedPersistedContactEligibilityEvidence(descriptor.value)
+        ? descriptor.value
+        : safeSnapshot,
+    );
   }
   return Object.freeze(points);
 }

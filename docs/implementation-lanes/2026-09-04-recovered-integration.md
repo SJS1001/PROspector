@@ -1,0 +1,190 @@
+# Recovered cloud implementation wave
+
+## Authority and checkpoint
+
+This is an owner-authorized **offline implementation candidate**, not phase
+acceptance or operational activation. Integration branch:
+`codex/cloud-wave1-integration`, based on main
+`38d86681cd7a8e9f5be70b56365d9be2a786f0ad`. PR #2 was already merged into
+that base; references to it as an open draft in older records are historical.
+No new PR is implied by this record. Resolve the current branch tip from Git.
+
+The cloud tasks completed but had no GitHub push credential. Their complete
+format-patch artifacts were recovered through the signed-in browser and
+imported with `git am`; no cloud credential was added or copied. The temporary
+loopback transfer service has been stopped. Source and evidence now live in
+Git, not only in task attachments or temporary files.
+
+| Lane | Original cloud commit | Recovered commit |
+| --- | --- | --- |
+| CSV codec | `607e4f2c2b8225d750dcf02e47fc14fcde967bbd` | `646297afad65a618f322e384a4bcd3a3ca335d30` |
+| Contacts UI | `13f625764d6f033d984e5c3ed9b7d0c7ed2070e8` | `83d863b29624374e8808ac837b744111004aee60` |
+| Enrichment integration | `eb4df49995d6939f9507c6974ad751805ee37faf` | `3e0bb9531cc6f82d8c16e7d9fb6aea29ede23e93` |
+| Outreach persistence | `f100f3b7dc570e07bd567eead30e353c30ffa110` | `25305956b824b05d41d0366ddde50ff5f3121f33` |
+| Mail boundary | `8c50138df27965ddd0ccf83df1c6765fa83f8319` | `2f6acfabad529a7942b07912b122216eca147ca8` |
+| Weekly outcome | `cd5ad49cbe5f99a87693b931a99fed7bdf188596` | `3779a4be7f5edb5c84586e50df4c525867d5194c` |
+
+Published artifact SHA-256 matched exactly for Contacts
+`af675214e5783a3c0e0b5beb33cf9af09857345412b888d896ce1b49f5271cf4`,
+enrichment `bd2eeff8059dfcb2c6a6cc33b0d41f788f8b6bdfa8195394a5bbe65d086d1127`,
+outreach `547adf72c5c2a598167c904a3acb8f2aff93dd8c713aa79e7c45e6bf67964e82`,
+mail `a849770223fd5e7f68c6b0877451a34855ed57bc15300cb89ac365af9473033b`, and
+weekly `8ea859111b827e9fc28ab38a0859d376da30eece993f197d06f0176d66175c5c`.
+CSV had no published checksum; its recovered hash was
+`a4bb346be3d7cba2a55f956ad42ebcbdd7f0749ec8ac732dfd9491b803999379`
+and its commit header matched the cloud result. Imported commits are historical
+candidates, not reviewed-ready releases; the following local fixes supersede them.
+
+## Review corrections
+
+- CSV: neutralize leading whitespace/control/BOM formula prefixes; return
+  defensive byte copies so caller mutation cannot invalidate the canonical
+  checksum; prove exact and one-byte-over UTF-8 limits, including multibyte IDs.
+- Contacts: validate bounded reject-only projections before rendering/readiness;
+  omit contact-like references and unsafe labels; recover unknown POST outcomes
+  with GET only, clear confirmation, and reject late generations. Tests cover
+  the shared recovery functions and static rendering, not a real browser walkthrough.
+- Mail: bind every approved-message field into the reconciliation marker;
+  reject symbol-keyed extras. The adapter still always rejects without a transport.
+- Weekly: cap total events at 100,000 without truncating; exclude Draft metrics;
+  reject symbol-bearing arrays; avoid repeated sorting inside membership comparison.
+- Enrichment: preserve the actual Phase 4 observed candidate with its Passed
+  assessment and current approved Prospect. Forward migration `0011` changes
+  exactly three current trigger predicates to accept `observed` or legacy
+  `qualified`, retaining all other scope/configuration/revision/freshness guards.
+  The repository uses the same predicates. Prior `0000`–`0009` bytes, snapshots,
+  accepted manifest, and hosted evidence remain unchanged.
+- Outreach: see `cloud-outreach-persistence.md` for candidate hardening and its
+  remaining authority limitations. Neither the original cloud test count nor
+  passing happy-path tests alone establish security or release readiness.
+- Plan 06-02's ambiguous body-storage wording is clarified against DIRECTION's
+  immutable approval requirement and IMPLEMENTATION-SPEC sections 16/18/19/22:
+  canonical outbound bodies belong in their immutable Message Version artifact,
+  not general logs/audit; full inbound reply bodies remain forbidden. This
+  resolves plan wording and changes no product policy or activation authority.
+  Its obsolete `0009` slot is also corrected to the implemented candidate `0010`;
+  the already-applied Phase 5 `0009` migration must never be overwritten.
+
+## Verification ledger
+
+All commands below are from `site/` with Node.js `v24.16.0`, synthetic data only.
+
+- `node --test tests/crm-csv-codec.test.mjs tests/gmail-boundary.test.mjs tests/weekly-outcome.test.mjs tests/phase7-preparation-weekly-outcome.test.mjs tests/outreach-preparation-boundary.test.mjs`: **38/38 passed**.
+- `node --test tests/controlled-enrichment-integration.test.mjs`: **4/4 passed**.
+  In addition to old-chain rejection/rollback, additive repair, replay, uncertainty,
+  and invalidation, the fourth case crosses the actual Phase 4 services into one
+  issued grant, one committed reservation, exactly one test-injected fake-provider
+  invocation, trusted verification, attested D1 settlement, released reservation
+  budgets, and the real `ContactReady` projector. All four downstream rechecks stay
+  blocked with exact zero-effect snapshots, and replay cannot invoke the fake again.
+  The settled evidence is then rehydrated from D1 through a newly reconstructed
+  server-only attestor, not retained in process: the reader re-verifies the complete
+  signed settlement, owner/workspace and configuration scope, returns only a
+  process-branded minimal eligibility view, and omits raw contact values and provider
+  provenance. Wrong-owner/configuration requests and structural copies fail closed.
+  The adjacent 14-test enrichment/eligibility/preflight set passed three consecutive
+  runs after one initial fail-closed `NeedsReconciliation` result; an exact
+  test-plus-lint concurrency rerun also passed. No external provider was reachable.
+- `node --test tests/contact-eligibility.test.mjs tests/contact-receipt-binding-integrity.test.mjs tests/contact-assignment-receipt-integrity.test.mjs tests/contact-settlement-attestation.test.mjs`: **10/10 passed** after durable evidence rehydration was added. Touched-file lint and diff checks passed.
+- The same **4/4** controlled-enrichment integration suite now also proves the
+  durable eligibility snapshot boundary: the unchanged migration chain rejects the
+  write while the Phase 5 gate is absent; a disposable fixture can simulate a
+  future reviewed gate and persist/replay one digest-bound `ContactReady` snapshot;
+  a matching hard suppression appends a separate `NonContactable` snapshot with its
+  prohibition reference preserved. Owner mismatch is denied, reads recompute the
+  canonical digest, and no runtime route or gate-creation path was added. The
+  refactored gate reader kept the Contacts suite green at **8/8**; touched lint passed.
+- `node --test tests/enrichment-candidate-lineage-migration.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **2/2 passed**.
+- `node --test tests/contact-evidence-presentation.test.mjs tests/contact-confirmation-state.test.mjs`: **4/4 passed** after privacy hardening.
+- `node --test tests/contacts-ui.test.mjs`: **8/8 passed** on the final Contacts
+  code, bringing the three focused Contacts files to **12/12 passed**.
+  Touched-file lint passed. A broad TypeScript diagnostic was not a green gate:
+  the repository has existing errors outside those files. No full TypeScript
+  success is claimed.
+- CSV/mail/weekly standalone strict TypeScript checks and touched-file lint passed.
+- Existing `enrichment-persistence-foundation` plus `enrichment-issuance-replay-order`
+  focused run passed **23/24**, with the sole failure an obsolete assertion that
+  `0009` must remain the last journal entry. That test now checks the exact `0009`
+  entry instead; its targeted rerun passed **1/1**. The fixture still applies only
+  `0000`–`0009`, and its no-outreach-table assertions are unchanged. This is not
+  a claim that a fresh whole combined run was performed after the assertion edit.
+- `node --test tests/outreach-persistence.test.mjs tests/migration-cloudflare-importer-compatibility.test.mjs`: **16/16 passed** after final hardening. Parent-version rollback/replay cases also passed **2/2** separately and the observed-candidate approval case passed **1/1** separately. Touched-file lint and diff check pass. Independent review found no remaining high/medium issue in the final parent fences; this remains a local candidate with the explicit resolver/release limits in its lane record.
+- The additive 0014 delivery-authority closure passed **33/33** in the same focused outreach/importer command. It applies the real 0010→0014 chain and proves freshness-capped recipient authority, Package-bound/current source evidence, exact sender scopes, sealed canonical/send-as addresses, working unsubscribe history, clock-independent revocation replay, suppression/source invalidation of active-lease replay, and zero provider calls. Independent correctness and security re-reviews both returned GO. Touched lint and diff checks passed; canonical preflight remained intentionally unused.
+- Additive 0015 now persists a provider-inert pre-call recheck receipt for one exact live lease generation and closes the database's former direct `Leased → Dispatching` bypass. Its trigger is the local database linearization point: it rechecks current approvals, lineage, every bound source and Claim Guardrail, contact/eligibility, sender/scopes/address, unsubscribe, lifecycle, drift, suppression, stop, and expiry state before one immutable receipt can exist. The stored digest covers repository-selected referenced material; the trigger separately certifies current relational and absence predicates, and replay recomputes the digest and current authority. The receipt leaves the outbox `Leased`, carries `provider_invocation_authorized=0`, and exposes no MailPort, route, worker, credential, provider request, or terminal-state writer. This remains candidate preparation, not send authority or Phase 6 credit.
+- Additive 0016 now records one complete immutable, provider-inert `prepared_no_invocation` preparation for one exact current 0015 receipt. Its single insert rechecks authority after receipt creation, binds the stable attempt identity to the exact receipt/lease fence, recomputes the stored digest on replay, leaves the outbox `Leased`, and blocks lease recovery once preparation exists. It persists neither message/address/credential/provider payload nor provider evidence and permanently denies invocation with zero calls. The focused outreach/importer command passes **45/45** with upgrade, contention, clock rollback, expiry, hostile scope/fence, post-receipt invalidation, forged-digest, immutability, absence of premature future event kinds, raw-transition, and blocked-recovery coverage. This is not a provider attempt, send authority, or Phase 6 credit.
+
+Canonical `npm test` (including build), full lint, preflight, CI and release
+acceptance remain **pending**, not passed. The owner's preflight hold is active.
+
+## Exact remaining path
+
+1. Add the separately reviewed provider-authorized no-return boundary, immediate trusted MailPort call, evidence-gated
+   finalization, and append-only abandon/reprepare semantics around the inert 0016 preparation, then complete unresolved Organization/domain suppression resolution and read-only runtime
+   projections behind disabled adapters. Continue artifact construction,
+   manual-call logging, handoff persistence/delivery, outcome history and recovery
+   as bounded local units, preserving every external gate.
+2. Obtain permission before canonical preflight/release validation. Candidate
+   `0010`/`0011` deliberately do not match the accepted ten-migration hosted
+   manifest. Its verifier must reject this branch for target preparation until a
+   separately reviewed exact release-candidate contract exists; never change old
+   evidence to imply the new migrations were applied remotely.
+3. Separately finish Plan 02-99 Access attachment/secrets/private release and
+   real-principal acceptance, then dependent phase acceptance and authorized
+   provider/operational proof. No original Sites access, hosting writes, provider
+   configuration, credentials, real data, exports to recipients, outbound messages,
+   calls, schedules or spend occurred in this integration work.
+
+## Durable outbox enqueue checkpoint
+
+Additive candidate migrations `0012_governed_outreach_outbox.sql` through
+`0016_governed-outreach-attempt-preparation.sql` now model
+append-only sender-connection metadata, immutable outbox items, and an
+append-only state-event chain. The isolated `domain/outbox.ts` repository
+atomically consumes one exact, unexpired Message approval and creates exactly
+one Pending item only when its exact unexpired approvals, current core
+lifecycle/configuration/eligibility state, scoped suppression set, and latest
+active sender metadata still match. Exact replay is read-only. Stale sender
+metadata, owner mismatch, malformed/accessor input, suppression/stop presence,
+drift, or stale upstream authority fails closed with no partial rows.
+
+This is still literal zero-effect preparation: the repository has no MailPort
+dependency or dispatch/finalization method and is not composed into any route, worker,
+schedule, provider, or runtime. No credential is stored; only an opaque
+`vault-ref:` metadata reference is representable. Additive migrations 0013–0014
+and the repository now support a short, exclusive, monotonically fenced
+lease reservation after the intended send time. This reservation explicitly
+grants no provider authority. Source/contact freshness, revocation, working
+unsubscribe, jurisdiction/claimed-basis, exact scopes and verified-address
+authority are current at lease and replay. An immutable transaction-fenced
+pre-call recheck receipt can now be recorded without advancing beyond `Leased`;
+it explicitly grants no provider invocation. One complete immutable
+`prepared_no_invocation` preparation can then bind the stable attempt identity to that
+receipt/lease while the item remains `Leased`; this also grants no provider invocation
+and fences lease recovery until a future append-only abandon/reprepare design exists.
+Atomic unsubscribe redemption/suppression, provider-boundary evidence, final-state
+reconciliation, unresolved Organization/domain equivalence, and controlled
+composition remain separate work.
+
+Focused verification after the 0014 authority edit: outreach persistence plus the
+all-migration Cloudflare importer guard passed **33/33**. After 0015 and its final
+review fixes, the same exact focused command passed **41/41**. Its matrix covers
+receipt creation/replay/contention, forged-digest rejection, stale generations,
+populated legacy ancestry, all Package-bound sources and Claim Guardrails, both
+approval kinds, stop/suppression, unsubscribe/sender rotation, later Message and
+Package versions, newer eligibility, and profile/play/product/company lifecycle
+invalidation while preserving zero effects. Touched repository/schema/fixture/test
+lint passed; migration metadata JSON and `git diff --check` passed. Independent
+security and test reviews returned GO with no remaining high/medium blocker for
+this bounded inert candidate. Canonical preflight, the full suite, build, broad
+lint, CI, hosted migration, and provider checks remain unrun under the active
+preflight hold.
+
+After additive 0016, the same focused command passed **45/45**. The new cases cover
+populated-0015 upgrade without inferred attempts, exact and concurrent preparation,
+clock rollback, expiry, cross-owner and hostile inputs, transaction rollback after
+post-receipt authority changes, forged preparation digests, immutable records, absence
+of premature future event kinds, blocked raw dispatch transitions, and blocked lease
+recovery after preparation. Touched lint, metadata parsing, and diff checks pass. No canonical/full,
+preflight, CI, hosted, provider, credential, real-data, export, or outbound gate was run.
+
+There is no new plan-completion credit. The whole system remains incomplete.

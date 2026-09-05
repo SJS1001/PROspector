@@ -8,6 +8,46 @@ import {
 } from "./contact-settlement-attestor";
 import { canonicalDigest } from "./enrichment-grant-issuance";
 
+const verifiedEligibilityEvidence = new WeakSet<object>();
+
+export type PersistedContactEligibilityEvidence = Readonly<{
+  id: string;
+  workspaceId: string;
+  contactId: string;
+  profileConfigurationId: string;
+  profileConfigurationDigest: string;
+  kind: "email" | "phone";
+  verificationClass: "mailbox_verified" | "source_verified";
+  method: "mailbox_verification" | "authoritative_source_reconfirmed";
+  retrievedAt: number;
+  observedAt: number;
+  verifiedAt: number;
+  assignmentContext: Readonly<{
+    assignmentId: string;
+    prospectId: string;
+    role: "champion" | "economic_buyer" | "general";
+    quoteRevision: number;
+  }>;
+}>;
+
+type EligibilityEvidenceRow = {
+  observation_id: string;
+  workspace_id: string;
+  contact_id: string;
+  configuration_id: string;
+  configuration_digest: string;
+  kind: string;
+  verification_class: string;
+  method: string;
+  retrieved_at: number;
+  observed_at: number;
+  verified_at: number | null;
+  assignment_id: string;
+  prospect_id: string;
+  role: string;
+  quote_revision: number;
+};
+
 type PersistedReceiptRow = {
   grant_id: string;
   durable_revision: number;
@@ -260,6 +300,90 @@ export async function verifyPersistedContactSettlement(
   return attestor.verify(material, envelope);
 }
 
+/**
+ * Rehydrates only the minimum evidence needed by the eligibility projector.
+ * Raw contact values and provider payloads are deliberately absent. The returned
+ * objects carry a process-local receipt only after the complete durable settlement
+ * attestation and exact owner/workspace/assignment scope have been rechecked.
+ */
+export async function readVerifiedContactEligibilityEvidence(
+  database: D1Database,
+  attestor: ContactSettlementAttestor | null | undefined,
+  requestValue: Readonly<{
+    ownerSubject: string;
+    workspaceId: string;
+    reservationId: string;
+    prospectId: string;
+    contactId: string;
+    configurationId: string;
+    configurationDigest: string;
+  }> | unknown,
+): Promise<readonly PersistedContactEligibilityEvidence[] | null> {
+  const request = normalizeEligibilityEvidenceRequest(requestValue);
+  if (!request || !isBoundContactSettlementAttestor(attestor)) return null;
+  const owner = await database.prepare(
+    "SELECT id FROM workspaces WHERE id=? AND owner_subject=? LIMIT 1",
+  ).bind(request.workspaceId, request.ownerSubject).first<{ id: string }>();
+  if (!owner || !await verifyPersistedContactSettlement(database, attestor, request.workspaceId, request.reservationId)) return null;
+  const rows = (await database.prepare(
+    `SELECT
+      observation.id observation_id,
+      observation.workspace_id,
+      observation.contact_id,
+      observation.configuration_id,
+      observation.configuration_digest,
+      observation.kind,
+      observation.verification_class,
+      observation.method,
+      observation.retrieved_at,
+      observation.observed_at,
+      observation.verified_at,
+      assignment.id assignment_id,
+      assignment.prospect_id,
+      assignment.role,
+      assignment.quote_revision
+     FROM contact_verification_receipts receipt
+     JOIN contact_point_observations observation
+       ON observation.id=receipt.observation_id AND observation.workspace_id=receipt.workspace_id
+      AND observation.verification_receipt_id=receipt.id
+     JOIN contact_evidence_assignments assignment
+       ON assignment.id=receipt.assignment_id AND assignment.workspace_id=receipt.workspace_id
+      AND assignment.prospect_id=receipt.prospect_id AND assignment.contact_id=receipt.contact_id
+      AND assignment.configuration_id=receipt.configuration_id
+      AND assignment.configuration_digest=receipt.configuration_digest
+     WHERE receipt.workspace_id=? AND receipt.reservation_id=?
+       AND receipt.prospect_id=? AND receipt.contact_id=?
+       AND receipt.configuration_id=? AND receipt.configuration_digest=?
+       AND receipt.verification_class IN ('mailbox_verified','source_verified')
+     ORDER BY observation.id`,
+  ).bind(
+    request.workspaceId,
+    request.reservationId,
+    request.prospectId,
+    request.contactId,
+    request.configurationId,
+    request.configurationDigest,
+  ).all<EligibilityEvidenceRow>()).results;
+  if (rows.length === 0 || rows.length > 100) return null;
+  const evidence: PersistedContactEligibilityEvidence[] = [];
+  for (const row of rows) {
+    const point = normalizeEligibilityEvidenceRow(row, request);
+    if (!point) return null;
+    verifiedEligibilityEvidence.add(point);
+    evidence.push(point);
+  }
+  return Object.freeze(evidence);
+}
+
+export function isVerifiedPersistedContactEligibilityEvidence(
+  value: unknown,
+): value is PersistedContactEligibilityEvidence {
+  return !!value
+    && typeof value === "object"
+    && verifiedEligibilityEvidence.has(value)
+    && normalizeEligibilityEvidencePoint(value) !== null;
+}
+
 function parseCanonicalIds(value: string, maximum: number): readonly string[] | null {
   try {
     const parsed = JSON.parse(value);
@@ -274,6 +398,159 @@ function parseCanonicalIds(value: string, maximum: number): readonly string[] | 
   } catch {
     return null;
   }
+}
+
+const ELIGIBILITY_REQUEST_KEYS = Object.freeze([
+  "ownerSubject",
+  "workspaceId",
+  "reservationId",
+  "prospectId",
+  "contactId",
+  "configurationId",
+  "configurationDigest",
+]);
+
+function normalizeEligibilityEvidenceRequest(value: unknown) {
+  const input = exactDataRecord(value, ELIGIBILITY_REQUEST_KEYS);
+  if (
+    !input
+    || !bounded(input.ownerSubject, 160)
+    || !bounded(input.workspaceId, 160)
+    || !bounded(input.reservationId, 160)
+    || !bounded(input.prospectId, 160)
+    || !bounded(input.contactId, 160)
+    || !bounded(input.configurationId, 160)
+    || !digest(input.configurationDigest)
+  ) return null;
+  try { structuredClone(value); } catch { return null; }
+  return Object.freeze({
+    ownerSubject: input.ownerSubject,
+    workspaceId: input.workspaceId,
+    reservationId: input.reservationId,
+    prospectId: input.prospectId,
+    contactId: input.contactId,
+    configurationId: input.configurationId,
+    configurationDigest: input.configurationDigest,
+  });
+}
+
+function normalizeEligibilityEvidenceRow(
+  row: EligibilityEvidenceRow,
+  request: NonNullable<ReturnType<typeof normalizeEligibilityEvidenceRequest>>,
+): PersistedContactEligibilityEvidence | null {
+  if (
+    row.workspace_id !== request.workspaceId
+    || row.prospect_id !== request.prospectId
+    || row.contact_id !== request.contactId
+    || row.configuration_id !== request.configurationId
+    || row.configuration_digest !== request.configurationDigest
+  ) return null;
+  return normalizeEligibilityEvidencePoint({
+    id: row.observation_id,
+    workspaceId: row.workspace_id,
+    contactId: row.contact_id,
+    profileConfigurationId: row.configuration_id,
+    profileConfigurationDigest: row.configuration_digest,
+    kind: row.kind,
+    verificationClass: row.verification_class,
+    method: row.method,
+    verifiedAt: row.verified_at,
+    assignmentContext: {
+      assignmentId: row.assignment_id,
+      prospectId: row.prospect_id,
+      role: row.role,
+      quoteRevision: Number(row.quote_revision),
+    },
+    retrievedAt: Number(row.retrieved_at),
+    observedAt: Number(row.observed_at),
+  });
+}
+
+function normalizeEligibilityEvidencePoint(value: unknown): PersistedContactEligibilityEvidence | null {
+  const input = exactDataRecord(value, [
+    "id", "workspaceId", "contactId", "profileConfigurationId",
+    "profileConfigurationDigest", "kind", "verificationClass", "method",
+    "verifiedAt", "assignmentContext", "retrievedAt", "observedAt",
+  ]);
+  const assignment = input && exactDataRecord(input.assignmentContext, [
+    "assignmentId", "prospectId", "role", "quoteRevision",
+  ]);
+  const kind = input?.kind === "email" || input?.kind === "phone" ? input.kind : null;
+  const verificationClass = input?.verificationClass === "mailbox_verified" || input?.verificationClass === "source_verified"
+    ? input.verificationClass : null;
+  const method = input?.method === "mailbox_verification" || input?.method === "authoritative_source_reconfirmed"
+    ? input.method : null;
+  const verifiedAt = positiveInteger(input?.verifiedAt) ? input.verifiedAt as number : null;
+  const retrievedAt = positiveInteger(input?.retrievedAt) ? input.retrievedAt as number : null;
+  const observedAt = positiveInteger(input?.observedAt) ? input.observedAt as number : null;
+  if (
+    !input
+    || !assignment
+    || !bounded(input.id, 160)
+    || !bounded(input.workspaceId, 160)
+    || !bounded(input.contactId, 160)
+    || !bounded(input.profileConfigurationId, 160)
+    || !digest(input.profileConfigurationDigest)
+    || !kind
+    || !verificationClass
+    || !method
+    || !verifiedAt
+    || !retrievedAt
+    || !observedAt
+    || retrievedAt > verifiedAt
+    || verifiedAt > observedAt
+    || (verificationClass === "mailbox_verified" && (kind !== "email" || method !== "mailbox_verification"))
+    || (verificationClass === "source_verified" && method !== "authoritative_source_reconfirmed")
+    || !bounded(assignment.assignmentId, 160)
+    || !bounded(assignment.prospectId, 160)
+    || (assignment.role !== "champion" && assignment.role !== "economic_buyer" && assignment.role !== "general")
+    || !positiveInteger(assignment.quoteRevision)
+  ) return null;
+  return Object.freeze({
+    id: input.id,
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    profileConfigurationId: input.profileConfigurationId,
+    profileConfigurationDigest: input.profileConfigurationDigest,
+    kind,
+    verificationClass,
+    method,
+    retrievedAt,
+    observedAt,
+    verifiedAt,
+    assignmentContext: Object.freeze({
+      assignmentId: assignment.assignmentId,
+      prospectId: assignment.prospectId,
+      role: assignment.role,
+      quoteRevision: assignment.quoteRevision,
+    }),
+  }) as PersistedContactEligibilityEvidence;
+}
+
+function exactDataRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.some((key) => typeof key !== "string") || ownKeys.length !== keys.length) return null;
+    const snapshot: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function digest(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function bounded(value: unknown, maximum: number): value is string {

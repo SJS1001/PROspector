@@ -126,7 +126,7 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
          JOIN typed_configurations c ON c.workspace_id = p.workspace_id AND c.owner_type = 'profile'
            AND c.owner_id = p.profile_id AND c.kind = 'profile_effective' AND c.active = 1
          JOIN prospecting_candidates pc ON pc.id = p.candidate_id AND pc.workspace_id = p.workspace_id
-           AND pc.profile_id = p.profile_id AND pc.configuration_id = c.id AND pc.status = 'qualified'
+           AND pc.profile_id = p.profile_id AND pc.configuration_id = c.id AND pc.status IN ('observed','qualified')
          JOIN qualification_assessments qa ON qa.id = p.assessment_id AND qa.workspace_id = p.workspace_id
            AND qa.candidate_id = pc.id AND qa.configuration_id = c.id AND qa.configuration_digest = c.digest
            AND qa.outcome = 'Passed'
@@ -263,7 +263,7 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
         `SELECT p.id, p.state, p.revision, gp.configuration_id, gp.configuration_digest
          FROM enrichment_grant_prospects gp JOIN profile_prospects p ON p.id = gp.prospect_id AND p.workspace_id = gp.workspace_id
          JOIN prospecting_candidates pc ON pc.id = p.candidate_id AND pc.workspace_id = p.workspace_id
-           AND pc.profile_id = p.profile_id AND pc.configuration_id = gp.configuration_id AND pc.status = 'qualified'
+           AND pc.profile_id = p.profile_id AND pc.configuration_id = gp.configuration_id AND pc.status IN ('observed','qualified')
          JOIN qualification_assessments qa ON qa.id = p.assessment_id AND qa.workspace_id = p.workspace_id
            AND qa.candidate_id = pc.id AND qa.configuration_id = gp.configuration_id
            AND qa.configuration_digest = gp.configuration_digest AND qa.outcome = 'Passed'
