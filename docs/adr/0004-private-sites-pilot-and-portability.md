@@ -1,7 +1,15 @@
 # ADR-0004: Private Sites pilot with a portability boundary
 
-- Status: Accepted for an owner-only pilot with one narrow low-sensitivity decision; broader production activation remains conditional
+- Status: Partially superseded by [ADR-0006](0006-greenfield-baseline-after-inaccessible-hosting.md); historical pilot record and provider-neutral portability rationale retained
 - Date: 2026-07-29
+
+## Supersession notice
+
+[ADR-0006](0006-greenfield-baseline-after-inaccessible-hosting.md) supersedes
+this record's original Sites project, hosting, and baseline choice. The original
+private Sites project is inaccessible, retired, and permanently outside the
+execution path. This record remains authoritative only as historical pilot
+evidence and for its provider-neutral portability and recovery rationale.
 
 ## Context
 
