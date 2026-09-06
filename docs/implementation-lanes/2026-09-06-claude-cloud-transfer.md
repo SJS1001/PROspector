@@ -38,6 +38,11 @@ acceptance evidence and not permission to consume the canonical preflight lane.
   were not executed, so stale-tab, race, rejection, rescope, and exact-lineage
   acceptance remain unproven. Run the focused unit/integration tests in a
   loopback-capable isolated cloud runner before integration.
+  Integration review also found that the explored-proposal control validates an
+  exact Draft Market Play interview but then links only to the generic Knowledge
+  view, discarding that interview identity. Revise the existing B branch so the
+  route selects the exact server-validated interview without granting authority,
+  and prove that a competing newer/open session cannot redirect the handoff.
 
 The actual cloud task records are `6a9cbc45-99ac-83ea-af1b-5504b4727805`
 (A) and `6a9cbc41-c2b8-83ea-a05e-d617b684c4f4` (B). They are coordination
