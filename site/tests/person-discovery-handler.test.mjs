@@ -30,8 +30,10 @@ test("C2 admits only the owner, derives discovery authority server-side, and pro
     const payload = await projected.json();
     assert.equal(payload.people.status, "completed");
     assert.equal(payload.people.items.length, 5);
+    assert.equal(payload.people.items[0].ordinal, 0, "the canonical first candidate ordinal is zero");
     assert.equal(payload.people.items[0].state, "suggestion_not_contact");
     assert.equal(payload.people.items[0].eligible, false);
+    assert.deepEqual(payload.people.items[0].provenance, { sourceReference: "https://example.invalid/team/0", excerpt: "Synthetic public role listing", retrievedAt: PERSON_DISCOVERY_NOW });
     assert.equal(await count(fixture, "contacts"), 0, "projection never promotes a candidate to Contact");
     assert.ok(payload.people.pageInfo.nextCursor, "six bounded candidates require a real second page");
     const second = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(payload.people.pageInfo.nextCursor)}`), dependencies);
@@ -85,6 +87,7 @@ test("C2 preserves a completed zero-candidate run instead of rewriting it as not
     assert.equal(start.status, 200);
     const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
     const payload = await projection.json();
+    assert.deepEqual(payload.linkableContacts, [{ contactId: "handler-explicit-contact", contactRevision: 1, label: "Explicit Contact" }], "C3 receives only a bounded same-workspace label and current revision, never a contact point");
     assert.equal(payload.people.status, "completed");
     assert.ok(payload.people.runId);
     assert.match(payload.people.resultDigest, /^[0-9a-f]{64}$/);
@@ -262,6 +265,10 @@ test("C2 link_existing accepts only the explicit same-workspace Contact and crea
     assert.equal((await handler.handlePersonDiscoveryPost(mutation(link, await csrf(handler, dependencies)), dependencies)).status, 200);
     assert.equal(await count(fixture, "contacts"), 1);
     assert.equal(await count(fixture, "prospect_contact_role_relevance"), 1);
+    const linkedProjection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    const linkedPayload = await linkedProjection.json();
+    assert.equal(linkedPayload.history.relevance[0].contactRevision, 1);
+    assert.equal(linkedPayload.history.relevance[0].contactLabel, "Explicit Contact");
     const replay = await handler.handlePersonDiscoveryPost(mutation(link, await csrf(handler, dependencies)), dependencies);
     assert.equal(replay.status, 200);
     const changed = await handler.handlePersonDiscoveryPost(mutation({ ...link, existingContactId: "wrong-contact" }, await csrf(handler, dependencies)), dependencies);
