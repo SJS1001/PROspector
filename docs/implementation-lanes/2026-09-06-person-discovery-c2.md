@@ -19,6 +19,9 @@ unavailable. Tests may inject C1's branded zero-network fake directly into the
 handler; there is no app/runtime binder for it.
 
 The projection labels each candidate `suggestion_not_contact`, `eligible:false`.
+It preserves the latest immutable run's `requested`, `completed`, or
+`needs_reconciliation` state; an empty completed run remains completed with its
+run/result identity rather than being represented as a new run.
 It exposes read-only run terminal state, bounded candidate page, owner
 decisions, scoped Prospect-to-Contact relevance, and verification **intent**
 history without representing a candidate as a Contact or a verification intent
@@ -36,7 +39,9 @@ promotion, network call, persistence outside C1 commands, export, schedule,
 mail, telephone, hosted state, or outbound effect is added. At read time an
 expired or already-redacted candidate becomes `payload_unavailable`: its raw
 name, role, and candidate digest are not returned. A mutation/redaction between
-pages advances C1's generation and invalidates the signed cursor.
+pages advances C1's generation and invalidates the signed cursor. C1 also
+rejects decisions on a candidate at or after its retention expiry inside the
+transaction guard; presentation is not the authority fence.
 
 ## Next work
 

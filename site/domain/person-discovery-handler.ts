@@ -77,6 +77,7 @@ async function invoke(service: PersonDiscoveryService, scope: { workspaceId: str
     if (prior) {
       const stored = await database.prepare("SELECT prospect_id,prospect_revision,configuration_id,configuration_digest,configuration_revision,max_candidates,max_provenance_per_candidate FROM person_discovery_runs WHERE id=? AND workspace_id=? AND owner_subject=?").bind(prior.id, scope.workspaceId, scope.principalSubject).first<{ prospect_id: string; prospect_revision: number; configuration_id: string; configuration_digest: string; configuration_revision: number; max_candidates: number; max_provenance_per_candidate: number }>();
       if (!stored) return Object.freeze({ kind: "blocked", reason: "stale_or_foreign_authority" });
+      if (body.prospectId !== stored.prospect_id || body.expectedProspectRevision !== Number(stored.prospect_revision) || body.maxCandidates !== Number(stored.max_candidates) || body.maxProvenancePerCandidate !== Number(stored.max_provenance_per_candidate)) return Object.freeze({ kind: "conflict", reason: "idempotency_conflict" });
       return service.start(scope, Object.freeze({ prospectId: stored.prospect_id, expectedProspectRevision: Number(stored.prospect_revision), expectedConfigurationId: stored.configuration_id, expectedConfigurationDigest: stored.configuration_digest, expectedConfigurationRevision: Number(stored.configuration_revision), maxCandidates: Number(stored.max_candidates), maxProvenancePerCandidate: Number(stored.max_provenance_per_candidate), idempotencyKey: body.idempotencyKey }));
     }
     const authority = await loadApprovedProspectAuthority(database, scope, body.prospectId as string);
@@ -90,7 +91,11 @@ async function invoke(service: PersonDiscoveryService, scope: { workspaceId: str
   }
   if (body.action === "decide_person_discovery") {
     const prior = await readDecisionByIdempotency(database, scope, body.idempotencyKey as string);
-    if (prior) return service.decide(scope, Object.freeze({ runId: prior.runId, expectedResultDigest: body.expectedResultDigest, decision: body.decision, ...(opaque(body.candidateId) ? { candidateId: body.candidateId } : {}), ...(opaque(body.existingContactId) ? { existingContactId: body.existingContactId } : {}), idempotencyKey: body.idempotencyKey }));
+    if (prior) {
+      const stored = await database.prepare("SELECT run_id,candidate_id,decision,contact_id,expected_result_digest FROM person_discovery_owner_decisions WHERE id=? AND workspace_id=?").bind(prior.id, scope.workspaceId).first<{ run_id: string; candidate_id: string | null; decision: string; contact_id: string | null; expected_result_digest: string }>();
+      if (!stored || body.runId !== stored.run_id || body.expectedResultDigest !== stored.expected_result_digest || body.decision !== stored.decision || (opaque(body.candidateId) ? body.candidateId : null) !== stored.candidate_id || (opaque(body.existingContactId) ? body.existingContactId : null) !== stored.contact_id) return Object.freeze({ kind: "conflict", reason: "idempotency_conflict" });
+      return service.decide(scope, Object.freeze({ runId: stored.run_id, expectedResultDigest: stored.expected_result_digest, decision: stored.decision, ...(stored.candidate_id ? { candidateId: stored.candidate_id } : {}), ...(stored.contact_id && stored.decision === "link_existing" ? { existingContactId: stored.contact_id } : {}), idempotencyKey: body.idempotencyKey }));
+    }
     const run = await readDiscoveryRun(database, scope, body.runId as string);
     const runScope = await database.prepare("SELECT prospect_id FROM person_discovery_runs WHERE id=? AND workspace_id=? AND owner_subject=? LIMIT 1").bind(body.runId, scope.workspaceId, scope.principalSubject).first<{ prospect_id: string }>();
     const authority = runScope && opaque(runScope.prospect_id) ? await loadApprovedProspectAuthority(database, scope, runScope.prospect_id) : null;
@@ -98,7 +103,11 @@ async function invoke(service: PersonDiscoveryService, scope: { workspaceId: str
     return service.decide(scope, Object.freeze({ runId: run.id, expectedResultDigest: run.resultDigest, decision: body.decision, ...(opaque(body.candidateId) ? { candidateId: body.candidateId } : {}), ...(opaque(body.existingContactId) ? { existingContactId: body.existingContactId } : {}), idempotencyKey: body.idempotencyKey }));
   }
   const prior = await readVerificationIntentByIdempotency(database, scope, body.idempotencyKey as string);
-  if (prior && prior.intent === body.intent && prior.channel === body.channel && prior.sourceObservationId === (opaque(body.sourceObservationId) ? body.sourceObservationId : null)) return Object.freeze({ kind: "accepted", intent: prior, replayed: true, providerCallAuthorized: false, contactEvidenceCreated: false });
+  if (prior) {
+    const stored = await database.prepare("SELECT relevance_id,intent,channel,source_observation_id,prospect_revision,contact_revision FROM contact_verification_intents WHERE id=? AND workspace_id=?").bind(prior.id, scope.workspaceId).first<{ relevance_id: string; intent: string; channel: string; source_observation_id: string | null; prospect_revision: number; contact_revision: number }>();
+    if (!stored || body.relevanceId !== stored.relevance_id || body.intent !== stored.intent || body.channel !== stored.channel || (opaque(body.sourceObservationId) ? body.sourceObservationId : null) !== stored.source_observation_id || body.expectedProspectRevision !== Number(stored.prospect_revision) || body.expectedContactRevision !== Number(stored.contact_revision)) return Object.freeze({ kind: "conflict", reason: "idempotency_conflict" });
+    return Object.freeze({ kind: "accepted", intent: prior, replayed: true, providerCallAuthorized: false, contactEvidenceCreated: false });
+  }
   const authority = await loadRelevanceAuthority(database, scope, body.relevanceId as string);
   if (!authority || authority.prospectRevision !== body.expectedProspectRevision || authority.contactRevision !== body.expectedContactRevision) return Object.freeze({ kind: "blocked", reason: "stale_or_foreign_authority" });
   return service.recordVerificationIntent(scope, Object.freeze({
@@ -132,7 +141,7 @@ async function readProjection(request: Request, dependencies: PersonDiscoveryHan
   const cursor = rawCursor ? await decodeCursor(rawCursor, dependencies.subjectPepper, workspaceId, subject) : null;
   if (cursor && (cursor.prospectId !== prospectId || cursor.prospectRevision !== authority.prospectRevision || cursor.configurationDigest !== authority.configurationDigest || cursor.runId !== latest.id || cursor.resultDigest !== latest.result_digest || cursor.generation !== generation)) throw new CursorDriftError();
   const top = cursor?.highWater ?? await candidateTop(dependencies.database, workspaceId, latest.id);
-  if (!top) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId), people: emptyPeople() });
+  if (!top) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId, prospectId), people: Object.freeze({ runId: latest.id, resultDigest: latest.result_digest, status: "completed", items: Object.freeze([]), pageInfo: Object.freeze({ limit: PERSON_DISCOVERY_PAGE_LIMIT, returned: 0, hasNext: false, nextCursor: null }) }) });
   const after = cursor?.after;
   const whereAfter = after ? " AND (created_at<? OR (created_at=? AND id<?))" : "";
   const bind: unknown[] = [workspaceId, latest.id, top.time, top.time, top.id];

@@ -71,6 +71,27 @@ test("C2 production-shaped composition is reject-only and outsider paths disclos
   } finally { await fixture.dispose(); }
 });
 
+test("C2 preserves a completed zero-candidate run instead of rewriting it as not started", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-zero");
+  try {
+    await alignOwner(fixture);
+    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+    const service = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => ({ kind: "completed", candidates: [] })), now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids("zero") });
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    const dependencies = deps(fixture, service);
+    const csrf = csrfCookie(await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), dependencies));
+    const start = await handler.handlePersonDiscoveryPost(mutation({ action: "start_person_discovery", prospectId: fixture.prospectId, expectedProspectRevision: fixture.prospectRevision, maxCandidates: 1, maxProvenancePerCandidate: 1, idempotencyKey: "person-discovery-zero-start" }, csrf), dependencies);
+    assert.equal(start.status, 200);
+    const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    const payload = await projection.json();
+    assert.equal(payload.people.status, "completed");
+    assert.ok(payload.people.runId);
+    assert.match(payload.people.resultDigest, /^[0-9a-f]{64}$/);
+    assert.deepEqual(payload.people.items, []);
+    assert.equal(payload.people.pageInfo.returned, 0);
+  } finally { await fixture.dispose(); }
+});
+
 function deps(fixture, personDiscoveryService) {
   return {
     database: fixture.database,

@@ -295,7 +295,7 @@ CREATE TRIGGER person_discovery_decision_scope_guard BEFORE INSERT ON person_dis
     JOIN audit_events audit ON audit.id=NEW.audit_event_id AND audit.workspace_id=w.id AND audit.actor_type='owner' AND audit.actor_id=NEW.owner_subject AND audit.action='person_discovery.owner_decided' AND audit.subject_type='person_discovery_owner_decision' AND audit.subject_id=NEW.id
     WHERE run.id=NEW.run_id AND run.workspace_id=NEW.workspace_id
   );
-  SELECT RAISE(ABORT,'invalid person discovery decision candidate') WHERE NEW.decision<>'no_match' AND NOT EXISTS (SELECT 1 FROM person_discovery_candidates candidate WHERE candidate.id=NEW.candidate_id AND candidate.run_id=NEW.run_id AND candidate.workspace_id=NEW.workspace_id AND candidate.redacted_at IS NULL);
+  SELECT RAISE(ABORT,'invalid person discovery decision candidate') WHERE NEW.decision<>'no_match' AND NOT EXISTS (SELECT 1 FROM person_discovery_candidates candidate WHERE candidate.id=NEW.candidate_id AND candidate.run_id=NEW.run_id AND candidate.workspace_id=NEW.workspace_id AND candidate.redacted_at IS NULL AND candidate.payload_expires_at>NEW.created_at);
   SELECT RAISE(ABORT,'invalid person discovery decision contact') WHERE NEW.decision='link_existing' AND NOT EXISTS (SELECT 1 FROM contacts contact WHERE contact.id=NEW.contact_id AND contact.workspace_id=NEW.workspace_id);
 END;
 --> statement-breakpoint
