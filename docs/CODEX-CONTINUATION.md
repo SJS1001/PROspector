@@ -6,6 +6,15 @@
 **Portable checkpoint:** use the latest `origin/codex/generic-prospector-pilot` commit  
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
+## Current Claude Cloud transfer — 2026-09-06
+
+Local Codex implementation stopped at clean pushed checkpoint
+`3320f2630d5a8bbd8617d1a674a272abf9a4e9ba` on
+`codex/generic-onboarding-integration`. Continue through
+[`implementation-lanes/2026-09-06-claude-cloud-transfer.md`](implementation-lanes/2026-09-06-claude-cloud-transfer.md).
+That record supersedes older branch pointers for current implementation work;
+historical hosted evidence and external authority gates below remain unchanged.
+
 ## Fresh isolated pilot ownership
 
 ### Offline cloud-wave continuation — 2026-09-04
