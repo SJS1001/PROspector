@@ -4,11 +4,16 @@ import test from "node:test";
 import { createD1Fixture } from "./helpers/d1.mjs";
 
 const migrationDirectory = new URL("../drizzle/", import.meta.url);
+const IMPORTER_COMPATIBILITY_MIGRATION = "0018_massive_blizzard.sql";
 
 async function checkedMigrationChain() {
   return (await readdir(migrationDirectory))
     .filter((file) => /^\d{4}[^/]*\.sql$/.test(file))
     .sort();
+}
+
+function migrationChainThrough0018(migrations) {
+  return migrations.filter((migration) => Number.parseInt(migration.slice(0, 4), 10) <= 18);
 }
 
 async function applyCheckedMigrationChain(database, migrations) {
@@ -37,7 +42,7 @@ test("remote D1 trigger statements contain only their outer compound terminator"
         1,
         `${migration} contains a trigger with ${compoundTerminators.length} END; tokens; inner compound terminators can be mistaken for the outer trigger END by the remote D1 importer`,
       );
-      if (migration === "0018_massive_blizzard.sql") {
+      if (migration === IMPORTER_COMPATIBILITY_MIGRATION) {
         assert.doesNotMatch(
           statement,
           /\bCASE\b/i,
@@ -48,11 +53,22 @@ test("remote D1 trigger statements contain only their outer compound terminator"
   }
 });
 
+test("the 0018 local verifier excludes later numeric migrations", () => {
+  assert.deepEqual(
+    migrationChainThrough0018([
+      "0017_governed-outreach-preparation-recovery.sql",
+      IMPORTER_COMPATIBILITY_MIGRATION,
+      "0019_future_migration.sql",
+    ]),
+    ["0017_governed-outreach-preparation-recovery.sql", IMPORTER_COMPATIBILITY_MIGRATION],
+  );
+});
+
 test("the checked local D1 verifier imports the complete migration chain through 0018", async () => {
   const fixture = await createD1Fixture("migration-cloudflare-importer-compatibility");
   try {
-    const migrations = await checkedMigrationChain();
-    assert.equal(migrations.at(-1), "0018_massive_blizzard.sql");
+    const migrations = migrationChainThrough0018(await checkedMigrationChain());
+    assert.equal(migrations.at(-1), IMPORTER_COMPATIBILITY_MIGRATION);
     await applyCheckedMigrationChain(fixture.database, migrations);
     const foreignKeys = await fixture.database.prepare("PRAGMA foreign_key_check").all();
     assert.deepEqual(foreignKeys.results, []);
@@ -66,7 +82,7 @@ test("the checked local D1 verifier imports the complete migration chain through
 test("0018 preserves generation increments and rejects guarded overflow", async () => {
   const fixture = await createD1Fixture("migration-cloudflare-importer-semantics");
   try {
-    await applyCheckedMigrationChain(fixture.database, await checkedMigrationChain());
+    await applyCheckedMigrationChain(fixture.database, migrationChainThrough0018(await checkedMigrationChain()));
     await fixture.database.prepare("INSERT INTO workspaces (id, company_name, owner_subject, created_at, updated_at, revision) VALUES ('workspace-0018', 'Test', 'owner-0018', 1, 1, 1)").run();
     await fixture.database.prepare("UPDATE workspaces SET owner_subject = 'owner-0018-next' WHERE id = 'workspace-0018'").run();
     assert.deepEqual(
