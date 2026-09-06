@@ -685,6 +685,138 @@ export const contactEligibilitySnapshots = sqliteTable("contact_eligibility_snap
   check("contact_eligibility_snapshot_revision_check", sql`${t.configurationRevision} > 0 and ${t.prospectRevision} > 0`),
 ]);
 
+// Person discovery deliberately records a candidate before any Contact exists.
+// Candidate and provenance rows retain immutable digests and structural audit
+// history; bounded raw payloads are retention-managed through audited redaction.
+// They are never contact-point or eligibility authority.
+export const personDiscoveryRuns = sqliteTable("person_discovery_runs", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(), prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  profileId: text("profile_id").notNull().references(() => profiles.id), configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  configurationDigest: text("configuration_digest").notNull(), configurationRevision: integer("configuration_revision").notNull(),
+  prospectRevision: integer("prospect_revision").notNull(), workspaceRevision: integer("workspace_revision").notNull(),
+  maxCandidates: integer("max_candidates").notNull(), maxProvenancePerCandidate: integer("max_provenance_per_candidate").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(), operationKey: text("operation_key").notNull(), requestDigest: text("request_digest").notNull(),
+  requestedDeadlineAt: integer("requested_deadline_at", { mode: "timestamp_ms" }).notNull(), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("person_discovery_run_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+  uniqueIndex("person_discovery_run_operation_unique").on(t.workspaceId, t.operationKey),
+  uniqueIndex("person_discovery_run_digest_unique").on(t.workspaceId, t.requestDigest),
+  index("person_discovery_run_prospect_idx").on(t.workspaceId, t.prospectId, t.createdAt),
+  check("person_discovery_run_revision_check", sql`${t.configurationRevision} > 0 and ${t.prospectRevision} > 0 and ${t.workspaceRevision} > 0`),
+  check("person_discovery_run_bounds_check", sql`${t.maxCandidates} between 1 and 20 and ${t.maxProvenancePerCandidate} between 1 and 8 and ${t.requestedDeadlineAt} > ${t.createdAt} and ${t.requestedDeadlineAt} <= ${t.createdAt} + 30000`),
+  check("person_discovery_run_text_bounds_check", sql`length(${t.ownerSubject}) between 1 and 256 and length(${t.idempotencyKey}) between 8 and 200`),
+  check("person_discovery_run_digest_check", sql`length(${t.operationKey}) = 67 and substr(${t.operationKey}, 1, 3) = 'pd_' and substr(${t.operationKey}, 4) not glob '*[^0-9a-f]*' and length(${t.requestDigest}) = 64 and ${t.requestDigest} not glob '*[^0-9a-f]*' and length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const personDiscoveryRunEvents = sqliteTable("person_discovery_run_events", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  runId: text("run_id").notNull().references(() => personDiscoveryRuns.id), durableRevision: integer("durable_revision").notNull(),
+  state: text("state", { enum: ["requested", "completed", "needs_reconciliation"] }).notNull(),
+  candidateCount: integer("candidate_count").notNull(), resultDigest: text("result_digest"), reason: text("reason"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("person_discovery_event_revision_unique").on(t.runId, t.durableRevision),
+  uniqueIndex("person_discovery_event_result_unique").on(t.workspaceId, t.resultDigest),
+  index("person_discovery_event_state_idx").on(t.workspaceId, t.state, t.createdAt),
+  check("person_discovery_event_revision_check", sql`${t.durableRevision} between 1 and 2`),
+  check("person_discovery_event_count_check", sql`${t.candidateCount} between 0 and 20`),
+  check("person_discovery_event_shape_check", sql`(${t.state} = 'requested' and ${t.durableRevision} = 1 and ${t.candidateCount} = 0 and ${t.resultDigest} is null and ${t.reason} is null) or (${t.state} = 'completed' and ${t.durableRevision} = 2 and ${t.resultDigest} is not null and ${t.reason} is null) or (${t.state} = 'needs_reconciliation' and ${t.durableRevision} = 2 and ${t.candidateCount} = 0 and ${t.resultDigest} is not null and ${t.reason} is not null)`),
+  check("person_discovery_event_digest_check", sql`${t.resultDigest} is null or (length(${t.resultDigest}) = 64 and ${t.resultDigest} not glob '*[^0-9a-f]*')`),
+  check("person_discovery_event_reason_check", sql`${t.reason} is null or length(${t.reason}) between 1 and 200`),
+]);
+
+export const personDiscoveryCandidates = sqliteTable("person_discovery_candidates", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  runId: text("run_id").notNull().references(() => personDiscoveryRuns.id), prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  ordinal: integer("ordinal").notNull(), candidateKey: text("candidate_key").notNull(), displayName: text("display_name").notNull(),
+  roleTitle: text("role_title").notNull(), roleSummary: text("role_summary").notNull(), candidateDigest: text("candidate_digest").notNull(),
+  payloadExpiresAt: integer("payload_expires_at", { mode: "timestamp_ms" }).notNull(), redactedAt: integer("redacted_at", { mode: "timestamp_ms" }),
+  redactionAuthorityCommandId: text("redaction_authority_command_id").references(() => authorityCommands.id), redactionAuditEventId: text("redaction_audit_event_id").references(() => auditEvents.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("person_discovery_candidate_ordinal_unique").on(t.runId, t.ordinal),
+  uniqueIndex("person_discovery_candidate_key_unique").on(t.runId, t.candidateKey),
+  uniqueIndex("person_discovery_candidate_digest_unique").on(t.workspaceId, t.candidateDigest),
+  index("person_discovery_candidate_prospect_idx").on(t.workspaceId, t.prospectId, t.createdAt),
+  check("person_discovery_candidate_ordinal_check", sql`${t.ordinal} between 0 and 19`),
+  check("person_discovery_candidate_text_bounds_check", sql`length(${t.candidateKey}) between 1 and 128 and length(${t.displayName}) between 1 and 160 and length(${t.roleTitle}) between 1 and 160 and length(${t.roleSummary}) between 1 and 1000`),
+  check("person_discovery_candidate_retention_check", sql`${t.payloadExpiresAt} = ${t.createdAt} + 7776000000 and ((${t.redactedAt} is null and ${t.redactionAuthorityCommandId} is null and ${t.redactionAuditEventId} is null) or (${t.redactedAt} >= ${t.payloadExpiresAt} and ${t.redactionAuthorityCommandId} is not null and ${t.redactionAuditEventId} is not null))`),
+  check("person_discovery_candidate_digest_check", sql`length(${t.candidateDigest}) = 64 and ${t.candidateDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const personDiscoveryProvenance = sqliteTable("person_discovery_provenance", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  runId: text("run_id").notNull().references(() => personDiscoveryRuns.id), candidateId: text("candidate_id").notNull().references(() => personDiscoveryCandidates.id),
+  ordinal: integer("ordinal").notNull(), sourceReference: text("source_reference").notNull(), excerpt: text("excerpt").notNull(),
+  sourceDigest: text("source_digest").notNull(), excerptDigest: text("excerpt_digest").notNull(), retrievedAt: integer("retrieved_at", { mode: "timestamp_ms" }).notNull(),
+  provenanceDigest: text("provenance_digest").notNull(), payloadExpiresAt: integer("payload_expires_at", { mode: "timestamp_ms" }).notNull(), redactedAt: integer("redacted_at", { mode: "timestamp_ms" }),
+  redactionAuthorityCommandId: text("redaction_authority_command_id").references(() => authorityCommands.id), redactionAuditEventId: text("redaction_audit_event_id").references(() => auditEvents.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("person_discovery_provenance_ordinal_unique").on(t.candidateId, t.ordinal),
+  uniqueIndex("person_discovery_provenance_digest_unique").on(t.workspaceId, t.provenanceDigest),
+  index("person_discovery_provenance_run_idx").on(t.workspaceId, t.runId, t.candidateId),
+  check("person_discovery_provenance_ordinal_check", sql`${t.ordinal} between 0 and 7`),
+  check("person_discovery_provenance_text_bounds_check", sql`length(${t.sourceReference}) between 1 and 512 and length(${t.excerpt}) between 1 and 2000 and ${t.retrievedAt} >= 0 and ${t.retrievedAt} <= 9007199254740990`),
+  check("person_discovery_provenance_retention_check", sql`${t.payloadExpiresAt} = ${t.createdAt} + 63072000000 and ((${t.redactedAt} is null and ${t.redactionAuthorityCommandId} is null and ${t.redactionAuditEventId} is null) or (${t.redactedAt} >= ${t.payloadExpiresAt} and ${t.redactionAuthorityCommandId} is not null and ${t.redactionAuditEventId} is not null))`),
+  check("person_discovery_provenance_digest_check", sql`length(${t.sourceDigest}) = 64 and ${t.sourceDigest} not glob '*[^0-9a-f]*' and length(${t.excerptDigest}) = 64 and ${t.excerptDigest} not glob '*[^0-9a-f]*' and length(${t.provenanceDigest}) = 64 and ${t.provenanceDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const personDiscoveryOwnerDecisions = sqliteTable("person_discovery_owner_decisions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  runId: text("run_id").notNull().references(() => personDiscoveryRuns.id), candidateId: text("candidate_id").references(() => personDiscoveryCandidates.id),
+  decision: text("decision", { enum: ["no_match", "create_new", "link_existing"] }).notNull(),
+  contactId: text("contact_id").references(() => contacts.id), ownerSubject: text("owner_subject").notNull(),
+  expectedResultDigest: text("expected_result_digest").notNull(), idempotencyKey: text("idempotency_key").notNull(), decisionDigest: text("decision_digest").notNull(),
+  authorityCommandId: text("authority_command_id").notNull().references(() => authorityCommands.id), auditEventId: text("audit_event_id").notNull().references(() => auditEvents.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("person_discovery_decision_run_unique").on(t.runId),
+  uniqueIndex("person_discovery_decision_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+  uniqueIndex("person_discovery_decision_digest_unique").on(t.workspaceId, t.decisionDigest),
+  check("person_discovery_decision_shape_check", sql`(${t.decision} = 'no_match' and ${t.candidateId} is null and ${t.contactId} is null) or (${t.decision} in ('create_new','link_existing') and ${t.candidateId} is not null and ${t.contactId} is not null)`),
+  check("person_discovery_decision_text_bounds_check", sql`length(${t.ownerSubject}) between 1 and 256 and length(${t.idempotencyKey}) between 8 and 200`),
+  check("person_discovery_decision_digest_check", sql`length(${t.expectedResultDigest}) = 64 and ${t.expectedResultDigest} not glob '*[^0-9a-f]*' and length(${t.decisionDigest}) = 64 and ${t.decisionDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const prospectContactRoleRelevance = sqliteTable("prospect_contact_role_relevance", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id), contactId: text("contact_id").notNull().references(() => contacts.id),
+  candidateId: text("candidate_id").notNull().references(() => personDiscoveryCandidates.id), decisionId: text("decision_id").notNull().references(() => personDiscoveryOwnerDecisions.id),
+  roleTitle: text("role_title").notNull(), roleSummary: text("role_summary").notNull(), relevanceDigest: text("relevance_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  index("prospect_contact_role_history_idx").on(t.workspaceId, t.prospectId, t.contactId, t.createdAt),
+  uniqueIndex("prospect_contact_role_decision_unique").on(t.decisionId),
+  uniqueIndex("prospect_contact_role_digest_unique").on(t.workspaceId, t.relevanceDigest),
+  index("prospect_contact_role_contact_idx").on(t.workspaceId, t.contactId, t.createdAt),
+  check("prospect_contact_role_text_bounds_check", sql`length(${t.roleTitle}) between 1 and 160 and length(${t.roleSummary}) between 1 and 1000`),
+  check("prospect_contact_role_digest_check", sql`length(${t.relevanceDigest}) = 64 and ${t.relevanceDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+export const contactVerificationIntents = sqliteTable("contact_verification_intents", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id), contactId: text("contact_id").notNull().references(() => contacts.id),
+  relevanceId: text("relevance_id").notNull().references(() => prospectContactRoleRelevance.id), decisionId: text("decision_id").notNull().references(() => personDiscoveryOwnerDecisions.id),
+  intent: text("intent", { enum: ["initial_verification", "stale_refresh"] }).notNull(), channel: text("channel", { enum: ["email", "phone"] }).notNull(),
+  sourceObservationId: text("source_observation_id").references(() => contactPointObservations.id),
+  configurationId: text("configuration_id").notNull().references(() => configurations.id), configurationDigest: text("configuration_digest").notNull(),
+  configurationRevision: integer("configuration_revision").notNull(), prospectRevision: integer("prospect_revision").notNull(), contactRevision: integer("contact_revision").notNull(),
+  freshnessWindowMs: integer("freshness_window_ms").notNull(), freshnessPolicyDigest: text("freshness_policy_digest").notNull(),
+  ownerSubject: text("owner_subject").notNull(), idempotencyKey: text("idempotency_key").notNull(), intentDigest: text("intent_digest").notNull(),
+  authorityCommandId: text("authority_command_id").notNull().references(() => authorityCommands.id), auditEventId: text("audit_event_id").notNull().references(() => auditEvents.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("contact_verification_intent_idempotency_unique").on(t.workspaceId, t.idempotencyKey),
+  uniqueIndex("contact_verification_intent_digest_unique").on(t.workspaceId, t.intentDigest),
+  index("contact_verification_intent_subject_idx").on(t.workspaceId, t.prospectId, t.contactId, t.createdAt),
+  check("contact_verification_intent_shape_check", sql`(${t.intent} = 'initial_verification' and ${t.sourceObservationId} is null) or (${t.intent} = 'stale_refresh' and ${t.sourceObservationId} is not null)`),
+  check("contact_verification_intent_revision_check", sql`${t.configurationRevision} > 0 and ${t.prospectRevision} > 0 and ${t.contactRevision} > 0 and ${t.freshnessWindowMs} > 0 and ${t.freshnessWindowMs} <= 31622400000`),
+  check("contact_verification_intent_text_bounds_check", sql`length(${t.ownerSubject}) between 1 and 256 and length(${t.idempotencyKey}) between 8 and 200`),
+  check("contact_verification_intent_digest_check", sql`length(${t.configurationDigest}) = 64 and ${t.configurationDigest} not glob '*[^0-9a-f]*' and length(${t.freshnessPolicyDigest}) = 64 and ${t.freshnessPolicyDigest} not glob '*[^0-9a-f]*' and length(${t.intentDigest}) = 64 and ${t.intentDigest} not glob '*[^0-9a-f]*'`),
+]);
+
 export const identitySuggestions = sqliteTable("identity_suggestions", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   ownerSubject: text("owner_subject").notNull(), subjectKind: text("subject_kind", { enum: ["contact", "organization"] }).notNull(),
