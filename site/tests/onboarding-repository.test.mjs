@@ -29,12 +29,18 @@ test("blank onboarding reads are pure and owner input creates exactly one resuma
     assert.equal(profile.status,"profile_fit_required"); assert.match(profile.interviewQueueDigest,/^[a-f0-9]{64}$/);
     assert.equal((await onboarding.createOnboardingDraft(fixture.database,OWNER,{type:"customer_profile",parentId:play.marketPlay.id,name:"Fleet operations leaders",expectedRevision:play.marketPlay.revision,idempotencyKey:key(4)})).status,"profile_fit_required");
     assert.equal(Number((await fixture.database.prepare("SELECT count(*) AS count FROM market_plays WHERE name LIKE '%Mining%'").first()).count),0);
-    for(let index=0;index<4;index++){
-      const progress=await onboarding.readOnboardingProjection(fixture.database,OWNER);assert.equal(progress.status,"profile_fit_required");assert.ok(progress.interviewQueueDigest);
+    let reviewed=0;
+    while(reviewed<32){
+      const progress=await onboarding.readOnboardingProjection(fixture.database,OWNER);
+      if(progress.status==="complete")break;
+      assert.equal(progress.status,"profile_fit_required");assert.ok(progress.interviewQueueDigest);
+      const index=reviewed;
       const active=await composer.advanceLocalInterview(fixture.database,OWNER,{expectedQueueDigest:progress.interviewQueueDigest,idempotencyKey:key(30+index*3)});
       const awaiting=await interview.submitInterviewAnswer(fixture.database,OWNER,{questionId:active.question.id,expectedRevision:active.question.revision,answer:"write_correction",value:{excerpt:`Owner confirmed answer ${index}`},reason:"Owner-authored setup answer",idempotencyKey:key(31+index*3)});
       await interview.recordInterviewDecision(fixture.database,OWNER,{answerId:awaiting.answer.id,expectedSessionRevision:awaiting.session.revision,expectedQuestionRevision:awaiting.question.revision,decision:"accept",idempotencyKey:key(32+index*3)});
+      reviewed+=1;
     }
+    assert.ok(reviewed<32,"the authoritative onboarding queue must reach confirmed Profile fit within its supported bound");
     const complete=await onboarding.readOnboardingProjection(fixture.database,OWNER);assert.equal(complete.status,"complete");assert.match(complete.fitKnowledgeVersionId,/^[a-f0-9-]{20,80}$/i);
     await commercial.createHierarchyDraft(fixture.database,OWNER,{type:"product",parentId:first.company.id,name:"Second Product",expectedRevision:first.company.revision,idempotencyKey:key(5)});
     assert.equal(Number((await fixture.database.prepare("SELECT count(*) AS count FROM products").first()).count),2);

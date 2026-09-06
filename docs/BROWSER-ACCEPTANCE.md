@@ -27,8 +27,10 @@ node node_modules/vite/bin/vite.js --config vite.config.ts --port <reserved> --h
 It proves a visibly hydrated blank onboarding screen with no error overlay,
 then uses rendered controls to create the synthetic hierarchy `Northstar` →
 `Harbor Pulse` → `Port Operations` → `Bulk Terminal Operators`. It submits and
-separately accepts owner-written interview answers until that exact Customer
-Profile has current confirmed `fit` Knowledge. The scenario reads the rendered
+separately accepts owner-written interview answers, requires every accepted
+answer to remain on a visible `Confirmed result` with the next authoritative
+queue position, and continues until that exact Customer Profile has current
+confirmed `fit` Knowledge. The scenario reads the rendered
 authoritative progression instead of assuming a question count. A checked
 32-step safety bound makes queue expansion fail visibly and require contract
 review rather than silently truncating the journey. The server is terminated and

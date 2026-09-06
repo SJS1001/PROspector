@@ -90,7 +90,7 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
     expect(reviewedSteps, "the authoritative onboarding queue exceeded the browser contract").toBeLessThan(MAX_SUPPORTED_ONBOARDING_STEPS);
     await expect(page.getByText("No recommendation was generated. Owner input is required.")).toBeVisible();
     const questionPrompt = await page.locator(".active-question-card h2").textContent();
-    const isFitQuestion = /^What should PROspector know about the Customer Profile/.test(questionPrompt ?? "");
+    const isFitQuestion = /^What should PROspector know about fit for the Customer Profile/.test(questionPrompt ?? "");
     const answerValue = isFitQuestion
       ? "Confirmed fit for synthetic bulk terminal operators"
       : `Synthetic owner answer ${reviewedSteps + 1}`;

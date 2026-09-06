@@ -37,3 +37,50 @@ test("blank handler admits only exact local-demo onboarding and denied paths wri
     await assertForbiddenOperationalRowsUnchanged(fixture.database,forbidden);
   }finally{await fixture.dispose();}
 });
+
+test("confirmed onboarding answer remains in the interview workspace before fit is complete",async()=>{
+  const fixture=await createD1Fixture("generic-onboarding-confirmed-projection");
+  try{
+    await applyMigrations(fixture.database);
+    const knowledge=await fixture.vite.ssrLoadModule(new URL("../domain/knowledge-handler.ts",import.meta.url).pathname);
+    const interview=await fixture.vite.ssrLoadModule(new URL("../domain/interview-handler.ts",import.meta.url).pathname);
+    const deps={database:fixture.database,subjectPepper:pepper,pilotOwnerEmail:email,getIdentity:identity,enableLocalDemoProgression:true,runtimeIsDevelopment:true};
+    const cookie=async(handler)=>(await handler(deps)).headers.get("set-cookie").split(";",1)[0];
+    const post=async(handler,intent,body)=>handler(new Request("http://localhost/api/interview",{method:"POST",headers:{origin:"http://localhost",cookie:await cookie(handler===knowledge.handleKnowledgePost?knowledge.handleKnowledgeGet:interview.handleInterviewGet),"sec-fetch-site":"same-origin","content-type":"application/json","x-prospector-intent":intent},body:JSON.stringify(body)}),deps);
+
+    let response=await post(knowledge.handleKnowledgePost,"knowledge-mutation",{action:"initialize_owner_workspace",idempotencyKey:"0198a4b0-0000-7000-8000-000000009601",companyName:"Northstar",productName:"Harbor Pulse"});
+    let projection=await response.json();
+    response=await post(knowledge.handleKnowledgePost,"knowledge-mutation",{action:"create_onboarding_draft",idempotencyKey:"0198a4b0-0000-7000-8000-000000009602",type:"market_play",parentId:projection.onboarding.product.id,name:"Port Operations",expectedRevision:projection.onboarding.product.revision});
+    projection=await response.json();
+    response=await post(knowledge.handleKnowledgePost,"knowledge-mutation",{action:"create_onboarding_draft",idempotencyKey:"0198a4b0-0000-7000-8000-000000009603",type:"customer_profile",parentId:projection.onboarding.marketPlay.id,name:"Bulk Terminal Operators",expectedRevision:projection.onboarding.marketPlay.revision});
+    projection=await response.json();
+    response=await post(knowledge.handleKnowledgePost,"knowledge-mutation",{action:"start_onboarding_interview",idempotencyKey:"0198a4b0-0000-7000-8000-000000009604",expectedQueueDigest:projection.onboarding.interviewQueueDigest});
+    projection=await response.json();
+    assert.equal(projection.interview.status,"active");
+
+    response=await post(interview.handleInterviewPost,"interview-mutation",{action:"submit_interview_answer",idempotencyKey:"0198a4b0-0000-7000-8000-000000009605",questionId:projection.interview.question.id,expectedRevision:projection.interview.question.revision,answer:"write_correction",value:{excerpt:"Synthetic owner answer"},reason:"Synthetic regression evidence only"});
+    let interviewState=await response.json();
+    assert.equal(interviewState.status,"awaiting_confirmation");
+    response=await post(interview.handleInterviewPost,"interview-mutation",{action:"record_interview_decision",idempotencyKey:"0198a4b0-0000-7000-8000-000000009606",answerId:interviewState.answer.id,expectedSessionRevision:interviewState.session.revision,expectedQuestionRevision:interviewState.question.revision,decision:"accept"});
+    interviewState=await response.json();
+    assert.equal(interviewState.status,"confirmed");
+
+    const storedSession=await fixture.database.prepare("SELECT state,active_question_id AS activeQuestionId FROM interview_sessions ORDER BY updated_at DESC,id DESC LIMIT 1").first();
+    assert.deepEqual(storedSession,{state:"completed",activeQuestionId:null});
+    const composer=await fixture.vite.ssrLoadModule(new URL("../domain/interview-question-composer.ts",import.meta.url).pathname);
+    const principal=await (await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts",import.meta.url).pathname)).principalFromIdentity(email,"Local Owner",pepper);
+    const progression=await composer.readLocalInterviewProgression(fixture.database,principal);
+    assert.equal(progression.status,"ready");
+    assert.equal(progression.completedSlots,1);
+
+    const current=await knowledge.handleKnowledgeGet(deps);
+    assert.equal(current.status,200);
+    const currentProjection=await current.json();
+    assert.ok(currentProjection.commercial,"confirmed result must not collapse back to Start the fit interview");
+    assert.equal(currentProjection.interview.status,"confirmed");
+    assert.equal(currentProjection.onboarding.status,"profile_fit_required");
+    assert.equal(currentProjection.interview.localProgression.status,"ready");
+    const workspace=await fixture.vite.ssrLoadModule(new URL("../app/knowledge/knowledge-workspace.tsx",import.meta.url).pathname);
+    assert.doesNotThrow(()=>workspace.normalizeProjection(currentProjection),"the mounted workspace must accept the post-confirmation projection");
+  }finally{await fixture.dispose();}
+});

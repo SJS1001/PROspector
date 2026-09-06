@@ -105,7 +105,10 @@ export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUn
   const { commercial, interview, library, drift, replacements } = state.value;
   const mutating = pending !== null;
   const nodes = commercialNodes(commercial);
-  const selectedScope = nodes.find((node) => node.id === selectedScopeId) ?? nodes.find((node) => node.type === "company") ?? commercial.path[0];
+  const onboardingScopeId = state.value.onboarding.status === "profile_fit_required" || state.value.onboarding.status === "complete"
+    ? state.value.onboarding.customerProfile.id
+    : null;
+  const selectedScope = nodes.find((node) => node.id === selectedScopeId) ?? nodes.find((node) => node.id === onboardingScopeId) ?? nodes.find((node) => node.type === "company") ?? commercial.path[0];
   const selectedPath = selectedScope ? scopePathFor(selectedScope, nodes) : [];
   const disabled = mutating ? <p className="saved" role="status">{pendingCopy(pending)} Other actions are temporarily disabled.</p> : null;
   const knowledgeCounts = countsByDestination(library);

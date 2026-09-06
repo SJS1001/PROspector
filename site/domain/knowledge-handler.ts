@@ -151,7 +151,7 @@ function assertClosedCommand(body: Record<string, unknown>) {
 
 async function projectionResponse(database: D1Database, principal: InterviewPrincipal, enableLocalDemoProgression = false, selection?: InterviewSelection) {
   const onboarding = await readOnboardingProjection(database, principal);
-  if (!selection && (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await liveInterviewExists(database, principal)))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject));
+  if (!selection && (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await interviewHasStarted(database, principal)))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject));
   // Reads are projection-only; onboarding is the sole local-demo bootstrap authority.
   const library = await readKnowledgeLibrary(database, principal);
   const [commercial, interviewState, drift, replacements] = await Promise.all([
@@ -160,7 +160,10 @@ async function projectionResponse(database: D1Database, principal: InterviewPrin
   const interview = enableLocalDemoProgression
     ? await attachLocalInterviewProgression(database, principal, interviewState, selection)
     : interviewState;
-  return withCsrfCookie(json({ onboarding, commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
+  const activeOnboarding = onboarding.status === "profile_fit_required"
+    ? { ...onboarding, interviewQueueDigest: null }
+    : onboarding;
+  return withCsrfCookie(json({ onboarding: activeOnboarding, commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
 }
 
 function exactLoopbackMutation(request: Request) {
@@ -169,7 +172,7 @@ function exactLoopbackMutation(request: Request) {
     return request.method==="POST" && ["localhost","127.0.0.1","::1","[::1]"].includes(url.hostname.toLowerCase()) && Boolean(origin) && new URL(origin!).origin===url.origin;
   } catch { return false; }
 }
-async function liveInterviewExists(database:D1Database, principal:InterviewPrincipal){const row=await database.prepare("SELECT s.id FROM interview_sessions s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_subject IN (?,?) AND s.state IN ('awaiting_answer','awaiting_confirmation') AND s.active_question_id IS NOT NULL LIMIT 1").bind(principal.subject,principal.legacySubject).first();return Boolean(row);}
+async function interviewHasStarted(database:D1Database, principal:InterviewPrincipal){const row=await database.prepare("SELECT q.id FROM interview_questions q JOIN interview_sessions s ON s.id=q.session_id AND s.workspace_id=q.workspace_id JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_subject IN (?,?) LIMIT 1").bind(principal.subject,principal.legacySubject).first();return Boolean(row);}
 
 async function phase2SchemaAvailable(database: D1Database) {
   return Boolean(await database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'phase_activation_gates' LIMIT 1").first());
