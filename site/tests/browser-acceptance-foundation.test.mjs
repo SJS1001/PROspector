@@ -26,9 +26,37 @@ test("browser tooling is exact-pinned and retains only synthetic failure screens
   assert.ok(spec.includes("new AxeBuilder"));
   assert.ok(spec.includes('requested.origin === origin'));
   assert.ok(spec.includes('process.kill(-child.pid, "SIGTERM")'));
+  assert.ok(spec.includes("MAX_SUPPORTED_ONBOARDING_STEPS = 32"));
+  assert.ok(spec.includes("queue expansion requires an explicit browser-bound review"));
+  assert.equal(spec.includes("index < 8"), false, "the journey must not silently stop at the old eight-question cap");
   for (const forbidden of ["storageState", "recordHar", "context.cookies(", "page.screenshot(", "https://github.com", "cloudflare.com"]) {
     assert.equal(spec.includes(forbidden), false, forbidden);
   }
+
+  const runner = await readFile(resolve(root, "scripts/run-browser-acceptance.mjs"), "utf8");
+  for (const isolated of ["HOME: isolatedHome", "XDG_CONFIG_HOME: isolatedConfig", "XDG_CACHE_HOME: isolatedCache", "NPM_CONFIG_USERCONFIG:", "PLAYWRIGHT_BROWSERS_PATH: browserCache"]) {
+    assert.ok(runner.includes(isolated), `${isolated} must be isolated or explicitly non-secret`);
+  }
+  assert.equal(runner.includes('["PATH", "HOME"'), false, "the caller home must never be forwarded");
+  assert.equal(runner.includes('process.env.PLAYWRIGHT_BROWSERS_PATH'), false, "the caller browser-cache path must never be discovered");
+});
+
+test("browser bootstrap remains the exact authoritative 0000-0009 chain", async () => {
+  const bootstrap = await readFile(resolve(root, "scripts/local-bootstrap.mjs"), "utf8");
+  const migrations = [...bootstrap.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/g)].map((match) => match[1]);
+  assert.deepEqual(migrations, [
+    "0000_jittery_meteorite.sql",
+    "0001_true_spencer_smythe.sql",
+    "0002_eager_supreme_intelligence.sql",
+    "0003_acoustic_magik.sql",
+    "0004_consensus_knowledge.sql",
+    "0005_even_mastermind.sql",
+    "0006_private-proof-run-binding.sql",
+    "0007_profile_prospecting.sql",
+    "0008_controlled_enrichment.sql",
+    "0009_gorgeous_captain_universe.sql",
+  ]);
+  assert.equal(/"001\d_/.test(bootstrap), false, "later candidate migrations are outside browser acceptance");
 });
 
 test("zero-effect verifier accepts the exact synthetic fit and rejects a forbidden row", async () => {

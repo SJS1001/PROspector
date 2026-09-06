@@ -8,6 +8,7 @@ const origin = required("PROSPECTOR_BROWSER_ORIGIN");
 const state = required("PROSPECTOR_BROWSER_STATE");
 let server: ChildProcess | undefined;
 let serverOutput = "";
+const MAX_SUPPORTED_ONBOARDING_STEPS = 32;
 
 test.beforeAll(async () => { server = await startServer(); });
 test.afterAll(async () => { await stopServer(server); });
@@ -73,25 +74,35 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
   await expect(page.getByRole("heading", { name: "Start the fit interview" })).toBeVisible();
   await page.getByRole("button", { name: "Begin interview" }).click();
 
-  for (let index = 0; index < 8; index += 1) {
+  let reviewedSteps = 0;
+  let confirmedFit = false;
+  while (!confirmedFit) {
+    expect(reviewedSteps, "the authoritative onboarding queue exceeded the browser contract").toBeLessThan(MAX_SUPPORTED_ONBOARDING_STEPS);
     await expect(page.getByText("No recommendation was generated. Owner input is required.")).toBeVisible();
-    const questionText = await page.locator(".active-question-card").textContent();
-    const answerValue = /\bfit\b/i.test(questionText ?? "")
+    const questionPrompt = await page.locator(".active-question-card h2").textContent();
+    const isFitQuestion = /^What should PROspector know about the Customer Profile/.test(questionPrompt ?? "");
+    const answerValue = isFitQuestion
       ? "Confirmed fit for synthetic bulk terminal operators"
-      : `Synthetic owner answer ${index + 1}`;
+      : `Synthetic owner answer ${reviewedSteps + 1}`;
     await page.getByLabel("Owner-confirmed value").fill(answerValue);
     await page.getByLabel("Reason").fill("Synthetic browser acceptance evidence only");
     await page.getByRole("button", { name: "Submit answer for confirmation" }).click();
     await expect(page.getByRole("heading", { name: "Confirm submitted answer" })).toBeVisible();
     await page.getByLabel("Accept").check();
     await page.getByRole("button", { name: "Accept", exact: true }).click();
+    reviewedSteps += 1;
     await expect(page.getByRole("heading", { name: "Confirmed result" })).toBeVisible();
-    const fitComplete = await page.getByText("Bulk Terminal Operators").count() > 0
-      && await page.getByRole("heading", { name: "Consensus knowledge" }).count() > 0;
-    if (fitComplete) break;
+    const progress = await page.getByText(/\d+ of \d+ interview slots reviewed\./).textContent();
+    const totalSlots = Number(/\d+ of (\d+) interview slots reviewed\./.exec(progress ?? "")?.[1]);
+    expect(Number.isSafeInteger(totalSlots) && totalSlots > 0).toBe(true);
+    expect(totalSlots, "queue expansion requires an explicit browser-bound review").toBeLessThanOrEqual(MAX_SUPPORTED_ONBOARDING_STEPS);
+    confirmedFit = isFitQuestion;
+    if (confirmedFit) break;
     await page.getByRole("button", { name: "Continue interview" }).click();
   }
 
+  expect(reviewedSteps).toBeGreaterThan(0);
+  expect(confirmedFit, "the rendered authoritative progression must reach confirmed Profile fit").toBe(true);
   await expect(page.getByRole("heading", { name: "Consensus knowledge" })).toBeVisible();
   await expect(page.getByText("Northstar", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Bulk Terminal Operators", { exact: true }).first()).toBeVisible();

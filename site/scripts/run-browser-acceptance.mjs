@@ -10,9 +10,29 @@ await mkdir(localRoot, { recursive: true });
 const stateRoot = await mkdtemp(resolve(localRoot, "browser-acceptance-state-"));
 const runId = basename(stateRoot).replace("browser-acceptance-state-", "");
 const artifactRoot = resolve(localRoot, `browser-acceptance-failures-${runId}`);
+const isolatedHome = resolve(stateRoot, "home");
+const isolatedConfig = resolve(stateRoot, "config");
+const isolatedCache = resolve(stateRoot, "cache");
+const isolatedTemp = resolve(stateRoot, "tmp");
+const browserCache = resolve(localRoot, "playwright-browsers");
+await Promise.all([
+  mkdir(isolatedHome, { recursive: true }),
+  mkdir(isolatedConfig, { recursive: true }),
+  mkdir(isolatedCache, { recursive: true }),
+  mkdir(isolatedTemp, { recursive: true }),
+  mkdir(browserCache, { recursive: true }),
+]);
 const state = `.local/${basename(stateRoot)}`;
 const port = await reservePort();
 const childEnvironment = scrubbedEnvironment({
+  HOME: isolatedHome,
+  XDG_CONFIG_HOME: isolatedConfig,
+  XDG_CACHE_HOME: isolatedCache,
+  TMPDIR: isolatedTemp,
+  TEMP: isolatedTemp,
+  TMP: isolatedTemp,
+  NPM_CONFIG_USERCONFIG: resolve(isolatedConfig, "npmrc"),
+  PLAYWRIGHT_BROWSERS_PATH: browserCache,
   PROSPECTOR_BROWSER_PORT: String(port),
   PROSPECTOR_BROWSER_STATE: state,
   PROSPECTOR_BROWSER_ARTIFACTS: artifactRoot,
@@ -52,7 +72,7 @@ if (failure) throw failure;
 
 function scrubbedEnvironment(additions) {
   const environment = {};
-  for (const name of ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SHELL", "LANG", "LC_ALL", "TERM", "PLAYWRIGHT_BROWSERS_PATH"]) {
+  for (const name of ["PATH", "SHELL", "LANG", "LC_ALL", "TERM"]) {
     if (process.env[name]) environment[name] = process.env[name];
   }
   return { ...environment, ...additions };
