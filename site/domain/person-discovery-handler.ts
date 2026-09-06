@@ -93,9 +93,13 @@ async function invoke(service: PersonDiscoveryService, scope: { workspaceId: str
   if (body.action === "decide_person_discovery") {
     const prior = await readDecisionByIdempotency(database, scope, body.idempotencyKey as string);
     if (prior) {
-      const stored = await database.prepare("SELECT run_id,candidate_id,decision,contact_id,expected_result_digest FROM person_discovery_owner_decisions WHERE id=? AND workspace_id=?").bind(prior.id, scope.workspaceId).first<{ run_id: string; candidate_id: string | null; decision: string; contact_id: string | null; expected_result_digest: string }>();
-      if (!stored || body.runId !== stored.run_id || body.expectedResultDigest !== stored.expected_result_digest || body.decision !== stored.decision || (opaque(body.candidateId) ? body.candidateId : null) !== stored.candidate_id || (opaque(body.existingContactId) ? body.existingContactId : null) !== stored.contact_id) return Object.freeze({ kind: "conflict", reason: "idempotency_conflict" });
-      return service.decide(scope, Object.freeze({ runId: stored.run_id, expectedResultDigest: stored.expected_result_digest, decision: stored.decision, ...(stored.candidate_id ? { candidateId: stored.candidate_id } : {}), ...(stored.contact_id && stored.decision === "link_existing" ? { existingContactId: stored.contact_id } : {}), idempotencyKey: body.idempotencyKey }));
+      const stored = await database.prepare("SELECT decision.run_id,decision.candidate_id,decision.decision,decision.contact_id,decision.expected_result_digest,run.prospect_revision FROM person_discovery_owner_decisions decision JOIN person_discovery_runs run ON run.id=decision.run_id AND run.workspace_id=decision.workspace_id WHERE decision.id=? AND decision.workspace_id=?").bind(prior.id, scope.workspaceId).first<{ run_id: string; candidate_id: string | null; decision: string; contact_id: string | null; expected_result_digest: string; prospect_revision: number }>();
+      if (!stored || body.runId !== stored.run_id || body.expectedResultDigest !== stored.expected_result_digest || body.decision !== stored.decision || body.expectedProspectRevision !== Number(stored.prospect_revision) || (opaque(body.candidateId) ? body.candidateId : null) !== stored.candidate_id || (stored.decision === "link_existing" && body.existingContactId !== stored.contact_id)) return Object.freeze({ kind: "conflict", reason: "idempotency_conflict" });
+      // The exact durable decision has already been loaded and compared above.
+      // Re-entering C1 with a reconstructed optional-field shape risks turning
+      // a valid replay into a new semantic command; transport replay is purely
+      // a projection of the immutable stored decision.
+      return Object.freeze({ kind: "accepted", decision: prior, replayed: true });
     }
     const run = await readDiscoveryRun(database, scope, body.runId as string);
     const runScope = await database.prepare("SELECT prospect_id FROM person_discovery_runs WHERE id=? AND workspace_id=? AND owner_subject=? LIMIT 1").bind(body.runId, scope.workspaceId, scope.principalSubject).first<{ prospect_id: string }>();
@@ -124,25 +128,35 @@ async function readProjection(request: Request, dependencies: PersonDiscoveryHan
   const permitted = new Set(["prospectId", "peopleCursor"]);
   for (const key of url.searchParams.keys()) if (!permitted.has(key) || url.searchParams.getAll(key).length !== 1) throw new CursorError();
   const projectionNow = dependencies.now?.() ?? Date.now();
-  const approvedRows = (await dependencies.database.prepare(`SELECT p.id,p.revision,EXISTS(SELECT 1 FROM prospect_contact_role_relevance relevance JOIN person_discovery_owner_decisions decision ON decision.id=relevance.decision_id AND decision.workspace_id=relevance.workspace_id JOIN person_discovery_runs run ON run.id=decision.run_id AND run.workspace_id=decision.workspace_id JOIN person_discovery_candidates candidate ON candidate.id=relevance.candidate_id AND candidate.run_id=run.id AND candidate.workspace_id=run.workspace_id JOIN contacts contact ON contact.id=relevance.contact_id AND contact.workspace_id=relevance.workspace_id WHERE relevance.workspace_id=p.workspace_id AND relevance.prospect_id=p.id AND decision.contact_id=relevance.contact_id AND run.prospect_id=p.id AND candidate.redacted_at IS NULL AND candidate.payload_expires_at>?) known_person FROM profile_prospects p WHERE p.workspace_id=? AND p.active=1 AND p.state='approved' ORDER BY p.updated_at DESC,p.id DESC LIMIT 100`).bind(projectionNow, workspaceId).all<{ id: string; revision: number; known_person: number }>()).results;
+  // Resolve current authority before limiting the display list.  A historical
+  // row that is no longer current must never consume one of the bounded slots
+  // and hide a valid Approved Prospect further down the ordered history.
+  const approvedRows = (await dependencies.database.prepare(`SELECT p.id,p.revision,EXISTS(SELECT 1 FROM prospect_contact_role_relevance relevance JOIN person_discovery_owner_decisions decision ON decision.id=relevance.decision_id AND decision.workspace_id=relevance.workspace_id JOIN person_discovery_runs run ON run.id=decision.run_id AND run.workspace_id=decision.workspace_id JOIN person_discovery_candidates candidate ON candidate.id=relevance.candidate_id AND candidate.run_id=run.id AND candidate.workspace_id=run.workspace_id JOIN contacts contact ON contact.id=relevance.contact_id AND contact.workspace_id=relevance.workspace_id WHERE relevance.workspace_id=p.workspace_id AND relevance.prospect_id=p.id AND decision.contact_id=relevance.contact_id AND run.prospect_id=p.id AND candidate.redacted_at IS NULL AND candidate.payload_expires_at>?) known_person FROM profile_prospects p WHERE p.workspace_id=? AND p.active=1 AND p.state='approved' ORDER BY p.updated_at DESC,p.id DESC`).bind(projectionNow, workspaceId).all<{ id: string; revision: number; known_person: number }>()).results;
   const approved = (await Promise.all(approvedRows.filter((row) => opaque(row.id) && positive(row.revision)).map(async (row) => {
     const authority = await loadApprovedProspectAuthority(dependencies.database, { workspaceId, principalSubject: subject }, row.id);
     const knownPerson = authority && authority.prospectRevision === Number(row.revision) && Number(row.known_person) === 1
       ? await currentKnownPerson(dependencies.database, { workspaceId, principalSubject: subject }, row.id, projectionNow) : false;
     return authority && authority.prospectRevision === Number(row.revision) ? Object.freeze({ prospectId: row.id, prospectRevision: Number(row.revision), knownPerson }) : null;
-  }))).filter((row): row is NonNullable<typeof row> => row !== null);
+  }))).filter((row): row is NonNullable<typeof row> => row !== null).slice(0, 100);
   const prospectId = url.searchParams.get("prospectId");
   if (!prospectId) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId), people: emptyPeople() });
   if (!opaque(prospectId)) throw new CursorError();
+  // Verify a supplied token even when the requested Prospect is no longer
+  // current.  Otherwise a cursor minted for one Prospect could be silently
+  // substituted onto an unavailable/foreign selector and look like a benign
+  // empty page instead of the authority drift it represents.
+  const rawCursor = url.searchParams.get("peopleCursor");
+  const cursor = rawCursor ? await decodeCursor(rawCursor, dependencies.subjectPepper, workspaceId, subject) : null;
   const authority = await loadApprovedProspectAuthority(dependencies.database, { workspaceId, principalSubject: subject }, prospectId);
-  if (!authority) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId), people: emptyPeople() });
+  if (!authority) {
+    if (cursor) throw new CursorDriftError();
+    return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId), people: emptyPeople() });
+  }
   const generation = await contactsGeneration(dependencies.database, workspaceId);
   const latest = await dependencies.database.prepare(`SELECT r.id,e.state,e.result_digest,r.created_at FROM person_discovery_runs r JOIN person_discovery_run_events e ON e.run_id=r.id AND e.durable_revision=(SELECT max(x.durable_revision) FROM person_discovery_run_events x WHERE x.run_id=r.id) WHERE r.workspace_id=? AND r.owner_subject=? AND r.prospect_id=? ORDER BY r.created_at DESC,r.id DESC LIMIT 1`).bind(workspaceId, subject, prospectId).first<{ id: string; state: string; result_digest: string | null; created_at: number }>();
   if (!latest || !opaque(latest.id) || !["requested", "completed", "needs_reconciliation"].includes(latest.state) || !positive(latest.created_at)) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId, prospectId), people: emptyPeople() });
   if (latest.state !== "completed") return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId, prospectId), people: Object.freeze({ runId: latest.id, status: latest.state, items: Object.freeze([]), pageInfo: Object.freeze({ limit: PERSON_DISCOVERY_PAGE_LIMIT, returned: 0, hasNext: false, nextCursor: null }) }) });
   if (!digest(latest.result_digest)) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId, prospectId), people: emptyPeople() });
-  const rawCursor = url.searchParams.get("peopleCursor");
-  const cursor = rawCursor ? await decodeCursor(rawCursor, dependencies.subjectPepper, workspaceId, subject) : null;
   if (cursor && (cursor.prospectId !== prospectId || cursor.prospectRevision !== authority.prospectRevision || cursor.configurationDigest !== authority.configurationDigest || cursor.runId !== latest.id || cursor.resultDigest !== latest.result_digest || cursor.generation !== generation)) throw new CursorDriftError();
   const top = cursor?.highWater ?? await candidateTop(dependencies.database, workspaceId, latest.id);
   if (!top) return Object.freeze({ capability: dependencies.personDiscoveryService ? "test_composed_only" : "reject_only", approvedProspects: approved, history: await history(dependencies.database, workspaceId, prospectId), people: Object.freeze({ runId: latest.id, resultDigest: latest.result_digest, status: "completed", items: Object.freeze([]), pageInfo: Object.freeze({ limit: PERSON_DISCOVERY_PAGE_LIMIT, returned: 0, hasNext: false, nextCursor: null }) }) });

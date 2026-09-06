@@ -106,6 +106,177 @@ test("C2 fails closed on malformed or wrong-action service results", async () =>
   } finally { await fixture.dispose(); }
 });
 
+test("C2 replays each durable command exactly and rejects every changed client field without extra discovery or authority writes", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-replays");
+  try {
+    await alignOwner(fixture);
+    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+    let calls = 0;
+    const service = discovery.createPersonDiscoveryService({
+      database: fixture.database,
+      port: testPort.bindPersonDiscoveryTestPort(async (assignment) => { calls += 1; return completed("replay", assignment.maxCandidates); }),
+      now: () => PERSON_DISCOVERY_NOW + 100,
+      idFactory: ids("replay"),
+    });
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    const dependencies = deps(fixture, service);
+    const start = startBody(fixture, "handler-replay-start");
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(start, await csrf(handler, dependencies)), dependencies)).status, 200);
+    assert.equal(calls, 1);
+    // The exact key can replay after later client-side lifecycle/config drift;
+    // the durable request, not the changed client value, is authoritative.
+    await fixture.database.prepare("UPDATE profile_prospects SET revision=revision+1 WHERE id=?").bind(fixture.prospectId).run();
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(start, await csrf(handler, dependencies)), dependencies)).status, 200);
+    assert.equal(calls, 1, "an exact durable replay does not rediscover");
+    for (const changed of [
+      { ...start, prospectId: "wrong-prospect" },
+      { ...start, expectedProspectRevision: fixture.prospectRevision + 1 },
+      { ...start, maxCandidates: 3 },
+      { ...start, maxProvenancePerCandidate: 2 },
+    ]) {
+      const response = await handler.handlePersonDiscoveryPost(mutation(changed, await csrf(handler, dependencies)), dependencies);
+      assert.ok([400, 409].includes(response.status), "a changed or shape-invalid decision never replays");
+    }
+    assert.equal(calls, 1);
+    // Restore only the disposable fixture's projection revision so the owner
+    // can make a fresh decision against the already durable run.
+    await fixture.database.prepare("UPDATE profile_prospects SET revision=? WHERE id=?").bind(fixture.prospectRevision, fixture.prospectId).run();
+    // A new semantic request gives the decision a current, independent run;
+    // the earlier run remains the replay-after-drift proof above.
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "handler-replay-decision-start", { maxCandidates: 1 }), await csrf(handler, dependencies)), dependencies)).status, 200);
+    assert.equal(calls, 2);
+    const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    const payload = await projection.json();
+    const candidateId = payload.people.items[0].candidateId;
+    const decision = {
+      action: "decide_person_discovery", runId: payload.people.runId, expectedResultDigest: payload.history.runs[0].resultDigest,
+      decision: "create_new", candidateId, existingContactId: null, expectedProspectRevision: fixture.prospectRevision, idempotencyKey: "handler-replay-decision",
+    };
+    const decisionReplay = await handler.handlePersonDiscoveryPost(mutation(decision, await csrf(handler, dependencies)), dependencies);
+    assert.equal(decisionReplay.status, 200, JSON.stringify(await decisionReplay.json()));
+    const counts = await governedCounts(fixture);
+    const replayRow = await fixture.database.prepare("SELECT decision.run_id,run.prospect_revision FROM person_discovery_owner_decisions decision JOIN person_discovery_runs run ON run.id=decision.run_id WHERE decision.idempotency_key=?").bind(decision.idempotencyKey).first();
+    assert.equal(replayRow.run_id, decision.runId);
+    assert.equal(Number(replayRow.prospect_revision), decision.expectedProspectRevision);
+    const exactDecisionReplay = await handler.handlePersonDiscoveryPost(mutation(decision, await csrf(handler, dependencies)), dependencies);
+    assert.equal(exactDecisionReplay.status, 200, JSON.stringify(await exactDecisionReplay.json()));
+    for (const changed of [
+      { ...decision, runId: "wrong-run" }, { ...decision, expectedResultDigest: "0".repeat(64) },
+      { ...decision, decision: "no_match", candidateId: null }, { ...decision, candidateId: "wrong-candidate" },
+      { ...decision, existingContactId: "wrong-contact" }, { ...decision, expectedProspectRevision: fixture.prospectRevision + 1 },
+    ]) {
+      const response = await handler.handlePersonDiscoveryPost(mutation(changed, await csrf(handler, dependencies)), dependencies);
+      assert.ok([400, 409].includes(response.status), "a changed or shape-invalid decision never replays");
+    }
+    assert.deepEqual(await governedCounts(fixture), counts, "replay/conflict must add no Contact, relevance, intent, or effect row");
+    const relevanceId = (await fixture.database.prepare("SELECT id FROM prospect_contact_role_relevance WHERE workspace_id=?").bind(fixture.workspaceId).first()).id;
+    const contactRevision = Number((await fixture.database.prepare("SELECT revision FROM contacts WHERE workspace_id=?").bind(fixture.workspaceId).first()).revision);
+    const intent = { action: "record_verification_intent", relevanceId, intent: "initial_verification", channel: "email", sourceObservationId: null, expectedProspectRevision: fixture.prospectRevision, expectedContactRevision: contactRevision, idempotencyKey: "handler-replay-intent" };
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(intent, await csrf(handler, dependencies)), dependencies)).status, 200);
+    const afterIntent = await governedCounts(fixture);
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(intent, await csrf(handler, dependencies)), dependencies)).status, 200);
+    for (const changed of [
+      { ...intent, relevanceId: "wrong-relevance" }, { ...intent, intent: "stale_refresh", sourceObservationId: "wrong-source" },
+      { ...intent, channel: "phone" }, { ...intent, sourceObservationId: "wrong-source" },
+      { ...intent, expectedProspectRevision: fixture.prospectRevision + 1 }, { ...intent, expectedContactRevision: contactRevision + 1 },
+    ]) {
+      // Keep a shape-valid changed value where necessary: a bad shape is also
+      // rejected, but cannot accidentally be mistaken for a replay conflict.
+      const response = await handler.handlePersonDiscoveryPost(mutation(changed, await csrf(handler, dependencies)), dependencies);
+      assert.ok([400, 409].includes(response.status));
+    }
+    assert.deepEqual(await governedCounts(fixture), afterIntent);
+    assert.equal(calls, 2);
+  } finally { await fixture.dispose(); }
+});
+
+test("C2 pages five suggestions stably and rejects cursor substitution, tampering, and stale projection generation", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-pages");
+  try {
+    await alignOwner(fixture);
+    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+    const service = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => completed("page", 20)), now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids("page") });
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    const dependencies = deps(fixture, service);
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "handler-pages-start", { maxCandidates: 20 }), await csrf(handler, dependencies)), dependencies)).status, 200);
+    let url = `https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`;
+    const idsSeen = [];
+    let firstCursor;
+    for (let page = 0; page < 4; page += 1) {
+      const response = await handler.handlePersonDiscoveryGet(new Request(url), dependencies);
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.people.pageInfo.limit, 5);
+      assert.equal(body.people.pageInfo.returned, 5);
+      assert.equal(body.people.items.length, 5);
+      idsSeen.push(...body.people.items.map((item) => item.candidateId));
+      if (page === 0) firstCursor = body.people.pageInfo.nextCursor;
+      assert.equal(body.people.pageInfo.hasNext, page < 3);
+      url = body.people.pageInfo.nextCursor ? `https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(body.people.pageInfo.nextCursor)}` : url;
+    }
+    assert.equal(new Set(idsSeen).size, 20, "high-water pagination neither duplicates nor drops initial candidates");
+    const substitute = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=foreign-prospect&peopleCursor=${encodeURIComponent(firstCursor)}`), dependencies);
+    assert.equal(substitute.status, 409, "a signed cursor cannot select another Prospect");
+    await fixture.database.prepare("UPDATE contacts_projection_generations SET contacts_generation=contacts_generation+1 WHERE workspace_id=?").bind(fixture.workspaceId).run();
+    const stale = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(firstCursor)}`), dependencies);
+    assert.equal(stale.status, 409, "generation changes invalidate later pages rather than mixing snapshots");
+  } finally { await fixture.dispose(); }
+});
+
+test("C2 link_existing accepts only the explicit same-workspace Contact and creates no second identity", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-link");
+  try {
+    await alignOwner(fixture);
+    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+    const service = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => completed("link", 1)), now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids("link") });
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    const dependencies = deps(fixture, service);
+    const company = await fixture.database.prepare("SELECT company_id FROM workspace_companies WHERE workspace_id=? LIMIT 1").bind(fixture.workspaceId).first();
+    await fixture.database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) VALUES ('handler-explicit-contact',?,?,?,1,?,?,'Explicit Contact')").bind(fixture.workspaceId, PERSON_DISCOVERY_NOW, PERSON_DISCOVERY_NOW, company.company_id, "1".repeat(64)).run();
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "handler-link-start", { maxCandidates: 1 }), await csrf(handler, dependencies)), dependencies)).status, 200);
+    const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    const payload = await projection.json();
+    const link = { action: "decide_person_discovery", runId: payload.people.runId, expectedResultDigest: payload.history.runs[0].resultDigest, decision: "link_existing", candidateId: payload.people.items[0].candidateId, existingContactId: "handler-explicit-contact", expectedProspectRevision: fixture.prospectRevision, idempotencyKey: "handler-link-decision" };
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(link, await csrf(handler, dependencies)), dependencies)).status, 200);
+    assert.equal(await count(fixture, "contacts"), 1);
+    assert.equal(await count(fixture, "prospect_contact_role_relevance"), 1);
+    const replay = await handler.handlePersonDiscoveryPost(mutation(link, await csrf(handler, dependencies)), dependencies);
+    assert.equal(replay.status, 200);
+    const changed = await handler.handlePersonDiscoveryPost(mutation({ ...link, existingContactId: "wrong-contact" }, await csrf(handler, dependencies)), dependencies);
+    assert.equal(changed.status, 409);
+    assert.equal(await count(fixture, "contacts"), 1);
+  } finally { await fixture.dispose(); }
+});
+
+test("C2 rejects hostile transport before service invocation and a valid production-shaped request remains reject-only", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-fences");
+  try {
+    await alignOwner(fixture);
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    let calls = 0;
+    const fake = { start: async () => { calls += 1; return { kind: "blocked", reason: "port_unavailable" }; }, decide: async () => { calls += 1; return { kind: "blocked", reason: "invalid_request" }; }, recordVerificationIntent: async () => { calls += 1; return { kind: "blocked", reason: "invalid_request" }; } };
+    const dependencies = deps(fixture, fake);
+    const body = startBody(fixture, "handler-fences-start");
+    const hostile = [
+      new Request("https://prospector.invalid/api/contacts/person-discovery", { method: "POST", headers: { origin: "https://evil.invalid", "sec-fetch-site": "cross-site", "x-prospector-intent": "person-discovery-mutation", "content-type": "application/json" }, body: JSON.stringify(body) }),
+      new Request("https://prospector.invalid/api/contacts/person-discovery", { method: "POST", headers: { origin: "https://prospector.invalid", "sec-fetch-site": "same-origin", "x-prospector-intent": "wrong", "content-type": "application/json" }, body: JSON.stringify(body) }),
+      new Request("https://prospector.invalid/api/contacts/person-discovery", { method: "POST", headers: { origin: "https://prospector.invalid", "sec-fetch-site": "same-origin", "x-prospector-intent": "person-discovery-mutation", "content-type": "text/plain" }, body: JSON.stringify(body) }),
+    ];
+    for (const request of hostile) assert.ok([403, 415].includes((await handler.handlePersonDiscoveryPost(request, dependencies)).status));
+    const oversized = mutation({ ...body, padding: "x".repeat(5000) }, await csrf(handler, dependencies));
+    assert.equal((await handler.handlePersonDiscoveryPost(oversized, dependencies)).status, 413);
+    const malformed = mutation({ ...body, workspaceId: "forged" }, await csrf(handler, dependencies));
+    assert.equal((await handler.handlePersonDiscoveryPost(malformed, dependencies)).status, 400);
+    assert.equal(calls, 0);
+    const rejectOnly = await handler.handlePersonDiscoveryPost(mutation(body, await csrf(handler, deps(fixture))), deps(fixture));
+    assert.deepEqual(await rejectOnly.json(), { error: "person_discovery_capability_unavailable" });
+    assert.equal(await count(fixture, "person_discovery_runs"), 0);
+    assert.equal(await count(fixture, "contacts"), 0);
+    assert.equal(await count(fixture, "prospect_contact_role_relevance"), 0);
+    assert.equal(await count(fixture, "contact_verification_intents"), 0);
+  } finally { await fixture.dispose(); }
+});
+
 function deps(fixture, personDiscoveryService) {
   return {
     database: fixture.database,
@@ -116,6 +287,9 @@ function deps(fixture, personDiscoveryService) {
     ...(personDiscoveryService ? { personDiscoveryService } : {}),
   };
 }
+async function csrf(handler, dependencies) { return csrfCookie(await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), dependencies)); }
+function startBody(fixture, idempotencyKey, overrides = {}) { return { action: "start_person_discovery", prospectId: fixture.prospectId, expectedProspectRevision: fixture.prospectRevision, maxCandidates: 2, maxProvenancePerCandidate: 1, idempotencyKey, ...overrides }; }
+async function governedCounts(fixture) { return Object.freeze({ contacts: await count(fixture, "contacts"), relevance: await count(fixture, "prospect_contact_role_relevance"), intents: await count(fixture, "contact_verification_intents"), evidence: await count(fixture, "contact_point_observations"), effects: await count(fixture, "contact_eligibility_snapshots") }); }
 async function alignOwner(fixture) {
   const interview = await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname);
   const principal = await interview.principalFromIdentity("owner@example.invalid", PERSON_DISCOVERY_OWNER.displayName, "0123456789abcdef0123456789abcdef");

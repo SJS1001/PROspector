@@ -43,6 +43,28 @@ pages advances C1's generation and invalidates the signed cursor. C1 also
 rejects decisions on a candidate at or after its retention expiry inside the
 transaction guard; presentation is not the authority fence.
 
+## Adversarial handler coverage
+
+The focused C2 suite exercises the real handler with the C1 test-only,
+zero-network port. It proves create-new, no-match, link-existing and
+initial-verification command paths; exact durable start/decision/intent replay
+after disposable projection drift; rejection of changed command fields without
+extra discovery, Contact, relevance, intent, evidence, or eligibility rows;
+and reject-only production-shaped composition. It also covers foreign origin,
+wrong intent/content type, oversize/extraneous bodies, outsider admission,
+malformed service replies, finite public reason allowlists, and CSRF-gated
+capability rejection.
+
+Pagination evidence covers 0, 5, 6, and 20 candidate states, five-row pages,
+stable initial high-water traversal, HMAC tamper rejection, Prospect cursor
+substitution rejection (including an unavailable target), and generation drift
+after a mutation. Projection selection resolves current authority before the
+100-row display bound, so more than 100 stale rows cannot crowd out a current
+Approved Prospect. Expiry/redaction reads remain payload-free. C1 suites retain
+the lifecycle/configuration/ancestor TOCTOU, retention, and concurrent durable
+winner assertions underneath the handler; no test composes a provider or
+authorizes an external effect.
+
 ## Next work
 
 C3 owns the operator UI only. C4 owns an integrated synthetic local acceptance
