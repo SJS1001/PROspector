@@ -364,6 +364,46 @@ test("decision rejects a manual same-slot confirmation created after the local q
   }
 });
 
+test("Offer confirmation fences the exact parent Market Play revision and rolls back every partial write", async () => {
+  const fixture = await createD1Fixture("local-interview-offer-parent-drift");
+  try {
+    const api = await setup(fixture);
+    let progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
+    let sequence = 800;
+    while (progression.next?.label !== "Offer") {
+      await rejectNext(api, progression, sequence++);
+      progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
+    }
+    const active = await api.composer.advanceLocalInterview(fixture.database, OWNER, {
+      expectedQueueDigest: progression.queueDigest, idempotencyKey: key(900),
+    });
+    const answer = await api.interview.submitInterviewAnswer(fixture.database, OWNER, {
+      questionId: active.question.id, expectedRevision: active.question.revision,
+      answer: "write_correction", value: { excerpt: "Synthetic governed offer" },
+      reason: "Owner supplied this disposable local value.", idempotencyKey: key(901),
+    });
+    const parent = await fixture.database.prepare(
+      "SELECT mp.id,mp.revision,mp.lifecycle FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=?",
+    ).bind(active.question.destination.id, api.workspace.id).first();
+    assert.equal(parent.lifecycle, "draft");
+    const before = await decisionCounts(fixture.database);
+    const drifted = interleavingDatabase(fixture.database, () => fixture.database.prepare(
+      "UPDATE market_plays SET revision=revision+1 WHERE id=? AND workspace_id=?",
+    ).bind(parent.id, api.workspace.id).run());
+    await assert.rejects(api.interview.recordInterviewDecision(drifted, OWNER, {
+      answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
+      expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(902),
+    }), isConflict);
+    assert.deepEqual(await decisionCounts(fixture.database), before, "stale activation leaves no Offer, Knowledge, decision, command, audit, or confirmation write");
+    const afterParent = await fixture.database.prepare("SELECT revision,lifecycle FROM market_plays WHERE id=? AND workspace_id=?").bind(parent.id, api.workspace.id).first();
+    assert.deepEqual(afterParent, { revision: Number(parent.revision) + 1, lifecycle: "draft" }, "only the independently simulated hierarchy drift remains");
+    const pending = await fixture.database.prepare("SELECT q.status,s.state FROM interview_questions q JOIN interview_sessions s ON s.id=q.session_id AND s.workspace_id=q.workspace_id WHERE q.id=?").bind(active.question.id).first();
+    assert.deepEqual(pending, { status: "answered", state: "awaiting_confirmation" }, "answer submission remains separate and retryable after the rejected confirmation");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 async function setup(fixture) {
   await applyMigrations(fixture.database);
   const [interview, commercial, composer, knowledge, authoring] = await Promise.all([

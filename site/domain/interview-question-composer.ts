@@ -1,8 +1,10 @@
 import {
   InterviewConflictError,
   readInterviewState,
+  requireSelectedDraftInterview,
   type InterviewDestination,
   type InterviewPrincipal,
+  type InterviewSelection,
   type InterviewState,
 } from "./interview";
 import { issueInterviewQuestion, validateInterviewQueueFence } from "./interview-question-authoring";
@@ -115,23 +117,26 @@ export type InterviewQueueFence = {
 export async function readLocalInterviewProgression(
   database: D1Database,
   principal: InterviewPrincipal,
+  selection?: InterviewSelection,
 ): Promise<LocalInterviewProgression> {
-  return (await compose(database, principal)).projection;
+  return (await compose(database, principal, selection)).projection;
 }
 
 export async function attachLocalInterviewProgression(
   database: D1Database,
   principal: InterviewPrincipal,
   state: InterviewState,
+  selection?: InterviewSelection,
 ): Promise<InterviewState> {
-  if (state.status !== "confirmed") return state;
-  return { ...state, localProgression: await readLocalInterviewProgression(database, principal) };
+  if (state.status !== "confirmed" && state.status !== "ready") return state;
+  return { ...state, localProgression: await readLocalInterviewProgression(database, principal, selection) };
 }
 
 export async function advanceLocalInterview(
   database: D1Database,
   principal: InterviewPrincipal,
   input: { idempotencyKey: string; expectedQueueDigest: string },
+  selection?: InterviewSelection,
 ): Promise<InterviewState> {
   exactKeys(input, ["expectedQueueDigest", "idempotencyKey"]);
   if (!/^[a-f0-9-]{20,80}$/i.test(input.idempotencyKey)) throw conflict("Invalid idempotency key");
@@ -143,6 +148,7 @@ export async function advanceLocalInterview(
     workspaceId: workspace.id,
     idempotencyKey: input.idempotencyKey,
     expectedQueueDigest: input.expectedQueueDigest,
+    selection: selection ?? null,
   }));
   const prior = await database.prepare(
     `SELECT subject_id AS subjectId, operation_digest AS operationDigest
@@ -157,16 +163,16 @@ export async function advanceLocalInterview(
       "SELECT id FROM interview_questions WHERE id = ? AND workspace_id = ? LIMIT 1",
     ).bind(prior.subjectId, workspace.id).first<{ id: string }>();
     if (!issued) throw conflict("Prior interview advance is incomplete");
-    return attachLocalInterviewProgression(database, principal, await readInterviewState(database, principal));
+    return attachLocalInterviewProgression(database, principal, await readInterviewState(database, principal, selection), selection);
   }
 
-  const current = await compose(database, principal);
+  const current = await compose(database, principal, selection);
   if (current.projection.queueDigest !== input.expectedQueueDigest)
     throw conflict("The interview queue changed; reload before continuing");
-  if (!current.nextSlot) return attachLocalInterviewProgression(database, principal, await readInterviewState(database, principal));
+  if (!current.nextSlot) return attachLocalInterviewProgression(database, principal, await readInterviewState(database, principal, selection), selection);
 
   const slot = current.nextSlot;
-  return issueInterviewQuestion(database, principal, {
+  await issueInterviewQuestion(database, principal, {
     sessionId: current.session.id,
     expectedSessionRevision: current.session.revision,
     idempotencyKey: input.idempotencyKey,
@@ -188,14 +194,16 @@ export async function advanceLocalInterview(
       knowledgeKind: slot.kind,
     },
   });
+  return readInterviewState(database, principal, selection);
 }
 
-async function compose(database: D1Database, principal: InterviewPrincipal): Promise<InternalProgression> {
+async function compose(database: D1Database, principal: InterviewPrincipal, selection?: InterviewSelection): Promise<InternalProgression> {
   const workspace = await database.prepare(
     `SELECT id, revision FROM workspaces WHERE owner_subject IN (?, ?)
      ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1`,
   ).bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; revision: number }>();
   if (!workspace) throw conflict("Workspace is not initialized");
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
 
   const [hierarchy, currentKnowledge, reviewed, session] = await Promise.all([
     readHierarchy(database, workspace.id),
@@ -204,12 +212,13 @@ async function compose(database: D1Database, principal: InterviewPrincipal): Pro
     database.prepare(
       `SELECT id, revision, scope_type, scope_id, state FROM interview_sessions
        WHERE workspace_id = ? AND state IN ('open', 'completed') AND active_question_id IS NULL
+       ${selection ? "AND id = ? AND scope_id = ? AND scope_type IN ('market_play','play')" : ""}
        ORDER BY CASE state WHEN 'open' THEN 0 ELSE 1 END, updated_at DESC, id DESC LIMIT 1`,
-    ).bind(workspace.id).first<SessionRow>(),
+    ).bind(workspace.id, ...(selection ? [selection.sessionId, selection.marketPlayId] : [])).first<SessionRow>(),
   ]);
   if (!session) throw conflict("Finish the current question before continuing the interview");
 
-  const slots = queueFor(hierarchy);
+  const slots = queueFor(hierarchy, selection?.marketPlayId);
   const confirmedKeys = new Set(currentKnowledge.map((row) => slotKey(row.scopeType, row.scopeId, row.kind)));
   const reviewedKeys = new Set(reviewed.map((row) => slotKey(row.scopeType, row.scopeId, row.kind)));
   const completed = slots.filter((slot) => confirmedKeys.has(slot.key) || reviewedKeys.has(slot.key));
@@ -299,13 +308,15 @@ async function readHierarchy(database: D1Database, workspaceId: string): Promise
   return hierarchy;
 }
 
-function queueFor(hierarchy: HierarchyRow[]): QueueSlot[] {
+function queueFor(hierarchy: HierarchyRow[], selectedMarketPlayId?: string): QueueSlot[] {
   const byType = (type: ScopeType) => hierarchy.filter((row) => row.type === type);
   const slots: QueueSlot[] = [];
-  for (const row of byType("company")) slots.push(slot("Company", row, "identity"));
+  if (!selectedMarketPlayId) for (const row of byType("company")) slots.push(slot("Company", row, "identity"));
   for (const product of byType("product")) {
-    for (const kind of PRODUCT_QUESTION_KINDS) slots.push(slot("Product", product, kind));
+    if (selectedMarketPlayId && !byType("market_play").some((play) => play.id === selectedMarketPlayId && play.parentId === product.id)) continue;
+    if (!selectedMarketPlayId) for (const kind of PRODUCT_QUESTION_KINDS) slots.push(slot("Product", product, kind));
     for (const play of byType("market_play").filter((row) => row.parentId === product.id)) {
+      if (selectedMarketPlayId && play.id !== selectedMarketPlayId) continue;
       for (const kind of MARKET_PLAY_QUESTION_KINDS) slots.push(slot("Market Play", play, kind));
       for (const profile of byType("customer_profile").filter((row) => row.parentId === play.id)) {
         for (const kind of PROFILE_QUESTION_KINDS) slots.push(slot("Customer Profile", profile, kind));
@@ -313,6 +324,7 @@ function queueFor(hierarchy: HierarchyRow[]): QueueSlot[] {
       }
     }
   }
+  if (selectedMarketPlayId && !slots.length) throw conflict("The selected Draft Market Play is outside the interview hierarchy");
   return slots;
 }
 

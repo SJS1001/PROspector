@@ -11,7 +11,7 @@ import {
 } from "./commercial-destination-select";
 
 type QuestionProjection = Extract<InterviewState, { status: "active" }>["question"];
-type LocalProgression = NonNullable<Extract<InterviewState, { status: "confirmed" }>["localProgression"]>;
+type LocalProgression = NonNullable<Extract<InterviewState, { status: "confirmed" | "ready" }>["localProgression"]>;
 export type InterviewAnswerCommand = { questionId: string; expectedRevision: number; answer: "use_recommendation" | "write_correction" | "change_scope"; value?: string; reason?: string; destination?: InterviewDestination; operationKey: string };
 export type InterviewDecisionCommand = { answerId: string; expectedSessionRevision: number; expectedQuestionRevision: number; decision: "accept" | "reject" | "correct" | "rescope"; value?: string; reason?: string; destination?: InterviewDestination; operationKey: string };
 export type InterviewAdvanceCommand = { expectedQueueDigest: string; operationKey: string };
@@ -52,6 +52,7 @@ export function ConsensusInterviewView({
   if (issue) return <section className="error-state" role="alert"><h2>Current authority needs checking</h2><p>{issueCopy(issue)} Use the working “Load current version” control above this view.</p></section>;
   if (state.status === "uninitialized") return <section className="panel"><h2>Interview unavailable</h2><p>Initialize the admitted commercial workspace before reviewing authority.</p></section>;
   if (state.status === "review_required") return <section className="panel" role="alert"><h2>Review required</h2><p>An earlier decision has no complete immutable snapshot. It is read-only until the workspace provides a replacement review.</p></section>;
+  if (state.status === "ready") return <section className="panel" aria-live="polite"><h2>Draft Market Play interview</h2><p>The exact stored interview has been verified. Opening it granted no authority.</p>{state.localProgression?.status === "ready" && <LocalInterviewContinueControl progression={state.localProgression} pendingAction={pendingAction} onAdvance={onAdvance} />}</section>;
   if (state.status === "confirmed") return <section className="panel" aria-live="polite"><h2>Confirmed result</h2><p>Authoritative result recorded. No operational effect has been enabled.</p><dl className="confirmation-proof"><div><dt>Knowledge Version</dt><dd>{state.confirmed.knowledgeVersionId ?? "No version created"}</dd></div><div><dt>Audit reference</dt><dd>{state.confirmed.auditEventId}</dd></div><div><dt>Confirmed (Toronto)</dt><dd>{toronto(state.confirmed.confirmedAt)}</dd></div></dl>{state.localProgression?.status === "ready" && <LocalInterviewContinueControl progression={state.localProgression} pendingAction={pendingAction} onAdvance={onAdvance} />}{state.localProgression?.status === "complete" && <p className="saved">Local interview complete: all {state.localProgression.totalSlots} hierarchy slots have an explicit owner review or current Confirmed Knowledge.</p>}</section>;
 
   const projectedDestination = resolveProjectedCommercialDestination(destinations, state.question.destination);

@@ -17,6 +17,12 @@ export type InterviewPrincipal = {
   displayName: string;
 };
 
+export type InterviewSelection = {
+  sessionId: string;
+  marketPlayId: string;
+  sourceProposalVersionId: string;
+};
+
 type QuestionView = {
   id: string;
   revision: number;
@@ -107,6 +113,12 @@ type GeneralizedProposalSnapshot = {
 export type InterviewState =
   | { status: "uninitialized"; displayName: string }
   | {
+      status: "ready";
+      displayName: string;
+      workspace: { id: string; companyName: string };
+      localProgression?: import("./interview-question-composer").LocalInterviewProgression;
+    }
+  | {
       status: "active";
       displayName: string;
       workspace: { id: string; companyName: string };
@@ -162,9 +174,11 @@ export async function principalFromIdentity(
 export async function readInterviewState(
   database: D1Database,
   principal: InterviewPrincipal,
+  selection?: InterviewSelection,
 ): Promise<InterviewState> {
   const workspace = await workspaceForPrincipal(database, principal);
   if (!workspace) return { status: "uninitialized", displayName: principal.displayName };
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
 
   // An internally issued follow-up question takes precedence over historical
   // confirmations. Without this guard a completed Q1 would permanently hide Q2.
@@ -172,8 +186,9 @@ export async function readInterviewState(
     `SELECT id FROM interview_sessions
      WHERE workspace_id = ? AND state IN ('awaiting_answer', 'awaiting_confirmation')
        AND active_question_id IS NOT NULL
+       ${selection ? "AND id = ?" : ""}
      ORDER BY updated_at DESC, id DESC LIMIT 1`,
-  ).bind(workspace.id).first<{ id: string }>();
+  ).bind(workspace.id, ...(selection ? [selection.sessionId] : [])).first<{ id: string }>();
 
   const confirmed = await database
     .prepare(
@@ -187,11 +202,12 @@ export async function readInterviewState(
          ON a.subject_id = c.id AND a.workspace_id = c.workspace_id
         AND a.action = 'interview.recommendation_confirmed'
        WHERE c.workspace_id = ? AND c.decision = 'accept'
+         ${selection ? "AND ans.session_id = ?" : ""}
          AND c.operation_digest <> 'legacy-unbound'
          AND ans.proposal_digest <> 'legacy-unbound'
        ORDER BY c.created_at DESC LIMIT 1`,
     )
-    .bind(workspace.id)
+    .bind(workspace.id, ...(selection ? [selection.sessionId] : []))
     .first<{
       knowledge_version_id: string;
       created_at: number;
@@ -221,8 +237,9 @@ export async function readInterviewState(
      JOIN audit_events a ON a.subject_id = d.id AND a.workspace_id = c.workspace_id
        AND a.action = 'interview.' || c.decision
      WHERE c.workspace_id = ? AND c.operation_digest <> 'legacy-unbound'
+       ${selection ? "AND c.session_id = ?" : ""}
      ORDER BY c.created_at DESC LIMIT 1`,
-  ).bind(workspace.id).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>() : null;
+  ).bind(workspace.id, ...(selection ? [selection.sessionId] : [])).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>() : null;
   if (generalizedDecision && !liveSession) return {
     status: "confirmed",
     displayName: principal.displayName,
@@ -244,6 +261,7 @@ export async function readInterviewState(
        LEFT JOIN interview_confirmations c
          ON c.answer_id = ans.id AND c.workspace_id = ans.workspace_id
        WHERE ans.workspace_id = ? AND ans.proposal_digest = 'legacy-unbound'
+         ${selection ? "AND ans.session_id = ?" : ""}
          AND (
            s.state = 'awaiting_confirmation'
            OR (
@@ -259,7 +277,7 @@ export async function readInterviewState(
          )
        ORDER BY ans.created_at DESC LIMIT 1`,
     )
-    .bind(workspace.id)
+    .bind(workspace.id, ...(selection ? [selection.sessionId] : []))
     .first<{ id: string }>();
   if (unbound && !liveSession) {
     return {
@@ -284,9 +302,10 @@ export async function readInterviewState(
          ON ans.question_id = q.id AND ans.workspace_id = q.workspace_id
        WHERE s.workspace_id = ?
          AND s.state IN ('awaiting_answer', 'awaiting_confirmation')
+         ${selection ? "AND s.id = ?" : ""}
        ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`,
     )
-    .bind(workspace.id)
+    .bind(workspace.id, ...(selection ? [selection.sessionId] : []))
     .first<{
       session_id: string;
       session_revision: number;
@@ -305,7 +324,10 @@ export async function readInterviewState(
       proposal_digest: string | null;
       answer_created_at: number | null;
     }>();
-  if (!current) throw new InterviewConflictError("Interview state is incomplete");
+  if (!current) {
+    if (selection) return { status: "ready", displayName: principal.displayName, workspace: { id: workspace.id, companyName: workspace.company_name } };
+    throw new InterviewConflictError("Interview state is incomplete");
+  }
 
   const research = JSON.parse(current.research_json) as {
     premise?: string;
@@ -734,6 +756,16 @@ export async function recordInterviewDecision(
   if (answer.session_state !== "awaiting_confirmation" || answer.question_status !== "answered" || answer.session_revision !== input.expectedSessionRevision || (input.expectedQuestionRevision !== undefined && answer.question_revision !== input.expectedQuestionRevision)) throw new InterviewConflictError("This answer changed; reload before deciding");
   if (snapshot.questionId !== answer.question_id || snapshot.questionRevision + 1 !== answer.question_revision) throw new InterviewConflictError("The stored answer lineage is stale");
   const reviewKey = derivedKey(input.idempotencyKey, "decision");
+  const offerProfileId = snapshot.kind === "hierarchy_completion_offer" && input.decision !== "reject"
+    ? input.decision === "rescope" ? input.destination?.scopeType === "customer_profile" ? input.destination.id : undefined : snapshot.destination.scopeType === "customer_profile" ? snapshot.destination.id : undefined
+    : undefined;
+  const offerParent = offerProfileId ? await database.prepare(
+    `SELECT cp.id AS profile_id, mp.id AS market_play_id, mp.revision AS market_play_revision, mp.lifecycle AS market_play_lifecycle
+     FROM customer_profiles cp JOIN market_plays mp
+       ON mp.id = cp.play_id AND mp.workspace_id = cp.workspace_id
+     WHERE cp.id = ? AND cp.workspace_id = ? AND mp.lifecycle IN ('draft','active') LIMIT 2`,
+  ).bind(offerProfileId, workspace.id).all<{ profile_id: string; market_play_id: string; market_play_revision: number; market_play_lifecycle: "draft" | "active" }>() : null;
+  if (offerProfileId && offerParent?.results.length !== 1) throw new InterviewConflictError("The parent Market Play changed; reload before deciding");
   let prepared;
   try {
     prepared = await prepareKnowledgeReview(database, principal, {
@@ -749,6 +781,12 @@ export async function recordInterviewDecision(
       questionRevision: answer.question_revision,
       prerequisiteKnowledge: snapshot.prerequisiteKnowledge,
       requireMissingCurrentSlot: snapshot.requiresOwnerInput === true,
+      ...(offerParent ? { marketPlayActivation: {
+        profileId: offerParent.results[0].profile_id,
+        marketPlayId: offerParent.results[0].market_play_id,
+        expectedRevision: Number(offerParent.results[0].market_play_revision),
+        expectedLifecycle: offerParent.results[0].market_play_lifecycle,
+      } } : {}),
     });
   } catch (error) { throw new InterviewConflictError(error instanceof Error ? error.message : "Decision conflicted"); }
   if (prepared.existingDecisionId) throw new InterviewConflictError("Incomplete prior decision requires review");
@@ -770,13 +808,13 @@ export async function recordInterviewDecision(
     const confirmedOfferName = offerName(prepared.value);
     statements.push(database.prepare("INSERT INTO offers (id, workspace_id, created_at, updated_at, revision, profile_id, name, value_json, question_id, answer_id, proposal_id, decision_id, knowledge_version_id, authority_command_id, audit_event_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(`offer_${(await sha256(`${workspace.id}:${decisionId}`)).slice(0, 24)}`, workspace.id, now, now, prepared.target.id, confirmedOfferName, stableJson(prepared.value), answer.question_id, input.answerId, snapshot.knowledgeProposalId, decisionId, prepared.versionId, prepared.commandId, auditId));
-    statements.push(database.prepare(
+    if (!offerParent) throw new InterviewConflictError("The parent Market Play authority is unavailable");
+    if (offerParent.results[0].market_play_lifecycle === "draft") statements.push(database.prepare(
       `UPDATE market_plays SET lifecycle = 'active', revision = revision + 1, updated_at = ?
-       WHERE workspace_id = ? AND lifecycle = 'draft' AND id = (
-         SELECT cp.play_id FROM customer_profiles cp
-         WHERE cp.id = ? AND cp.workspace_id = ? LIMIT 1
-       )`,
-    ).bind(now, workspace.id, prepared.target.id, workspace.id));
+       WHERE id = ? AND workspace_id = ? AND revision = ? AND lifecycle = 'draft'
+         AND EXISTS (SELECT 1 FROM customer_profiles cp WHERE cp.id = ? AND cp.workspace_id = ? AND cp.play_id = market_plays.id)
+         AND EXISTS (SELECT 1 FROM offers o WHERE o.workspace_id = market_plays.workspace_id AND o.authority_command_id = ?)`,
+    ).bind(now, offerParent.results[0].market_play_id, workspace.id, offerParent.results[0].market_play_revision, prepared.target.id, workspace.id, prepared.commandId));
   }
   try {
     await database.batch(statements);
@@ -785,6 +823,24 @@ export async function recordInterviewDecision(
     if (!existing || existing.operation_digest !== confirmationDigest) throw new InterviewConflictError("Another decision won; reload before deciding");
   }
   return readInterviewState(database, principal);
+}
+
+export async function requireSelectedDraftInterview(database: D1Database, workspaceId: string, selection: InterviewSelection) {
+  if (![selection.sessionId, selection.marketPlayId, selection.sourceProposalVersionId].every((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)))
+    throw new InterviewConflictError("The selected Draft Market Play interview is invalid");
+  const rows = await database.prepare(
+    `SELECT s.id FROM interview_sessions s
+     JOIN market_plays mp ON mp.id = s.scope_id AND mp.workspace_id = s.workspace_id AND mp.lifecycle IN ('draft','active')
+     JOIN market_play_proposal_decisions d ON d.interview_session_id = s.id AND d.workspace_id = s.workspace_id
+       AND d.draft_market_play_id = mp.id AND d.proposal_version_id = ? AND d.decision = 'explore'
+       AND json_extract(d.decision_json, '$.interview.id') = s.id
+       AND json_extract(d.decision_json, '$.interview.marketPlayId') = mp.id
+       AND json_extract(d.decision_json, '$.interview.lifecycle') = 'draft'
+     JOIN market_play_proposal_versions v ON v.id = d.proposal_version_id AND v.workspace_id = d.workspace_id
+       AND v.proposal_id = d.proposal_id
+     WHERE s.id = ? AND s.workspace_id = ? AND s.scope_type IN ('market_play','play') AND mp.id = ? LIMIT 2`,
+  ).bind(selection.sourceProposalVersionId, selection.sessionId, workspaceId, selection.marketPlayId).all<{ id: string }>();
+  if (rows.results.length !== 1) throw new InterviewConflictError("The selected Draft Market Play interview is unavailable");
 }
 
 export async function confirmSubmittedAnswer(

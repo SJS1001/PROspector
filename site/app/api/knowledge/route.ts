@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 
 import { isLocalDemoRequest, runtimeIdentity } from "../../runtime-identity";
 import { handleKnowledgeGet, handleKnowledgePost, type KnowledgeHandlerDependencies } from "../../../domain/knowledge-handler";
+import type { InterviewSelection } from "../../../domain/interview";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,19 @@ function dependencies(request: Request): KnowledgeHandlerDependencies {
     database: bindings.DB, subjectPepper: bindings.OWNER_SUBJECT_PEPPER, pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     enableLocalDemoProgression: isLocalDemoRequest(request, bindings),
     runtimeIsDevelopment: import.meta.env.DEV,
+    interviewSelection: selectionFrom(request),
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },
   };
+}
+
+function selectionFrom(request: Request): InterviewSelection | undefined {
+  const parameters = new URL(request.url).searchParams;
+  const values = {
+    sessionId: parameters.get("interviewSessionId") ?? "",
+    marketPlayId: parameters.get("marketPlayId") ?? "",
+    sourceProposalVersionId: parameters.get("sourceProposalVersionId") ?? "",
+  };
+  return Object.values(values).some(Boolean) ? values : undefined;
 }

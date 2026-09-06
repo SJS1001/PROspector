@@ -17,6 +17,7 @@ import {
   submitInterviewAnswer,
   submitRecommendationAnswer,
   type InterviewPrincipal,
+  type InterviewSelection,
   type InterviewState,
 } from "./interview";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
@@ -29,6 +30,7 @@ export type InterviewHandlerDependencies = {
   pilotOwnerEmail: string;
   csrfCookieMode?: CsrfCookieMode;
   enableLocalDemoProgression?: boolean;
+  interviewSelection?: InterviewSelection;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -37,7 +39,7 @@ export async function handleInterviewGet(
 ): Promise<Response> {
   try {
     const principal = await authenticatedPrincipal(dependencies);
-    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal));
+    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal, dependencies.interviewSelection));
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "server_error" }, 500);
@@ -114,8 +116,9 @@ export async function handleInterviewPost(
       state = await advanceLocalInterview(dependencies.database, principal, {
         idempotencyKey: requiredString(body, "idempotencyKey", 80),
         expectedQueueDigest: requiredDigest(body, "expectedQueueDigest"),
-      });
+      }, dependencies.interviewSelection);
     }
+    if (dependencies.interviewSelection) state = await readInterviewState(dependencies.database, principal, dependencies.interviewSelection);
     return stateResponse(dependencies, principal, state);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
@@ -146,7 +149,7 @@ async function stateResponse(
   state: InterviewState,
 ) {
   const projected = dependencies.enableLocalDemoProgression
-    ? await attachLocalInterviewProgression(dependencies.database, principal, state)
+    ? await attachLocalInterviewProgression(dependencies.database, principal, state, dependencies.interviewSelection)
     : state;
   const response = json(projected);
   return withCsrfCookie(

@@ -283,9 +283,9 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
     const exploredHtml = renderToStaticMarkup(React.createElement(proposalModule.ProposalCards, {
       authority: "known", proposals: [explored], triggerLabel: "manual", pendingProposalId: null, onDecision() {},
     }));
-    assert.match(exploredHtml, /href="\/\?view=knowledge"/);
+    assert.match(exploredHtml, /href="\/\?view=knowledge&amp;interviewSessionId=0198b5c0-0000-7000-8000-000000002002&amp;marketPlayId=0198b5c0-0000-7000-8000-000000002003&amp;sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000101"/);
     assert.match(exploredHtml, /Open Draft Market Play interview/);
-    assert.match(exploredHtml, /No readiness or prospecting starts from this link/);
+    assert.match(exploredHtml, /grants no authority; answer and confirmation remain separate/);
   } finally {
     await vite.close();
   }

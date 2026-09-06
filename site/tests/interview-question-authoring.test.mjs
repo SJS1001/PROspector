@@ -220,10 +220,11 @@ test("an actual Explore-created open session accepts its first internal question
   const fixture = await createD1Fixture("interview-question-explore-session");
   try {
     await applyMigrations(fixture.database);
-    const [commercial, discovery, authoring] = await Promise.all([
+    const [commercial, discovery, composer, interview] = await Promise.all([
       fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname),
       fixture.vite.ssrLoadModule(new URL("../domain/market-discovery.ts", import.meta.url).pathname),
-      fixture.vite.ssrLoadModule(new URL("../domain/interview-question-authoring.ts", import.meta.url).pathname),
+      fixture.vite.ssrLoadModule(new URL("../domain/interview-question-composer.ts", import.meta.url).pathname),
+      fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname),
     ]);
     const model = await commercial.initializeCommercialModel(fixture.database, OWNER, { idempotencyKey: key(200) });
     const product = model.products[0];
@@ -246,8 +247,8 @@ test("an actual Explore-created open session accepts its first internal question
       fixture.database.prepare("INSERT INTO product_discovery_runs (id,workspace_id,created_at,updated_at,revision,product_id,configuration_id,configuration_digest,trigger_kind,trigger_key,source_event_id,started_at,window_lower_exclusive,window_upper_inclusive,last_successful_watermark,successful_watermark,manifest_json,manifest_digest,policy_snapshot_json,policy_snapshot_digest,execution_state,operation_digest,idempotency_key,completed_at) VALUES ('explore-run',?,?,?,1,?,'explore-config',?,'manual','explore-trigger',NULL,?,NULL,?,NULL,?,'{}',?,'{}',?,'succeeded',?,?,?)").bind(workspaceId, NOW, NOW, product.id, digest, NOW, NOW, NOW, digest, digest, digest, key(201), NOW),
       fixture.database.prepare("INSERT INTO product_discovery_submissions (id,workspace_id,product_id,run_id,configuration_id,provenance_json,provenance_digest,submission_json,submission_digest,result_json,result_digest,status,operation_digest,idempotency_key,created_at) VALUES ('explore-submission',?,?,'explore-run','explore-config','{}',?,'{}',?,'{}',?,'succeeded',?,?,?)").bind(workspaceId, product.id, digest, digest, digest, digest, key(202), NOW),
       fixture.database.prepare("INSERT INTO market_play_proposals (id,workspace_id,created_at,updated_at,revision,product_id,run_id,fingerprint,current_version_id,status,surfaced,rank,active,cooldown_until) VALUES ('explore-proposal',?,?,?,1,?,'explore-run',?,NULL,'new',1,1,1,NULL)").bind(workspaceId, NOW, NOW, product.id, digest),
-      fixture.database.prepare("INSERT INTO market_play_proposal_versions (id,workspace_id,product_id,proposal_id,run_id,submission_id,version,proposal_json,proposal_digest,material_evidence_fingerprint,predecessor_version_id,relationship,created_at) VALUES ('explore-version',?,?,'explore-proposal','explore-run','explore-submission',1,?,?,?,NULL,'new',?)").bind(workspaceId, product.id, JSON.stringify(finding), digest, digest, NOW),
-      fixture.database.prepare("UPDATE market_play_proposals SET current_version_id = 'explore-version' WHERE id = 'explore-proposal'"),
+      fixture.database.prepare("INSERT INTO market_play_proposal_versions (id,workspace_id,product_id,proposal_id,run_id,submission_id,version,proposal_json,proposal_digest,material_evidence_fingerprint,predecessor_version_id,relationship,created_at) VALUES ('0198b5c0-0000-7000-8000-000000002011',?,?,'explore-proposal','explore-run','explore-submission',1,?,?,?,NULL,'new',?)").bind(workspaceId, product.id, JSON.stringify(finding), digest, digest, NOW),
+      fixture.database.prepare("UPDATE market_play_proposals SET current_version_id = '0198b5c0-0000-7000-8000-000000002011' WHERE id = 'explore-proposal'"),
     ]);
     const explored = await discovery.decideMarketPlayProposal(fixture.database, OWNER, {
       proposalId: "explore-proposal",
@@ -259,13 +260,24 @@ test("an actual Explore-created open session accepts its first internal question
     });
     const session = await fixture.database.prepare("SELECT state, revision, scope_type, scope_id FROM interview_sessions WHERE id = ?").bind(explored.interview.id).first();
     assert.deepEqual(session, { state: "open", revision: 1, scope_type: "market_play", scope_id: explored.interview.marketPlayId });
+    const selection = { sessionId: explored.interview.id, marketPlayId: explored.interview.marketPlayId, sourceProposalVersionId: explored.interview.sourceProposalVersionId };
+    const competingPlayId = "0198b5c0-0000-7000-8000-000000002012";
+    const competingSessionId = "0198b5c0-0000-7000-8000-000000002013";
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO market_plays (id,workspace_id,created_at,updated_at,revision,product_id,name,lifecycle) VALUES (?,?,?,?,1,?,?,'draft')").bind(competingPlayId, workspaceId, NOW + 10, NOW + 10, product.id, "Competing newer play"),
+      fixture.database.prepare("INSERT INTO interview_sessions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,state,active_question_id) VALUES (?,?,?,?,1,'market_play',?,'open',NULL)").bind(competingSessionId, workspaceId, NOW + 10, NOW + 10, competingPlayId),
+    ]);
+    const selectedReady = await interview.readInterviewState(fixture.database, OWNER, selection);
+    assert.equal(selectedReady.status, "ready", "a newer open session cannot redirect the exact Explore handoff");
+    await assert.rejects(
+      interview.readInterviewState(fixture.database, OWNER, { ...selection, marketPlayId: competingPlayId }),
+      /selected Draft Market Play interview is unavailable/i,
+      "URL identity is not authority and cannot retarget the stored Explore decision",
+    );
+    const selectedProgression = await composer.readLocalInterviewProgression(fixture.database, OWNER, selection);
+    assert.equal(selectedProgression.next.destination.id, explored.interview.marketPlayId);
     const beforeIssue = await snapshotForbiddenOperationalRows(fixture.database);
-    const active = await authoring.issueInterviewQuestion(fixture.database, OWNER, {
-      sessionId: explored.interview.id,
-      expectedSessionRevision: 1,
-      idempotencyKey: key(204),
-      candidate: question({ destination: { scopeType: "market_play", id: explored.interview.marketPlayId }, knowledgeKind: "problem" }),
-    });
+    const active = await composer.advanceLocalInterview(fixture.database, OWNER, { expectedQueueDigest: selectedProgression.queueDigest, idempotencyKey: key(204) }, selection);
     assert.equal(active.status, "active");
     assert.equal(active.question.destination.id, explored.interview.marketPlayId);
     await assertForbiddenOperationalRowsUnchanged(fixture.database, beforeIssue);

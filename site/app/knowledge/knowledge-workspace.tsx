@@ -5,7 +5,7 @@ import type { CommercialHierarchyNode, CommercialModelProjection } from "../../d
 import type { InterviewState } from "../../domain/interview";
 import { CommercialModelView, type CommercialCommand } from "./commercial-model";
 import { ConsensusInterviewView, type InterviewAdvanceCommand, type InterviewAnswerCommand, type InterviewDecisionCommand } from "./consensus-interview";
-import { knowledgeMutationTransport } from "./mutation-transport";
+import { interviewSelectionSearch, knowledgeMutationTransport } from "./mutation-transport";
 import { DriftReplacementsView, type DriftProjection, type DriftReviewCommand, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
 import { KnowledgeLibraryView, type KnowledgeIntakeCommand, type KnowledgeItemProjection, type KnowledgeReviewCommand } from "./knowledge-library";
 import type { OnboardingProjection } from "../../domain/onboarding";
@@ -32,7 +32,7 @@ export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUn
   const load = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const response = await fetch("/api/knowledge", { credentials: "same-origin", cache: "no-store" });
+      const response = await fetch(`/api/knowledge${interviewSelectionSearch(window.location.search)}`, { credentials: "same-origin", cache: "no-store" });
       if (response.status === 404) { onUnauthorized(); setState({ kind: "unauthorized" }); return; }
       if (!response.ok) { setState({ kind: "unavailable", message: "Authoritative knowledge could not be loaded. No authority has changed. Retry the knowledge load." }); return; }
       let value: Projection;
@@ -64,7 +64,7 @@ export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUn
     if (state.kind !== "ready" || mutationLock.current) return;
     mutationLock.current=true;
     const operationKey = keyFor(logicalKey);
-    const transport = knowledgeMutationTransport(action, window.location.hostname);
+    const transport = knowledgeMutationTransport(action, window.location.hostname, window.location.search);
     setPending(logicalKey); setNotice(null);
     try {
       const post = () => fetch(transport.endpoint, {
@@ -201,7 +201,7 @@ function isRecord(value: unknown): value is Record<string, unknown> { return Boo
 function validNode(value: unknown): value is CommercialHierarchyNode { return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && ["company", "product", "market_play", "customer_profile", "offer"].includes(String(value.type)) && (value.parentId === null || typeof value.parentId === "string") && typeof value.revision === "number"; }
 function validInterviewProjection(value: unknown): value is InterviewState {
   if (!isRecord(value) || typeof value.status !== "string") return false;
-  if (value.status === "confirmed") return value.localProgression === undefined || validLocalProgression(value.localProgression);
+  if (value.status === "confirmed" || value.status === "ready") return value.localProgression === undefined || validLocalProgression(value.localProgression);
   if (!["active", "awaiting_confirmation"].includes(value.status)) return ["uninitialized", "review_required"].includes(value.status);
   if (!isRecord(value.question) || !Number.isInteger(value.question.ordinal) || !Number.isInteger(value.question.revision)) return false;
   if (typeof value.question.requiresOwnerInput !== "boolean" || typeof value.question.knowledgeKind !== "string" || !value.question.knowledgeKind.trim() || value.question.knowledgeKind.length > 120) return false;
