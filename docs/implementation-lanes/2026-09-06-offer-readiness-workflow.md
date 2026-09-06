@@ -1,7 +1,7 @@
 # Offer and readiness workflow implementation lane
 
-**Date:** 2026-09-06  
-**Work unit:** B / issue #9  
+**Date:** 2026-09-06
+**Work unit:** B / issue #9
 **Base:** `165c6c7c8c8553863f24ad4e1d342d1d8cfdf8b8`
 
 ## Implemented contract
