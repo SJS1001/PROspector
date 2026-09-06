@@ -9,10 +9,11 @@
 ## Current Claude Cloud transfer — 2026-09-06
 
 Local Codex implementation and its transfer record are clean and pushed at
-checkpoint `165c6c7c8c8553863f24ad4e1d342d1d8cfdf8b8` on
-`codex/generic-onboarding-integration`. Cloud work units A and B now have
-separate pushed candidates, but both remain unintegrated pending their exact
-runtime validation gates. Continue through
+checkpoint `8b0a95b8385fb130b9b6627b4d12664c2263c018` on
+`codex/generic-onboarding-integration`. Work units A and B and person-discovery
+units C1 through C3 are integrated. Their focused authority gates and the real
+Chromium onboarding/restart/zero-effect journey are green; C4 synthetic
+person-discovery acceptance is the active local unit. Continue through
 [`implementation-lanes/2026-09-06-claude-cloud-transfer.md`](implementation-lanes/2026-09-06-claude-cloud-transfer.md).
 That record supersedes older branch pointers for current implementation work;
 historical hosted evidence and external authority gates below remain unchanged.
@@ -205,6 +206,18 @@ Use these existing artifacts rather than restating product decisions:
   medium finding. C4 integrated synthetic runtime/browser acceptance remains;
   production still composes no discovery service or provider and no external
   effect is enabled.
+- Later on 2026-09-06 corrected work units A and B were integrated. A isolates
+  HOME/config/cache/env discovery, shares one canonical Miniflare state across
+  bootstrap/server/verifier, follows the rendered interview queue to confirmed
+  Profile fit, and passed a real two-case Chromium journey including restart,
+  Axe, adversarial origin denial, and zero forbidden rows. B binds the exact
+  explored interview tuple through answer and confirmation, atomically fences
+  parent Market Play activation, and passed the 35-case focused
+  interview/Knowledge/Offer gate. A discovered and the integration branch fixed
+  a read-projection bug that confused a completed question with an unstarted
+  interview; independent review returned GO with zero blocker, high, or medium
+  finding. C4 remains the next local acceptance unit. No hosted/provider or
+  external-effect authority changed.
 
 - The latest clean Phase 2 re-review after `2e879dc` and `45bcdc1` verified CR-09 through CR-11 and WR-07 closed, including server-derived candidate authority, reduced UI mutation payloads, and forged/stale request rejection.
 - `npm test` and `npm run lint` passed at that Phase 2 review checkpoint. Subsequent branch commits add Phase 3/4 work and test-runner isolation, so rerun the canonical commands before treating the current checkout as verified.

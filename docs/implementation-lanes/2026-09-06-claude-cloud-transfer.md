@@ -8,10 +8,11 @@
 
 ## Cloud candidate status — 2026-09-06
 
-The two initial cloud implementation lanes have produced clean, pushed
-candidates. Neither candidate is integrated yet because its required executable
-runtime proof is still missing. These are implementation candidates, not
-acceptance evidence and not permission to consume the canonical preflight lane.
+The two initial cloud implementation lanes are corrected, independently
+reviewed, integrated, and locally verified. Their evidence is local acceptance,
+not hosted/provider acceptance and not permission to consume an external-effect
+or hosted gate. The detailed bullets below preserve the original candidate
+history and findings that drove those corrections.
 
 - **Work unit A:** branch `codex/issue-11-browser-foundation`, commit
   `a5be61d278872c8fe9f692a656a3fc2335484d9a`. GitHub verifies that this is one
@@ -225,6 +226,9 @@ The merged C1-C3 focused gate passed 47/47; independent code and security/privac
 reviews returned GO with zero blocker, high, or medium finding. C4 integrated
 synthetic runtime/browser acceptance follows.
 
-Continue A and B corrections on their existing branches and require their
-independent reviews before integration. Integrate the corrected A and B
-candidates, then implement C4 before D and E.
+Corrected A and B are integrated. A's isolated Chromium journey passes 2/2 with
+confirmed fit, real runtime restart persistence, Axe checks, adversarial origin
+denial, and zero forbidden/provider/outbound/object rows. B's exact Explore
+tuple and atomic Market Play/Offer authority path pass the 35-case focused
+interview/Knowledge/Offer gate. Independent reviews returned GO with zero
+blocker, high, or medium finding. Implement C4 next, then D and E.
