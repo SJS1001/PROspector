@@ -75,3 +75,38 @@ Browser installation
 is a local tool download, not provider activation. If the binary or loopback
 permission is unavailable, record that as an environment blocker; do not weaken
 the one-worker, persistence, network-deny, or zero-effect checks.
+
+## Person discovery C4 lane
+
+`cd site && npm run test:browser:person-discovery` is a second, isolated acceptance
+lane. It does not extend or replace A0/A1. Its generated Worker configuration is
+the only place that contains the exact
+`PROSPECTOR_PERSON_DISCOVERY_C4=synthetic-zero-network-c4-v1` binding. Runtime
+composition additionally requires Vite development mode, local-demo admission,
+and a loopback request. Ordinary local development, hosted builds, and the A0/A1
+lane therefore receive no person-discovery service and remain reject-only.
+
+C4 applies the complete checked `0000`–`0019` chain to one disposable absolute
+Miniflare state path. A guarded local-only route seeds one synthetic Approved
+Prospect with its current Product, Market Play, Customer Profile, Offer,
+configuration, run, candidate, assessment, and explicit review ancestry. This is
+not onboarding and creates no schedule. The secretless deterministic adapter
+returns bounded synthetic person suggestions without `fetch` or any provider SDK.
+
+Real Chromium starts directly on `/contacts`, reviews provenance, explicitly
+creates one Contact relation, and records separate email and phone verification
+intents. Two isolated owner browser contexts submit the same terminal decision;
+exactly one wins and the stale request receives `409`, refreshes, and is never
+retried. The runtime then restarts against the same state and the rendered
+decision must hydrate. The journey also checks status focus, keyboard focus,
+serious/critical Axe findings, 360px reflow, hydration overlays, and an allowlist
+that aborts every non-loopback browser request.
+
+The read-only C4 verifier requires exact synthetic row counts. Suggestion and
+Contact IDs remain distinct, both intents remain unverified, schedules and R2 are
+empty, and contact evidence/eligibility/receipts, enrichment authority/spend,
+outreach/messages/outbox, exports, and other effect-bearing tables remain empty.
+The per-run state and success artifacts are deleted after verification. This is
+synthetic local acceptance evidence only and grants no provider, hosted,
+production, prospecting, export, email, call, schedule, credential, or outbound
+authority.

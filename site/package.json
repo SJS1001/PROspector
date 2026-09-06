@@ -20,7 +20,8 @@
     "greenfield:runtime:prepare": "node scripts/greenfield-runtime-config.mjs",
     "greenfield:stage3:verify": "node scripts/greenfield-stage3-evidence.mjs",
     "demo:local:smoke": "node scripts/local-demo-smoke.mjs",
-    "test:browser": "node scripts/run-browser-acceptance.mjs"
+    "test:browser": "node scripts/run-browser-acceptance.mjs",
+    "test:browser:person-discovery": "node scripts/run-person-discovery-browser-acceptance.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

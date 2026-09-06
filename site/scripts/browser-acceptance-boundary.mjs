@@ -54,14 +54,20 @@ export function browserAcceptanceCloudflareOptions({ projectRoot, runtimeRoot, s
   });
 }
 
-export function browserAcceptanceWorkerConfig({ d1, r2 }) {
+export function browserAcceptanceWorkerConfig({ d1, r2 }, additionalBindings = {}) {
+  const permittedAdditionalBindings = { PROSPECTOR_PERSON_DISCOVERY_C4: "synthetic-zero-network-c4-v1" };
+  for (const [name, value] of Object.entries(additionalBindings)) {
+    if (permittedAdditionalBindings[name] !== value) {
+      throw new Error("invalid additional browser acceptance binding");
+    }
+  }
   return {
     name: "prospector-browser-acceptance",
     main: "worker/index.ts",
     // Pinned to the newest date supported by the exact local workerd package.
     compatibility_date: "2026-08-06",
     compatibility_flags: ["nodejs_compat"],
-    vars: BROWSER_ACCEPTANCE_BINDINGS,
+    vars: { ...BROWSER_ACCEPTANCE_BINDINGS, ...additionalBindings },
     secrets: {},
     d1_databases: d1 ? [{
       binding: d1,
@@ -73,7 +79,7 @@ export function browserAcceptanceWorkerConfig({ d1, r2 }) {
   };
 }
 
-export async function createBrowserAcceptanceRuntimeRoot(projectRoot, stateRoot, bindings) {
+export async function createBrowserAcceptanceRuntimeRoot(projectRoot, stateRoot, bindings, additionalBindings = {}) {
   const runtimeRoot = resolve(stateRoot, "runtime-root");
   await mkdir(runtimeRoot, { recursive: true });
   for (const entry of RUNTIME_ENTRIES) {
@@ -81,7 +87,7 @@ export async function createBrowserAcceptanceRuntimeRoot(projectRoot, stateRoot,
   }
   await writeFile(
     resolve(runtimeRoot, BROWSER_ACCEPTANCE_CONFIG),
-    `${JSON.stringify(browserAcceptanceWorkerConfig(bindings), null, 2)}\n`,
+    `${JSON.stringify(browserAcceptanceWorkerConfig(bindings, additionalBindings), null, 2)}\n`,
     { flag: "wx", mode: 0o600 },
   );
   return runtimeRoot;

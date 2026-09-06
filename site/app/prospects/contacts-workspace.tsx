@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useRef, useState } from "react";
 import { BLOCKED_CONTACTS_PROJECTION, ContactsReadFirst, DisabledContactAction, normalizeContactsCommand, normalizeContactsProjection, type ApprovedProspectProjection, type ContactsCommandProjection, type ContactsProjection } from "./contact-leaves";
 import { beginConfirmationRequest, canSubmitContactConfirmation as canSubmit, finishAuthorityRefresh, INITIAL_CONTACT_CONFIRMATION_STATE, invalidateContactConfirmation, isCurrentConfirmationRequest, setExplicitConfirmation, startAuthorityRefresh, type ContactConfirmationState } from "./contact-confirmation-state";
