@@ -383,8 +383,10 @@ test("C2 rejects every foreign service outcome shape and reason without exposing
       assert.deepEqual(await protectedCounts(fixture), baseline);
     }
     const actionMatchedMalformed = [
-      [scenarios[0][1], { kind: "accepted", replayed: false, run: { id: "bad", requestDigest: "a".repeat(64), operationKey: `pd_${"b".repeat(64)}`, status: "requested", resultDigest: "c".repeat(64), reason: null, requestedDeadlineAt: 1, candidates: [] } }],
+      [scenarios[0][1], { kind: "accepted", replayed: false, run: { id: "bad", requestDigest: "a".repeat(64), operationKey: `pd_${"b".repeat(64)}`, status: "requested", resultDigest: null, reason: null, requestedDeadlineAt: 1, candidates: [] } }],
       [scenarios[0][1], { kind: "accepted", replayed: false, run: { id: "bad", requestDigest: "a".repeat(64), operationKey: `pd_${"b".repeat(64)}`, status: "completed", resultDigest: "c".repeat(64), reason: null, requestedDeadlineAt: 1, candidates: [{}] } }],
+      [scenarios[0][1], { kind: "accepted", replayed: false, run: redactedRun("redacted:unrelated-candidate") }],
+      [scenarios[0][1], { kind: "accepted", replayed: false, run: redactedRun(`redacted:${"x".repeat(201)}`) }],
       [scenarios[1][1], { kind: "accepted", replayed: false, decision: { id: "bad", runId: "run", decisionDigest: "a".repeat(64), decision: "link_existing", candidateId: "candidate", contactId: null, relevanceId: "relevance" } }],
       [scenarios[2][1], { kind: "accepted", replayed: false, intent: { id: "bad", intentDigest: "a".repeat(64), intent: "stale_refresh", channel: "email", freshnessWindowMs: 1, freshnessPolicyDigest: "b".repeat(64), sourceObservationId: null }, providerCallAuthorized: false, contactEvidenceCreated: false }],
     ];
@@ -587,5 +589,14 @@ async function applyAuthorityDrift(fixture, dimension) {
 function mutation(body, cookie) { return new Request("https://prospector.invalid/api/contacts/person-discovery", { method: "POST", headers: { origin: "https://prospector.invalid", "sec-fetch-site": "same-origin", "x-prospector-intent": "person-discovery-mutation", "content-type": "application/json", cookie }, body: JSON.stringify(body) }); }
 function csrfCookie(response) { const raw = response.headers.get("set-cookie"); const match = raw?.match(/prospector-local-csrf=([^;]+)/); assert.ok(match); return `prospector-local-csrf=${match[1]}`; }
 function completed(key, count = 1) { return { kind: "completed", candidates: Array.from({ length: count }, (_, index) => ({ displayName: `Synthetic ${key} ${index}`, roleTitle: "Operations", roleSummary: "Synthetic role summary", provenance: [{ sourceReference: `https://example.invalid/team/${index}`, excerpt: "Synthetic public role listing", retrievedAt: PERSON_DISCOVERY_NOW }] })) }; }
+function redactedRun(candidateKey) {
+  const requestDigest = "a".repeat(64);
+  return {
+    id: "redacted-run", requestDigest, operationKey: `pd_${requestDigest}`, status: "completed", resultDigest: "b".repeat(64), reason: null, requestedDeadlineAt: 1,
+    candidates: [{ id: "redacted-candidate", ordinal: 0, candidateKey, displayName: "[redacted]", roleTitle: "[redacted]", roleSummary: "[redacted]", candidateDigest: "c".repeat(64), payloadExpiresAt: 1, redactedAt: 1,
+      provenance: [{ id: "redacted-provenance", ordinal: 0, sourceReference: "[redacted]", excerpt: "[redacted]", sourceDigest: "d".repeat(64), excerptDigest: "e".repeat(64), retrievedAt: 1, provenanceDigest: "f".repeat(64), payloadExpiresAt: 1, redactedAt: 1 }],
+    }],
+  };
+}
 function ids(prefix) { let count = 0; return () => `${prefix}-${++count}`; }
 async function count(fixture, table) { return Number((await fixture.database.prepare(`SELECT count(*) count FROM ${table}`).first()).count); }

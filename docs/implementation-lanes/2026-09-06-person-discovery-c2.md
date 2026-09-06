@@ -76,9 +76,12 @@ The C2 handler suite now proves the transport rejects every wrong-action
 accepted payload, empty or malformed action-matched nested accepted record,
 impossible run state/result pair, malformed candidate array, and
 blocked/conflict reason outside that action's finite allowlist. The public
-accepted-run validator requires an exact envelope, canonical run operation key,
-state-correlated result/reason/candidate shape, bounded exact candidates and
-provenance; decision and intent envelopes are exact too. Those denials make no
+accepted-run validator requires an exact envelope and the exact
+`operationKey === pd_${requestDigest}` binding, state-correlated
+result/reason/candidate shape, and bounded exact candidates/provenance. A
+redacted candidate key must be exactly `redacted:${candidate.id}`; live keys
+remain constrained to the exact bounded `candidate:<64-lowercase-hex>` digest
+contract. Decision and intent envelopes are exact too. Those denials make no
 extra fake call and add no run, decision, Contact, relevance, intent, effect,
 authority-command, or audit row beyond the fixture baseline.
 

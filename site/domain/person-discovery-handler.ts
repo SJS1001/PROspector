@@ -250,7 +250,7 @@ function sanitize(value: unknown, action: Action) {
 }
 function validRun(value: unknown) {
   if (!exact(value, ["id", "requestDigest", "operationKey", "status", "resultDigest", "reason", "requestedDeadlineAt", "candidates"])
-    || !opaque(value.id) || !digest(value.requestDigest) || !/^pd_[0-9a-f]{64}$/u.test(String(value.operationKey))
+    || !opaque(value.id) || !digest(value.requestDigest) || value.operationKey !== `pd_${value.requestDigest}`
     || !positive(value.requestedDeadlineAt) || !Array.isArray(value.candidates)) return false;
   if (value.status === "requested") return value.resultDigest === null && value.reason === null && value.candidates.length === 0;
   if (value.status === "needs_reconciliation") return digest(value.resultDigest) && ["timeout", "unknown_outcome", "stale_requested"].includes(String(value.reason)) && value.candidates.length === 0;
@@ -263,7 +263,7 @@ function validCandidate(value: unknown, ordinal: number) {
     || !Array.isArray(value.provenance) || value.provenance.length < 1 || value.provenance.length > 8) return false;
   const live = typeof value.candidateKey === "string" && /^candidate:[0-9a-f]{64}$/u.test(value.candidateKey)
     && boundedText(value.displayName, 160) && boundedText(value.roleTitle, 160) && boundedText(value.roleSummary, 1000) && value.redactedAt === null;
-  const redacted = typeof value.candidateKey === "string" && /^redacted:[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(value.candidateKey)
+  const redacted = value.candidateKey === `redacted:${value.id}`
     && value.displayName === "[redacted]" && value.roleTitle === "[redacted]" && value.roleSummary === "[redacted]"
     && positive(value.redactedAt) && value.redactedAt >= value.payloadExpiresAt;
   return (live || redacted) && value.provenance.every((item, index) => validProvenance(item, index));
