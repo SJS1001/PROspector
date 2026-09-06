@@ -48,7 +48,7 @@ test("local composer traverses every hierarchy branch deterministically and trea
     for (let index = 0; index < first.totalSlots; index += 1) {
       const progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
       assert.equal(progression.status, "ready");
-      seen.push(`${progression.next.label}:${progression.next.destination.locator}`);
+      seen.push(`${progression.next.label}:${progression.next.destination.locator}:${progression.next.knowledgeKind}`);
       const active = await rejectNext(api, progression, index + 30);
       if (progression.next.destination.locator === "Product A") {
         assert.equal(active.question.prerequisiteKnowledge.some((item) => item.id === siblingVersion.id), false, "a sibling Product's current Knowledge is not causal prerequisite authority");
@@ -58,16 +58,16 @@ test("local composer traverses every hierarchy branch deterministically and trea
     assert.equal(completed.status, "complete", JSON.stringify({ seen, completed }, null, 2));
     assert.equal(completed.completedSlots, completed.totalSlots);
     assert.deepEqual(seen.slice(0, 4), [
-      `Company:${company.name}`,
-      "Product:ONE",
-      "Market Play:ONE for Mining",
-      "Customer Profile:Operating",
+      `Company:${company.name}:identity`,
+      "Product:ONE:capability",
+      "Product:ONE:limitation",
+      "Product:ONE:delivery",
     ]);
-    assert.ok(seen.indexOf("Offer:Operating") < seen.indexOf("Product:Product A"), "the first product subtree completes before the next Product");
-    assert.ok(seen.indexOf("Product:Product A") < seen.indexOf("Market Play:Play A"));
-    assert.ok(seen.indexOf("Market Play:Play A") < seen.indexOf("Customer Profile:Profile A"));
-    assert.ok(seen.indexOf("Customer Profile:Profile A") < seen.indexOf("Offer:Profile A"));
-    assert.ok(seen.indexOf("Offer:Profile A") < seen.indexOf("Product:Product Z"));
+    assert.ok(seen.indexOf("Offer:Operating:hierarchy_completion_offer") < seen.indexOf("Product:Product A:capability"), "the first product subtree completes before the next Product");
+    assert.ok(seen.indexOf("Product:Product A:default_runner_policy") < seen.indexOf("Market Play:Play A:market"));
+    assert.ok(seen.indexOf("Market Play:Play A:offer_context") < seen.indexOf("Customer Profile:Profile A:fit"));
+    assert.ok(seen.indexOf("Customer Profile:Profile A:output_target") < seen.indexOf("Offer:Profile A:hierarchy_completion_offer"));
+    assert.ok(seen.indexOf("Offer:Profile A:hierarchy_completion_offer") < seen.indexOf("Product:Product Z:capability"));
     assert.equal(await countRows(fixture.database, "offers"), 0, "reviewed Offer rejection advances without materializing an Offer");
   } finally {
     await fixture.dispose();
@@ -96,6 +96,8 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
     assert.equal(state.status, "active");
     assert.equal(state.question.requiresOwnerInput, true);
     assert.equal(state.question.recommendationDetail, null);
+    assert.equal(state.question.evidenceFindings.length, 0);
+    assert.deepEqual(state.question.evidenceState, { status: "missing", findingCount: 0 });
     const noWrite = await counts(fixture.database);
     await assert.rejects(api.interview.submitInterviewAnswer(fixture.database, OWNER, {
       questionId: state.question.id, expectedRevision: state.question.revision,
@@ -104,6 +106,7 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
     assert.deepEqual(await counts(fixture.database), noWrite, "a caller cannot forge a recommendation for an owner-input question");
 
     let sequence = 110;
+    const offerParentLifecyclesBefore = [];
     while (true) {
       const label = state.question.destination.scopeType === "customer_profile" && state.question.prompt.startsWith("What offer") ? "Offer" : "Other";
       const answer = await api.interview.submitInterviewAnswer(fixture.database, OWNER, {
@@ -111,9 +114,16 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
         answer: "write_correction", value: { excerpt: label === "Offer" ? `Owner offer ${sequence}` : `Owner value ${sequence}` },
         reason: "Owner supplied this value explicitly for the disposable local demo.", idempotencyKey: key(sequence++),
       });
+      const correctedOffer = label === "Offer" ? `Corrected offer ${sequence}` : null;
+      if (label === "Offer") {
+        const parent = await fixture.database.prepare("SELECT mp.lifecycle FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=?").bind(state.question.destination.id, api.workspace.id).first();
+        offerParentLifecyclesBefore.push(parent.lifecycle);
+      }
       state = await api.interview.recordInterviewDecision(fixture.database, OWNER, {
         answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
-        expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(sequence++),
+        expectedQuestionRevision: answer.question.revision, decision: correctedOffer ? "correct" : "accept",
+        ...(correctedOffer ? { value: { excerpt: correctedOffer }, reason: "Owner corrected the exact Offer before confirmation." } : {}),
+        idempotencyKey: key(sequence++),
       });
       progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
       if (progression.status === "complete") break;
@@ -123,6 +133,11 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
       assert.ok(state.question.prerequisiteKnowledge.length > 0, "later questions bind current Confirmed prerequisites");
     }
     assert.equal(await countRows(fixture.database, "offers"), 2, "one accepted Offer question materializes one Offer per Profile");
+    assert.deepEqual(offerParentLifecyclesBefore, ["draft", "active"], "two Profiles under one Market Play succeed while the second Offer binds the already-active parent revision without reactivation");
+    const offers = await fixture.database.prepare("SELECT name,value_json FROM offers WHERE workspace_id=? ORDER BY created_at,id").bind(api.workspace.id).all();
+    assert.ok(offers.results.every((offer) => offer.name.startsWith("Corrected offer ") && JSON.parse(offer.value_json).excerpt === offer.name), "Offer name and value use the exact corrected confirmed value");
+    const plays = await fixture.database.prepare("SELECT lifecycle FROM market_plays WHERE workspace_id=? ORDER BY created_at,id").bind(api.workspace.id).all();
+    assert.ok(plays.results.every((play) => play.lifecycle === "active"), "Offer confirmation accepts each fully reviewed Market Play for Profile readiness");
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
   } finally {
     await fixture.dispose();
@@ -350,6 +365,54 @@ test("decision rejects a manual same-slot confirmation created after the local q
       expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(704),
     }), isConflict);
     assert.deepEqual(await decisionCounts(fixture.database), before, "same-slot authority drift creates no command, decision, version, confirmation, or Offer");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Offer confirmation fences the exact parent Market Play revision and rolls back every partial write", async () => {
+  const fixture = await createD1Fixture("local-interview-offer-parent-drift");
+  try {
+    const api = await setup(fixture);
+    let progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
+    let sequence = 800;
+    while (progression.next?.label !== "Offer") {
+      await rejectNext(api, progression, sequence++);
+      progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
+    }
+    const active = await api.composer.advanceLocalInterview(fixture.database, OWNER, {
+      expectedQueueDigest: progression.queueDigest, idempotencyKey: key(900),
+    });
+    const answer = await api.interview.submitInterviewAnswer(fixture.database, OWNER, {
+      questionId: active.question.id, expectedRevision: active.question.revision,
+      answer: "write_correction", value: { excerpt: "Synthetic governed offer" },
+      reason: "Owner supplied this disposable local value.", idempotencyKey: key(901),
+    });
+    const parent = await fixture.database.prepare(
+      "SELECT mp.id,mp.revision,mp.lifecycle FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=?",
+    ).bind(active.question.destination.id, api.workspace.id).first();
+    assert.equal(parent.lifecycle, "draft");
+    const before = await decisionCounts(fixture.database);
+    const drifted = interleavingDatabase(fixture.database, () => fixture.database.prepare(
+      "UPDATE market_plays SET revision=revision+1 WHERE id=? AND workspace_id=?",
+    ).bind(parent.id, api.workspace.id).run());
+    await assert.rejects(api.interview.recordInterviewDecision(drifted, OWNER, {
+      answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
+      expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(902),
+    }), isConflict);
+    assert.deepEqual(await decisionCounts(fixture.database), before, "stale activation leaves no Offer, Knowledge, decision, command, audit, or confirmation write");
+    const afterParent = await fixture.database.prepare("SELECT revision,lifecycle FROM market_plays WHERE id=? AND workspace_id=?").bind(parent.id, api.workspace.id).first();
+    assert.deepEqual(afterParent, { revision: Number(parent.revision) + 1, lifecycle: "draft" }, "only the independently simulated hierarchy drift remains");
+    const pending = await fixture.database.prepare("SELECT q.status,s.state FROM interview_questions q JOIN interview_sessions s ON s.id=q.session_id AND s.workspace_id=q.workspace_id WHERE q.id=?").bind(active.question.id).first();
+    assert.deepEqual(pending, { status: "answered", state: "awaiting_confirmation" }, "answer submission remains separate and retryable after the rejected confirmation");
+    await fixture.database.prepare("UPDATE market_plays SET lifecycle='retired' WHERE id=? AND workspace_id=?").bind(parent.id, api.workspace.id).run();
+    const beforeMissingParent = await decisionCounts(fixture.database);
+    await assert.rejects(api.interview.recordInterviewDecision(fixture.database, OWNER, {
+      answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
+      expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(903),
+    }), isConflict);
+    assert.deepEqual(await decisionCounts(fixture.database), beforeMissingParent, "a zero-match parent authority creates no Offer, Knowledge, decision, command, audit, or confirmation write");
+    assert.equal((await fixture.database.prepare("SELECT lifecycle FROM market_plays WHERE id=? AND workspace_id=?").bind(parent.id, api.workspace.id).first()).lifecycle, "retired");
   } finally {
     await fixture.dispose();
   }

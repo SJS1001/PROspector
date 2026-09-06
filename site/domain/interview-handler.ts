@@ -17,6 +17,7 @@ import {
   submitInterviewAnswer,
   submitRecommendationAnswer,
   type InterviewPrincipal,
+  type InterviewSelection,
   type InterviewState,
 } from "./interview";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
@@ -29,6 +30,7 @@ export type InterviewHandlerDependencies = {
   pilotOwnerEmail: string;
   csrfCookieMode?: CsrfCookieMode;
   enableLocalDemoProgression?: boolean;
+  interviewSelection?: InterviewSelection;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -37,7 +39,7 @@ export async function handleInterviewGet(
 ): Promise<Response> {
   try {
     const principal = await authenticatedPrincipal(dependencies);
-    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal));
+    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal, dependencies.interviewSelection));
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "server_error" }, 500);
@@ -67,6 +69,8 @@ export async function handleInterviewPost(
     if (typeof action !== "string" || !INTERVIEW_ACTIONS.includes(action as InterviewAction))
       return json({ error: "unsupported_action" }, 400);
     assertClosedCommand(body, action as InterviewAction);
+    if (dependencies.interviewSelection && (action === "submit_recommendation_answer" || action === "confirm_submitted_answer"))
+      throw new InterviewConflictError("The selected Explore interview requires the exact generalized answer and confirmation commands");
     if (action === "advance_local_interview" && !dependencies.enableLocalDemoProgression)
       return privateWorkspaceUnavailable();
     let state: InterviewState;
@@ -93,7 +97,7 @@ export async function handleInterviewPost(
         ...optionalExcerpt(body, "value"),
         ...optionalString(body, "reason", 2000),
         ...optionalDestination(body),
-      });
+      }, dependencies.interviewSelection);
     } else if (action === "record_interview_decision") {
       state = await recordInterviewDecision(dependencies.database, principal, {
         answerId: requiredString(body, "answerId", 160),
@@ -105,7 +109,7 @@ export async function handleInterviewPost(
         ...optionalString(body, "reason", 2000),
         ...optionalDestination(body),
         ...optionalString(body, "predecessorVersionId", 160),
-      });
+      }, dependencies.interviewSelection);
     } else if (action === "restart_unbound_review") {
       state = await restartUnboundReview(dependencies.database, principal, {
         idempotencyKey: requiredString(body, "idempotencyKey", 80),
@@ -114,8 +118,9 @@ export async function handleInterviewPost(
       state = await advanceLocalInterview(dependencies.database, principal, {
         idempotencyKey: requiredString(body, "idempotencyKey", 80),
         expectedQueueDigest: requiredDigest(body, "expectedQueueDigest"),
-      });
+      }, dependencies.interviewSelection);
     }
+    if (dependencies.interviewSelection) state = await readInterviewState(dependencies.database, principal, dependencies.interviewSelection);
     return stateResponse(dependencies, principal, state);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
@@ -146,7 +151,7 @@ async function stateResponse(
   state: InterviewState,
 ) {
   const projected = dependencies.enableLocalDemoProgression
-    ? await attachLocalInterviewProgression(dependencies.database, principal, state)
+    ? await attachLocalInterviewProgression(dependencies.database, principal, state, dependencies.interviewSelection)
     : state;
   const response = json(projected);
   return withCsrfCookie(

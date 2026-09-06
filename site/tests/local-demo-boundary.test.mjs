@@ -105,6 +105,12 @@ test("local demo routes only interview authority commands through the dedicated 
       assert.equal(knowledgeMutationTransport("advance_local_interview", hostname).endpoint, "/api/interview");
       assert.equal(knowledgeMutationTransport("propose_owner_edit", hostname).endpoint, "/api/knowledge");
     }
+    const selection = "?view=knowledge&interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003";
+    assert.equal(
+      knowledgeMutationTransport("advance_local_interview", "localhost", selection).endpoint,
+      "/api/interview?interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003",
+      "the exact selection survives the local mutation transport without unrelated view state",
+    );
     for (const hostname of ["", "localhost.", "127.0.0.2", "0.0.0.0", "example.test"]) {
       assert.equal(knowledgeMutationTransport("submit_interview_answer", hostname).endpoint, "/api/knowledge");
       assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/knowledge");

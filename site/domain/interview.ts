@@ -17,6 +17,12 @@ export type InterviewPrincipal = {
   displayName: string;
 };
 
+export type InterviewSelection = {
+  sessionId: string;
+  marketPlayId: string;
+  sourceProposalVersionId: string;
+};
+
 type QuestionView = {
   id: string;
   revision: number;
@@ -27,6 +33,7 @@ type QuestionView = {
   provenance: string;
   recommendation: string;
   evidenceFindings: Array<{ sourceTitle: string | null; sourceRef: string | null; sourceType: string | null; publishedAt: number | null; retrievedAt: number | null; excerpt: string }>;
+  evidenceState: { status: "missing" | "present"; findingCount: number };
   inferenceDetail: { label: string; value: string } | null;
   recommendationDetail: { rationale: string; value: { excerpt: string } | null } | null;
   destination: InterviewDestination | null;
@@ -106,6 +113,12 @@ type GeneralizedProposalSnapshot = {
 export type InterviewState =
   | { status: "uninitialized"; displayName: string }
   | {
+      status: "ready";
+      displayName: string;
+      workspace: { id: string; companyName: string };
+      localProgression?: import("./interview-question-composer").LocalInterviewProgression;
+    }
+  | {
       status: "active";
       displayName: string;
       workspace: { id: string; companyName: string };
@@ -161,9 +174,11 @@ export async function principalFromIdentity(
 export async function readInterviewState(
   database: D1Database,
   principal: InterviewPrincipal,
+  selection?: InterviewSelection,
 ): Promise<InterviewState> {
   const workspace = await workspaceForPrincipal(database, principal);
   if (!workspace) return { status: "uninitialized", displayName: principal.displayName };
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
 
   // An internally issued follow-up question takes precedence over historical
   // confirmations. Without this guard a completed Q1 would permanently hide Q2.
@@ -171,8 +186,9 @@ export async function readInterviewState(
     `SELECT id FROM interview_sessions
      WHERE workspace_id = ? AND state IN ('awaiting_answer', 'awaiting_confirmation')
        AND active_question_id IS NOT NULL
+       ${selection ? "AND id = ?" : ""}
      ORDER BY updated_at DESC, id DESC LIMIT 1`,
-  ).bind(workspace.id).first<{ id: string }>();
+  ).bind(workspace.id, ...(selection ? [selection.sessionId] : [])).first<{ id: string }>();
 
   const confirmed = await database
     .prepare(
@@ -186,11 +202,12 @@ export async function readInterviewState(
          ON a.subject_id = c.id AND a.workspace_id = c.workspace_id
         AND a.action = 'interview.recommendation_confirmed'
        WHERE c.workspace_id = ? AND c.decision = 'accept'
+         ${selection ? "AND ans.session_id = ?" : ""}
          AND c.operation_digest <> 'legacy-unbound'
          AND ans.proposal_digest <> 'legacy-unbound'
        ORDER BY c.created_at DESC LIMIT 1`,
     )
-    .bind(workspace.id)
+    .bind(workspace.id, ...(selection ? [selection.sessionId] : []))
     .first<{
       knowledge_version_id: string;
       created_at: number;
@@ -220,8 +237,9 @@ export async function readInterviewState(
      JOIN audit_events a ON a.subject_id = d.id AND a.workspace_id = c.workspace_id
        AND a.action = 'interview.' || c.decision
      WHERE c.workspace_id = ? AND c.operation_digest <> 'legacy-unbound'
+       ${selection ? "AND c.session_id = ?" : ""}
      ORDER BY c.created_at DESC LIMIT 1`,
-  ).bind(workspace.id).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>() : null;
+  ).bind(workspace.id, ...(selection ? [selection.sessionId] : [])).first<{ id: string; decision: string; knowledge_version_id: string | null; created_at: number; value_json: string | null; audit_id: string }>() : null;
   if (generalizedDecision && !liveSession) return {
     status: "confirmed",
     displayName: principal.displayName,
@@ -243,6 +261,7 @@ export async function readInterviewState(
        LEFT JOIN interview_confirmations c
          ON c.answer_id = ans.id AND c.workspace_id = ans.workspace_id
        WHERE ans.workspace_id = ? AND ans.proposal_digest = 'legacy-unbound'
+         ${selection ? "AND ans.session_id = ?" : ""}
          AND (
            s.state = 'awaiting_confirmation'
            OR (
@@ -258,7 +277,7 @@ export async function readInterviewState(
          )
        ORDER BY ans.created_at DESC LIMIT 1`,
     )
-    .bind(workspace.id)
+    .bind(workspace.id, ...(selection ? [selection.sessionId] : []))
     .first<{ id: string }>();
   if (unbound && !liveSession) {
     return {
@@ -283,9 +302,10 @@ export async function readInterviewState(
          ON ans.question_id = q.id AND ans.workspace_id = q.workspace_id
        WHERE s.workspace_id = ?
          AND s.state IN ('awaiting_answer', 'awaiting_confirmation')
+         ${selection ? "AND s.id = ?" : ""}
        ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`,
     )
-    .bind(workspace.id)
+    .bind(workspace.id, ...(selection ? [selection.sessionId] : []))
     .first<{
       session_id: string;
       session_revision: number;
@@ -304,7 +324,10 @@ export async function readInterviewState(
       proposal_digest: string | null;
       answer_created_at: number | null;
     }>();
-  if (!current) throw new InterviewConflictError("Interview state is incomplete");
+  if (!current) {
+    if (selection) return { status: "ready", displayName: principal.displayName, workspace: { id: workspace.id, companyName: workspace.company_name } };
+    throw new InterviewConflictError("Interview state is incomplete");
+  }
 
   const research = JSON.parse(current.research_json) as {
     premise?: string;
@@ -313,6 +336,7 @@ export async function readInterviewState(
     provenance?: string;
   };
   const structuredResearch = researchFirst(current.research_json);
+  const projectedEvidence = evidenceProjection(structuredResearch.evidenceFindings);
   const question: QuestionView = {
     id: current.question_id,
     revision: current.question_revision,
@@ -324,7 +348,8 @@ export async function readInterviewState(
       research.provenance ??
       "Legacy policy question created before provenance was stored separately.",
     recommendation: current.recommendation,
-    evidenceFindings: evidenceProjection(structuredResearch.evidenceFindings),
+    evidenceFindings: projectedEvidence,
+    evidenceState: evidenceStateFor(projectedEvidence),
     inferenceDetail: structuredResearch.inference,
     recommendationDetail: !structuredResearch.requiresOwnerInput && current.recommendation ? { rationale: current.recommendation, value: structuredResearch.recommendationValue } : null,
     destination: await projectedInterviewDestination(
@@ -370,6 +395,9 @@ export async function readInterviewState(
         provenance: generalized ? "Repository-seeded evidence and owner answer snapshot." : (snapshot as ProposalSnapshot).provenance,
         recommendation: generalized ? (snapshot as GeneralizedProposalSnapshot).recommendation.rationale : (snapshot as ProposalSnapshot).recommendation,
         evidenceFindings: generalized ? evidenceProjection((snapshot as GeneralizedProposalSnapshot).evidenceFindings) : [],
+        evidenceState: generalized
+          ? evidenceStateFor(evidenceProjection((snapshot as GeneralizedProposalSnapshot).evidenceFindings))
+          : { status: "missing", findingCount: 0 },
         inferenceDetail: generalized ? (snapshot as GeneralizedProposalSnapshot).inference : null,
         recommendationDetail: generalized && !structuredResearch.requiresOwnerInput ? { rationale: (snapshot as GeneralizedProposalSnapshot).recommendation.rationale, value: (snapshot as GeneralizedProposalSnapshot).recommendation.value ?? null } : null,
         destination: generalized ? (snapshot as GeneralizedProposalSnapshot).destination : interviewDestination(current.scope_type, current.scope_id),
@@ -584,6 +612,7 @@ export async function submitInterviewAnswer(
   database: D1Database,
   principal: InterviewPrincipal,
   input: SubmitInterviewAnswerInput,
+  selection?: InterviewSelection,
 ): Promise<InterviewState> {
   validateQuestionInput(input);
   if (!['use_recommendation', 'write_correction', 'change_scope'].includes(input.answer))
@@ -594,6 +623,7 @@ export async function submitInterviewAnswer(
     throw new InterviewConflictError("A scope change requires an explicit destination");
 
   const workspace = await ownedWorkspace(database, principal);
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
   const prior = await database.prepare(
     "SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1",
   ).bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
@@ -603,8 +633,9 @@ export async function submitInterviewAnswer(
      FROM interview_questions q JOIN interview_sessions s
        ON s.id = q.session_id AND s.workspace_id = q.workspace_id
      WHERE q.workspace_id = ? AND q.id = ? AND q.status = 'active'
-       AND s.active_question_id = q.id AND s.state = 'awaiting_answer' LIMIT 1`,
-  ).bind(workspace.id, input.questionId).first<{
+       AND s.active_question_id = q.id AND s.state = 'awaiting_answer'
+       ${selection ? "AND s.id = ?" : ""} LIMIT 1`,
+  ).bind(workspace.id, input.questionId, ...(selection ? [selection.sessionId] : [])).first<{
     id: string; revision: number; session_id: string; session_revision: number;
     scope_type: string; scope_id: string;
     prompt: string; research_json: string; recommendation: string;
@@ -639,11 +670,11 @@ export async function submitInterviewAnswer(
   const value = input.value ?? research.recommendationValue ?? { excerpt: current.recommendation };
   const operationDigest = await sha256(JSON.stringify({
     action: "submit_interview_answer", questionId: current.id, expectedRevision: input.expectedRevision,
-    answer: input.answer, value, reason: input.reason?.trim() ?? null, destination,
+    answer: input.answer, value, reason: input.reason?.trim() ?? null, destination, selection: selection ?? null,
   }));
   if (prior) {
     if (prior.operation_digest !== operationDigest) throw new InterviewConflictError("Idempotency key was used for another operation");
-    return readInterviewState(database, principal);
+    return readInterviewState(database, principal, selection);
   }
 
   // The proposal repository is the sole creator of Proposed Knowledge and its
@@ -653,13 +684,26 @@ export async function submitInterviewAnswer(
     digest: string;
     destination: InterviewDestination & { id: string; locator: string };
   };
+  let guardedProposal: Awaited<ReturnType<typeof prepareGuardedInterviewKnowledgeProposal>> | null = null;
   try {
-    proposal = await createKnowledgeProposal(database, principal, {
-      origin: "owner_edit", destination, kind: research.knowledgeKind, value,
+    const proposalInput = {
+      destination, kind: research.knowledgeKind, value,
       source: { reference: `interview:${current.id}`, custody: "owner-reviewed interview snapshot", retrievedAt: Date.now() },
-      privacy: "private", license: { use: "internal_review_only" }, reuseEligibility: "company_only",
+      privacy: "private" as const, license: { use: "internal_review_only" }, reuseEligibility: "company_only",
       idempotencyKey: derivedKey(input.idempotencyKey, "proposal"),
-    });
+    };
+    if (selection) {
+      guardedProposal = await prepareGuardedInterviewKnowledgeProposal(database, principal, proposalInput, {
+        sessionId: current.session_id,
+        sessionRevision: current.session_revision,
+        questionId: current.id,
+        questionRevision: current.revision,
+        selection,
+      });
+      proposal = guardedProposal;
+    } else {
+      proposal = await createKnowledgeProposal(database, principal, { origin: "owner_edit", ...proposalInput });
+    }
   } catch (error) {
     throw new InterviewConflictError(error instanceof Error ? error.message : "Unable to store proposal");
   }
@@ -679,55 +723,114 @@ export async function submitInterviewAnswer(
   const proposalDigest = await sha256(proposalJson);
   const identity = await sha256(`${workspace.id}:${input.idempotencyKey}`);
   const now = Date.now();
+  const answerId = `ia_${identity.slice(0, 24)}`;
+  const selectedStatements = guardedProposal ? [
+    ...guardedProposal.statements,
+    database.prepare(
+      `INSERT INTO interview_answers
+       (id, workspace_id, session_id, question_id, question_revision, choice, correction_json,
+        idempotency_key, operation_digest, proposal_json, proposal_digest, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+         AND EXISTS (SELECT 1 FROM knowledge_proposals WHERE id = ? AND workspace_id = ? AND proposal_digest = ?)
+         AND EXISTS (
+           SELECT 1 FROM interview_questions q
+           JOIN interview_sessions s ON s.id = q.session_id AND s.workspace_id = q.workspace_id
+           WHERE q.id = ? AND q.workspace_id = ? AND q.session_id = ?
+             AND q.status = 'active' AND q.revision = ?
+             AND s.id = ? AND s.state = 'awaiting_answer' AND s.revision = ? AND s.active_question_id = q.id
+         )`,
+    ).bind(
+      answerId, workspace.id, current.session_id, current.id, current.revision,
+      input.answer === "use_recommendation" ? "accept_recommendation" : "correct",
+      input.answer === "use_recommendation" ? null : stableJson({ value, reason: input.reason, destination }),
+      input.idempotencyKey, operationDigest, proposalJson, proposalDigest, now,
+      guardedProposal.authorityCommandId, workspace.id, proposal.id, workspace.id, proposal.digest,
+      current.id, workspace.id, selection!.sessionId, input.expectedRevision,
+      selection!.sessionId, current.session_revision,
+    ),
+    database.prepare(
+      `UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ? AND session_id = ?
+         AND EXISTS (SELECT 1 FROM interview_answers WHERE id = ? AND workspace_id = ? AND session_id = ?)`,
+    ).bind(now, current.id, workspace.id, input.expectedRevision, selection!.sessionId, answerId, workspace.id, selection!.sessionId),
+    database.prepare(
+      `UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?
+         AND EXISTS (SELECT 1 FROM interview_answers WHERE id = ? AND workspace_id = ? AND session_id = interview_sessions.id)`,
+    ).bind(now, selection!.sessionId, workspace.id, current.session_revision, answerId, workspace.id),
+    database.prepare(
+      `INSERT INTO audit_events
+       (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at)
+       SELECT ?, ?, 'owner', ?, 'interview.answer_submitted', 'interview_answer', ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+         AND EXISTS (SELECT 1 FROM interview_answers WHERE id = ? AND workspace_id = ? AND session_id = ?)`,
+    ).bind(`ae_${identity.slice(0, 24)}`, workspace.id, principal.subject, answerId, stableJson({ operationDigest, proposalDigest, knowledgeProposalId: proposal.id }), now, guardedProposal.authorityCommandId, workspace.id, answerId, workspace.id, selection!.sessionId),
+  ] : null;
   try {
-    await database.batch([
-      database.prepare("UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ?")
-        .bind(now, current.id, workspace.id, input.expectedRevision),
-      database.prepare("UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?")
-        .bind(now, current.session_id, workspace.id, current.session_revision),
+    await database.batch(selectedStatements ?? [
+      database.prepare(`UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ?
+        `).bind(now, current.id, workspace.id, input.expectedRevision),
+      database.prepare(`UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?
+        `).bind(now, current.session_id, workspace.id, current.session_revision),
       database.prepare(`INSERT INTO interview_answers (id, workspace_id, session_id, question_id, question_revision, choice, correction_json, idempotency_key, operation_digest, proposal_json, proposal_digest, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(`ia_${identity.slice(0, 24)}`, workspace.id, current.session_id, current.id, current.revision,
+        .bind(answerId, workspace.id, current.session_id, current.id, current.revision,
           input.answer === 'use_recommendation' ? 'accept_recommendation' : 'correct',
           input.answer === 'use_recommendation' ? null : stableJson({ value, reason: input.reason, destination }),
           input.idempotencyKey, operationDigest, proposalJson, proposalDigest, now),
       database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, 'interview.answer_submitted', 'interview_answer', ?, ?, ?)")
-        .bind(`ae_${identity.slice(0, 24)}`, workspace.id, principal.subject, `ia_${identity.slice(0, 24)}`, stableJson({ operationDigest, proposalDigest, knowledgeProposalId: proposal.id }), now),
+        .bind(`ae_${identity.slice(0, 24)}`, workspace.id, principal.subject, answerId, stableJson({ operationDigest, proposalDigest, knowledgeProposalId: proposal.id }), now),
     ]);
   } catch {
     const winner = await database.prepare("SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
     if (!winner || winner.operation_digest !== operationDigest) throw new InterviewConflictError("Another answer won; reload before answering");
   }
-  return readInterviewState(database, principal);
+  if (guardedProposal) {
+    const winner = await database.prepare("SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
+    if (!winner || winner.operation_digest !== operationDigest) throw new InterviewConflictError("The selected Explore interview changed; reload before answering");
+  }
+  return readInterviewState(database, principal, selection);
 }
 
 /** Stage 2 is the only generalized path to a Knowledge Version. */
 export async function recordInterviewDecision(
-  database: D1Database, principal: InterviewPrincipal, input: RecordInterviewDecisionInput,
+  database: D1Database, principal: InterviewPrincipal, input: RecordInterviewDecisionInput, selection?: InterviewSelection,
 ): Promise<InterviewState> {
   validateIdempotencyKey(input.idempotencyKey);
   if (!['accept', 'reject', 'correct', 'rescope'].includes(input.decision)) throw new InterviewConflictError("Unknown decision");
   if ((input.decision === 'correct' || input.decision === 'rescope') && (!input.value || !input.reason?.trim())) throw new InterviewConflictError("Corrections and rescopes require a value and reason");
   if (input.decision === 'rescope' && !input.destination) throw new InterviewConflictError("A rescope requires an explicit destination");
   const workspace = await ownedWorkspace(database, principal);
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
   const answer = await database.prepare(`SELECT ans.session_id, ans.question_id, ans.proposal_json, ans.proposal_digest,
       s.revision AS session_revision, s.state AS session_state, q.revision AS question_revision, q.status AS question_status FROM interview_answers ans
       JOIN interview_sessions s ON s.id = ans.session_id AND s.workspace_id = ans.workspace_id
       JOIN interview_questions q ON q.id = ans.question_id AND q.workspace_id = ans.workspace_id
-      WHERE ans.id = ? AND ans.workspace_id = ? LIMIT 1`).bind(input.answerId, workspace.id).first<{
+      WHERE ans.id = ? AND ans.workspace_id = ? ${selection ? "AND ans.session_id = ?" : ""} LIMIT 1`).bind(input.answerId, workspace.id, ...(selection ? [selection.sessionId] : [])).first<{
         session_id: string; question_id: string; proposal_json: string; proposal_digest: string; session_revision: number; session_state: string; question_revision: number; question_status: string;
       }>();
   if (!answer) throw new InterviewConflictError("This answer changed; reload before deciding");
   const snapshot = await parseGeneralizedSnapshot(answer.proposal_json, answer.proposal_digest);
-  const confirmationDigest = await sha256(stableJson({ input, proposalDigest: answer.proposal_digest }));
+  const confirmationDigest = await sha256(stableJson({ input, proposalDigest: answer.proposal_digest, selection: selection ?? null }));
   const priorConfirmation = await database.prepare("SELECT operation_digest FROM interview_confirmations WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
   if (priorConfirmation) {
     if (priorConfirmation.operation_digest !== confirmationDigest) throw new InterviewConflictError("Idempotency key was used for another decision");
-    return readInterviewState(database, principal);
+    return readInterviewState(database, principal, selection);
   }
   if (answer.session_state !== "awaiting_confirmation" || answer.question_status !== "answered" || answer.session_revision !== input.expectedSessionRevision || (input.expectedQuestionRevision !== undefined && answer.question_revision !== input.expectedQuestionRevision)) throw new InterviewConflictError("This answer changed; reload before deciding");
   if (snapshot.questionId !== answer.question_id || snapshot.questionRevision + 1 !== answer.question_revision) throw new InterviewConflictError("The stored answer lineage is stale");
   const reviewKey = derivedKey(input.idempotencyKey, "decision");
+  const offerProfileId = snapshot.kind === "hierarchy_completion_offer" && input.decision !== "reject"
+    ? input.decision === "rescope" ? input.destination?.scopeType === "customer_profile" ? input.destination.id : undefined : snapshot.destination.scopeType === "customer_profile" ? snapshot.destination.id : undefined
+    : undefined;
+  const offerParent = offerProfileId ? await database.prepare(
+    `SELECT cp.id AS profile_id, mp.id AS market_play_id, mp.revision AS market_play_revision, mp.lifecycle AS market_play_lifecycle
+     FROM customer_profiles cp JOIN market_plays mp
+       ON mp.id = cp.play_id AND mp.workspace_id = cp.workspace_id
+     WHERE cp.id = ? AND cp.workspace_id = ? AND mp.lifecycle IN ('draft','active') LIMIT 2`,
+  ).bind(offerProfileId, workspace.id).all<{ profile_id: string; market_play_id: string; market_play_revision: number; market_play_lifecycle: "draft" | "active" }>() : null;
+  if (offerProfileId && offerParent?.results.length !== 1) throw new InterviewConflictError("The parent Market Play changed; reload before deciding");
   let prepared;
   try {
     prepared = await prepareKnowledgeReview(database, principal, {
@@ -743,6 +846,13 @@ export async function recordInterviewDecision(
       questionRevision: answer.question_revision,
       prerequisiteKnowledge: snapshot.prerequisiteKnowledge,
       requireMissingCurrentSlot: snapshot.requiresOwnerInput === true,
+      ...(selection ? { selectedExplore: selection } : {}),
+      ...(offerParent ? { marketPlayActivation: {
+        profileId: offerParent.results[0].profile_id,
+        marketPlayId: offerParent.results[0].market_play_id,
+        expectedRevision: Number(offerParent.results[0].market_play_revision),
+        expectedLifecycle: offerParent.results[0].market_play_lifecycle,
+      } } : {}),
     });
   } catch (error) { throw new InterviewConflictError(error instanceof Error ? error.message : "Decision conflicted"); }
   if (prepared.existingDecisionId) throw new InterviewConflictError("Incomplete prior decision requires review");
@@ -761,8 +871,16 @@ export async function recordInterviewDecision(
     ...(prepared.versionId && prepared.itemId ? [database.prepare("INSERT INTO interview_authority_bindings (answer_id, confirmation_id, knowledge_version_id, knowledge_item_id, proposal_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(input.answerId, confirmationId, prepared.versionId, prepared.itemId, snapshot.knowledgeProposalId, now)] : []),
   ];
   if (snapshot.kind === "hierarchy_completion_offer" && prepared.versionId && prepared.target.scopeType === "profile" && input.decision !== "reject") {
+    const confirmedOfferName = offerName(prepared.value);
     statements.push(database.prepare("INSERT INTO offers (id, workspace_id, created_at, updated_at, revision, profile_id, name, value_json, question_id, answer_id, proposal_id, decision_id, knowledge_version_id, authority_command_id, audit_event_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(`offer_${(await sha256(`${workspace.id}:${decisionId}`)).slice(0, 24)}`, workspace.id, now, now, prepared.target.id, snapshot.value.excerpt.slice(0, 160), stableJson(prepared.value), answer.question_id, input.answerId, snapshot.knowledgeProposalId, decisionId, prepared.versionId, prepared.commandId, auditId));
+      .bind(`offer_${(await sha256(`${workspace.id}:${decisionId}`)).slice(0, 24)}`, workspace.id, now, now, prepared.target.id, confirmedOfferName, stableJson(prepared.value), answer.question_id, input.answerId, snapshot.knowledgeProposalId, decisionId, prepared.versionId, prepared.commandId, auditId));
+    if (!offerParent) throw new InterviewConflictError("The parent Market Play authority is unavailable");
+    if (offerParent.results[0].market_play_lifecycle === "draft") statements.push(database.prepare(
+      `UPDATE market_plays SET lifecycle = 'active', revision = revision + 1, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND revision = ? AND lifecycle = 'draft'
+         AND EXISTS (SELECT 1 FROM customer_profiles cp WHERE cp.id = ? AND cp.workspace_id = ? AND cp.play_id = market_plays.id)
+         AND EXISTS (SELECT 1 FROM offers o WHERE o.workspace_id = market_plays.workspace_id AND o.authority_command_id = ?)`,
+    ).bind(now, offerParent.results[0].market_play_id, workspace.id, offerParent.results[0].market_play_revision, prepared.target.id, workspace.id, prepared.commandId));
   }
   try {
     await database.batch(statements);
@@ -770,7 +888,25 @@ export async function recordInterviewDecision(
     const existing = await database.prepare("SELECT operation_digest FROM interview_confirmations WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
     if (!existing || existing.operation_digest !== confirmationDigest) throw new InterviewConflictError("Another decision won; reload before deciding");
   }
-  return readInterviewState(database, principal);
+  return readInterviewState(database, principal, selection);
+}
+
+export async function requireSelectedDraftInterview(database: D1Database, workspaceId: string, selection: InterviewSelection) {
+  if (![selection.sessionId, selection.marketPlayId, selection.sourceProposalVersionId].every((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)))
+    throw new InterviewConflictError("The selected Draft Market Play interview is invalid");
+  const rows = await database.prepare(
+    `SELECT s.id FROM interview_sessions s
+     JOIN market_play_proposal_decisions d ON d.interview_session_id = s.id AND d.workspace_id = s.workspace_id
+       AND d.proposal_version_id = ? AND d.decision = 'explore'
+       AND json_extract(d.decision_json, '$.interview.id') = s.id
+       AND json_extract(d.decision_json, '$.interview.lifecycle') = 'draft'
+     JOIN market_plays mp ON mp.id = d.draft_market_play_id AND mp.workspace_id = d.workspace_id AND mp.lifecycle IN ('draft','active')
+     JOIN market_play_proposal_versions v ON v.id = d.proposal_version_id AND v.workspace_id = d.workspace_id
+       AND v.proposal_id = d.proposal_id
+     WHERE s.id = ? AND s.workspace_id = ? AND mp.id = ?
+       AND json_extract(d.decision_json, '$.interview.marketPlayId') = mp.id LIMIT 2`,
+  ).bind(selection.sourceProposalVersionId, selection.sessionId, workspaceId, selection.marketPlayId).all<{ id: string }>();
+  if (rows.results.length !== 1) throw new InterviewConflictError("The selected Draft Market Play interview is unavailable");
 }
 
 export async function confirmSubmittedAnswer(
@@ -1177,6 +1313,13 @@ function researchFirst(raw: string): {
   };
 }
 
+function offerName(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new InterviewConflictError("Confirmed Offer value is unavailable");
+  const excerpt = (value as Record<string, unknown>).excerpt;
+  if (typeof excerpt !== "string" || !excerpt.trim()) throw new InterviewConflictError("Confirmed Offer value is unavailable");
+  return excerpt.trim().slice(0, 160);
+}
+
 function evidenceProjection(findings: InterviewEvidenceFinding[]) {
   return findings.map((finding) => ({
     sourceTitle: typeof finding.sourceTitle === "string" ? finding.sourceTitle : null,
@@ -1186,6 +1329,10 @@ function evidenceProjection(findings: InterviewEvidenceFinding[]) {
     retrievedAt: typeof finding.retrievedAt === "number" ? finding.retrievedAt : null,
     excerpt: typeof finding.excerpt === "string" ? finding.excerpt : "",
   }));
+}
+
+function evidenceStateFor(findings: readonly unknown[]) {
+  return { status: findings.length ? "present" as const : "missing" as const, findingCount: findings.length };
 }
 
 function interviewDestination(scopeType: string, id: string): InterviewDestination | null {
@@ -1414,4 +1561,4 @@ async function sha256(value: string): Promise<string> {
 function hex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-import { createKnowledgeProposal, prepareKnowledgeReview } from "./knowledge";
+import { createKnowledgeProposal, prepareGuardedInterviewKnowledgeProposal, prepareKnowledgeReview } from "./knowledge";

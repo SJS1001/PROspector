@@ -75,6 +75,13 @@ test("generic onboarding is fenced to a resolver-proven local demo and exact loo
   assert.match(page,/admitPilotOwner\(await runtimeIdentity/);
 });
 
+test("knowledge mutation routing cannot drop an exact Explore selection before answer or confirmation", async () => {
+  const handler = await readFile(new URL("../domain/knowledge-handler.ts", import.meta.url), "utf8");
+  assert.match(handler, /submitInterviewAnswer\(database, principal,[\s\S]{0,500}\}, selection\)/);
+  assert.match(handler, /recordInterviewDecision\(database, principal,[\s\S]{0,650}\}, selection\)/);
+  assert.match(handler, /projectionResponse\(dependencies\.database, principal, dependencies\.enableLocalDemoProgression === true, dependencies\.interviewSelection\)/);
+});
+
 test("the closed command contract names safe Proposed-only intake and rejects operational authority", () => {
   assert.deepEqual(CLOSED_ACTIONS, [...new Set(CLOSED_ACTIONS)]);
   assert.equal(CLOSED_ACTIONS.includes("import_batch"), false);

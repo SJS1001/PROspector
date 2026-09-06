@@ -5,7 +5,7 @@ const LOCAL_INTERVIEW_ACTIONS = new Set([
 ]);
 
 export type KnowledgeMutationTransport = {
-  endpoint: "/api/knowledge" | "/api/interview";
+  endpoint: string;
   intent: "knowledge-mutation" | "interview-mutation";
   returnsKnowledgeProjection: boolean;
 };
@@ -13,19 +13,30 @@ export type KnowledgeMutationTransport = {
 export function knowledgeMutationTransport(
   action: string,
   hostname: string,
+  search = "",
 ): KnowledgeMutationTransport {
+  const selection = interviewSelectionSearch(search);
   if (LOCAL_INTERVIEW_ACTIONS.has(action) && isCanonicalLoopback(hostname)) {
     return {
-      endpoint: "/api/interview",
+      endpoint: `/api/interview${selection}`,
       intent: "interview-mutation",
       returnsKnowledgeProjection: false,
     };
   }
   return {
-    endpoint: "/api/knowledge",
+    endpoint: `/api/knowledge${selection}`,
     intent: "knowledge-mutation",
     returnsKnowledgeProjection: true,
   };
+}
+
+export function interviewSelectionSearch(search: string) {
+  const incoming = new URLSearchParams(search);
+  const names = ["interviewSessionId", "marketPlayId", "sourceProposalVersionId"];
+  if (!names.some((name) => incoming.has(name))) return "";
+  const selected = new URLSearchParams();
+  for (const name of names) selected.set(name, incoming.get(name) ?? "");
+  return `?${selected.toString()}`;
 }
 
 function isCanonicalLoopback(hostname: string) {
