@@ -92,6 +92,20 @@ test("C2 preserves a completed zero-candidate run instead of rewriting it as not
   } finally { await fixture.dispose(); }
 });
 
+test("C2 fails closed on malformed or wrong-action service results", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-malformed");
+  try {
+    await alignOwner(fixture);
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    const malformed = { start: async () => ({ kind: "accepted", replayed: false }), decide: async () => ({ kind: "blocked", reason: "leaked" }), recordVerificationIntent: async () => ({ kind: "conflict", reason: "leaked" }) };
+    const dependencies = deps(fixture, malformed);
+    const csrf = csrfCookie(await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), dependencies));
+    const response = await handler.handlePersonDiscoveryPost(mutation({ action: "start_person_discovery", prospectId: fixture.prospectId, expectedProspectRevision: fixture.prospectRevision, maxCandidates: 1, maxProvenancePerCandidate: 1, idempotencyKey: "person-discovery-malformed-start" }, csrf), dependencies);
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { command: { kind: "blocked", reason: "invalid_service_result" } });
+  } finally { await fixture.dispose(); }
+});
+
 function deps(fixture, personDiscoveryService) {
   return {
     database: fixture.database,
