@@ -212,9 +212,9 @@ async function compose(database: D1Database, principal: InterviewPrincipal, sele
     database.prepare(
       `SELECT id, revision, scope_type, scope_id, state FROM interview_sessions
        WHERE workspace_id = ? AND state IN ('open', 'completed') AND active_question_id IS NULL
-       ${selection ? "AND id = ? AND scope_id = ? AND scope_type IN ('market_play','play')" : ""}
+       ${selection ? "AND id = ?" : ""}
        ORDER BY CASE state WHEN 'open' THEN 0 ELSE 1 END, updated_at DESC, id DESC LIMIT 1`,
-    ).bind(workspace.id, ...(selection ? [selection.sessionId, selection.marketPlayId] : [])).first<SessionRow>(),
+    ).bind(workspace.id, ...(selection ? [selection.sessionId] : [])).first<SessionRow>(),
   ]);
   if (!session) throw conflict("Finish the current question before continuing the interview");
 

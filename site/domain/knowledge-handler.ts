@@ -101,11 +101,11 @@ async function dispatch(body: Record<string, unknown>, database: D1Database, pri
     case "submit_interview_answer": return submitInterviewAnswer(database, principal, {
       questionId: requiredString(body, "questionId", 160), expectedRevision: requiredRevision(body, "expectedRevision"), idempotencyKey: key,
       answer: enumValue(body, "answer", ["use_recommendation", "write_correction", "change_scope"]), ...optionalExcerpt(body, "value"), ...optionalStringValue(body, "reason", 2000), ...optionalDestination(body),
-    });
+    }, selection);
     case "record_interview_decision": return recordInterviewDecision(database, principal, {
       answerId: requiredString(body, "answerId", 160), expectedSessionRevision: requiredRevision(body, "expectedSessionRevision"), expectedQuestionRevision: optionalRevision(body, "expectedQuestionRevision"), idempotencyKey: key,
       decision: enumValue(body, "decision", ["accept", "reject", "correct", "rescope"]), ...optionalExcerpt(body, "value"), ...optionalStringValue(body, "reason", 2000), ...optionalDestination(body), ...optionalStringValue(body, "predecessorVersionId", 160),
-    });
+    }, selection);
     case "review_knowledge_proposal": return reviewKnowledgeProposal(database, principal, {
       proposalId: requiredString(body, "proposalId", 160), decision: enumValue(body, "decision", ["accept", "reject", "correct", "rescope"]), correction: optionalExcerpt(body, "correction").value, destination: optionalDestination(body).destination, predecessorVersionId: optionalStringValue(body, "predecessorVersionId", 160).predecessorVersionId, expectedRevision: requiredRevision(body, "expectedRevision"), idempotencyKey: key,
     });

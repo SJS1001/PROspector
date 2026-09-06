@@ -75,7 +75,7 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
   const predecessorVersionId = driftPredecessorId ?? input.predecessorVersionId;
   const target = input.decision === "rescope" ? await resolveDestination(database, workspace.id, required(input.destination, "Rescope destination")) : { id: proposal.destination_scope_id, scopeType: proposal.destination_scope_type };
   const value = input.decision === "correct" ? validateValue(required(input.correction, "Corrected value")) : JSON.parse(proposal.value_json);
-  const operationDigest = await sha256(orderedSnapshot({ proposalDigest: proposal.proposal_digest, decision: input.decision, target, value, predecessorVersionId: predecessorVersionId ?? null, expectedRevision: input.expectedRevision, marketPlayActivation: guard?.marketPlayActivation ?? null }));
+  const operationDigest = await sha256(orderedSnapshot({ proposalDigest: proposal.proposal_digest, decision: input.decision, target, value, predecessorVersionId: predecessorVersionId ?? null, expectedRevision: input.expectedRevision, marketPlayActivation: guard?.marketPlayActivation ?? null, selectedExplore: guard?.selectedExplore ?? null }));
   const prior = await database.prepare("SELECT id, operation_digest FROM proposal_decisions WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ id: string; operation_digest: string }>();
   if (prior) {
     if (prior.operation_digest !== operationDigest) throw new KnowledgeConflictError("Idempotency key was reused for another review");
@@ -127,6 +127,19 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
               ON activation_play.id = activation_profile.play_id AND activation_play.workspace_id = activation_profile.workspace_id
             WHERE activation_profile.id = ? AND activation_profile.workspace_id = ?
               AND activation_play.id = ? AND activation_play.revision = ? AND activation_play.lifecycle = ?
+          )` : ""}
+          ${guard?.selectedExplore ? `AND EXISTS (
+            SELECT 1 FROM market_play_proposal_decisions selected_decision
+            JOIN market_plays selected_play ON selected_play.id = selected_decision.draft_market_play_id
+              AND selected_play.workspace_id = selected_decision.workspace_id AND selected_play.lifecycle IN ('draft','active')
+            JOIN market_play_proposal_versions selected_version ON selected_version.id = selected_decision.proposal_version_id
+              AND selected_version.workspace_id = selected_decision.workspace_id AND selected_version.proposal_id = selected_decision.proposal_id
+            WHERE selected_decision.workspace_id = ? AND selected_decision.interview_session_id = s.id
+              AND selected_decision.interview_session_id = ? AND selected_decision.draft_market_play_id = ?
+              AND selected_decision.proposal_version_id = ? AND selected_decision.decision = 'explore'
+              AND json_extract(selected_decision.decision_json, '$.interview.id') = s.id
+              AND json_extract(selected_decision.decision_json, '$.interview.marketPlayId') = selected_play.id
+              AND json_extract(selected_decision.decision_json, '$.interview.lifecycle') = 'draft'
           )` : ""}`;
   const commandBindings: unknown[] = [commandId, workspace.id, now, now, input.idempotencyKey, operationDigest, input.expectedRevision, proposal.id];
   if (guard) commandBindings.push(guard.answerId, guard.sessionId, guard.sessionRevision, guard.questionId, guard.questionRevision);
@@ -134,6 +147,7 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
   if (predecessor) commandBindings.push(predecessor.id, workspace.id);
   if (guard) commandBindings.push(orderedSnapshot(guard.prerequisiteKnowledge), workspace.id);
   if (guard?.marketPlayActivation) commandBindings.push(guard.marketPlayActivation.profileId, workspace.id, guard.marketPlayActivation.marketPlayId, guard.marketPlayActivation.expectedRevision, guard.marketPlayActivation.expectedLifecycle);
+  if (guard?.selectedExplore) commandBindings.push(workspace.id, guard.selectedExplore.sessionId, guard.selectedExplore.marketPlayId, guard.selectedExplore.sourceProposalVersionId);
   const command = database.prepare(commandSql).bind(...commandBindings);
   const statements: D1PreparedStatement[] = [
     command,
@@ -168,7 +182,7 @@ export async function reuseKnowledge(database: D1Database, principal: InterviewP
 
 type ProposalInput = { origin: AcceptedOrigin; destination: Destination; kind: string; value: { excerpt: string }; source: { reference: string; custody: string; retrievedAt: number }; privacy: "public" | "private" | "restricted"; license: { use: string }; reuseEligibility: string; idempotencyKey: string };
 type ReviewInput = { proposalId: string; decision: "accept" | "reject" | "correct" | "rescope"; correction?: { excerpt: string }; destination?: Destination; predecessorVersionId?: string; expectedRevision: number; idempotencyKey: string };
-type InterviewReviewGuard = { answerId: string; sessionId: string; questionId: string; sessionRevision: number; questionRevision: number; prerequisiteKnowledge: Array<{ id: string; digest: string }>; requireMissingCurrentSlot: boolean; marketPlayActivation?: { profileId: string; marketPlayId: string; expectedRevision: number; expectedLifecycle: "draft" | "active" } };
+type InterviewReviewGuard = { answerId: string; sessionId: string; questionId: string; sessionRevision: number; questionRevision: number; prerequisiteKnowledge: Array<{ id: string; digest: string }>; requireMissingCurrentSlot: boolean; marketPlayActivation?: { profileId: string; marketPlayId: string; expectedRevision: number; expectedLifecycle: "draft" | "active" }; selectedExplore?: import("./interview").InterviewSelection };
 async function workspaceForKnowledge(database: D1Database, principal: InterviewPrincipal) { const row = await database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN workspace_companies wc ON wc.workspace_id=w.id JOIN companies c ON c.id=wc.company_id AND c.workspace_id=w.id WHERE w.owner_subject IN (?, ?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; company_id: string }>(); if (!row) throw new KnowledgeConflictError("Commercial workspace is unavailable"); return { id: row.id, companyId: row.company_id }; }
 async function resolveDestination(database: D1Database, workspaceId: string, destination: Destination) {
   const mapping = destination.scopeType === "company"

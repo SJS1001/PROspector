@@ -69,6 +69,8 @@ export async function handleInterviewPost(
     if (typeof action !== "string" || !INTERVIEW_ACTIONS.includes(action as InterviewAction))
       return json({ error: "unsupported_action" }, 400);
     assertClosedCommand(body, action as InterviewAction);
+    if (dependencies.interviewSelection && (action === "submit_recommendation_answer" || action === "confirm_submitted_answer"))
+      throw new InterviewConflictError("The selected Explore interview requires the exact generalized answer and confirmation commands");
     if (action === "advance_local_interview" && !dependencies.enableLocalDemoProgression)
       return privateWorkspaceUnavailable();
     let state: InterviewState;
@@ -95,7 +97,7 @@ export async function handleInterviewPost(
         ...optionalExcerpt(body, "value"),
         ...optionalString(body, "reason", 2000),
         ...optionalDestination(body),
-      });
+      }, dependencies.interviewSelection);
     } else if (action === "record_interview_decision") {
       state = await recordInterviewDecision(dependencies.database, principal, {
         answerId: requiredString(body, "answerId", 160),
@@ -107,7 +109,7 @@ export async function handleInterviewPost(
         ...optionalString(body, "reason", 2000),
         ...optionalDestination(body),
         ...optionalString(body, "predecessorVersionId", 160),
-      });
+      }, dependencies.interviewSelection);
     } else if (action === "restart_unbound_review") {
       state = await restartUnboundReview(dependencies.database, principal, {
         idempotencyKey: requiredString(body, "idempotencyKey", 80),

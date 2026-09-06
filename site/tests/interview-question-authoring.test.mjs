@@ -220,13 +220,18 @@ test("an actual Explore-created open session accepts its first internal question
   const fixture = await createD1Fixture("interview-question-explore-session");
   try {
     await applyMigrations(fixture.database);
-    const [commercial, discovery, composer, interview] = await Promise.all([
+    const [commercial, discovery, composer, interview, authoring, handler, knowledgeHandler] = await Promise.all([
       fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname),
       fixture.vite.ssrLoadModule(new URL("../domain/market-discovery.ts", import.meta.url).pathname),
       fixture.vite.ssrLoadModule(new URL("../domain/interview-question-composer.ts", import.meta.url).pathname),
       fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname),
+      fixture.vite.ssrLoadModule(new URL("../domain/interview-question-authoring.ts", import.meta.url).pathname),
+      fixture.vite.ssrLoadModule(new URL("../domain/interview-handler.ts", import.meta.url).pathname),
+      fixture.vite.ssrLoadModule(new URL("../domain/knowledge-handler.ts", import.meta.url).pathname),
     ]);
-    const model = await commercial.initializeCommercialModel(fixture.database, OWNER, { idempotencyKey: key(200) });
+    const subjectPepper = "focused-handler-selection-pepper-at-least-32-bytes";
+    const principal = await interview.principalFromIdentity("owner@example.com", "Owner", subjectPepper);
+    const model = await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: key(200) });
     const product = model.products[0];
     const workspaceId = model.workspace.id;
     const digest = "a".repeat(64);
@@ -250,7 +255,7 @@ test("an actual Explore-created open session accepts its first internal question
       fixture.database.prepare("INSERT INTO market_play_proposal_versions (id,workspace_id,product_id,proposal_id,run_id,submission_id,version,proposal_json,proposal_digest,material_evidence_fingerprint,predecessor_version_id,relationship,created_at) VALUES ('0198b5c0-0000-7000-8000-000000002011',?,?,'explore-proposal','explore-run','explore-submission',1,?,?,?,NULL,'new',?)").bind(workspaceId, product.id, JSON.stringify(finding), digest, digest, NOW),
       fixture.database.prepare("UPDATE market_play_proposals SET current_version_id = '0198b5c0-0000-7000-8000-000000002011' WHERE id = 'explore-proposal'"),
     ]);
-    const explored = await discovery.decideMarketPlayProposal(fixture.database, OWNER, {
+    const explored = await discovery.decideMarketPlayProposal(fixture.database, principal, {
       proposalId: "explore-proposal",
       expectedProposalRevision: 1,
       expectedProposalDigest: digest,
@@ -267,17 +272,97 @@ test("an actual Explore-created open session accepts its first internal question
       fixture.database.prepare("INSERT INTO market_plays (id,workspace_id,created_at,updated_at,revision,product_id,name,lifecycle) VALUES (?,?,?,?,1,?,?,'draft')").bind(competingPlayId, workspaceId, NOW + 10, NOW + 10, product.id, "Competing newer play"),
       fixture.database.prepare("INSERT INTO interview_sessions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,state,active_question_id) VALUES (?,?,?,?,1,'market_play',?,'open',NULL)").bind(competingSessionId, workspaceId, NOW + 10, NOW + 10, competingPlayId),
     ]);
-    const selectedReady = await interview.readInterviewState(fixture.database, OWNER, selection);
+    const selectedReady = await interview.readInterviewState(fixture.database, principal, selection);
     assert.equal(selectedReady.status, "ready", "a newer open session cannot redirect the exact Explore handoff");
     await assert.rejects(
-      interview.readInterviewState(fixture.database, OWNER, { ...selection, marketPlayId: competingPlayId }),
+      interview.readInterviewState(fixture.database, principal, { ...selection, marketPlayId: competingPlayId }),
       /selected Draft Market Play interview is unavailable/i,
       "URL identity is not authority and cannot retarget the stored Explore decision",
     );
-    const selectedProgression = await composer.readLocalInterviewProgression(fixture.database, OWNER, selection);
+    const competing = await authoring.issueInterviewQuestion(fixture.database, principal, {
+      sessionId: competingSessionId, expectedSessionRevision: 1, idempotencyKey: key(204),
+      candidate: question({ destination: { scopeType: "market_play", id: competingPlayId }, knowledgeKind: "problem" }),
+    });
+    const handlerDependencies = {
+      database: fixture.database, subjectPepper, pilotOwnerEmail: "owner@example.com",
+      enableLocalDemoProgression: true, interviewSelection: selection,
+      getIdentity: async () => ({ email: "owner@example.com", displayName: "Owner" }),
+    };
+    await activateSyntheticKnowledgeGate(fixture.database, workspaceId);
+    let get = await handler.handleInterviewGet(handlerDependencies);
+    let csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    let beforeMutation = await selectedMutationSnapshot(fixture.database);
+    let response = await handler.handleInterviewPost(interviewMutation({
+      action: "submit_interview_answer", questionId: competing.question.id, expectedRevision: competing.question.revision,
+      answer: "use_recommendation", idempotencyKey: key(205),
+    }, csrf), handlerDependencies);
+    assert.equal(response.status, 409, "selected session A cannot answer session B");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation, "hostile answer routing creates zero question, answer, Knowledge, decision, audit, session, or lifecycle writes");
+    get = await handler.handleInterviewGet(handlerDependencies);
+    csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    response = await handler.handleInterviewPost(interviewMutation({
+      action: "submit_recommendation_answer", questionId: competing.question.id,
+      expectedRevision: competing.question.revision, idempotencyKey: key(2051),
+    }, csrf), handlerDependencies);
+    assert.equal(response.status, 409, "the legacy answer command cannot escape a selected Explore tuple");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation);
+    get = await handler.handleInterviewGet(handlerDependencies);
+    csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    response = await handler.handleInterviewPost(interviewMutation({
+      action: "submit_interview_answer", questionId: competing.question.id, expectedRevision: competing.question.revision,
+      answer: "use_recommendation", idempotencyKey: key(20515),
+    }, csrf), { ...handlerDependencies, interviewSelection: { ...selection, marketPlayId: competingPlayId } });
+    assert.equal(response.status, 409, "an invalid selected tuple cannot reach an answer mutation");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation, "an invalid tuple creates zero authority or lifecycle writes");
+    get = await knowledgeHandler.handleKnowledgeGet(handlerDependencies);
+    csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    response = await knowledgeHandler.handleKnowledgePost(knowledgeMutation({
+      action: "submit_interview_answer", questionId: competing.question.id, expectedRevision: competing.question.revision,
+      answer: "use_recommendation", idempotencyKey: key(2052),
+    }, csrf), handlerDependencies);
+    assert.equal(response.status, 409, "the Knowledge handler cannot route selection A to session B's question");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation, "hostile Knowledge answer routing creates zero authority or lifecycle writes");
+
+    const competingAnswer = await interview.submitInterviewAnswer(fixture.database, principal, {
+      questionId: competing.question.id, expectedRevision: competing.question.revision,
+      answer: "use_recommendation", idempotencyKey: key(206),
+    });
+    get = await handler.handleInterviewGet(handlerDependencies);
+    csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    beforeMutation = await selectedMutationSnapshot(fixture.database);
+    response = await handler.handleInterviewPost(interviewMutation({
+      action: "record_interview_decision", answerId: competingAnswer.answer.id,
+      expectedSessionRevision: competingAnswer.session.revision, expectedQuestionRevision: competingAnswer.question.revision,
+      decision: "accept", idempotencyKey: key(207),
+    }, csrf), handlerDependencies);
+    assert.equal(response.status, 409, "selected session A cannot confirm session B's answer");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation, "hostile confirmation routing creates zero question, answer, Knowledge, decision, audit, session, or lifecycle writes");
+    get = await handler.handleInterviewGet(handlerDependencies);
+    csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    response = await handler.handleInterviewPost(interviewMutation({
+      action: "confirm_submitted_answer", answerId: competingAnswer.answer.id,
+      expectedSessionRevision: competingAnswer.session.revision, idempotencyKey: key(2071),
+    }, csrf), handlerDependencies);
+    assert.equal(response.status, 409, "the legacy confirmation command cannot escape a selected Explore tuple");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation);
+    get = await knowledgeHandler.handleKnowledgeGet(handlerDependencies);
+    csrf = (get.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    response = await knowledgeHandler.handleKnowledgePost(knowledgeMutation({
+      action: "record_interview_decision", answerId: competingAnswer.answer.id,
+      expectedSessionRevision: competingAnswer.session.revision, expectedQuestionRevision: competingAnswer.question.revision,
+      decision: "accept", idempotencyKey: key(2072),
+    }, csrf), handlerDependencies);
+    assert.equal(response.status, 409, "the Knowledge handler cannot route selection A to session B's answer");
+    assert.deepEqual(await selectedMutationSnapshot(fixture.database), beforeMutation, "hostile Knowledge confirmation routing creates zero authority or lifecycle writes");
+    await interview.recordInterviewDecision(fixture.database, principal, {
+      answerId: competingAnswer.answer.id, expectedSessionRevision: competingAnswer.session.revision,
+      expectedQuestionRevision: competingAnswer.question.revision, decision: "reject", idempotencyKey: key(208),
+    });
+
+    const selectedProgression = await composer.readLocalInterviewProgression(fixture.database, principal, selection);
     assert.equal(selectedProgression.next.destination.id, explored.interview.marketPlayId);
     const beforeIssue = await snapshotForbiddenOperationalRows(fixture.database);
-    const active = await composer.advanceLocalInterview(fixture.database, OWNER, { expectedQueueDigest: selectedProgression.queueDigest, idempotencyKey: key(204) }, selection);
+    const active = await composer.advanceLocalInterview(fixture.database, principal, { expectedQueueDigest: selectedProgression.queueDigest, idempotencyKey: key(209) }, selection);
     assert.equal(active.status, "active");
     assert.equal(active.question.destination.id, explored.interview.marketPlayId);
     await assertForbiddenOperationalRowsUnchanged(fixture.database, beforeIssue);
@@ -325,6 +410,55 @@ function question(overrides = {}) {
     knowledgeKind: "capability",
     ...overrides,
   };
+}
+
+function interviewMutation(body, csrf) {
+  return new Request("https://prospector.example/api/interview", {
+    method: "POST",
+    headers: { origin: "https://prospector.example", "sec-fetch-site": "same-origin", "x-prospector-intent": "interview-mutation", "content-type": "application/json", cookie: csrf },
+    body: JSON.stringify(body),
+  });
+}
+
+function knowledgeMutation(body, csrf) {
+  return new Request("https://prospector.example/api/knowledge", {
+    method: "POST",
+    headers: { origin: "https://prospector.example", "sec-fetch-site": "same-origin", "x-prospector-intent": "knowledge-mutation", "content-type": "application/json", cookie: csrf },
+    body: JSON.stringify(body),
+  });
+}
+
+async function selectedMutationSnapshot(database) {
+  const tables = ["interview_sessions", "interview_questions", "interview_answers", "interview_confirmations", "market_plays", "knowledge_proposals", "knowledge_items", "knowledge_versions", "proposal_decisions", "offers", "authority_commands", "audit_events"];
+  return Object.fromEntries(await Promise.all(tables.map(async (table) => [table, (await database.prepare(`SELECT * FROM ${table} ORDER BY id`).all()).results])));
+}
+
+async function activateSyntheticKnowledgeGate(database, workspaceId) {
+  const gate = {
+    capability: "consensus_knowledge",
+    authorization_reference: "synthetic-handler-test-authorization",
+    target_project_deployment: "synthetic-handler-test-target",
+    reviewed_source_digest: "a".repeat(64),
+    migration_identity_status: "synthetic-greenfield-test",
+    post_migration_evidence_reference: "synthetic-handler-test-migration-evidence",
+    independent_review_reference: "synthetic-handler-test-review",
+    deployed_boundary_proof_reference: "synthetic-handler-test-boundary-proof",
+  };
+  const fields = ["capability", "authorization_reference", "target_project_deployment", "reviewed_source_digest", "migration_identity_status", "post_migration_evidence_reference", "independent_review_reference", "deployed_boundary_proof_reference"];
+  const canonical = fields.map((field) => `${field}=${gate[field]}`).join("\n");
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  const tupleDigest = Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  await database.prepare("DROP TRIGGER phase_gate_activation_disabled_insert").run();
+  await database.prepare(`INSERT INTO phase_activation_gates (
+    id,workspace_id,capability,authorization_reference,target_project_deployment,reviewed_source_digest,
+    migration_identity_status,post_migration_evidence_reference,independent_review_reference,
+    deployed_boundary_proof_reference,tuple_digest,accepted_at,created_at
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+    "synthetic-handler-selection-gate", workspaceId, gate.capability, gate.authorization_reference,
+    gate.target_project_deployment, gate.reviewed_source_digest, gate.migration_identity_status,
+    gate.post_migration_evidence_reference, gate.independent_review_reference,
+    gate.deployed_boundary_proof_reference, tupleDigest, NOW, NOW,
+  ).run();
 }
 
 function key(sequence) {

@@ -106,6 +106,7 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
     assert.deepEqual(await counts(fixture.database), noWrite, "a caller cannot forge a recommendation for an owner-input question");
 
     let sequence = 110;
+    const offerParentLifecyclesBefore = [];
     while (true) {
       const label = state.question.destination.scopeType === "customer_profile" && state.question.prompt.startsWith("What offer") ? "Offer" : "Other";
       const answer = await api.interview.submitInterviewAnswer(fixture.database, OWNER, {
@@ -114,6 +115,10 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
         reason: "Owner supplied this value explicitly for the disposable local demo.", idempotencyKey: key(sequence++),
       });
       const correctedOffer = label === "Offer" ? `Corrected offer ${sequence}` : null;
+      if (label === "Offer") {
+        const parent = await fixture.database.prepare("SELECT mp.lifecycle FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=?").bind(state.question.destination.id, api.workspace.id).first();
+        offerParentLifecyclesBefore.push(parent.lifecycle);
+      }
       state = await api.interview.recordInterviewDecision(fixture.database, OWNER, {
         answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
         expectedQuestionRevision: answer.question.revision, decision: correctedOffer ? "correct" : "accept",
@@ -128,6 +133,7 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
       assert.ok(state.question.prerequisiteKnowledge.length > 0, "later questions bind current Confirmed prerequisites");
     }
     assert.equal(await countRows(fixture.database, "offers"), 2, "one accepted Offer question materializes one Offer per Profile");
+    assert.deepEqual(offerParentLifecyclesBefore, ["draft", "active"], "two Profiles under one Market Play succeed while the second Offer binds the already-active parent revision without reactivation");
     const offers = await fixture.database.prepare("SELECT name,value_json FROM offers WHERE workspace_id=? ORDER BY created_at,id").bind(api.workspace.id).all();
     assert.ok(offers.results.every((offer) => offer.name.startsWith("Corrected offer ") && JSON.parse(offer.value_json).excerpt === offer.name), "Offer name and value use the exact corrected confirmed value");
     const plays = await fixture.database.prepare("SELECT lifecycle FROM market_plays WHERE workspace_id=? ORDER BY created_at,id").bind(api.workspace.id).all();
@@ -399,6 +405,14 @@ test("Offer confirmation fences the exact parent Market Play revision and rolls 
     assert.deepEqual(afterParent, { revision: Number(parent.revision) + 1, lifecycle: "draft" }, "only the independently simulated hierarchy drift remains");
     const pending = await fixture.database.prepare("SELECT q.status,s.state FROM interview_questions q JOIN interview_sessions s ON s.id=q.session_id AND s.workspace_id=q.workspace_id WHERE q.id=?").bind(active.question.id).first();
     assert.deepEqual(pending, { status: "answered", state: "awaiting_confirmation" }, "answer submission remains separate and retryable after the rejected confirmation");
+    await fixture.database.prepare("UPDATE market_plays SET lifecycle='retired' WHERE id=? AND workspace_id=?").bind(parent.id, api.workspace.id).run();
+    const beforeMissingParent = await decisionCounts(fixture.database);
+    await assert.rejects(api.interview.recordInterviewDecision(fixture.database, OWNER, {
+      answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
+      expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(903),
+    }), isConflict);
+    assert.deepEqual(await decisionCounts(fixture.database), beforeMissingParent, "a zero-match parent authority creates no Offer, Knowledge, decision, command, audit, or confirmation write");
+    assert.equal((await fixture.database.prepare("SELECT lifecycle FROM market_plays WHERE id=? AND workspace_id=?").bind(parent.id, api.workspace.id).first()).lifecycle, "retired");
   } finally {
     await fixture.dispose();
   }

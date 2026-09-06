@@ -612,6 +612,7 @@ export async function submitInterviewAnswer(
   database: D1Database,
   principal: InterviewPrincipal,
   input: SubmitInterviewAnswerInput,
+  selection?: InterviewSelection,
 ): Promise<InterviewState> {
   validateQuestionInput(input);
   if (!['use_recommendation', 'write_correction', 'change_scope'].includes(input.answer))
@@ -622,6 +623,7 @@ export async function submitInterviewAnswer(
     throw new InterviewConflictError("A scope change requires an explicit destination");
 
   const workspace = await ownedWorkspace(database, principal);
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
   const prior = await database.prepare(
     "SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1",
   ).bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
@@ -631,8 +633,9 @@ export async function submitInterviewAnswer(
      FROM interview_questions q JOIN interview_sessions s
        ON s.id = q.session_id AND s.workspace_id = q.workspace_id
      WHERE q.workspace_id = ? AND q.id = ? AND q.status = 'active'
-       AND s.active_question_id = q.id AND s.state = 'awaiting_answer' LIMIT 1`,
-  ).bind(workspace.id, input.questionId).first<{
+       AND s.active_question_id = q.id AND s.state = 'awaiting_answer'
+       ${selection ? "AND s.id = ?" : ""} LIMIT 1`,
+  ).bind(workspace.id, input.questionId, ...(selection ? [selection.sessionId] : [])).first<{
     id: string; revision: number; session_id: string; session_revision: number;
     scope_type: string; scope_id: string;
     prompt: string; research_json: string; recommendation: string;
@@ -667,11 +670,11 @@ export async function submitInterviewAnswer(
   const value = input.value ?? research.recommendationValue ?? { excerpt: current.recommendation };
   const operationDigest = await sha256(JSON.stringify({
     action: "submit_interview_answer", questionId: current.id, expectedRevision: input.expectedRevision,
-    answer: input.answer, value, reason: input.reason?.trim() ?? null, destination,
+    answer: input.answer, value, reason: input.reason?.trim() ?? null, destination, selection: selection ?? null,
   }));
   if (prior) {
     if (prior.operation_digest !== operationDigest) throw new InterviewConflictError("Idempotency key was used for another operation");
-    return readInterviewState(database, principal);
+    return readInterviewState(database, principal, selection);
   }
 
   // The proposal repository is the sole creator of Proposed Knowledge and its
@@ -709,10 +712,12 @@ export async function submitInterviewAnswer(
   const now = Date.now();
   try {
     await database.batch([
-      database.prepare("UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ?")
-        .bind(now, current.id, workspace.id, input.expectedRevision),
-      database.prepare("UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?")
-        .bind(now, current.session_id, workspace.id, current.session_revision),
+      database.prepare(`UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ?
+        ${selection ? "AND session_id = ?" : ""}`)
+        .bind(now, current.id, workspace.id, input.expectedRevision, ...(selection ? [selection.sessionId] : [])),
+      database.prepare(`UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?
+        ${selection ? "AND id = ?" : ""}`)
+        .bind(now, current.session_id, workspace.id, current.session_revision, ...(selection ? [selection.sessionId] : [])),
       database.prepare(`INSERT INTO interview_answers (id, workspace_id, session_id, question_id, question_revision, choice, correction_json, idempotency_key, operation_digest, proposal_json, proposal_digest, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(`ia_${identity.slice(0, 24)}`, workspace.id, current.session_id, current.id, current.revision,
@@ -726,32 +731,33 @@ export async function submitInterviewAnswer(
     const winner = await database.prepare("SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
     if (!winner || winner.operation_digest !== operationDigest) throw new InterviewConflictError("Another answer won; reload before answering");
   }
-  return readInterviewState(database, principal);
+  return readInterviewState(database, principal, selection);
 }
 
 /** Stage 2 is the only generalized path to a Knowledge Version. */
 export async function recordInterviewDecision(
-  database: D1Database, principal: InterviewPrincipal, input: RecordInterviewDecisionInput,
+  database: D1Database, principal: InterviewPrincipal, input: RecordInterviewDecisionInput, selection?: InterviewSelection,
 ): Promise<InterviewState> {
   validateIdempotencyKey(input.idempotencyKey);
   if (!['accept', 'reject', 'correct', 'rescope'].includes(input.decision)) throw new InterviewConflictError("Unknown decision");
   if ((input.decision === 'correct' || input.decision === 'rescope') && (!input.value || !input.reason?.trim())) throw new InterviewConflictError("Corrections and rescopes require a value and reason");
   if (input.decision === 'rescope' && !input.destination) throw new InterviewConflictError("A rescope requires an explicit destination");
   const workspace = await ownedWorkspace(database, principal);
+  if (selection) await requireSelectedDraftInterview(database, workspace.id, selection);
   const answer = await database.prepare(`SELECT ans.session_id, ans.question_id, ans.proposal_json, ans.proposal_digest,
       s.revision AS session_revision, s.state AS session_state, q.revision AS question_revision, q.status AS question_status FROM interview_answers ans
       JOIN interview_sessions s ON s.id = ans.session_id AND s.workspace_id = ans.workspace_id
       JOIN interview_questions q ON q.id = ans.question_id AND q.workspace_id = ans.workspace_id
-      WHERE ans.id = ? AND ans.workspace_id = ? LIMIT 1`).bind(input.answerId, workspace.id).first<{
+      WHERE ans.id = ? AND ans.workspace_id = ? ${selection ? "AND ans.session_id = ?" : ""} LIMIT 1`).bind(input.answerId, workspace.id, ...(selection ? [selection.sessionId] : [])).first<{
         session_id: string; question_id: string; proposal_json: string; proposal_digest: string; session_revision: number; session_state: string; question_revision: number; question_status: string;
       }>();
   if (!answer) throw new InterviewConflictError("This answer changed; reload before deciding");
   const snapshot = await parseGeneralizedSnapshot(answer.proposal_json, answer.proposal_digest);
-  const confirmationDigest = await sha256(stableJson({ input, proposalDigest: answer.proposal_digest }));
+  const confirmationDigest = await sha256(stableJson({ input, proposalDigest: answer.proposal_digest, selection: selection ?? null }));
   const priorConfirmation = await database.prepare("SELECT operation_digest FROM interview_confirmations WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
   if (priorConfirmation) {
     if (priorConfirmation.operation_digest !== confirmationDigest) throw new InterviewConflictError("Idempotency key was used for another decision");
-    return readInterviewState(database, principal);
+    return readInterviewState(database, principal, selection);
   }
   if (answer.session_state !== "awaiting_confirmation" || answer.question_status !== "answered" || answer.session_revision !== input.expectedSessionRevision || (input.expectedQuestionRevision !== undefined && answer.question_revision !== input.expectedQuestionRevision)) throw new InterviewConflictError("This answer changed; reload before deciding");
   if (snapshot.questionId !== answer.question_id || snapshot.questionRevision + 1 !== answer.question_revision) throw new InterviewConflictError("The stored answer lineage is stale");
@@ -781,6 +787,7 @@ export async function recordInterviewDecision(
       questionRevision: answer.question_revision,
       prerequisiteKnowledge: snapshot.prerequisiteKnowledge,
       requireMissingCurrentSlot: snapshot.requiresOwnerInput === true,
+      ...(selection ? { selectedExplore: selection } : {}),
       ...(offerParent ? { marketPlayActivation: {
         profileId: offerParent.results[0].profile_id,
         marketPlayId: offerParent.results[0].market_play_id,
@@ -822,7 +829,7 @@ export async function recordInterviewDecision(
     const existing = await database.prepare("SELECT operation_digest FROM interview_confirmations WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
     if (!existing || existing.operation_digest !== confirmationDigest) throw new InterviewConflictError("Another decision won; reload before deciding");
   }
-  return readInterviewState(database, principal);
+  return readInterviewState(database, principal, selection);
 }
 
 export async function requireSelectedDraftInterview(database: D1Database, workspaceId: string, selection: InterviewSelection) {
@@ -830,15 +837,15 @@ export async function requireSelectedDraftInterview(database: D1Database, worksp
     throw new InterviewConflictError("The selected Draft Market Play interview is invalid");
   const rows = await database.prepare(
     `SELECT s.id FROM interview_sessions s
-     JOIN market_plays mp ON mp.id = s.scope_id AND mp.workspace_id = s.workspace_id AND mp.lifecycle IN ('draft','active')
      JOIN market_play_proposal_decisions d ON d.interview_session_id = s.id AND d.workspace_id = s.workspace_id
-       AND d.draft_market_play_id = mp.id AND d.proposal_version_id = ? AND d.decision = 'explore'
+       AND d.proposal_version_id = ? AND d.decision = 'explore'
        AND json_extract(d.decision_json, '$.interview.id') = s.id
-       AND json_extract(d.decision_json, '$.interview.marketPlayId') = mp.id
        AND json_extract(d.decision_json, '$.interview.lifecycle') = 'draft'
+     JOIN market_plays mp ON mp.id = d.draft_market_play_id AND mp.workspace_id = d.workspace_id AND mp.lifecycle IN ('draft','active')
      JOIN market_play_proposal_versions v ON v.id = d.proposal_version_id AND v.workspace_id = d.workspace_id
        AND v.proposal_id = d.proposal_id
-     WHERE s.id = ? AND s.workspace_id = ? AND s.scope_type IN ('market_play','play') AND mp.id = ? LIMIT 2`,
+     WHERE s.id = ? AND s.workspace_id = ? AND mp.id = ?
+       AND json_extract(d.decision_json, '$.interview.marketPlayId') = mp.id LIMIT 2`,
   ).bind(selection.sourceProposalVersionId, selection.sessionId, workspaceId, selection.marketPlayId).all<{ id: string }>();
   if (rows.results.length !== 1) throw new InterviewConflictError("The selected Draft Market Play interview is unavailable");
 }
