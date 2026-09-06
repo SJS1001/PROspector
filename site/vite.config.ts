@@ -2,6 +2,7 @@ import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
+import { browserAcceptanceCloudflareOptions } from "./scripts/browser-acceptance-boundary.mjs";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -11,10 +12,27 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const localStatePath = process.env.PROSPECTOR_LOCAL_STATE_PATH ?? ".local/miniflare-state";
+const browserAcceptanceMarker = process.env.PROSPECTOR_BROWSER_ACCEPTANCE;
+const browserAcceptance = browserAcceptanceMarker === "1";
+const browserRuntimeRoot = process.env.PROSPECTOR_BROWSER_RUNTIME_ROOT;
 
-if (!/^\.local(?:\/[A-Za-z0-9._-]+)+$/.test(localStatePath)) {
+if (!browserAcceptance && !/^\.local(?:\/[A-Za-z0-9._-]+)+$/.test(localStatePath)) {
   throw new Error("PROSPECTOR_LOCAL_STATE_PATH must stay under .local/");
 }
+
+if (browserAcceptanceMarker !== undefined && !browserAcceptance) {
+  throw new Error("PROSPECTOR_BROWSER_ACCEPTANCE must be exactly 1 when supplied");
+}
+if (browserAcceptance !== Boolean(browserRuntimeRoot)) {
+  throw new Error("browser acceptance requires an explicit isolated runtime root");
+}
+const browserCloudflareOptions = browserAcceptance
+  ? browserAcceptanceCloudflareOptions({
+      projectRoot: import.meta.dirname,
+      runtimeRoot: browserRuntimeRoot!,
+      statePath: localStatePath,
+    })
+  : undefined;
 
 const localBindingConfig = {
   main: "./worker/index.ts",
@@ -50,6 +68,12 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    // The acceptance root contains only symlinks to the runtime inputs above.
+    // Vite and the Cloudflare plugin therefore discover no project .env,
+    // .dev.vars, .npmrc, or account configuration during this lane.
+    ...(browserAcceptance
+      ? { root: browserRuntimeRoot, envDir: browserRuntimeRoot }
+      : {}),
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
@@ -58,8 +82,9 @@ export default defineConfig(async () => {
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        persistState: { path: localStatePath },
-        config: localBindingConfig,
+        ...(browserAcceptance
+          ? browserCloudflareOptions
+          : { persistState: { path: localStatePath }, config: localBindingConfig }),
       }),
     ],
   };

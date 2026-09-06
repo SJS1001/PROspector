@@ -4,7 +4,9 @@ import test from "node:test";
 import { createServer } from "vite";
 
 const CLOSED_ACTIONS = [
-  "initialize_commercial_model",
+  "initialize_owner_workspace",
+  "create_onboarding_draft",
+  "start_onboarding_interview",
   "create_hierarchy_draft",
   "propose_owner_edit",
   "propose_repository_research",
@@ -56,6 +58,28 @@ test("the knowledge route remains trusted-identity-only and does not expose an u
   assert.match(source, /runtimeIdentity/);
   assert.doesNotMatch(source, /authenticated-user-email|request\.headers/i);
   assert.doesNotMatch(source, /multipart|formData\(|file upload|uploadFile/i);
+});
+
+test("generic onboarding is fenced to a resolver-proven local demo and exact loopback origin",async()=>{
+  const handler=await readFile(new URL("../domain/knowledge-handler.ts",import.meta.url),"utf8");
+  const route=await readFile(new URL("../app/api/knowledge/route.ts",import.meta.url),"utf8");
+  assert.match(handler,/enableLocalDemoProgression === true/);
+  assert.match(handler,/runtimeIsDevelopment\s*===\s*true/);
+  assert.match(handler,/exactLoopbackMutation\(request\)/);
+  assert.match(handler,/new URL\(origin!\)\.origin===url\.origin/);
+  assert.match(route,/runtimeIsDevelopment: import\.meta\.env\.DEV/);
+  const page=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  assert.match(page,/TRUSTED_IDENTITY_PROVIDER === "local-demo"/);
+  assert.match(page,/bindings\.LOCAL_DEMO === "1"/);
+  assert.match(page,/import\.meta\.env\.DEV/);
+  assert.match(page,/admitPilotOwner\(await runtimeIdentity/);
+});
+
+test("knowledge mutation routing cannot drop an exact Explore selection before answer or confirmation", async () => {
+  const handler = await readFile(new URL("../domain/knowledge-handler.ts", import.meta.url), "utf8");
+  assert.match(handler, /submitInterviewAnswer\(database, principal,[\s\S]{0,500}\}, selection\)/);
+  assert.match(handler, /recordInterviewDecision\(database, principal,[\s\S]{0,650}\}, selection\)/);
+  assert.match(handler, /projectionResponse\(dependencies\.database, principal, dependencies\.enableLocalDemoProgression === true, dependencies\.interviewSelection\)/);
 });
 
 test("the closed command contract names safe Proposed-only intake and rejects operational authority", () => {

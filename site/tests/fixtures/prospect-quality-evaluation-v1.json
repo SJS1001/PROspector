@@ -1,0 +1,130 @@
+{
+  "schema": "prospect-quality-evaluation/v1",
+  "datasetKind": "synthetic",
+  "protocol": {
+    "id": "synthetic-quality-protocol",
+    "revision": 1,
+    "frozenAt": "2026-09-01T00:00:00.000Z",
+    "observationStartsAt": "2026-09-02T00:00:00.000Z",
+    "observationEndsAt": "2026-09-05T00:00:00.000Z",
+    "currency": "CAD",
+    "thresholds": {
+      "minAdjudicatedTargets": 4,
+      "minRelevancePrecision": 0.75,
+      "minClosedSetRecall": 0.75,
+      "minMaterialEvidenceCoverage": 1,
+      "minEvidenceAccuracy": 0.6,
+      "minOrganizationAccuracy": 1,
+      "maxOrganizationFalseMatchRate": 0,
+      "minPersonIdentityAccuracy": 0.6,
+      "minCurrentRoleAccuracy": 0.4,
+      "minVerificationYield": 0.3,
+      "minRelevantTargetContactCoverage": 0.6,
+      "maxActiveMinutesPerUsable": 60,
+      "maxKnownCostMinorPerUsable": 200,
+      "maxAtRiskCostMinorPerUsable": 300,
+      "maxQualityRegressionVsManual": 0.2
+    }
+  },
+  "cohort": {
+    "id": "synthetic-closed-cohort",
+    "strata": ["borderline", "negative", "positive"],
+    "targets": [
+      { "id": "target-alpha", "stratum": "positive", "label": "relevant" },
+      { "id": "target-bravo", "stratum": "positive", "label": "relevant" },
+      { "id": "target-charlie", "stratum": "borderline", "label": "relevant" },
+      { "id": "target-delta", "stratum": "negative", "label": "irrelevant" }
+    ]
+  },
+  "arms": [
+    {
+      "arm": "system",
+      "effortCoverage": "complete",
+      "costCoverage": "complete",
+      "results": [
+        {
+          "id": "system-alpha",
+          "targetId": "target-alpha",
+          "surfaced": true,
+          "organizationMatch": "correct",
+          "evidence": [{ "id": "system-alpha-claim", "label": "supported_current" }],
+          "contacts": [{ "id": "system-alpha-contact", "attempted": true, "outcome": "complete", "identity": "correct", "role": "correct", "currentAffiliation": true, "eligibility": "current_eligible" }]
+        },
+        {
+          "id": "system-bravo",
+          "targetId": "target-bravo",
+          "surfaced": true,
+          "organizationMatch": "correct",
+          "evidence": [{ "id": "system-bravo-claim", "label": "supported_current" }],
+          "contacts": [
+            { "id": "system-bravo-contact-a", "attempted": true, "outcome": "no_result", "identity": null, "role": null, "currentAffiliation": null, "eligibility": "no_result" },
+            { "id": "system-bravo-contact-b", "attempted": true, "outcome": "partial", "identity": "correct", "role": "correct", "currentAffiliation": true, "eligibility": "weak" },
+            { "id": "system-bravo-contact-c", "attempted": true, "outcome": "uncertain", "identity": "unknown", "role": "unknown", "currentAffiliation": null, "eligibility": "unknown" }
+          ]
+        },
+        {
+          "id": "system-charlie",
+          "targetId": "target-charlie",
+          "surfaced": true,
+          "organizationMatch": "correct",
+          "evidence": [{ "id": "system-charlie-claim", "label": "supported_stale" }],
+          "contacts": [{ "id": "system-charlie-contact", "attempted": true, "outcome": "partial", "identity": "correct", "role": "incorrect", "currentAffiliation": true, "eligibility": "current_eligible" }]
+        },
+        { "id": "system-delta", "targetId": "target-delta", "surfaced": false, "organizationMatch": null, "evidence": [], "contacts": [] }
+      ],
+      "effort": [
+        { "id": "system-effort-alpha", "targetId": "target-alpha", "startedAt": "2026-09-02T10:00:00.000Z", "endedAt": "2026-09-02T10:20:00.000Z" },
+        { "id": "system-effort-bravo", "targetId": "target-bravo", "startedAt": "2026-09-02T10:30:00.000Z", "endedAt": "2026-09-02T10:50:00.000Z" },
+        { "id": "system-effort-charlie", "targetId": "target-charlie", "startedAt": "2026-09-02T11:00:00.000Z", "endedAt": "2026-09-02T11:20:00.000Z" }
+      ],
+      "costs": [
+        { "id": "system-cost-alpha", "targetId": "target-alpha", "outcome": "complete", "currency": "CAD", "actualMinor": 50, "unresolvedReservedMinor": 0 },
+        { "id": "system-cost-bravo", "targetId": "target-bravo", "outcome": "no_result", "currency": "CAD", "actualMinor": 40, "unresolvedReservedMinor": 0 },
+        { "id": "system-cost-charlie-a", "targetId": "target-charlie", "outcome": "partial", "currency": "CAD", "actualMinor": 60, "unresolvedReservedMinor": 0 },
+        { "id": "system-cost-charlie-b", "targetId": "target-charlie", "outcome": "uncertain", "currency": "CAD", "actualMinor": 0, "unresolvedReservedMinor": 100 }
+      ]
+    },
+    {
+      "arm": "manual",
+      "effortCoverage": "complete",
+      "costCoverage": "complete",
+      "results": [
+        {
+          "id": "manual-alpha",
+          "targetId": "target-alpha",
+          "surfaced": true,
+          "organizationMatch": "correct",
+          "evidence": [{ "id": "manual-alpha-claim", "label": "supported_current" }],
+          "contacts": [{ "id": "manual-alpha-contact", "attempted": true, "outcome": "complete", "identity": "correct", "role": "correct", "currentAffiliation": true, "eligibility": "current_eligible" }]
+        },
+        {
+          "id": "manual-bravo",
+          "targetId": "target-bravo",
+          "surfaced": true,
+          "organizationMatch": "correct",
+          "evidence": [{ "id": "manual-bravo-claim", "label": "unsupported" }],
+          "contacts": [{ "id": "manual-bravo-contact", "attempted": true, "outcome": "uncertain", "identity": "unknown", "role": "unknown", "currentAffiliation": null, "eligibility": "unknown" }]
+        },
+        { "id": "manual-charlie", "targetId": "target-charlie", "surfaced": false, "organizationMatch": null, "evidence": [], "contacts": [] },
+        {
+          "id": "manual-delta",
+          "targetId": "target-delta",
+          "surfaced": true,
+          "organizationMatch": "incorrect",
+          "evidence": [{ "id": "manual-delta-claim", "label": "supported_current" }],
+          "contacts": [{ "id": "manual-delta-contact", "attempted": true, "outcome": "partial", "identity": "incorrect", "role": "incorrect", "currentAffiliation": false, "eligibility": "invalid" }]
+        }
+      ],
+      "effort": [
+        { "id": "manual-effort-alpha", "targetId": "target-alpha", "startedAt": "2026-09-03T10:00:00.000Z", "endedAt": "2026-09-03T10:30:00.000Z" },
+        { "id": "manual-effort-bravo", "targetId": "target-bravo", "startedAt": "2026-09-03T10:40:00.000Z", "endedAt": "2026-09-03T11:10:00.000Z" },
+        { "id": "manual-effort-delta", "targetId": "target-delta", "startedAt": "2026-09-03T11:20:00.000Z", "endedAt": "2026-09-03T11:50:00.000Z" }
+      ],
+      "costs": [
+        { "id": "manual-cost-alpha", "targetId": "target-alpha", "outcome": "complete", "currency": "CAD", "actualMinor": 25, "unresolvedReservedMinor": 0 },
+        { "id": "manual-cost-bravo", "targetId": "target-bravo", "outcome": "uncertain", "currency": "CAD", "actualMinor": 0, "unresolvedReservedMinor": 50 },
+        { "id": "manual-cost-delta", "targetId": "target-delta", "outcome": "partial", "currency": "CAD", "actualMinor": 25, "unresolvedReservedMinor": 0 }
+      ]
+    }
+  ]
+}

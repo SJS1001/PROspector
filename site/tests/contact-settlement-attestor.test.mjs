@@ -51,9 +51,11 @@ test("a bound nonextractable HMAC key signs and verifies one exact canonical set
   }), false);
   assert.deepEqual(
     Reflect.ownKeys(attestor).sort(),
-    ["activeKeyId", "kind", "sign", "verify"],
+    ["activeKeyId", "kind", "sign", "verificationKeyIds", "verify"],
     "the capability exposes no CryptoKey or key ring",
   );
+  assert.deepEqual(attestor.verificationKeyIds, ["contact-attestor-2026-07"]);
+  assert.equal(Object.isFrozen(attestor.verificationKeyIds), true);
   assert.equal(key.extractable, false);
 
   const signed = await attestor.sign(material());
@@ -109,6 +111,7 @@ test("verification accepts retained verification-only keys while signing only wi
   });
   assert.ok(oldAttestor);
   assert.ok(rotated);
+  assert.deepEqual(rotated.verificationKeyIds, ["contact-attestor-new", "contact-attestor-old"], "only the sorted complete nonsecret verification identity is exposed");
 
   const oldEnvelope = await oldAttestor.sign(material());
   const newEnvelope = await rotated.sign(material());

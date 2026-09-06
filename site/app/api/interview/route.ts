@@ -8,6 +8,7 @@ import {
   handleInterviewPost,
   type InterviewHandlerDependencies,
 } from "../../../domain/interview-handler";
+import type { InterviewSelection } from "../../../domain/interview";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +43,20 @@ function dependencies(request: Request): InterviewHandlerDependencies {
     csrfCookieMode: isLocalDemoRequest(request, bindings)
       ? "local-demo"
       : "secure",
+    enableLocalDemoProgression: isLocalDemoRequest(request, bindings),
+    interviewSelection: selectionFrom(request),
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },
   };
+}
+
+function selectionFrom(request: Request): InterviewSelection | undefined {
+  const parameters = new URL(request.url).searchParams;
+  const values = {
+    sessionId: parameters.get("interviewSessionId") ?? "",
+    marketPlayId: parameters.get("marketPlayId") ?? "",
+    sourceProposalVersionId: parameters.get("sourceProposalVersionId") ?? "",
+  };
+  return Object.values(values).some(Boolean) ? values : undefined;
 }

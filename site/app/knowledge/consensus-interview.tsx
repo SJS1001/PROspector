@@ -11,8 +11,10 @@ import {
 } from "./commercial-destination-select";
 
 type QuestionProjection = Extract<InterviewState, { status: "active" }>["question"];
+type LocalProgression = NonNullable<Extract<InterviewState, { status: "confirmed" | "ready" }>["localProgression"]>;
 export type InterviewAnswerCommand = { questionId: string; expectedRevision: number; answer: "use_recommendation" | "write_correction" | "change_scope"; value?: string; reason?: string; destination?: InterviewDestination; operationKey: string };
 export type InterviewDecisionCommand = { answerId: string; expectedSessionRevision: number; expectedQuestionRevision: number; decision: "accept" | "reject" | "correct" | "rescope"; value?: string; reason?: string; destination?: InterviewDestination; operationKey: string };
+export type InterviewAdvanceCommand = { expectedQueueDigest: string; operationKey: string };
 const NO_DESTINATIONS: readonly CommercialHierarchyNode[] = [];
 
 export function ConsensusInterviewView({
@@ -22,6 +24,7 @@ export function ConsensusInterviewView({
   decisionOperationKey,
   onSubmitAnswer,
   onRecordDecision,
+  onAdvance,
   pendingAction,
   issue,
 }: {
@@ -31,6 +34,7 @@ export function ConsensusInterviewView({
   decisionOperationKey: string;
   onSubmitAnswer(command: InterviewAnswerCommand): void;
   onRecordDecision(command: InterviewDecisionCommand): void;
+  onAdvance?(command: InterviewAdvanceCommand): void;
   pendingAction?: string | null;
   issue?: "stale" | "other_tab" | "superseded" | "network_unknown" | "malformed" | null;
 }) {
@@ -48,7 +52,8 @@ export function ConsensusInterviewView({
   if (issue) return <section className="error-state" role="alert"><h2>Current authority needs checking</h2><p>{issueCopy(issue)} Use the working “Load current version” control above this view.</p></section>;
   if (state.status === "uninitialized") return <section className="panel"><h2>Interview unavailable</h2><p>Initialize the admitted commercial workspace before reviewing authority.</p></section>;
   if (state.status === "review_required") return <section className="panel" role="alert"><h2>Review required</h2><p>An earlier decision has no complete immutable snapshot. It is read-only until the workspace provides a replacement review.</p></section>;
-  if (state.status === "confirmed") return <section className="panel" aria-live="polite"><h2>Confirmed result</h2><p>Authoritative result recorded. No operational effect has been enabled.</p><dl className="confirmation-proof"><div><dt>Knowledge Version</dt><dd>{state.confirmed.knowledgeVersionId}</dd></div><div><dt>Audit reference</dt><dd>{state.confirmed.auditEventId}</dd></div><div><dt>Confirmed (Toronto)</dt><dd>{toronto(state.confirmed.confirmedAt)}</dd></div></dl></section>;
+  if (state.status === "ready") return <section className="panel" aria-live="polite"><h2>Draft Market Play interview</h2><p>The exact stored interview has been verified. Opening it granted no authority.</p>{state.localProgression?.status === "ready" && <LocalInterviewContinueControl progression={state.localProgression} pendingAction={pendingAction} onAdvance={onAdvance} />}</section>;
+  if (state.status === "confirmed") return <section className="panel" aria-live="polite"><h2>Confirmed result</h2><p>Authoritative result recorded. No operational effect has been enabled.</p><dl className="confirmation-proof"><div><dt>Knowledge Version</dt><dd>{state.confirmed.knowledgeVersionId ?? "No version created"}</dd></div><div><dt>Audit reference</dt><dd>{state.confirmed.auditEventId}</dd></div><div><dt>Confirmed (Toronto)</dt><dd>{toronto(state.confirmed.confirmedAt)}</dd></div></dl>{state.localProgression?.status === "ready" && <LocalInterviewContinueControl progression={state.localProgression} pendingAction={pendingAction} onAdvance={onAdvance} />}{state.localProgression?.status === "complete" && <p className="saved">Local interview complete: all {state.localProgression.totalSlots} hierarchy slots have an explicit owner review or current Confirmed Knowledge.</p>}</section>;
 
   const projectedDestination = resolveProjectedCommercialDestination(destinations, state.question.destination);
   if (!projectedDestination) return <section className="error-state" role="alert"><h2>Question authority could not be verified</h2><p>The projected question destination does not match the authorized commercial hierarchy. Answer and decision controls are unavailable. Load the current version.</p></section>;
@@ -82,7 +87,7 @@ export function ConsensusInterviewView({
     <h2 ref={confirmationHeading} tabIndex={-1}>Confirm submitted answer</h2>
     <p>This action is separate from answer submission and is recorded against the exact snapshot shown.</p>
     <dl className="confirmation-proof"><div><dt>Stored answer / proposal digest</dt><dd>{state.answer.operationDigest}</dd></div><div><dt>Question revision</dt><dd>{state.question.revision}</dd></div><div><dt>Destination</dt><dd>{scopeLabel(projectedDestination.scopeType)} / {projectedDestination.locator}</dd></div><div><dt>Prerequisite Knowledge Versions</dt><dd>{state.question.prerequisiteKnowledge.length}</dd></div></dl>
-    {state.question.id === "hierarchy_completion_offer" && <p>No Offer exists yet. Only Accept, Correct, or Rescope of this exact stored proposal creates the first Offer under the displayed Customer Profile. Reject creates none.</p>}
+    {state.question.knowledgeKind === "hierarchy_completion_offer" && <p>No Offer exists yet. Only Accept, Correct, or Rescope of this exact stored proposal creates the first Offer under the displayed Customer Profile. Reject creates none.</p>}
     <form onSubmit={(event) => {
       event.preventDefault();
       if (!decision || rescopeUnavailable) return;
@@ -106,6 +111,16 @@ export function ConsensusInterviewView({
   </section>;
 }
 
+export function LocalInterviewContinueControl({ progression, pendingAction, onAdvance }: {
+  progression: Extract<LocalProgression, { status: "ready" }> | LocalProgression;
+  pendingAction?: string | null;
+  onAdvance?(command: InterviewAdvanceCommand): void;
+}) {
+  if (progression.status !== "ready" || !progression.next) return null;
+  const pending = Boolean(pendingAction);
+  return <section><h3>Next owner decision</h3><p>{progression.completedSlots} of {progression.totalSlots} interview slots reviewed. Continue to {progression.next.label}: {progression.next.destination.locator}.</p><p>This local question has no generated recommendation. You must write the value and reason before it can be reviewed.</p><button className="primary" type="button" disabled={!onAdvance || pending} onClick={() => { if (!pending) onAdvance?.({ expectedQueueDigest: progression.queueDigest, operationKey: "interview-advance" }); }}>{pendingAction?.startsWith("advance:") ? "Opening next question…" : "Continue interview"}</button></section>;
+}
+
 function ActiveQuestion({ state, destinations, projectedDestination, destinationId, setDestinationId, answer, setAnswer, value, setValue, reason, setReason, operationKey, pendingAction, onSubmitAnswer }: {
   state: Extract<InterviewState, { status: "active" }>;
   destinations: readonly CommercialHierarchyNode[];
@@ -123,7 +138,8 @@ function ActiveQuestion({ state, destinations, projectedDestination, destination
   onSubmitAnswer(command: InterviewAnswerCommand): void;
 }) {
   const selectedDestination = selectedCommercialDestination(destinations, destinationId);
-  const scopeUnavailable = answer === "change_scope" && !selectedDestination;
+  const selectedAnswer = state.question.requiresOwnerInput && answer === "use_recommendation" ? "write_correction" : answer;
+  const scopeUnavailable = selectedAnswer === "change_scope" && !selectedDestination;
   return <section className="panel question-card active-question-card">
     <QuestionSnapshot question={state.question} destination={projectedDestination} />
     <h2>{state.question.prompt}</h2>
@@ -133,16 +149,16 @@ function ActiveQuestion({ state, destinations, projectedDestination, destination
       onSubmitAnswer({
         questionId: state.question.id,
         expectedRevision: state.question.revision,
-        answer,
-        ...(answer === "write_correction" ? { value: value.trim(), reason: reason.trim() } : {}),
-        ...(answer === "change_scope" && selectedDestination ? { value: selectedDestination.locator, reason: reason.trim(), destination: selectedDestination } : {}),
+        answer: selectedAnswer,
+        ...(selectedAnswer === "write_correction" ? { value: value.trim(), reason: reason.trim() } : {}),
+        ...(selectedAnswer === "change_scope" && selectedDestination ? { value: selectedDestination.locator, reason: reason.trim(), destination: selectedDestination } : {}),
         operationKey,
       });
     }}>
       <fieldset><legend>Your answer</legend>
-        {(["use_recommendation", "write_correction", "change_scope"] as const).map((choice) => <label key={choice}><input type="radio" name="interview-answer" checked={answer === choice} disabled={choice === "change_scope" && !destinations.length} onChange={() => setAnswer(choice)} />{choice === "use_recommendation" ? "Use recommendation" : choice === "write_correction" ? "Write correction" : "Change scope"}</label>)}
-        {answer === "write_correction" && <><label>Corrected value<input required value={value} onChange={(event) => setValue(event.target.value)} /></label><label>Reason<textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></label></>}
-        {answer === "change_scope" && <><CommercialDestinationSelect destinations={destinations} value={destinationId} onChange={setDestinationId} label="Confirmed destination" /><label>Reason<textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></label></>}
+        {(["use_recommendation", "write_correction", "change_scope"] as const).map((choice) => <label key={choice}><input type="radio" name="interview-answer" checked={selectedAnswer === choice} disabled={(choice === "use_recommendation" && state.question.requiresOwnerInput) || (choice === "change_scope" && !destinations.length)} onChange={() => setAnswer(choice)} />{choice === "use_recommendation" ? "Use recommendation" : choice === "write_correction" ? "Write correction" : "Change scope"}</label>)}
+        {selectedAnswer === "write_correction" && <><label>{state.question.requiresOwnerInput ? "Owner-confirmed value" : "Corrected value"}<input required value={value} onChange={(event) => setValue(event.target.value)} /></label><label>Reason<textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></label></>}
+        {selectedAnswer === "change_scope" && <><CommercialDestinationSelect destinations={destinations} value={destinationId} onChange={setDestinationId} label="Confirmed destination" /><label>Reason<textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></label></>}
       </fieldset>
       <button className="primary" type="submit" disabled={scopeUnavailable}>{pendingAction?.startsWith(`answer:${state.question.id}:`) ? "Submitting answer…" : "Submit answer for confirmation"}</button>
     </form>
@@ -154,9 +170,9 @@ function QuestionSnapshot({ question, destination }: { question: QuestionProject
   return <div className="question-authority">
     <span className="question-number">QUESTION {question.ordinal} · {scopeLabel(destination.scopeType).toUpperCase()} · REVISION {question.revision}</span>
     <p><b>Authoritative destination:</b> {scopeLabel(destination.scopeType)} / {destination.locator} · <code>{destination.id}</code></p>
-    <section><h3>Evidence</h3>{question.evidenceFindings.length ? question.evidenceFindings.map((finding) => <article key={evidenceFindingKey(finding)} className="evidence-finding">{finding.sourceTitle && <b>{finding.sourceTitle}</b>}<dl className="confirmation-proof">{finding.sourceType && <div><dt>Source type</dt><dd>{finding.sourceType}</dd></div>}{finding.sourceRef && <div><dt>Source reference</dt><dd>{finding.sourceRef}</dd></div>}{typeof finding.publishedAt === "number" && <div><dt>Published (Toronto)</dt><dd>{toronto(finding.publishedAt)}</dd></div>}{typeof finding.retrievedAt === "number" && <div><dt>Retrieved (Toronto)</dt><dd>{toronto(finding.retrievedAt)}</dd></div>}</dl><p>{finding.excerpt}</p></article>) : <p>No structured evidence findings are present in this authoritative question snapshot.</p>}</section>
+    <section><h3>Evidence</h3>{question.evidenceState.status === "present" ? <><p><b>Evidence state: Present ({question.evidenceState.findingCount}).</b> Review each structured finding below.</p>{question.evidenceFindings.map((finding) => <article key={evidenceFindingKey(finding)} className="evidence-finding">{finding.sourceTitle && <b>{finding.sourceTitle}</b>}<dl className="confirmation-proof">{finding.sourceType && <div><dt>Source type</dt><dd>{finding.sourceType}</dd></div>}{finding.sourceRef && <div><dt>Source reference</dt><dd>{finding.sourceRef}</dd></div>}{typeof finding.publishedAt === "number" && <div><dt>Published (Toronto)</dt><dd>{toronto(finding.publishedAt)}</dd></div>}{typeof finding.retrievedAt === "number" && <div><dt>Retrieved (Toronto)</dt><dd>{toronto(finding.retrievedAt)}</dd></div>}</dl><p>{finding.excerpt}</p></article>)}</> : <p><b>Evidence state: Missing.</b> No structured evidence findings are present in this authoritative question snapshot. Supply owner knowledge explicitly; nothing is silently inferred or confirmed.</p>}</section>
     <section><h3>Inference</h3>{question.inferenceDetail ? <><b>{question.inferenceDetail.label}</b><p>{question.inferenceDetail.value}</p></> : <p>No structured inference is present in this authoritative question snapshot.</p>}</section>
-    <section className="recommendation"><h3>Recommendation</h3>{question.recommendationDetail ? <><p>{question.recommendationDetail.rationale}</p>{question.recommendationDetail.value && <p><b>Recommended value:</b> {question.recommendationDetail.value.excerpt}</p>}</> : <p>No structured recommendation is present in this authoritative question snapshot.</p>}</section>
+    <section className="recommendation"><h3>Recommendation</h3>{question.requiresOwnerInput ? <p>No recommendation was generated. Owner input is required.</p> : question.recommendationDetail ? <><p>{question.recommendationDetail.rationale}</p>{question.recommendationDetail.value && <p><b>Recommended value:</b> {question.recommendationDetail.value.excerpt}</p>}</> : <p>No structured recommendation is present in this authoritative question snapshot.</p>}</section>
     <section><h3>Prerequisite Knowledge Versions</h3>{question.prerequisiteKnowledge.length ? <ul>{question.prerequisiteKnowledge.map((item) => <li key={`${item.id}:${item.digest}`}><code>{item.id}</code> · <code>{item.digest}</code></li>)}</ul> : <p>None recorded for this question snapshot.</p>}</section>
   </div>;
 }

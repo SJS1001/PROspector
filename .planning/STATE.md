@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Stage 3B exact-owner reusable policy saved and verified; All traffic and one-hour Worker attachment awaits confirmation and remains unapplied
-last_updated: "2026-09-04"
-last_activity: 2026-09-04
+stopped_at: Offline work units A, B, and C1-C4 integrated and verified; Work Unit D operator interface is next while hosted Stage 3B attachment remains separately gated
+last_updated: "2026-09-06"
+last_activity: 2026-09-06
 progress:
   total_phases: 7
   completed_phases: 1
@@ -16,12 +16,15 @@ progress:
 
 # Project State
 
-**Offline implementation update (2026-09-04):** The owner authorized a separate
-cloud implementation wave while hosted/preflight gates remain held. Its recovered
-integration and review ledger is `docs/implementation-lanes/2026-09-04-recovered-integration.md`
-on `codex/cloud-wave1-integration`. PR #2 is merged into the recorded main base;
-older references to an open draft are historical. No plan credit or hosted
-checkpoint is advanced by this candidate. Resume that ledger for local work.
+**Offline implementation update (2026-09-06):** Work units A, B, and C1 through C4 plus the
+prerequisite `0018` importer normalization are integrated on the
+generic-onboarding branch. The person-discovery 47-case focused gate, the
+Offer/interview 35-case focused gate, and the real two-case Chromium onboarding
+journey are green; independent integration/code/security reviews are clean.
+The full-chain C4 Chromium journey and exact zero-effect verifier are green;
+Work Unit D is next. This work earns no Phase 5 plan credit and changes no
+hosted/provider/effect authority. The current transfer ledger is
+`docs/implementation-lanes/2026-09-06-claude-cloud-transfer.md`.
 
 ## Project Reference
 

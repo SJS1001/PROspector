@@ -28,4 +28,4 @@ for (const migration of MIGRATIONS) {
 }
 const check = spawnSync(resolve(ROOT, "node_modules", ".bin", "wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", STATE, "--config", "wrangler.local.jsonc", "--command", "PRAGMA foreign_key_check;"], { encoding: "utf8" });
 if (check.status !== 0 || /\"results\":\[\[[^\]]/.test(check.stdout)) throw new Error("local_foreign_key_check_failed");
-console.log(JSON.stringify({ status: "ready", state: ".local/miniflare-state", migrationCount: MIGRATIONS.length, disposable: true }));
+console.log(JSON.stringify({ status: "ready", state: STATE, migrationCount: MIGRATIONS.length, disposable: true }));

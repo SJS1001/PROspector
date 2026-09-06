@@ -79,6 +79,7 @@ export async function initializeCommercialModel(
   }
 
   const company = await ensureCompany(database, workspace, now);
+  await database.prepare("INSERT INTO workspace_companies (workspace_id, company_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM workspace_companies WHERE workspace_id = ?)").bind(workspace.id, company.id, now, workspace.id).run();
   const product = await ensureProduct(database, workspace.id, company.id, "ONE", now);
   const play = await ensurePlay(database, workspace.id, product.id, "ONE for Mining", now);
   await ensureProfile(database, workspace.id, play.id, "Operating", now);
@@ -115,7 +116,7 @@ export async function readCommercialModel(database: D1Database, principal: Inter
 export async function createHierarchyDraft(
   database: D1Database,
   principal: InterviewPrincipal,
-  input: { type: DraftType | "offer"; parentId: string; name: string; expectedRevision: number; idempotencyKey: string; productFundamentalsDiverge?: boolean },
+  input: { type: DraftType | "offer"; parentId: string; name: string; expectedRevision: number; idempotencyKey: string; productFundamentalsDiverge?: boolean; requireFirstChild?: boolean },
 ): Promise<CommercialHierarchyNode> {
   validateKey(input.idempotencyKey);
   if (input.type === "offer") throw new CommercialModelConflictError("Offers require confirmed hierarchy-interview authority");
@@ -125,7 +126,7 @@ export async function createHierarchyDraft(
   const parent = await parentForDraft(database, workspace.id, input.type, input.parentId);
   if (!parent) throw new CommercialModelConflictError("Parent is outside the authorized workspace or scope");
   if (parent.revision !== input.expectedRevision) throw new CommercialModelConflictError("Stale parent revision");
-  const digest = await digestFor({ action: "create_hierarchy_draft", workspaceId: workspace.id, type: input.type, parentId: parent.id, expectedRevision: input.expectedRevision, name, key: input.idempotencyKey });
+  const digest = await digestFor({ action: "create_hierarchy_draft", workspaceId: workspace.id, type: input.type, parentId: parent.id, expectedRevision: input.expectedRevision, name, requireFirstChild:input.requireFirstChild===true, key: input.idempotencyKey });
   const prior = await commandForKey(database, workspace.id, input.idempotencyKey);
   if (prior) {
     if (prior.operation_digest !== digest) throw new CommercialModelConflictError("Idempotency key was reused for another command");
@@ -134,6 +135,9 @@ export async function createHierarchyDraft(
     throw new CommercialModelConflictError("Idempotent draft is incomplete");
   }
   const id = v7(); const commandId = v7(); const auditId = v7(); const now = Date.now();
+  const childTable=input.type==="product"?"products":input.type==="market_play"?"market_plays":"customer_profiles";
+  const childParent=input.type==="product"?"company_id":input.type==="market_play"?"product_id":"play_id";
+  const firstChildGuard=input.requireFirstChild===true?`AND NOT EXISTS (SELECT 1 FROM ${childTable} child WHERE child.workspace_id = ? AND child.${childParent} = ? )`:"";
   const insert = input.type === "product"
     ? database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)").bind(id, workspace.id, now, now, parent.id, name, commandId, workspace.id)
     : input.type === "market_play"
@@ -141,8 +145,8 @@ export async function createHierarchyDraft(
       : database.prepare("INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft', 'UTC', 0 WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)").bind(id, workspace.id, now, now, parent.id, name, commandId, workspace.id);
   try {
     await database.batch([
-      database.prepare(`INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'accepted' WHERE EXISTS (SELECT 1 FROM ${parent.table} WHERE id = ? AND workspace_id = ? AND revision = ?)`)
-        .bind(commandId, workspace.id, now, now, `commercial.create_${input.type}`, input.idempotencyKey, digest, input.expectedRevision, parent.type, parent.id, parent.id, workspace.id, input.expectedRevision),
+      database.prepare(`INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'accepted' WHERE EXISTS (SELECT 1 FROM ${parent.table} WHERE id = ? AND workspace_id = ? AND revision = ?) ${firstChildGuard}`)
+        .bind(commandId, workspace.id, now, now, `commercial.create_${input.type}`, input.idempotencyKey, digest, input.expectedRevision, parent.type, parent.id, parent.id, workspace.id, input.expectedRevision, ...(input.requireFirstChild===true?[workspace.id,parent.id]:[])),
       insert,
       database.prepare(`INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) SELECT ?, ?, 'owner', ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ${input.type === "product" ? "products" : input.type === "market_play" ? "market_plays" : "customer_profiles"} WHERE id = ? AND workspace_id = ?)`)
         .bind(auditId, workspace.id, principal.subject, "commercial.draft_created", input.type, id, JSON.stringify({ commandId, digest }), now, id, workspace.id),
