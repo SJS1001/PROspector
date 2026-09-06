@@ -21,7 +21,7 @@ export type PersonDiscoveryAssignment = Readonly<{
 }>;
 
 export type PersonDiscoveryPort = Readonly<{
-  kind: "test_injected";
+  kind: "test_injected" | "synthetic_acceptance";
   discover(assignment: PersonDiscoveryAssignment, signal: AbortSignal): Promise<unknown>;
 }>;
 

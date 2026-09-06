@@ -575,8 +575,10 @@ function integerBetween(value: unknown, min: number, max: number): value is numb
 function safeNow(value: number): number { if (!safeTimestamp(value)) throw new TypeError("invalid_person_discovery_clock"); return value; }
 function isConstraintError(error: unknown): boolean { return error instanceof Error && /SQLITE_CONSTRAINT|constraint failed|invalid person discovery|invalid contact verification/u.test(error.message); }
 function isTestPersonDiscoveryPort(value: unknown): value is PersonDiscoveryPort {
-  if (import.meta.env.PROD || !record(value) || value.kind !== "test_injected" || typeof value.discover !== "function") return false;
-  return (value as Record<PropertyKey, unknown>)[Symbol.for("prospector.person-discovery.test-port")] === true;
+  if (import.meta.env.PROD || !record(value) || typeof value.discover !== "function") return false;
+  if (value.kind === "test_injected") return (value as Record<PropertyKey, unknown>)[Symbol.for("prospector.person-discovery.test-port")] === true;
+  return value.kind === "synthetic_acceptance"
+    && (value as Record<PropertyKey, unknown>)[Symbol.for("prospector.person-discovery.c4-acceptance")] === "synthetic-zero-network-c4-v1";
 }
 
 function acceptedDiscovery(run: DiscoveryRunRecord, replayed: boolean): PersonDiscoveryResult { return Object.freeze({ kind: "accepted", run, replayed }); }

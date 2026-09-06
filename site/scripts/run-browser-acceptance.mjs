@@ -51,6 +51,7 @@ const childEnvironment = scrubbedBrowserEnvironment({
   PROSPECTOR_BROWSER_ARTIFACTS: artifactRoot,
   PROSPECTOR_BROWSER_ORIGIN: `http://127.0.0.1:${port}`,
   PROSPECTOR_BROWSER_ACCEPTANCE: "1",
+  PROSPECTOR_BROWSER_LANE: "onboarding",
   PROSPECTOR_BROWSER_RUNTIME_ROOT: runtimeRoot,
   WRANGLER_SEND_METRICS: "false",
   WRANGLER_WRITE_LOGS: "false",
