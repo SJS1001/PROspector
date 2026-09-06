@@ -43,6 +43,13 @@ acceptance evidence and not permission to consume the canonical preflight lane.
   view, discarding that interview identity. Revise the existing B branch so the
   route selects the exact server-validated interview without granting authority,
   and prove that a competing newer/open session cannot redirect the handoff.
+  A second authority review found that Offer confirmation performs an unchecked
+  parent Market Play `draft` to `active` update without binding the Play's exact
+  revision or requiring a dedicated auditable activation result. Reproduce
+  hierarchy drift between answer and confirmation, then either use an existing
+  explicit activation flow or bind and atomically enforce the exact parent
+  lifecycle transition. Stale or zero-match activation must leave no Offer,
+  Knowledge, decision, audit, or lifecycle partial write.
 
 The actual cloud task records are `6a9cbc45-99ac-83ea-af1b-5504b4727805`
 (A) and `6a9cbc41-c2b8-83ea-a05e-d617b684c4f4` (B). They are coordination
