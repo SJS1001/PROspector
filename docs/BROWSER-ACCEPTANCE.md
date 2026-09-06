@@ -45,6 +45,12 @@ Worker binding allowlist and does not forward provider or Cloudflare
 credentials. Ordinary `npm run dev` behavior is unchanged outside this explicit
 acceptance mode.
 
+`node scripts/run-browser-acceptance.mjs --admission-only` is the narrow
+diagnostic regression for the same generated runtime, server launcher, and real
+Chromium path. It requires `/api/interview` to admit the single fixed synthetic
+owner and then runs the incomplete zero-effect check; it does not claim the full
+onboarding journey passed.
+
 After the browser closes, `verify-browser-zero-effects.mjs` opens the persisted
 SQLite file read-only, requires exactly one synthetic workspace and confirmed
 fit version, and proves every operational table covered by the authoritative

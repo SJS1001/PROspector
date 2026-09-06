@@ -41,6 +41,8 @@ test("browser tooling is exact-pinned and retains only synthetic failure screens
   assert.ok(spec.includes('"vite", "bin", "vite.js"'), "the acceptance server must launch Vite with Node, not npm or Vinext's dotenv-loading CLI");
   assert.equal(spec.includes('spawn("npm"'), false, "npm config discovery is outside the acceptance lane");
   assert.equal(spec.includes('"vinext", "dist", "cli.js"'), false, "Vinext's CLI performs project dotenv discovery before Vite config loads");
+  assert.ok(spec.includes('fetch(`${origin}/api/interview`)'), "server readiness must require admitted runtime identity");
+  assert.ok(spec.includes("expect(admitted.status()).toBe(200)"), "the browser contract must assert admission before onboarding");
   for (const forbidden of ["storageState", "recordHar", "context.cookies(", "page.screenshot(", "https://github.com", "cloudflare.com"]) {
     assert.equal(spec.includes(forbidden), false, forbidden);
   }
@@ -52,8 +54,9 @@ test("browser tooling is exact-pinned and retains only synthetic failure screens
   assert.equal(runner.includes('["PATH", "HOME"'), false, "the caller home must never be forwarded");
   assert.equal(runner.includes('process.env.PLAYWRIGHT_BROWSERS_PATH'), false, "the caller browser-cache path must never be discovered");
   assert.ok(runner.includes("const state = browserAcceptanceStatePath(stateRoot)"));
+  assert.ok(runner.includes('"acceptance runtime admits the fixed synthetic owner"'));
   assert.ok(runner.includes('["scripts/local-bootstrap.mjs", "--reset", "--state", state]'));
-  assert.ok(runner.includes('["scripts/verify-browser-zero-effects.mjs", "--state", state]'));
+  assert.ok(runner.includes('"scripts/verify-browser-zero-effects.mjs", "--state", state'));
 
   const viteConfig = await readFile(resolve(root, "vite.config.ts"), "utf8");
   for (const contract of ["root: browserRuntimeRoot, envDir: browserRuntimeRoot", "browserAcceptanceCloudflareOptions", "statePath: localStatePath"]) {
@@ -83,6 +86,7 @@ test("hostile project and global config cannot enter the acceptance runtime or c
     }
     const generatedConfig = JSON.parse(await readFile(resolve(runtimeRoot, BROWSER_ACCEPTANCE_CONFIG), "utf8"));
     assert.deepEqual(generatedConfig.vars, BROWSER_ACCEPTANCE_BINDINGS);
+    assert.equal(generatedConfig.vars.PILOT_OWNER_EMAIL, "local-owner@prospector.invalid");
     assert.deepEqual(generatedConfig.secrets, {});
     const cloudflareOptions = browserAcceptanceCloudflareOptions({
       projectRoot: root,

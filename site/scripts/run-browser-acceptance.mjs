@@ -10,6 +10,8 @@ import {
 } from "./browser-acceptance-boundary.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const admissionOnly = process.argv.length === 3 && process.argv[2] === "--admission-only";
+if (process.argv.length > (admissionOnly ? 3 : 2)) throw new Error("unsupported_browser_acceptance_option");
 const localRoot = resolve(root, ".local");
 await mkdir(localRoot, { recursive: true });
 const stateRoot = await mkdtemp(resolve(localRoot, "browser-acceptance-state-"));
@@ -62,10 +64,15 @@ let passed = false;
 let failure;
 try {
   await run(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", state], childEnvironment);
-  await run(resolve(root, "node_modules", ".bin", "playwright"), ["test", "--config", "playwright.config.ts"], childEnvironment);
-  await run(process.execPath, ["scripts/verify-browser-zero-effects.mjs", "--state", state], childEnvironment);
+  const playwrightArguments = ["test", "--config", "playwright.config.ts"];
+  if (admissionOnly) playwrightArguments.push("--grep", "acceptance runtime admits the fixed synthetic owner");
+  await run(resolve(root, "node_modules", ".bin", "playwright"), playwrightArguments, childEnvironment);
+  await run(process.execPath, [
+    "scripts/verify-browser-zero-effects.mjs", "--state", state,
+    ...(admissionOnly ? ["--allow-incomplete"] : []),
+  ], childEnvironment);
   passed = true;
-  process.stdout.write("browser acceptance passed\n");
+  process.stdout.write(admissionOnly ? "browser acceptance admission passed\n" : "browser acceptance passed\n");
 } catch (error) {
   failure = error;
   try {

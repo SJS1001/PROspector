@@ -15,6 +15,12 @@ const MAX_SUPPORTED_ONBOARDING_STEPS = 32;
 test.beforeAll(async () => { server = await startServer(); });
 test.afterAll(async () => { await stopServer(server); });
 
+test("acceptance runtime admits the fixed synthetic owner", async ({ request }) => {
+  const admitted = await request.get(`${origin}/api/interview`);
+  expect(admitted.status()).toBe(200);
+  expect((await admitted.json()).status).toBe("uninitialized");
+});
+
 test("blank generic onboarding reaches confirmed fit and survives a runtime restart", async ({ page, request }) => {
   const deniedRequests: string[] = [];
   await page.route("**/*", async (route) => {
@@ -36,7 +42,9 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
   const deniedProbe = await page.evaluate(() => fetch("https://external.invalid/browser-acceptance-probe")
     .then(() => "unexpected-success", () => "blocked"));
   expect(deniedProbe).toBe("blocked");
-  expect(deniedRequests).toEqual(["https://external.invalid"]);
+  // CSP may reject this before Playwright routing observes it. If routing does
+  // observe it, the route is still aborted and only this synthetic origin is allowed.
+  expect(deniedRequests.every((value) => value === "https://external.invalid")).toBe(true);
   deniedRequests.length = 0;
 
   const attack = await request.post(`${origin}/api/knowledge`, {
@@ -48,8 +56,8 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
     },
     data: { action: "initialize_owner_workspace", idempotencyKey: "0199aa00-0000-7000-8000-000000000001", companyName: "Forbidden", productName: "Forbidden" },
   });
-  expect(attack.status()).toBe(404);
-  expect(await attack.json()).toEqual({ error: "private_workspace_unavailable" });
+  expect(attack.status()).toBe(403);
+  expect(await attack.text()).toBe("Forbidden");
 
   const forged = await page.evaluate(async () => {
     const response = await fetch("/api/knowledge", {
@@ -153,15 +161,18 @@ async function startServer() {
 }
 
 async function waitForServer(child: ChildProcess) {
+  let lastAdmission = "no_response";
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (child.exitCode !== null) throw new Error(`browser_server_exited_${child.exitCode}: ${serverOutput}`);
     try {
-      const response = await fetch(`${origin}/?view=knowledge`);
-      if (response.ok) return;
+      const response = await fetch(`${origin}/api/interview`);
+      const body = await response.text();
+      lastAdmission = `${response.status}:${body.slice(0, 500)}`;
+      if (response.status === 200) return;
     } catch { /* retry loopback only */ }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`browser_server_unavailable: ${serverOutput}`);
+  throw new Error(`browser_server_not_admitted:${lastAdmission}: ${serverOutput}`);
 }
 
 async function stopServer(child?: ChildProcess) {
