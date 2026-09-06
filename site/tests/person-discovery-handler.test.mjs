@@ -38,6 +38,7 @@ test("C2 admits only the owner, derives discovery authority server-side, and pro
     const secondPayload = await second.json();
     assert.equal(secondPayload.people.items.length, 1);
     const allItems = [...payload.people.items, ...secondPayload.people.items];
+    assert.ok(allItems.every((item) => !("candidateDigest" in item)), "internal candidate digests do not cross the client boundary");
     assert.deepEqual(allItems.map((item) => item.ordinal).sort((a, b) => a - b), [0, 1, 2, 3, 4, 5], "candidate ordinals are exactly zero-based across the bounded result");
     assert.deepEqual(allItems.find((item) => item.ordinal === 0).provenance, { sourceReference: "https://example.invalid/team/0", excerpt: "Synthetic public role listing", retrievedAt: PERSON_DISCOVERY_NOW });
     const tampered = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=x${payload.people.pageInfo.nextCursor}`), dependencies);
@@ -58,7 +59,7 @@ test("C2 admits only the owner, derives discovery authority server-side, and pro
     const terminalPayload = await terminal.json();
     assert.deepEqual(terminalPayload.history.decisions, [{ decisionId: terminalPayload.history.decisions[0].decisionId, runId: payload.people.runId, prospectId: fixture.prospectId, decision: "no_match", candidateId: null, contactId: null }]);
     assert.deepEqual(terminalPayload.history.relevance, [], "a no-match result exposes no verification authority");
-    assert.deepEqual(terminalPayload.history.verificationIntents, []);
+    assert.equal("verificationIntents" in terminalPayload.history, false);
     assert.deepEqual(terminalPayload.history.staleTrustedObservations, []);
 
     const bad = await handler.handlePersonDiscoveryPost(mutation({ ...body, idempotencyKey: "person-discovery-handler-bad", workspaceId: "forged" }, csrfCookie(await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), dependencies))), dependencies);
@@ -555,7 +556,7 @@ test("C3 initial read minimizes scoped history and current-authority drift remov
     const initial = await setup.handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), setup.dependencies);
     const initialPayload = await initial.json();
     assert.deepEqual(initialPayload.linkableContacts, []);
-    assert.deepEqual(initialPayload.history, { runs: [], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] });
+    assert.deepEqual(initialPayload.history, { runs: [], decisions: [], relevance: [], staleTrustedObservations: [] });
     const initialText = JSON.stringify(initialPayload);
     for (const identifier of [persisted.run_id, persisted.decision_id, persisted.relevance_id, persisted.contact_id, persisted.intent_id]) assert.equal(initialText.includes(identifier), false, `initial selector response excludes unrelated ${identifier}`);
     assert.equal(persisted.source_observation_id, null, "the synthetic initial intent has no source observation identifier to project");
@@ -568,7 +569,8 @@ test("C3 initial read minimizes scoped history and current-authority drift remov
     assert.deepEqual(Object.keys(currentPayload.history.relevance[0]).sort(), ["contactId", "contactLabel", "contactRevision", "current", "decisionId", "prospectId", "relevanceId", "roleTitle", "verificationChannels"].sort());
     assert.equal(currentPayload.history.relevance[0].current, true);
     assert.deepEqual(currentPayload.history.relevance[0].verificationChannels, ["email", "phone"]);
-    assert.deepEqual(currentPayload.history.verificationIntents[0], { intentId: currentPayload.history.verificationIntents[0].intentId, relevanceId: persisted.relevance_id, intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" });
+    assert.equal("verificationIntents" in currentPayload.history, false, "persisted verification-intent identifiers do not cross the client boundary");
+    assert.equal(JSON.stringify(currentPayload).includes(persisted.intent_id), false);
     await fixture.database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'c3-duplicate-name-contact',workspace_id,?,?,1,company_id,?,display_name FROM contacts WHERE id=? AND workspace_id=?").bind(PERSON_DISCOVERY_NOW + 150, PERSON_DISCOVERY_NOW + 150, "6".repeat(64), persisted.contact_id, fixture.workspaceId).run();
     const duplicated = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
     const duplicatedPayload = await duplicated.json();
@@ -597,14 +599,14 @@ test("C3 initial read minimizes scoped history and current-authority drift remov
     assert.equal(noMatchPayload.history.decisions.length, 1);
     assert.equal(noMatchPayload.history.decisions[0].decision, "no_match");
     assert.deepEqual(noMatchPayload.history.relevance, [], "an older current-lineage relevance is not projected after the latest run records no-match");
-    assert.deepEqual(noMatchPayload.history.verificationIntents, []);
+    assert.equal("verificationIntents" in noMatchPayload.history, false);
     assert.deepEqual(noMatchPayload.history.staleTrustedObservations, []);
 
     const company = await fixture.database.prepare("SELECT company_id FROM workspace_companies WHERE workspace_id=? LIMIT 1").bind(fixture.workspaceId).first();
     await fixture.database.prepare("UPDATE companies SET status='paused' WHERE id=? AND workspace_id=?").bind(company.company_id, fixture.workspaceId).run();
     const drifted = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
     const driftedPayload = await drifted.json();
-    assert.deepEqual(driftedPayload.history, { runs: [], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] });
+    assert.deepEqual(driftedPayload.history, { runs: [], decisions: [], relevance: [], staleTrustedObservations: [] });
     assert.deepEqual(driftedPayload.linkableContacts, []);
     assert.equal(JSON.stringify(driftedPayload).includes(persisted.relevance_id), false, "old relevance never crosses the client boundary after ancestor drift");
     assert.equal(JSON.stringify(driftedPayload).includes(persisted.intent_id), false);

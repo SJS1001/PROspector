@@ -10,22 +10,22 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const digest = "a".repeat(64);
 const hexDigest = (index) => index.toString(16).padStart(64, "0");
-const candidate = (ordinal = 0) => ({ candidateId: `person-suggestion-${ordinal}`, ordinal, displayName: "Synthetic person", roleTitle: "Operations lead", roleSummary: "Owns site operations", candidateDigest: hexDigest(ordinal + 1), provenance: { sourceReference: "Synthetic public listing", excerpt: "Synthetic bounded evidence", retrievedAt: 1700000000000 }, state: "suggestion_not_contact", eligible: false });
+const candidate = (ordinal = 0) => ({ candidateId: `person-suggestion-${ordinal}`, ordinal, displayName: "Synthetic person", roleTitle: "Operations lead", roleSummary: "Owns site operations", provenance: { sourceReference: "Synthetic public listing", excerpt: "Synthetic bounded evidence", retrievedAt: 1700000000000 }, state: "suggestion_not_contact", eligible: false });
 const page = (items = []) => ({ limit: 5, returned: items.length, hasNext: false, nextCursor: null });
 const run = { runId: "run-current", prospectId: "approved-prospect", state: "completed", resultDigest: digest };
 const decision = (kind = "create_new") => ({ decisionId: `decision-${kind}`, runId: "run-current", prospectId: "approved-prospect", decision: kind, candidateId: kind === "no_match" ? null : "person-suggestion-0", contactId: kind === "no_match" ? null : "existing-contact" });
 const relevance = { relevanceId: "relevance-current", prospectId: "approved-prospect", contactId: "existing-contact", contactRevision: 4, contactLabel: "Synthetic person · contact_0001", decisionId: "decision-create_new", roleTitle: "Operations lead", current: true, verificationChannels: ["email", "phone"] };
-const emptyHistory = () => ({ runs: [], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] });
+const emptyHistory = () => ({ runs: [], decisions: [], relevance: [], staleTrustedObservations: [] });
 const initialProjection = () => ({ capability: "test_composed_only", approvedProspects: [{ prospectId: "approved-prospect", prospectRevision: 3, label: "Approved prospect · ed_prospect1 · reviewed 2026-09-06", knownPerson: false }], linkableContacts: [], people: { runId: null, status: "not_started", items: [], pageInfo: page() }, history: emptyHistory() });
 const discoveryProjection = (overrides = {}) => ({
   capability: "test_composed_only",
   approvedProspects: [{ prospectId: "approved-prospect", prospectRevision: 3, label: "Approved prospect · ed_prospect1 · reviewed 2026-09-06", knownPerson: false }],
   linkableContacts: [{ contactId: "existing-contact", contactRevision: 4, label: "Synthetic person · contact_0001" }],
   people: { runId: "run-current", resultDigest: digest, status: "completed", items: [candidate(0)], pageInfo: page([candidate(0)]) },
-  history: { runs: [run], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] },
+  history: { runs: [run], decisions: [], relevance: [], staleTrustedObservations: [] },
   ...overrides,
 });
-const verificationProjection = (overrides = {}) => ({ ...discoveryProjection(), approvedProspects: [{ ...discoveryProjection().approvedProspects[0], knownPerson: true }], history: { runs: [run], decisions: [decision()], relevance: [relevance], verificationIntents: [], staleTrustedObservations: [{ sourceObservationId: "stale-observation", relevanceId: "relevance-current", channel: "email", verifiedAt: 1600000000000, status: "stale" }] }, ...overrides });
+const verificationProjection = (overrides = {}) => ({ ...discoveryProjection(), approvedProspects: [{ ...discoveryProjection().approvedProspects[0], knownPerson: true }], history: { runs: [run], decisions: [decision()], relevance: [relevance], staleTrustedObservations: [{ sourceObservationId: "stale-observation", relevanceId: "relevance-current", channel: "email", verifiedAt: 1600000000000, status: "stale" }] }, ...overrides });
 async function module() { const vite = await createServer({ configFile: false, logLevel: "silent", plugins: [{ name: "jsx", enforce: "pre", config: () => ({ esbuild: { jsx: "automatic" } }) }] }); const ui = await vite.ssrLoadModule(new URL("../app/prospects/person-discovery-workspace.tsx", import.meta.url).pathname); return { vite, ui }; }
 const response = (value, status = 200) => Response.json(value, { status });
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); }); }
@@ -41,22 +41,24 @@ test("C3 accepts ordinal zero and bounded safe projection data while rejecting a
     const parsed = ui.normalizePersonDiscoveryProjection(discoveryProjection());
     assert.equal(parsed.people.items[0].ordinal, 0, "canonical first candidate ordinal is zero");
     assert.equal(parsed.people.items[0].eligible, false);
+    assert.equal("candidateDigest" in parsed.people.items[0], false);
     assert.equal(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: [candidate(20)] } })), null, "ordinal 20 is outside 0..19");
     assert.equal(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: [{ ...candidate(), eligible: true }] } })), null);
     assert.equal(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: [{ ...candidate(), contactId: "forged-contact" }] } })), null);
+    assert.equal(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: [{ ...candidate(), candidateDigest: digest }] } })), null);
     const html = renderToStaticMarkup(React.createElement(ui.PersonDiscoveryWorkspace));
     for (const expected of ["person-discovery-heading", "aria-live", "Find suitable people", "Approved prospect"]) assert.match(html, new RegExp(expected));
   } finally { await vite.close(); }
 });
 
-test("C3 validates exact projection shape, cardinality, identifiers, references, and intent history", async () => {
+test("C3 validates exact projection shape, cardinality, identifiers, and references", async () => {
   const { vite, ui } = await module();
   try {
-    assert.ok(ui.normalizePersonDiscoveryProjection(verificationProjection({ history: { ...verificationProjection().history, verificationIntents: [{ intentId: "intent-current", relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" }] } })));
     assert.ok(ui.normalizePersonDiscoveryProjection(initialProjection()));
+    assert.ok(ui.normalizePersonDiscoveryProjection(verificationProjection({ linkableContacts: [] })), "current relevance may refer to a Contact outside the bounded linkable window");
     for (const state of ["requested", "needs_reconciliation"]) {
       const resultDigest = state === "requested" ? null : digest;
-      assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { runId: "run-current", resultDigest, status: state, items: [], pageInfo: page() }, history: { runs: [{ ...run, state, resultDigest }], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] } })));
+      assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { runId: "run-current", resultDigest, status: state, items: [], pageInfo: page() }, history: { runs: [{ ...run, state, resultDigest }], decisions: [], relevance: [], staleTrustedObservations: [] } })));
     }
     assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { runId: null, status: "stale_authority", items: [], pageInfo: page() }, history: emptyHistory() })));
     for (const count of [0, 5]) assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: Array.from({ length: count }, (_, index) => candidate(index)), pageInfo: page(Array.from({ length: count })) } })));
@@ -71,7 +73,8 @@ test("C3 validates exact projection shape, cardinality, identifiers, references,
       discoveryProjection({ linkableContacts: [discoveryProjection().linkableContacts[0], discoveryProjection().linkableContacts[0]] }),
       discoveryProjection({ linkableContacts: [discoveryProjection().linkableContacts[0], { ...discoveryProjection().linkableContacts[0], contactId: "second-contact" }] }),
       verificationProjection({ history: { ...verificationProjection().history, relevance: [relevance, { ...relevance }] } }),
-      verificationProjection({ history: { ...verificationProjection().history, verificationIntents: [{ intentId: "intent-bad", relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: "impossible", effect: "intent_only" }] } }),
+      verificationProjection({ history: { ...verificationProjection().history, relevance: [{ ...relevance, contactRevision: 5 }] } }),
+      verificationProjection({ history: { ...verificationProjection().history, verificationIntents: [] } }),
       verificationProjection({ history: { ...verificationProjection().history, relevance: [{ ...relevance, current: false }] } }),
       discoveryProjection({ approvedProspects: twoProspects, history: { ...discoveryProjection().history, decisions: [{ ...decision("no_match"), prospectId: "approved-prospect-2" }] } }),
       verificationProjection({ approvedProspects: twoKnownProspects, history: { ...verificationProjection().history, relevance: [{ ...relevance, prospectId: "approved-prospect-2" }] } }),
@@ -91,7 +94,6 @@ test("C3 validates exact projection shape, cardinality, identifiers, references,
       discoveryProjection({ history: { ...discoveryProjection().history, runs: [run, ...extra(50, (index) => ({ runId: `run-${index}`, prospectId: "approved-prospect", state: "completed", resultDigest: hexDigest(index + 1) }))] } }),
       discoveryProjection({ history: { ...discoveryProjection().history, decisions: extra(51, (index) => ({ ...decision(), decisionId: `decision-${index}` })) } }),
       verificationProjection({ history: { ...verificationProjection().history, relevance: extra(51, (index) => ({ ...relevance, relevanceId: `relevance-${index}`, contactId: `contact-${index}`, contactLabel: `Synthetic person · ${String(index).padStart(12, "0")}` })) } }),
-      verificationProjection({ history: { ...verificationProjection().history, verificationIntents: extra(51, (index) => ({ intentId: `intent-${index}`, relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" })) } }),
       verificationProjection({ history: { ...verificationProjection().history, staleTrustedObservations: extra(21, (index) => ({ sourceObservationId: `observation-${index}`, relevanceId: "relevance-current", channel: "email", verifiedAt: 1600000000000 + index, status: "stale" })) } }),
     ];
     for (const value of overCap) assert.equal(ui.normalizePersonDiscoveryProjection(value), null);
@@ -125,7 +127,7 @@ test("C3 mounted link click is exact and a recorded no-match is terminal", async
     const renderer = await mountWorkspace(ui, fetcher); chooseDecision(renderer.root, "link_existing"); const record = button(renderer.root, "Record decision"); assert.ok(record); act(() => record.props.onClick()); await settle();
     assert.equal(posts.length, 1); assert.deepEqual({ decision: posts[0].decision, candidateId: posts[0].candidateId, existingContactId: posts[0].existingContactId }, { decision: "link_existing", candidateId: "person-suggestion-0", existingContactId: "existing-contact" }); act(() => renderer.unmount());
     let noMatchState = discoveryProjection(); const noMatchPosts = [];
-    const noMatchFetcher = async (url, init = {}) => { if (init.method === "POST") { noMatchPosts.push(JSON.parse(init.body)); noMatchState = discoveryProjection({ history: { runs: [run], decisions: [decision("no_match")], relevance: [], verificationIntents: [], staleTrustedObservations: [] } }); return response({ command: { kind: "accepted" } }); } return response(String(url).includes("?") ? noMatchState : initialProjection()); };
+    const noMatchFetcher = async (url, init = {}) => { if (init.method === "POST") { noMatchPosts.push(JSON.parse(init.body)); noMatchState = discoveryProjection({ history: { runs: [run], decisions: [decision("no_match")], relevance: [], staleTrustedObservations: [] } }); return response({ command: { kind: "accepted" } }); } return response(String(url).includes("?") ? noMatchState : initialProjection()); };
     const terminal = await mountWorkspace(ui, noMatchFetcher);
     const noMatchRadio = terminal.root.findAllByType("input").find((node) => node.props.name === "person-decision" && node.parent?.children.join("").includes("No match")); assert.ok(noMatchRadio); act(() => noMatchRadio.props.onChange());
     const noMatchConfirmation = terminal.root.findAllByType("input").find((node) => node.props.type === "checkbox"); assert.ok(noMatchConfirmation); act(() => noMatchConfirmation.props.onChange({ target: { checked: true } }));
@@ -216,6 +218,112 @@ test("C3 paging guards double Next, cursor drift, and both same-tick read-comman
       assert.equal(scopedReads - scopedBefore, 1, "the admitted command still performs one authoritative refresh");
       assert.match(JSON.stringify(commandFirst.toJSON()), /Decision recorded/);
       act(() => commandFirst.unmount());
+    }
+  } finally { await vite.close(); }
+});
+
+test("C3 prospect selection serializes with commands and paging in both same-tick orderings", async () => {
+  const { vite, ui } = await module();
+  try {
+    const prospects = [
+      initialProjection().approvedProspects[0],
+      { prospectId: "approved-prospect-2", prospectRevision: 2, label: "Approved prospect · ed_prospect2 · reviewed 2026-09-06", knownPerson: false },
+    ];
+    const selectorProjection = { ...initialProjection(), approvedProspects: prospects };
+    const scoped = (prospectId, displayName, nextCursor = null) => {
+      const items = nextCursor
+        ? Array.from({ length: 5 }, (_, index) => ({ ...candidate(index), displayName: `${displayName} ${index + 1}` }))
+        : [{ ...candidate(), displayName }];
+      const scopedRun = { ...run, prospectId };
+      return discoveryProjection({
+        approvedProspects: prospects,
+        people: { ...discoveryProjection().people, items, pageInfo: { limit: 5, returned: items.length, hasNext: nextCursor !== null, nextCursor } },
+        history: { runs: [scopedRun], decisions: [], relevance: [], staleTrustedObservations: [] },
+      });
+    };
+    const first = scoped("approved-prospect", "First prospect person", "abc.def");
+    const second = scoped("approved-prospect-2", "Second prospect person");
+
+    {
+      let posts = 0, secondReads = 0, resolveSecond;
+      const pendingSecond = new Promise((resolve) => { resolveSecond = resolve; });
+      const fetcher = async (url, init = {}) => {
+        if (init.method === "POST") { posts += 1; return response({ command: { kind: "accepted" } }); }
+        if (!String(url).includes("?")) return response(selectorProjection);
+        if (String(url).includes("approved-prospect-2")) { secondReads += 1; return pendingSecond; }
+        return response(first);
+      };
+      const renderer = await mountWorkspace(ui, fetcher);
+      chooseDecision(renderer.root, "create_new");
+      const prospect = select(renderer.root, "Approved prospect"), record = button(renderer.root, "Record decision");
+      act(() => { prospect.props.onChange({ target: { value: "approved-prospect-2" } }); record.props.onClick(); });
+      assert.equal(secondReads, 1);
+      assert.equal(posts, 0, "selection-first blocks the stale cross-prospect command");
+      resolveSecond(response(second)); await settle();
+      assert.match(JSON.stringify(renderer.toJSON()), /Second prospect person/);
+      act(() => renderer.unmount());
+    }
+
+    {
+      let posts = 0, secondReads = 0, scopedReads = 0, resolvePost;
+      const pendingPost = new Promise((resolve) => { resolvePost = resolve; });
+      const fetcher = async (url, init = {}) => {
+        if (init.method === "POST") { posts += 1; return pendingPost; }
+        if (!String(url).includes("?")) return response(selectorProjection);
+        scopedReads += 1;
+        if (String(url).includes("approved-prospect-2")) secondReads += 1;
+        return response(first);
+      };
+      const renderer = await mountWorkspace(ui, fetcher);
+      chooseDecision(renderer.root, "create_new");
+      const record = button(renderer.root, "Record decision"), prospect = select(renderer.root, "Approved prospect");
+      const readsBefore = scopedReads;
+      act(() => { record.props.onClick(); prospect.props.onChange({ target: { value: "approved-prospect-2" } }); });
+      assert.equal(posts, 1);
+      assert.equal(secondReads, 0, "command-first blocks prospect selection");
+      resolvePost(response({ command: { kind: "accepted" } })); await settle();
+      assert.equal(scopedReads - readsBefore, 1, "the admitted command retains its authoritative refresh");
+      assert.equal(select(renderer.root, "Approved prospect").props.value, "approved-prospect");
+      act(() => renderer.unmount());
+    }
+
+    {
+      let cursorReads = 0, secondReads = 0, resolveCursor;
+      const pendingCursor = new Promise((resolve) => { resolveCursor = resolve; });
+      const fetcher = async (url) => {
+        if (!String(url).includes("?")) return response(selectorProjection);
+        if (String(url).includes("peopleCursor")) { cursorReads += 1; return pendingCursor; }
+        if (String(url).includes("approved-prospect-2")) secondReads += 1;
+        return response(first);
+      };
+      const renderer = await mountWorkspace(ui, fetcher);
+      const next = button(renderer.root, "Next people"), prospect = select(renderer.root, "Approved prospect");
+      act(() => { next.props.onClick(); prospect.props.onChange({ target: { value: "approved-prospect-2" } }); });
+      assert.equal(cursorReads, 1);
+      assert.equal(secondReads, 0, "paging-first blocks prospect selection");
+      resolveCursor(response(first)); await settle();
+      assert.equal(select(renderer.root, "Approved prospect").props.value, "approved-prospect");
+      act(() => renderer.unmount());
+    }
+
+    {
+      let cursorReads = 0, secondReads = 0, resolveSecond;
+      const pendingSecond = new Promise((resolve) => { resolveSecond = resolve; });
+      const fetcher = async (url) => {
+        if (!String(url).includes("?")) return response(selectorProjection);
+        if (String(url).includes("peopleCursor")) cursorReads += 1;
+        if (String(url).includes("approved-prospect-2")) { secondReads += 1; return pendingSecond; }
+        return response(first);
+      };
+      const renderer = await mountWorkspace(ui, fetcher);
+      const prospect = select(renderer.root, "Approved prospect"), next = button(renderer.root, "Next people");
+      act(() => { prospect.props.onChange({ target: { value: "approved-prospect-2" } }); next.props.onClick(); });
+      assert.equal(secondReads, 1);
+      assert.equal(cursorReads, 0, "selection-first blocks stale paging");
+      resolveSecond(response(second)); await settle();
+      assert.equal(select(renderer.root, "Approved prospect").props.value, "approved-prospect-2");
+      assert.match(JSON.stringify(renderer.toJSON()), /Second prospect person/);
+      act(() => renderer.unmount());
     }
   } finally { await vite.close(); }
 });

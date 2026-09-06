@@ -14,7 +14,6 @@ type Candidate = Readonly<{
   displayName?: string;
   roleTitle?: string;
   roleSummary?: string;
-  candidateDigest?: string;
   provenance?: {
     sourceReference: string;
     excerpt: string;
@@ -83,14 +82,6 @@ export type PersonDiscoveryProjection = Readonly<{
       contactId: string | null;
     }[];
     relevance: readonly Relevance[];
-    verificationIntents: readonly {
-      intentId: string;
-      relevanceId: string;
-      intent: "initial_verification" | "stale_refresh";
-      channel: Channel;
-      sourceObservationId: string | null;
-      effect: "intent_only";
-    }[];
     staleTrustedObservations: readonly StaleObservation[];
   };
 }>;
@@ -146,11 +137,10 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
     !Array.isArray(value.approvedProspects) ||
     !Array.isArray(value.linkableContacts) ||
     !record(value.people) ||
-    !exact(value.history, ["runs", "decisions", "relevance", "verificationIntents", "staleTrustedObservations"]) ||
+    !exact(value.history, ["runs", "decisions", "relevance", "staleTrustedObservations"]) ||
     !Array.isArray(value.history.runs) ||
     !Array.isArray(value.history.decisions) ||
     !Array.isArray(value.history.relevance) ||
-    !Array.isArray(value.history.verificationIntents) ||
     !Array.isArray(value.history.staleTrustedObservations)
   )
     return null;
@@ -160,7 +150,6 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
     runs = value.history.runs.map(run),
     decisions = value.history.decisions.map(decisionRecord),
     relevance = value.history.relevance.map(relevanceRow),
-    verificationIntents = value.history.verificationIntents.map(intent),
     staleTrustedObservations = value.history.staleTrustedObservations.map(staleObservation);
   if (
     !approvedProspects.every(isPresent) ||
@@ -169,7 +158,6 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
     !runs.every(isPresent) ||
     !decisions.every(isPresent) ||
     !relevance.every(isPresent) ||
-    !verificationIntents.every(isPresent) ||
     !staleTrustedObservations.every(isPresent)
   )
     return null;
@@ -179,7 +167,6 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
     runs.length > 50 ||
     decisions.length > 50 ||
     relevance.length > 50 ||
-    verificationIntents.length > 50 ||
     staleTrustedObservations.length > 20
   )
     return null;
@@ -195,7 +182,6 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
     !unique(relevance, "relevanceId") ||
     !unique(relevance, "contactId") ||
     !unique(relevance, "contactLabel") ||
-    !unique(verificationIntents, "intentId") ||
     !unique(staleTrustedObservations, "sourceObservationId")
   )
     return null;
@@ -204,7 +190,7 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
   const runById = new Map(runs.map((item) => [item.runId, item]));
   const decisionIds = new Set(decisions.map((item) => item.decisionId));
   const relevanceIds = new Set(relevance.map((item) => item.relevanceId));
-  const contactLabels = new Map(linkableContacts.map((item) => [item.contactId, item.label]));
+  const projectedContacts = new Map(linkableContacts.map((item) => [item.contactId, item]));
   const decisionById = new Map(decisions.map((item) => [item.decisionId, item]));
   const peopleRun = people.runId === null ? null : runs.find((item) => item.runId === people.runId);
   if (
@@ -218,20 +204,20 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
     ) ||
     relevance.some((item) => {
       const linkedDecision = decisionById.get(item.decisionId);
-      const projectedLabel = contactLabels.get(item.contactId);
+      const projectedContact = projectedContacts.get(item.contactId);
       return (
         !prospectIds.has(item.prospectId) ||
         !decisionIds.has(item.decisionId) ||
         linkedDecision?.prospectId !== item.prospectId ||
         linkedDecision?.contactId !== item.contactId ||
-        (projectedLabel !== undefined && projectedLabel !== item.contactLabel)
+        (projectedContact !== undefined &&
+          (projectedContact.label !== item.contactLabel || projectedContact.contactRevision !== item.contactRevision))
       );
     }) ||
-    verificationIntents.some((item) => !relevanceIds.has(item.relevanceId)) ||
     staleTrustedObservations.some((item) => !relevanceIds.has(item.relevanceId)) ||
     (people.runId !== null && !peopleRun) ||
     (peopleRun && (peopleRun.state !== people.status || peopleRun.resultDigest !== people.resultDigest)) ||
-    ((people.status === "not_started" || people.status === "stale_authority") && (runs.length > 0 || decisions.length > 0 || relevance.length > 0 || verificationIntents.length > 0 || staleTrustedObservations.length > 0))
+    ((people.status === "not_started" || people.status === "stale_authority") && (runs.length > 0 || decisions.length > 0 || relevance.length > 0 || staleTrustedObservations.length > 0))
   )
     return null;
   return {
@@ -243,7 +229,6 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
       runs: runs as PersonDiscoveryProjection["history"]["runs"],
       decisions: decisions as PersonDiscoveryProjection["history"]["decisions"],
       relevance,
-      verificationIntents: verificationIntents as PersonDiscoveryProjection["history"]["verificationIntents"],
       staleTrustedObservations,
     },
   };
@@ -506,6 +491,7 @@ export function PersonDiscoveryWorkspace({
     );
   }
   function selectProspect(id: string) {
+    if (!projection?.approvedProspects.some((item) => item.prospectId === id) || readPending.current || mutationPending.current) return;
     setSelectedProspectId(id);
     setUi((state) => ({
       ...state,
@@ -1049,7 +1035,6 @@ function candidate(value: unknown): Candidate | null {
     "displayName",
     "roleTitle",
     "roleSummary",
-    "candidateDigest",
     "provenance",
     "state",
     "eligible",
@@ -1059,7 +1044,6 @@ function candidate(value: unknown): Candidate | null {
     text(value.displayName, 160) &&
     text(value.roleTitle, 160) &&
     text(value.roleSummary, 1000) &&
-    digest(value.candidateDigest) &&
     (value.provenance === null || !!provenance)
     ? {
         candidateId: value.candidateId,
@@ -1067,7 +1051,6 @@ function candidate(value: unknown): Candidate | null {
         displayName: value.displayName,
         roleTitle: value.roleTitle,
         roleSummary: value.roleSummary,
-        candidateDigest: value.candidateDigest,
         provenance,
         state: "suggestion_not_contact",
         eligible: false,
@@ -1139,17 +1122,6 @@ function decisionRecord(value: unknown): PersonDiscoveryProjection["history"]["d
       ? value.candidateId === null && value.contactId === null
       : opaque(value.candidateId) && opaque(value.contactId);
   return validShape ? (value as PersonDiscoveryProjection["history"]["decisions"][number]) : null;
-}
-function intent(value: unknown): PersonDiscoveryProjection["history"]["verificationIntents"][number] | null {
-  return exact(value, ["intentId", "relevanceId", "intent", "channel", "sourceObservationId", "effect"]) &&
-    opaque(value.intentId) &&
-    opaque(value.relevanceId) &&
-    member(value.intent, ["initial_verification", "stale_refresh"]) &&
-    member(value.channel, ["email", "phone"]) &&
-    value.effect === "intent_only" &&
-    (value.intent === "initial_verification" ? value.sourceObservationId === null : opaque(value.sourceObservationId))
-    ? (value as PersonDiscoveryProjection["history"]["verificationIntents"][number])
-    : null;
 }
 function staleObservation(value: unknown): StaleObservation | null {
   return record(value) &&
