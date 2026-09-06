@@ -200,7 +200,18 @@ provider acceptance.
 
 ## Exact next action
 
-Launch Cloud work unit A from the clean transfer base while a separate read-only
-cloud planner decomposes work unit B. Do not start migration work unit C until a
-single schema owner is named and the current highest migration/journal state is
-re-read from the integration branch.
+Work unit C1 is integrated. Migration `0018` was first normalized to the
+Cloudflare importer's single-outer-`END` trigger contract without changing its
+generation semantics; migration `0019` then added the provider-neutral,
+runtime-unreachable person-discovery authority and persistence foundation. The
+merged focused gate passed 30/30, touched lint passed, production dependency
+audit reported zero vulnerabilities, and independent code plus security/privacy
+reviews returned GO with no blocker, high, or medium finding. This earns no
+Phase 5 plan credit and enables no provider, runtime, contact-point, export, or
+outbound effect.
+
+Continue A and B corrections on their existing branches. For C, implement C2
+next: the closed owner-admitted handler/command/projection seam over the C1
+service, keeping the production discovery port unavailable and the candidate
+distinct from Contact authority. C3 UI and C4 integrated synthetic acceptance
+follow. Integrate A, then B, then the remaining C slices before D and E.

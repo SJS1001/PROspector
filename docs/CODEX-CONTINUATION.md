@@ -178,6 +178,16 @@ Use these existing artifacts rather than restating product decisions:
 
 ## Verification baseline
 
+- On 2026-09-06 the integration branch merged the importer-safe `0018` trigger
+  normalization and the additive `0019` governed person-discovery foundation.
+  The combined focused gate passed 30/30 with loopback permission, touched lint
+  passed, and `npm audit --omit=dev` reported zero vulnerabilities. Independent
+  code and security/privacy convergence reviews returned GO with no blocker,
+  high, or medium finding. The new discovery port remains unavailable in
+  production and no Phase 5 completion, hosted action, provider call, Contact
+  eligibility, export, or outbound effect is claimed. C2 handler/projection, C3
+  UI, and C4 integrated synthetic acceptance remain pending.
+
 - The latest clean Phase 2 re-review after `2e879dc` and `45bcdc1` verified CR-09 through CR-11 and WR-07 closed, including server-derived candidate authority, reduced UI mutation payloads, and forged/stale request rejection.
 - `npm test` and `npm run lint` passed at that Phase 2 review checkpoint. Subsequent branch commits add Phase 3/4 work and test-runner isolation, so rerun the canonical commands before treating the current checkout as verified.
 - Phase 3 has a focused local `test:phase3` contract and an offline fail-closed release preflight. The preflight must remain nonzero without the required owner/hosted evidence; that result is expected and is not a local implementation failure.
