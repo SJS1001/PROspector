@@ -52,6 +52,16 @@ synthetic tree `ae7c73020a4d6fcffc6873309c4e7357e02b9110`. This proves only stat
 merge compatibility; it does not validate either runtime, integrate a branch,
 or release the held preflight lane.
 
+Cross-lane review found a semantic conflict that the clean merge cannot detect.
+A's browser journey caps interview progression at eight questions. B places one
+Company question, nine Product questions, and six Market Play questions before
+the first Customer Profile `fit` question, so `fit` is question 17 for the
+smallest onboarding hierarchy. The combined journey therefore cannot satisfy
+A's required confirmed-fit receipt. Revise A to follow rendered authoritative
+progression until fit/onboarding completion with a checked bounded ceiling, and
+add a contract assertion that fails when queue expansion exceeds that journey's
+supported bound. Do this before Chromium acceptance or integration.
+
 This is the durable transfer from local Codex implementation to Claude Cloud.
 Fetch the branch and require the exact clean integration checkpoint before
 starting. Do not rely on chat history. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`,
