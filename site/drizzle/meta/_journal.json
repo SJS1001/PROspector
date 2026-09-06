@@ -127,6 +127,13 @@
       "when": 1788558207793,
       "tag": "0017_governed-outreach-preparation-recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1788648429530,
+      "tag": "0018_massive_blizzard",
+      "breakpoints": true
     }
   ]
 }

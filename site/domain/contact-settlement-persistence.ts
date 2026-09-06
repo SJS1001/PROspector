@@ -49,6 +49,7 @@ type EligibilityEvidenceRow = {
 };
 
 type PersistedReceiptRow = {
+  reservation_id: string;
   grant_id: string;
   durable_revision: number;
   terminal_state: string;
@@ -133,8 +134,39 @@ export async function verifyPersistedContactSettlement(
   reservationId: string,
 ): Promise<boolean> {
   if (!isBoundContactSettlementAttestor(attestor) || !bounded(workspaceId, 160) || !bounded(reservationId, 160)) return false;
-  const rows = (await database.prepare(
-    `SELECT
+  const rows = (await database.prepare(PERSISTED_SETTLEMENT_QUERY).bind(reservationId, workspaceId).all<PersistedReceiptRow>()).results;
+  return verifyPersistedSettlementRows(rows, attestor, workspaceId, reservationId);
+}
+
+/** Two fixed set queries reconstruct up to 2,000 page-scoped settlements. */
+export async function verifyPersistedContactSettlements(
+  database: D1Database,
+  attestor: ContactSettlementAttestor | null | undefined,
+  workspaceId: string,
+  reservationIds: readonly string[],
+): Promise<ReadonlyMap<string, boolean>> {
+  const unique = [...new Set(reservationIds)];
+  const verified = new Map(unique.map((id) => [id, false]));
+  if (!isBoundContactSettlementAttestor(attestor) || !bounded(workspaceId, 160) || unique.length > 2_000 || unique.some((id) => !bounded(id, 160))) return verified;
+  if (unique.length === 0) return new Map();
+  const headers = (await database.prepare(PERSISTED_SETTLEMENT_HEADERS_QUERY).bind(JSON.stringify(unique), workspaceId).all<{ reservation_id: string; terminal_observation_ids_json: string }>()).results;
+  const acceptedReservations: string[] = [], observationIds = new Set<string>();
+  for (const header of headers) {
+    if (!unique.includes(header.reservation_id)) continue;
+    const ids = parseCanonicalIds(header.terminal_observation_ids_json, 100);
+    if (!ids || observationIds.size + ids.filter((id) => !observationIds.has(id)).length > 2_000) continue;
+    acceptedReservations.push(header.reservation_id);
+    ids.forEach((id) => observationIds.add(id));
+  }
+  if (acceptedReservations.length === 0 || observationIds.size === 0) return verified;
+  const rows = (await database.prepare(PERSISTED_SETTLEMENT_SET_QUERY).bind(JSON.stringify(acceptedReservations), JSON.stringify([...observationIds]), workspaceId).all<PersistedReceiptRow>()).results;
+  const grouped = new Map<string, PersistedReceiptRow[]>();
+  for (const row of rows) { const group = grouped.get(row.reservation_id) ?? []; group.push(row); grouped.set(row.reservation_id, group); }
+  for (const reservationId of acceptedReservations) verified.set(reservationId, await verifyPersistedSettlementRows(grouped.get(reservationId) ?? [], attestor, workspaceId, reservationId));
+  return verified;
+}
+
+const PERSISTED_SETTLEMENT_COLUMNS = `reservation.id reservation_id,
       reservation.grant_id,
       terminal.durable_revision,
       terminal.state terminal_state,
@@ -172,8 +204,8 @@ export async function verifyPersistedContactSettlement(
       receipt.content_hash,
       receipt.attestation_key_id,
       receipt.settlement_material_digest,
-      receipt.settlement_attestation_tag
-     FROM enrichment_reservations reservation
+      receipt.settlement_attestation_tag`;
+const PERSISTED_SETTLEMENT_FROM = `FROM enrichment_reservations reservation
      JOIN enrichment_reservation_events terminal
        ON terminal.reservation_id=reservation.id AND terminal.workspace_id=reservation.workspace_id
       AND terminal.durable_revision=(
@@ -186,10 +218,23 @@ export async function verifyPersistedContactSettlement(
       AND receipt.verification_class IN ('mailbox_verified','source_verified')
      JOIN contact_point_observations observation
        ON observation.id=receipt.observation_id AND observation.workspace_id=receipt.workspace_id
-      AND observation.verification_receipt_id=receipt.id
+      AND observation.verification_receipt_id=receipt.id`;
+const PERSISTED_SETTLEMENT_QUERY = `SELECT ${PERSISTED_SETTLEMENT_COLUMNS} ${PERSISTED_SETTLEMENT_FROM}
      WHERE reservation.id=? AND reservation.workspace_id=?
-     ORDER BY receipt.observation_id`,
-  ).bind(reservationId, workspaceId).all<PersistedReceiptRow>()).results;
+     ORDER BY receipt.observation_id LIMIT 101`;
+const PERSISTED_SETTLEMENT_HEADERS_QUERY = `SELECT reservation.id reservation_id,terminal.observation_ids_json terminal_observation_ids_json
+  FROM enrichment_reservations reservation
+  JOIN json_each(?) requested ON requested.value=reservation.id
+  JOIN enrichment_reservation_events terminal ON terminal.reservation_id=reservation.id AND terminal.workspace_id=reservation.workspace_id
+    AND terminal.durable_revision=(SELECT max(latest.durable_revision) FROM enrichment_reservation_events latest WHERE latest.reservation_id=reservation.id)
+  WHERE reservation.workspace_id=? LIMIT 2001`;
+const PERSISTED_SETTLEMENT_SET_QUERY = `SELECT * FROM (SELECT ${PERSISTED_SETTLEMENT_COLUMNS},row_number() OVER (PARTITION BY reservation.id ORDER BY receipt.observation_id) receipt_ordinal
+  ${PERSISTED_SETTLEMENT_FROM}
+  JOIN json_each(?) requested_reservation ON requested_reservation.value=reservation.id
+  JOIN json_each(?) requested_observation ON requested_observation.value=receipt.observation_id
+  WHERE reservation.workspace_id=?) WHERE receipt_ordinal<=101 ORDER BY reservation_id,observation_id`;
+
+async function verifyPersistedSettlementRows(rows: readonly PersistedReceiptRow[], attestor: ContactSettlementAttestor, workspaceId: string, reservationId: string) {
   if (rows.length === 0 || rows.length > 100) return false;
   const first = rows[0];
   if (
