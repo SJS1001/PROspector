@@ -22,6 +22,15 @@ acceptance evidence and not permission to consume the canonical preflight lane.
   Chromium runtime, and run `npm run test:browser` in an isolated capable cloud
   runner. Do not integrate until visible rendering, restart persistence,
   adversarial origin denial, and the post-run zero-effect verifier all pass.
+  Integration review additionally found that the runner's purportedly scrubbed
+  child environment preserves the caller's real `HOME`, allowing local tooling
+  to discover account-level configuration or credentials on disk. Isolate the
+  child home/config roots inside disposable state and prove that boundary before
+  executable acceptance. Keep browser discovery on an explicit non-secret cache
+  path. The browser bootstrap intentionally applies only the accepted
+  `0000`-`0009` greenfield chain; the verifier must describe absent later local
+  candidate tables as outside this runtime rather than claiming full-chain
+  coverage.
 - **Work unit B:** branch `codex/offer-readiness-workflow`, commit
   `6dca353d86cff93552fa32101e29a707f3d69c64`. GitHub verifies two commits
   directly ahead of the same transfer checkpoint. Repository-wide and focused
