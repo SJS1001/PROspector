@@ -30,15 +30,16 @@ test("C2 admits only the owner, derives discovery authority server-side, and pro
     const payload = await projected.json();
     assert.equal(payload.people.status, "completed");
     assert.equal(payload.people.items.length, 5);
-    assert.equal(payload.people.items[0].ordinal, 0, "the canonical first candidate ordinal is zero");
     assert.equal(payload.people.items[0].state, "suggestion_not_contact");
     assert.equal(payload.people.items[0].eligible, false);
-    assert.deepEqual(payload.people.items[0].provenance, { sourceReference: "https://example.invalid/team/0", excerpt: "Synthetic public role listing", retrievedAt: PERSON_DISCOVERY_NOW });
     assert.equal(await count(fixture, "contacts"), 0, "projection never promotes a candidate to Contact");
     assert.ok(payload.people.pageInfo.nextCursor, "six bounded candidates require a real second page");
     const second = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(payload.people.pageInfo.nextCursor)}`), dependencies);
     const secondPayload = await second.json();
     assert.equal(secondPayload.people.items.length, 1);
+    const allItems = [...payload.people.items, ...secondPayload.people.items];
+    assert.deepEqual(allItems.map((item) => item.ordinal).sort((a, b) => a - b), [0, 1, 2, 3, 4, 5], "candidate ordinals are exactly zero-based across the bounded result");
+    assert.deepEqual(allItems.find((item) => item.ordinal === 0).provenance, { sourceReference: "https://example.invalid/team/0", excerpt: "Synthetic public role listing", retrievedAt: PERSON_DISCOVERY_NOW });
     const tampered = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=x${payload.people.pageInfo.nextCursor}`), dependencies);
     assert.equal(tampered.status, 400, "a modified people cursor is rejected before projection");
 
@@ -53,6 +54,12 @@ test("C2 admits only the owner, derives discovery authority server-side, and pro
     assert.equal(noMatch.status, 200);
     assert.equal((await noMatch.json()).command.kind, "accepted");
     assert.equal(await count(fixture, "contacts"), 0, "no_match cannot manufacture a Contact");
+    const terminal = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    const terminalPayload = await terminal.json();
+    assert.deepEqual(terminalPayload.history.decisions, [{ decisionId: terminalPayload.history.decisions[0].decisionId, runId: payload.people.runId, prospectId: fixture.prospectId, decision: "no_match", candidateId: null, contactId: null }]);
+    assert.deepEqual(terminalPayload.history.relevance, [], "a no-match result exposes no verification authority");
+    assert.deepEqual(terminalPayload.history.verificationIntents, []);
+    assert.deepEqual(terminalPayload.history.staleTrustedObservations, []);
 
     const bad = await handler.handlePersonDiscoveryPost(mutation({ ...body, idempotencyKey: "person-discovery-handler-bad", workspaceId: "forged" }, csrfCookie(await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), dependencies))), dependencies);
     assert.equal(bad.status, 400);
@@ -87,7 +94,7 @@ test("C2 preserves a completed zero-candidate run instead of rewriting it as not
     assert.equal(start.status, 200);
     const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
     const payload = await projection.json();
-    assert.deepEqual(payload.linkableContacts, [{ contactId: "handler-explicit-contact", contactRevision: 1, label: "Explicit Contact" }], "C3 receives only a bounded same-workspace label and current revision, never a contact point");
+    assert.deepEqual(payload.linkableContacts, [], "no unrelated Contact is exposed by the scoped projection");
     assert.equal(payload.people.status, "completed");
     assert.ok(payload.people.runId);
     assert.match(payload.people.resultDigest, /^[0-9a-f]{64}$/);
@@ -536,6 +543,62 @@ test("C2 admits the established legacy owner subject without widening outsider a
     assert.equal(post.status, 200);
     const outsider = await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), { ...dependencies, getIdentity: async () => ({ email: "outsider@example.invalid", displayName: "Outsider" }) });
     assert.equal(outsider.status, 404);
+  } finally { await fixture.dispose(); }
+});
+
+test("C3 initial read minimizes scoped history and current-authority drift removes old verification locators", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-c3-minimized-current");
+  try {
+    const setup = await acceptedDecisionAndIntent(fixture, "c3-minimized-current", 1);
+    const persisted = await fixture.database.prepare("SELECT run.id run_id,decision.id decision_id,relevance.id relevance_id,relevance.contact_id,intent.id intent_id,intent.source_observation_id FROM prospect_contact_role_relevance relevance JOIN person_discovery_owner_decisions decision ON decision.id=relevance.decision_id JOIN person_discovery_runs run ON run.id=decision.run_id JOIN contact_verification_intents intent ON intent.relevance_id=relevance.id WHERE relevance.workspace_id=?").bind(fixture.workspaceId).first();
+    assert.ok(persisted.relevance_id);
+    const initial = await setup.handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), setup.dependencies);
+    const initialPayload = await initial.json();
+    assert.deepEqual(initialPayload.linkableContacts, []);
+    assert.deepEqual(initialPayload.history, { runs: [], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] });
+    const initialText = JSON.stringify(initialPayload);
+    for (const identifier of [persisted.run_id, persisted.decision_id, persisted.relevance_id, persisted.contact_id, persisted.intent_id]) assert.equal(initialText.includes(identifier), false, `initial selector response excludes unrelated ${identifier}`);
+    assert.equal(persisted.source_observation_id, null, "the synthetic initial intent has no source observation identifier to project");
+    assert.match(initialPayload.approvedProspects[0].label, /^Approved prospect · [A-Za-z0-9_-]{12} · reviewed \d{4}-\d{2}-\d{2}$/, "bounded labels contain an opaque discriminator");
+    assert.equal(initialPayload.approvedProspects[0].label.includes(fixture.prospectId), false, "the selector label does not expose the internal Prospect ID");
+
+    const current = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
+    const currentPayload = await current.json();
+    assert.equal(currentPayload.approvedProspects[0].knownPerson, true);
+    assert.deepEqual(Object.keys(currentPayload.history.relevance[0]).sort(), ["contactId", "contactLabel", "contactRevision", "current", "decisionId", "prospectId", "relevanceId", "roleTitle", "verificationChannels"].sort());
+    assert.equal(currentPayload.history.relevance[0].current, true);
+    assert.deepEqual(currentPayload.history.relevance[0].verificationChannels, ["email", "phone"]);
+    assert.deepEqual(currentPayload.history.verificationIntents[0], { intentId: currentPayload.history.verificationIntents[0].intentId, relevanceId: persisted.relevance_id, intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" });
+
+    const newerRunId = "c3-current-no-match-run";
+    const newerResultDigest = "3".repeat(64);
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO person_discovery_runs (id,workspace_id,owner_subject,prospect_id,profile_id,configuration_id,configuration_digest,configuration_revision,prospect_revision,workspace_revision,max_candidates,max_provenance_per_candidate,idempotency_key,operation_key,request_digest,requested_deadline_at,created_at) SELECT ?,workspace_id,owner_subject,prospect_id,profile_id,configuration_id,configuration_digest,configuration_revision,prospect_revision,workspace_revision,1,max_provenance_per_candidate,?,?,?,?,? FROM person_discovery_runs WHERE id=? AND workspace_id=?").bind(newerRunId, "c3-current-no-match-start", `pd_${"1".repeat(64)}`, "1".repeat(64), PERSON_DISCOVERY_NOW + 30_200, PERSON_DISCOVERY_NOW + 200, currentPayload.people.runId, fixture.workspaceId),
+      fixture.database.prepare("INSERT INTO person_discovery_run_events (id,workspace_id,run_id,durable_revision,state,candidate_count,result_digest,reason,created_at) VALUES (?, ?, ?, 1, 'requested', 0, NULL, NULL, ?)").bind("c3-current-no-match-requested", fixture.workspaceId, newerRunId, PERSON_DISCOVERY_NOW + 200),
+      fixture.database.prepare("INSERT INTO person_discovery_run_events (id,workspace_id,run_id,durable_revision,state,candidate_count,result_digest,reason,created_at) VALUES (?, ?, ?, 2, 'completed', 0, ?, NULL, ?)").bind("c3-current-no-match-completed", fixture.workspaceId, newerRunId, newerResultDigest, PERSON_DISCOVERY_NOW + 201),
+    ]);
+    const secondRun = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
+    const secondPayload = await secondRun.json();
+    const noMatch = { action: "decide_person_discovery", runId: secondPayload.people.runId, expectedResultDigest: secondPayload.people.resultDigest, decision: "no_match", candidateId: null, existingContactId: null, expectedProspectRevision: fixture.prospectRevision, idempotencyKey: "c3-current-no-match-decision" };
+    const noMatchResponse = await setup.handler.handlePersonDiscoveryPost(mutation(noMatch, await csrf(setup.handler, setup.dependencies)), setup.dependencies);
+    assert.equal(noMatchResponse.status, 200, JSON.stringify(await noMatchResponse.clone().json()));
+    const noMatchProjection = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
+    const noMatchPayload = await noMatchProjection.json();
+    assert.equal(noMatchPayload.approvedProspects[0].knownPerson, false, "an older linked person is not advertised after the latest current run records no-match");
+    assert.equal(noMatchPayload.history.decisions.length, 1);
+    assert.equal(noMatchPayload.history.decisions[0].decision, "no_match");
+    assert.deepEqual(noMatchPayload.history.relevance, [], "an older current-lineage relevance is not projected after the latest run records no-match");
+    assert.deepEqual(noMatchPayload.history.verificationIntents, []);
+    assert.deepEqual(noMatchPayload.history.staleTrustedObservations, []);
+
+    const company = await fixture.database.prepare("SELECT company_id FROM workspace_companies WHERE workspace_id=? LIMIT 1").bind(fixture.workspaceId).first();
+    await fixture.database.prepare("UPDATE companies SET status='paused' WHERE id=? AND workspace_id=?").bind(company.company_id, fixture.workspaceId).run();
+    const drifted = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
+    const driftedPayload = await drifted.json();
+    assert.deepEqual(driftedPayload.history, { runs: [], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] });
+    assert.deepEqual(driftedPayload.linkableContacts, []);
+    assert.equal(JSON.stringify(driftedPayload).includes(persisted.relevance_id), false, "old relevance never crosses the client boundary after ancestor drift");
+    assert.equal(JSON.stringify(driftedPayload).includes(persisted.intent_id), false);
   } finally { await fixture.dispose(); }
 });
 
