@@ -12,8 +12,9 @@ Local Codex implementation and its transfer record are clean and pushed at
 checkpoint `8b0a95b8385fb130b9b6627b4d12664c2263c018` on
 `codex/generic-onboarding-integration`. Work units A and B and person-discovery
 units C1 through C3 are integrated. Their focused authority gates and the real
-Chromium onboarding/restart/zero-effect journey are green; C4 synthetic
-person-discovery acceptance is the active local unit. Continue through
+Chromium onboarding/restart/zero-effect journey are green. C4 synthetic
+person-discovery acceptance is integrated; Work Unit D operator interface is
+the active local unit. Continue through
 [`implementation-lanes/2026-09-06-claude-cloud-transfer.md`](implementation-lanes/2026-09-06-claude-cloud-transfer.md).
 That record supersedes older branch pointers for current implementation work;
 historical hosted evidence and external authority gates below remain unchanged.
@@ -218,6 +219,16 @@ Use these existing artifacts rather than restating product decisions:
   interview; independent review returned GO with zero blocker, high, or medium
   finding. C4 remains the next local acceptance unit. No hosted/provider or
   external-effect authority changed.
+- Later on 2026-09-06 C4 was integrated. Its separate full-chain local lane
+  applies `0000` through `0019`, seeds one fully governed synthetic Approved
+  Prospect, composes a deterministic zero-network discovery service only behind
+  the exact development/local-demo/loopback acceptance binding, and exercises
+  discovery, explicit Contact creation, separate email/phone verification
+  intents, a two-context 200/409 race, restart hydration, keyboard/focus, Axe,
+  and 360px reflow. The merged focused evidence is 56/56 and the real Chromium
+  journey plus exact post-run verifier pass with zero forbidden rows or R2
+  objects. Independent review returned GO with zero blocker, high, or medium
+  finding. Work Unit D is next; no hosted/provider/outbound authority changed.
 
 - The latest clean Phase 2 re-review after `2e879dc` and `45bcdc1` verified CR-09 through CR-11 and WR-07 closed, including server-derived candidate authority, reduced UI mutation payloads, and forged/stale request rejection.
 - `npm test` and `npm run lint` passed at that Phase 2 review checkpoint. Subsequent branch commits add Phase 3/4 work and test-runner isolation, so rerun the canonical commands before treating the current checkout as verified.

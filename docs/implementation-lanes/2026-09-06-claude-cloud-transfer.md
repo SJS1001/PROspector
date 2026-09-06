@@ -231,4 +231,6 @@ confirmed fit, real runtime restart persistence, Axe checks, adversarial origin
 denial, and zero forbidden/provider/outbound/object rows. B's exact Explore
 tuple and atomic Market Play/Offer authority path pass the 35-case focused
 interview/Knowledge/Offer gate. Independent reviews returned GO with zero
-blocker, high, or medium finding. Implement C4 next, then D and E.
+blocker, high, or medium finding. C4 is also integrated: its 56-case focused
+gate, real full-chain Chromium discovery/restart/race/accessibility journey, and
+exact zero-effect verifier pass. Implement D next, then E.
