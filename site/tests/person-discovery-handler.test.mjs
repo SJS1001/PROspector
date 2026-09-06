@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createServer } from "vite";
 import { PERSON_DISCOVERY_NOW, PERSON_DISCOVERY_OWNER, createPersonDiscoveryFixture, loadPersonDiscoveryModules } from "./helpers/person-discovery-fixture.mjs";
 
 test("C2 admits only the owner, derives discovery authority server-side, and projects suggestions through a signed people cursor", async () => {
@@ -223,6 +224,27 @@ test("C2 pages five suggestions stably and rejects cursor substitution, tamperin
   } finally { await fixture.dispose(); }
 });
 
+test("C2 invalidates an old completed cursor when the latest run is requested or needs reconciliation", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-latest-state");
+  try {
+    await alignOwner(fixture);
+    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+    let invocation = 0;
+    const service = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => (++invocation === 1 ? completed("latest", 6) : { kind: "unknown" })), now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids("latest") });
+    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+    const dependencies = deps(fixture, service);
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "handler-latest-complete", { maxCandidates: 6 }), await csrf(handler, dependencies)), dependencies)).status, 200);
+    const first = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    const cursor = (await first.json()).people.pageInfo.nextCursor;
+    assert.ok(cursor);
+    assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "handler-latest-unknown", { maxCandidates: 5 }), await csrf(handler, dependencies)), dependencies)).status, 200);
+    const stale = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(cursor)}`), dependencies);
+    assert.equal(stale.status, 409);
+    const latest = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+    assert.equal((await latest.json()).people.status, "needs_reconciliation");
+  } finally { await fixture.dispose(); }
+});
+
 test("C2 link_existing accepts only the explicit same-workspace Contact and creates no second identity", async () => {
   const fixture = await createPersonDiscoveryFixture("person-discovery-handler-link");
   try {
@@ -275,6 +297,26 @@ test("C2 rejects hostile transport before service invocation and a valid product
     assert.equal(await count(fixture, "prospect_contact_role_relevance"), 0);
     assert.equal(await count(fixture, "contact_verification_intents"), 0);
   } finally { await fixture.dispose(); }
+});
+
+test("C2 real route keeps a valid-CSRF production-shaped mutation reject-only", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-real-route");
+  let routeVite;
+  try {
+    const interview = await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname);
+    const principal = await interview.principalFromIdentity("local-owner@prospector.invalid", "Local Demo Owner", "0123456789abcdef0123456789abcdef");
+    await fixture.database.prepare("UPDATE workspaces SET owner_subject=? WHERE id=?").bind(principal.subject, fixture.workspaceId).run();
+    globalThis.__prospectorRouteTestEnv = { DB: fixture.database, OWNER_SUBJECT_PEPPER: "0123456789abcdef0123456789abcdef", PILOT_OWNER_EMAIL: "local-owner@prospector.invalid", TRUSTED_IDENTITY_PROVIDER: "local-demo", LOCAL_DEMO: "1" };
+    routeVite = await createServer({ configFile: false, logLevel: "silent", plugins: [{ name: "test-cloudflare-workers", resolveId(id) { if (id === "cloudflare:workers") return "\0test-person-discovery-workers"; }, load(id) { if (id === "\0test-person-discovery-workers") return "export const env = globalThis.__prospectorRouteTestEnv"; } }] });
+    const route = await routeVite.ssrLoadModule(new URL("../app/api/contacts/person-discovery/route.ts", import.meta.url).pathname);
+    const get = await route.GET(new Request("http://localhost:8788/api/contacts/person-discovery"));
+    assert.equal(get.status, 200);
+    const cookie = csrfCookie(get);
+    const post = await route.POST(new Request("http://localhost:8788/api/contacts/person-discovery", { method: "POST", headers: { origin: "http://localhost:8788", "sec-fetch-site": "same-origin", "x-prospector-intent": "person-discovery-mutation", "content-type": "application/json", cookie }, body: JSON.stringify(startBody(fixture, "handler-real-route-start")) }));
+    assert.equal(post.status, 409);
+    assert.deepEqual(await post.json(), { error: "person_discovery_capability_unavailable" });
+    assert.equal(await count(fixture, "person_discovery_runs"), 0);
+  } finally { delete globalThis.__prospectorRouteTestEnv; if (routeVite) await routeVite.close(); await fixture.dispose(); }
 });
 
 function deps(fixture, personDiscoveryService) {

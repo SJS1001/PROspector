@@ -58,10 +58,15 @@ capability rejection.
 Pagination evidence covers 0, 5, 6, and 20 candidate states, five-row pages,
 stable initial high-water traversal, HMAC tamper rejection, Prospect cursor
 substitution rejection (including an unavailable target), and generation drift
-after a mutation. Projection selection resolves current authority before the
-100-row display bound, so more than 100 stale rows cannot crowd out a current
-Approved Prospect. Expiry/redaction reads remain payload-free. C1 suites retain
-the lifecycle/configuration/ancestor TOCTOU, retention, and concurrent durable
+after a mutation. A completed cursor is also invalid once a later current run
+is in reconciliation. Projection selection uses a current-authority SQL
+predicate before its 100-row display bound, so historical rows cannot crowd out
+a current Approved Prospect. Known-person state derives from current
+Contact/relevance/run lineage, not retained candidate payload. Expiry/redaction
+therefore remains payload-free without erasing current relationship state. The
+route-level local-demo regression proves a valid CSRF POST still receives the
+unavailable capability, with no composed service/provider. C1 suites retain the
+lifecycle/configuration/ancestor TOCTOU, retention, and concurrent durable
 winner assertions underneath the handler; no test composes a provider or
 authorizes an external effect.
 
