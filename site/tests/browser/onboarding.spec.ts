@@ -1,11 +1,13 @@
 import { strict as assert } from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
+import { resolve } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 const port = required("PROSPECTOR_BROWSER_PORT");
 const origin = required("PROSPECTOR_BROWSER_ORIGIN");
 const state = required("PROSPECTOR_BROWSER_STATE");
+const runtimeRoot = required("PROSPECTOR_BROWSER_RUNTIME_ROOT");
 let server: ChildProcess | undefined;
 let serverOutput = "";
 const MAX_SUPPORTED_ONBOARDING_STEPS = 32;
@@ -132,9 +134,9 @@ async function assertAxe(page: Page) {
 
 async function startServer() {
   serverOutput = "";
-  const child = spawn("npm", ["run", "dev", "--", "--port", port, "--host", "127.0.0.1", "--strictPort"], {
+  const child = spawn(process.execPath, [resolve(process.cwd(), "node_modules", "vite", "bin", "vite.js"), "--config", "vite.config.ts", "--port", port, "--host", "127.0.0.1", "--strictPort"], {
     cwd: process.cwd(),
-    env: { ...process.env, PROSPECTOR_LOCAL_STATE_PATH: state },
+    env: { ...process.env, PROSPECTOR_LOCAL_STATE_PATH: state, PROSPECTOR_BROWSER_RUNTIME_ROOT: runtimeRoot },
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });

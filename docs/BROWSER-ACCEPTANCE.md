@@ -1,21 +1,27 @@
 # Browser acceptance boundary
 
-`cd site && npm run test:browser` is the isolated, local-only A0/A1 browser
+`cd site && node scripts/run-browser-acceptance.mjs` is the isolated, local-only A0/A1 browser
 acceptance lane. It is intentionally separate from `npm test` and from every
 canonical preflight or hosted acceptance command.
 
 The runner creates a unique ignored state root below `site/.local`, applies the
 checked `0000`–`0009` migration chain to that disposable Miniflare D1 runtime,
 reserves a new `127.0.0.1` port, and runs one Chromium worker with no retries or
-server reuse. Child processes receive a disposable `HOME`, config, cache, temp,
-and npm-user-config path, so they cannot discover a caller's Wrangler, npm, or
-other account configuration. The Chromium binary cache is the explicit,
+server reuse. Bootstrap, Miniflare, and the read-only zero-effect verifier use
+the same validated absolute persistence path inside that per-run state root.
+Child processes receive a disposable `HOME`, config, cache, temp,
+and npm user/global-config paths. An explicit acceptance mode creates a per-run
+runtime root containing only allowlisted source symlinks, so Vite discovers no
+project `.env*`, `.dev.vars*`, `.npmrc`, or caller account configuration.
+Wrangler receives an empty secret allowlist and only the fixed synthetic demo
+bindings. The Chromium binary cache is the explicit,
 non-secret, ignored `site/.local/playwright-browsers` directory and is the only
-cache deliberately retained between runs. The single scenario starts the
-documented Vite/Miniflare command:
+cache deliberately retained between runs. The single scenario starts Vite
+directly with the current Node executable, avoiding both npm configuration and
+Vinext CLI dotenv discovery:
 
 ```text
-npm run dev -- --port <reserved> --host 127.0.0.1 --strictPort
+node node_modules/vite/bin/vite.js --config vite.config.ts --port <reserved> --host 127.0.0.1 --strictPort
 ```
 
 It proves a visibly hydrated blank onboarding screen with no error overlay,
@@ -34,8 +40,10 @@ that a forged cross-origin mutation is denied before any workspace exists. No
 HAR, trace, video, storage-state, cookie, download, or success screenshot is
 created. Playwright screenshots are synthetic and failure-only beneath the
 ignored run artifact directory, which is deleted after success. The runner
-passes only fixed synthetic local-demo identity values to child processes and
-does not forward provider or Cloudflare credentials.
+supplies the fixed synthetic local-demo identity only through the acceptance
+Worker binding allowlist and does not forward provider or Cloudflare
+credentials. Ordinary `npm run dev` behavior is unchanged outside this explicit
+acceptance mode.
 
 After the browser closes, `verify-browser-zero-effects.mjs` opens the persisted
 SQLite file read-only, requires exactly one synthetic workspace and confirmed

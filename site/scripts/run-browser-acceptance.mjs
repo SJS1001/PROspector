@@ -1,8 +1,13 @@
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
+import {
+  browserAcceptanceStatePath,
+  createBrowserAcceptanceRuntimeRoot,
+  scrubbedBrowserEnvironment,
+} from "./browser-acceptance-boundary.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const localRoot = resolve(root, ".local");
@@ -22,9 +27,14 @@ await Promise.all([
   mkdir(isolatedTemp, { recursive: true }),
   mkdir(browserCache, { recursive: true }),
 ]);
-const state = `.local/${basename(stateRoot)}`;
+const hostingConfig = JSON.parse(await readFile(resolve(root, ".openai", "hosting.json"), "utf8"));
+const runtimeRoot = await createBrowserAcceptanceRuntimeRoot(root, stateRoot, hostingConfig);
+// Keep disposable runtime persistence below (not equal to) the isolation root:
+// local-bootstrap resets its requested state path and must not erase the
+// acceptance config, HOME, caches, or generated Wrangler configuration.
+const state = browserAcceptanceStatePath(stateRoot);
 const port = await reservePort();
-const childEnvironment = scrubbedEnvironment({
+const childEnvironment = scrubbedBrowserEnvironment({
   HOME: isolatedHome,
   XDG_CONFIG_HOME: isolatedConfig,
   XDG_CACHE_HOME: isolatedCache,
@@ -32,19 +42,18 @@ const childEnvironment = scrubbedEnvironment({
   TEMP: isolatedTemp,
   TMP: isolatedTemp,
   NPM_CONFIG_USERCONFIG: resolve(isolatedConfig, "npmrc"),
+  NPM_CONFIG_GLOBALCONFIG: resolve(isolatedConfig, "global-npmrc"),
   PLAYWRIGHT_BROWSERS_PATH: browserCache,
   PROSPECTOR_BROWSER_PORT: String(port),
   PROSPECTOR_BROWSER_STATE: state,
   PROSPECTOR_BROWSER_ARTIFACTS: artifactRoot,
   PROSPECTOR_BROWSER_ORIGIN: `http://127.0.0.1:${port}`,
-  TRUSTED_IDENTITY_PROVIDER: "local-demo",
-  LOCAL_DEMO: "1",
-  PILOT_OWNER_EMAIL: "browser-owner@prospector.invalid",
-  OWNER_SUBJECT_PEPPER: "synthetic-browser-acceptance-pepper-32-bytes-minimum",
+  PROSPECTOR_BROWSER_ACCEPTANCE: "1",
+  PROSPECTOR_BROWSER_RUNTIME_ROOT: runtimeRoot,
   WRANGLER_SEND_METRICS: "false",
   WRANGLER_WRITE_LOGS: "false",
-  WRANGLER_LOG_PATH: `.local/${basename(stateRoot)}/wrangler.log`,
-  MINIFLARE_REGISTRY_PATH: `.local/${basename(stateRoot)}/registry`,
+  WRANGLER_LOG_PATH: resolve(stateRoot, "wrangler.log"),
+  MINIFLARE_REGISTRY_PATH: resolve(stateRoot, "registry"),
   NO_UPDATE_NOTIFIER: "1",
   CI: "1",
 });
@@ -69,14 +78,6 @@ try {
   if (passed) await rm(artifactRoot, { recursive: true, force: true });
 }
 if (failure) throw failure;
-
-function scrubbedEnvironment(additions) {
-  const environment = {};
-  for (const name of ["PATH", "SHELL", "LANG", "LC_ALL", "TERM"]) {
-    if (process.env[name]) environment[name] = process.env[name];
-  }
-  return { ...environment, ...additions };
-}
 
 function reservePort() {
   return new Promise((resolvePort, reject) => {
