@@ -24,17 +24,19 @@ decisions, scoped Prospect-to-Contact relevance, and verification **intent**
 history without representing a candidate as a Contact or a verification intent
 as verified evidence. `peopleCursor` is separately signed and binds workspace,
 owner principal, Prospect revision, current configuration digest, current run
-result digest, generation, high-water, and after key. It cannot be substituted
+result digest, generation, high-water, and after key. Its page size is five,
+so ordinary multi-page behavior is exercised without weakening C1's per-run
+candidate maximum. It cannot be substituted
 for existing Contacts, identity, or approved-Propect cursors.
 
 ## Explicit exclusions
 
 No migration, provider, credential, contact-point evidence, ContactReady
 promotion, network call, persistence outside C1 commands, export, schedule,
-mail, telephone, hosted state, or outbound effect is added. The C1 per-run
-candidate maximum is 20, so a 21st candidate is structurally rejected before
-the projection; `people` pagination retains a limit of 20 for independent
-future projection expansion.
+mail, telephone, hosted state, or outbound effect is added. At read time an
+expired or already-redacted candidate becomes `payload_unavailable`: its raw
+name, role, and candidate digest are not returned. A mutation/redaction between
+pages advances C1's generation and invalidates the signed cursor.
 
 ## Next work
 
