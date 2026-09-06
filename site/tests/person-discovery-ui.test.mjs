@@ -60,6 +60,8 @@ test("C3 validates exact projection shape, cardinality, identifiers, references,
     }
     assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { runId: null, status: "stale_authority", items: [], pageInfo: page() }, history: emptyHistory() })));
     for (const count of [0, 5]) assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: Array.from({ length: count }, (_, index) => candidate(index)), pageInfo: page(Array.from({ length: count })) } })));
+    const twoProspects = [discoveryProjection().approvedProspects[0], { prospectId: "approved-prospect-2", prospectRevision: 1, label: "Approved prospect · ed_prospect2 · reviewed 2026-09-06", knownPerson: false }];
+    const twoKnownProspects = twoProspects.map((item) => ({ ...item, knownPerson: true }));
     const malformed = [
       discoveryProjection({ people: { ...discoveryProjection().people, pageInfo: { ...discoveryProjection().people.pageInfo, returned: 0 } } }),
       discoveryProjection({ people: { ...discoveryProjection().people, items: [candidate(0), candidate(0)], pageInfo: page([candidate(0), candidate(0)]) } }),
@@ -71,6 +73,8 @@ test("C3 validates exact projection shape, cardinality, identifiers, references,
       verificationProjection({ history: { ...verificationProjection().history, relevance: [relevance, { ...relevance }] } }),
       verificationProjection({ history: { ...verificationProjection().history, verificationIntents: [{ intentId: "intent-bad", relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: "impossible", effect: "intent_only" }] } }),
       verificationProjection({ history: { ...verificationProjection().history, relevance: [{ ...relevance, current: false }] } }),
+      discoveryProjection({ approvedProspects: twoProspects, history: { ...discoveryProjection().history, decisions: [{ ...decision("no_match"), prospectId: "approved-prospect-2" }] } }),
+      verificationProjection({ approvedProspects: twoKnownProspects, history: { ...verificationProjection().history, relevance: [{ ...relevance, prospectId: "approved-prospect-2" }] } }),
       { ...verificationProjection(), unexpected: true },
       discoveryProjection({ people: { ...discoveryProjection().people, items: Array.from({ length: 4 }, (_, index) => candidate(index)), pageInfo: { limit: 5, returned: 4, hasNext: true, nextCursor: "abc.def" } } }),
       discoveryProjection({ people: { runId: null, resultDigest: null, status: "completed", items: [], pageInfo: page() } }),
@@ -150,7 +154,7 @@ test("C3 duplicate business names remain distinguishable and link the exact sele
   } finally { await vite.close(); }
 });
 
-test("C3 double Next starts one cursor read and a cursor 409 performs exactly one first-page reset", async () => {
+test("C3 paging guards double Next, cursor drift, and both same-tick read-command orderings", async () => {
   const { vite, ui } = await module();
   try {
     const items = Array.from({ length: 5 }, (_, index) => candidate(index));
@@ -165,6 +169,54 @@ test("C3 double Next starts one cursor read and a cursor 409 performs exactly on
     resolveCursor(response({ error: "people_page_drifted" }, 409)); await settle();
     assert.equal(urls.filter((url) => url.includes("prospectId") && !url.includes("peopleCursor")).length - firstPagesBefore, 1, "cursor drift resets the first page exactly once");
     assert.match(JSON.stringify(renderer.toJSON()), /first page was reloaded/); act(() => renderer.unmount());
+    {
+      const guardedItems = Array.from({ length: 5 }, (_, index) => candidate(index));
+      const guardedFirstPage = discoveryProjection({ people: { ...discoveryProjection().people, items: guardedItems, pageInfo: { limit: 5, returned: 5, hasNext: true, nextCursor: "abc.def" } } });
+      const refreshedItem = { ...candidate(5), displayName: "Refreshed person" };
+      const refreshedPage = discoveryProjection({ people: { ...discoveryProjection().people, items: [refreshedItem], pageInfo: page([refreshedItem]) } });
+
+      let readFirstPosts = 0, readFirstCursorReads = 0, resolveCursor;
+      const cursorPending = new Promise((resolve) => { resolveCursor = resolve; });
+      const readFirstFetcher = async (url, init = {}) => {
+        if (init.method === "POST") { readFirstPosts += 1; return response({ command: { kind: "accepted" } }); }
+        if (String(url).includes("peopleCursor")) { readFirstCursorReads += 1; return cursorPending; }
+        return response(String(url).includes("?") ? guardedFirstPage : initialProjection());
+      };
+      const readFirst = await mountWorkspace(ui, readFirstFetcher);
+      chooseDecision(readFirst.root, "create_new");
+      const nextFirst = button(readFirst.root, "Next people"), recordSecond = button(readFirst.root, "Record decision");
+      assert.ok(nextFirst && recordSecond);
+      act(() => { nextFirst.props.onClick(); recordSecond.props.onClick(); });
+      assert.equal(readFirstCursorReads, 1);
+      assert.equal(readFirstPosts, 0, "a synchronous paging read blocks the same-tick command");
+      resolveCursor(response(refreshedPage));
+      await settle();
+      assert.match(JSON.stringify(readFirst.toJSON()), /Refreshed person/, "the admitted authoritative read is rendered");
+      act(() => readFirst.unmount());
+
+      let commandFirstPosts = 0, commandFirstCursorReads = 0, scopedReads = 0, resolvePost;
+      let current = guardedFirstPage;
+      const postPending = new Promise((resolve) => { resolvePost = resolve; });
+      const commandFirstFetcher = async (url, init = {}) => {
+        if (init.method === "POST") { commandFirstPosts += 1; current = verificationProjection(); return postPending; }
+        if (String(url).includes("peopleCursor")) commandFirstCursorReads += 1;
+        if (String(url).includes("?")) scopedReads += 1;
+        return response(String(url).includes("?") ? current : initialProjection());
+      };
+      const commandFirst = await mountWorkspace(ui, commandFirstFetcher);
+      chooseDecision(commandFirst.root, "create_new");
+      const recordFirst = button(commandFirst.root, "Record decision"), nextSecond = button(commandFirst.root, "Next people");
+      assert.ok(recordFirst && nextSecond);
+      const scopedBefore = scopedReads;
+      act(() => { recordFirst.props.onClick(); nextSecond.props.onClick(); });
+      assert.equal(commandFirstPosts, 1);
+      assert.equal(commandFirstCursorReads, 0, "a synchronous command blocks the same-tick paging read");
+      resolvePost(response({ command: { kind: "accepted" } }));
+      await settle();
+      assert.equal(scopedReads - scopedBefore, 1, "the admitted command still performs one authoritative refresh");
+      assert.match(JSON.stringify(commandFirst.toJSON()), /Decision recorded/);
+      act(() => commandFirst.unmount());
+    }
   } finally { await vite.close(); }
 });
 

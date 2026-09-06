@@ -209,11 +209,23 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
   const peopleRun = people.runId === null ? null : runs.find((item) => item.runId === people.runId);
   if (
     runs.some((item) => !prospectIds.has(item.prospectId)) ||
-    decisions.some((item) => !runIds.has(item.runId) || !prospectIds.has(item.prospectId) || runById.get(item.runId)?.state !== "completed") ||
+    decisions.some(
+      (item) =>
+        !runIds.has(item.runId) ||
+        !prospectIds.has(item.prospectId) ||
+        runById.get(item.runId)?.state !== "completed" ||
+        runById.get(item.runId)?.prospectId !== item.prospectId,
+    ) ||
     relevance.some((item) => {
       const linkedDecision = decisionById.get(item.decisionId);
       const projectedLabel = contactLabels.get(item.contactId);
-      return !prospectIds.has(item.prospectId) || !decisionIds.has(item.decisionId) || linkedDecision?.contactId !== item.contactId || (projectedLabel !== undefined && projectedLabel !== item.contactLabel);
+      return (
+        !prospectIds.has(item.prospectId) ||
+        !decisionIds.has(item.decisionId) ||
+        linkedDecision?.prospectId !== item.prospectId ||
+        linkedDecision?.contactId !== item.contactId ||
+        (projectedLabel !== undefined && projectedLabel !== item.contactLabel)
+      );
     }) ||
     verificationIntents.some((item) => !relevanceIds.has(item.relevanceId)) ||
     staleTrustedObservations.some((item) => !relevanceIds.has(item.relevanceId)) ||
@@ -423,7 +435,7 @@ export function PersonDiscoveryWorkspace({
     await load(selectedProspectId, null, true);
   }
   async function command(body: Record<string, unknown>, unknown: string) {
-    if (mutationPending.current) return;
+    if (mutationPending.current || readPending.current) return;
     mutationPending.current = true;
     setUi((state) => ({ ...state, pending: true }));
     try {
@@ -509,7 +521,7 @@ export function PersonDiscoveryWorkspace({
     if (id) void load(id, null);
   }
   function move(direction: "next" | "previous") {
-    if (!selectedProspectId || ui.pending || readPending.current) return;
+    if (!selectedProspectId || ui.pending || readPending.current || mutationPending.current) return;
     if (direction === "next" && projection?.people.pageInfo.nextCursor) {
       setUi((state) => ({
         ...state,

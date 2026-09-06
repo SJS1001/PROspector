@@ -25,7 +25,9 @@ Owner decisions remain explicit: No match, Create new person, and Link
 existing person. No decision is preselected and each needs confirmation. The
 bounded C2 projection now supplies current same-workspace Contact labels and
 revisions, so Link existing person can use an explicitly selected Contact and
-never guesses by name. After a person relation exists, separate initial and
+never guesses by name. Stable owner-scoped opaque label discriminators keep
+otherwise identical business names and roles distinguishable without exposing
+contact values. After a person relation exists, separate initial and
 stale-refresh verification intent controls use the current relevance Contact
 revision and, only when current trusted evidence is stale, the server-projected
 observation locator. These commands only record intent: they cannot call a
@@ -40,27 +42,26 @@ People are paged in real five-row windows and have independent cursor history.
 A cursor 409 clears candidate, Contact, and confirmation selections, resets to
 page one, and performs at most one GET refresh while retaining the plain
 warning. Unknown POST outcomes perform one GET refresh and are never
-automatically retried. A per-mutation in-flight guard prevents same-tick double
-activation. Keyboard-labelled controls,
+automatically retried, and the warning remains visible if that recovery read
+also fails. Mutual synchronous read/mutation guards prevent same-tick paging and
+command races without dropping the admitted operation's authoritative refresh.
+Keyboard-labelled controls,
 live status, focus movement to the result state, focusable disabled reasons,
 and reflow-safe cards are included.
 
 ## Focused evidence
 
-- `node --test tests/person-discovery-ui.test.mjs`: 4/4 pass. This exercises
-  ordinal zero normalization; explicit create/link choice and confirmation;
-  initial/stale intent body shapes; same-tick guard; five-row paging; stale and
-  unknown recovery state; and focusable disabled explanations.
+- `node --test --test-force-exit tests/person-discovery-ui.test.mjs`: 8/8 pass.
+  This exercises exact projection bounds and lineage, duplicate-name labels,
+  create/link/no-match commands, initial/stale intent bodies, both same-tick
+  read-command orderings, double-Next and single-reset recovery, retained
+  unknown-outcome warnings, focus, and pending controls.
+- `node --test --test-force-exit --test-name-pattern='link_existing|C3.initial.read.minimizes' tests/person-discovery-handler.test.mjs`:
+  2/2 pass against loopback Miniflare, including stable opaque duplicate-name
+  labels and the minimized current-authority projection.
 - Touched-file ESLint: pass.
-- Targeted TypeScript diagnostic has no C3-file error; pre-existing repository
-  typing/environment errors remain outside this unit.
 - Source/effect scan finds no Gmail, telephony, click-to-call, CSV export,
   provider credential, workspace, or owner authority field in the C3 client.
-
-The broader C1/C2 Miniflare test command was attempted in this isolated
-worktree, but every fixture failed before test assertions because its local
-loopback fixture runtime was unavailable in this environment. C3's pure UI
-test remains green; C4 must rerun C1/C2/C3 with loopback-capable fixtures.
 
 ## Remaining C4
 
