@@ -48,7 +48,7 @@ test("local composer traverses every hierarchy branch deterministically and trea
     for (let index = 0; index < first.totalSlots; index += 1) {
       const progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
       assert.equal(progression.status, "ready");
-      seen.push(`${progression.next.label}:${progression.next.destination.locator}`);
+      seen.push(`${progression.next.label}:${progression.next.destination.locator}:${progression.next.knowledgeKind}`);
       const active = await rejectNext(api, progression, index + 30);
       if (progression.next.destination.locator === "Product A") {
         assert.equal(active.question.prerequisiteKnowledge.some((item) => item.id === siblingVersion.id), false, "a sibling Product's current Knowledge is not causal prerequisite authority");
@@ -58,16 +58,16 @@ test("local composer traverses every hierarchy branch deterministically and trea
     assert.equal(completed.status, "complete", JSON.stringify({ seen, completed }, null, 2));
     assert.equal(completed.completedSlots, completed.totalSlots);
     assert.deepEqual(seen.slice(0, 4), [
-      `Company:${company.name}`,
-      "Product:ONE",
-      "Market Play:ONE for Mining",
-      "Customer Profile:Operating",
+      `Company:${company.name}:identity`,
+      "Product:ONE:capability",
+      "Product:ONE:limitation",
+      "Product:ONE:delivery",
     ]);
-    assert.ok(seen.indexOf("Offer:Operating") < seen.indexOf("Product:Product A"), "the first product subtree completes before the next Product");
-    assert.ok(seen.indexOf("Product:Product A") < seen.indexOf("Market Play:Play A"));
-    assert.ok(seen.indexOf("Market Play:Play A") < seen.indexOf("Customer Profile:Profile A"));
-    assert.ok(seen.indexOf("Customer Profile:Profile A") < seen.indexOf("Offer:Profile A"));
-    assert.ok(seen.indexOf("Offer:Profile A") < seen.indexOf("Product:Product Z"));
+    assert.ok(seen.indexOf("Offer:Operating:hierarchy_completion_offer") < seen.indexOf("Product:Product A:capability"), "the first product subtree completes before the next Product");
+    assert.ok(seen.indexOf("Product:Product A:default_runner_policy") < seen.indexOf("Market Play:Play A:market"));
+    assert.ok(seen.indexOf("Market Play:Play A:offer_context") < seen.indexOf("Customer Profile:Profile A:fit"));
+    assert.ok(seen.indexOf("Customer Profile:Profile A:output_target") < seen.indexOf("Offer:Profile A:hierarchy_completion_offer"));
+    assert.ok(seen.indexOf("Offer:Profile A:hierarchy_completion_offer") < seen.indexOf("Product:Product Z:capability"));
     assert.equal(await countRows(fixture.database, "offers"), 0, "reviewed Offer rejection advances without materializing an Offer");
   } finally {
     await fixture.dispose();
@@ -96,6 +96,8 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
     assert.equal(state.status, "active");
     assert.equal(state.question.requiresOwnerInput, true);
     assert.equal(state.question.recommendationDetail, null);
+    assert.equal(state.question.evidenceFindings.length, 0);
+    assert.deepEqual(state.question.evidenceState, { status: "missing", findingCount: 0 });
     const noWrite = await counts(fixture.database);
     await assert.rejects(api.interview.submitInterviewAnswer(fixture.database, OWNER, {
       questionId: state.question.id, expectedRevision: state.question.revision,
@@ -111,9 +113,12 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
         answer: "write_correction", value: { excerpt: label === "Offer" ? `Owner offer ${sequence}` : `Owner value ${sequence}` },
         reason: "Owner supplied this value explicitly for the disposable local demo.", idempotencyKey: key(sequence++),
       });
+      const correctedOffer = label === "Offer" ? `Corrected offer ${sequence}` : null;
       state = await api.interview.recordInterviewDecision(fixture.database, OWNER, {
         answerId: answer.answer.id, expectedSessionRevision: answer.session.revision,
-        expectedQuestionRevision: answer.question.revision, decision: "accept", idempotencyKey: key(sequence++),
+        expectedQuestionRevision: answer.question.revision, decision: correctedOffer ? "correct" : "accept",
+        ...(correctedOffer ? { value: { excerpt: correctedOffer }, reason: "Owner corrected the exact Offer before confirmation." } : {}),
+        idempotencyKey: key(sequence++),
       });
       progression = await api.composer.readLocalInterviewProgression(fixture.database, OWNER);
       if (progression.status === "complete") break;
@@ -123,6 +128,10 @@ test("queue digest, owner input, prerequisites, Offer lineage, and zero-effect b
       assert.ok(state.question.prerequisiteKnowledge.length > 0, "later questions bind current Confirmed prerequisites");
     }
     assert.equal(await countRows(fixture.database, "offers"), 2, "one accepted Offer question materializes one Offer per Profile");
+    const offers = await fixture.database.prepare("SELECT name,value_json FROM offers WHERE workspace_id=? ORDER BY created_at,id").bind(api.workspace.id).all();
+    assert.ok(offers.results.every((offer) => offer.name.startsWith("Corrected offer ") && JSON.parse(offer.value_json).excerpt === offer.name), "Offer name and value use the exact corrected confirmed value");
+    const plays = await fixture.database.prepare("SELECT lifecycle FROM market_plays WHERE workspace_id=? ORDER BY created_at,id").bind(api.workspace.id).all();
+    assert.ok(plays.results.every((play) => play.lifecycle === "active"), "Offer confirmation accepts each fully reviewed Market Play for Profile readiness");
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
   } finally {
     await fixture.dispose();

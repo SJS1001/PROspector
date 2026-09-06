@@ -27,6 +27,18 @@ type QueueSlot = {
   kind: string;
 };
 
+const PRODUCT_QUESTION_KINDS = [
+  "capability", "limitation", "delivery", "proof", "ownership", "claim_guardrail",
+  "source_policy", "discovery_policy", "default_runner_policy",
+] as const;
+const MARKET_PLAY_QUESTION_KINDS = [
+  "market", "problem", "audience", "language", "evidence", "offer_context",
+] as const;
+const PROFILE_QUESTION_KINDS = [
+  "fit", "disqualifier", "roles", "signals", "timezone", "rubric", "proof_policy",
+  "contact_policy", "outreach_policy", "schedule", "output_target",
+] as const;
+
 type CurrentKnowledge = {
   itemId: string;
   itemRevision: number;
@@ -292,11 +304,11 @@ function queueFor(hierarchy: HierarchyRow[]): QueueSlot[] {
   const slots: QueueSlot[] = [];
   for (const row of byType("company")) slots.push(slot("Company", row, "identity"));
   for (const product of byType("product")) {
-    slots.push(slot("Product", product, "capability"));
+    for (const kind of PRODUCT_QUESTION_KINDS) slots.push(slot("Product", product, kind));
     for (const play of byType("market_play").filter((row) => row.parentId === product.id)) {
-      slots.push(slot("Market Play", play, "market"));
+      for (const kind of MARKET_PLAY_QUESTION_KINDS) slots.push(slot("Market Play", play, kind));
       for (const profile of byType("customer_profile").filter((row) => row.parentId === play.id)) {
-        slots.push(slot("Customer Profile", profile, "fit"));
+        for (const kind of PROFILE_QUESTION_KINDS) slots.push(slot("Customer Profile", profile, kind));
         slots.push(slot("Offer", profile, "hierarchy_completion_offer"));
       }
     }
@@ -374,8 +386,10 @@ async function normalizeSessionDestination(database: D1Database, workspaceId: st
 
 function promptFor(slot: QueueSlot) {
   if (slot.label === "Offer") return `What offer should be made to the “${slot.locator}” Customer Profile?`;
-  return `What should PROspector know about the ${slot.label} “${slot.locator}”?`;
+  return `What should PROspector know about ${humanize(slot.kind)} for the ${slot.label} “${slot.locator}”?`;
 }
+
+function humanize(value: string) { return value.replaceAll("_", " "); }
 
 function slotKey(scopeType: string, scopeId: string, kind: string) {
   const normalized = scopeType === "play" ? "market_play" : scopeType === "profile" ? "customer_profile" : scopeType;

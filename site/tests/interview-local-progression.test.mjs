@@ -182,6 +182,7 @@ test("local interview UI requires written owner input and exposes only an explic
       prompt: "What should PROspector know about this Company?", premise: "No reliable evidence was recorded.",
       inference: "Owner input is missing.", provenance: "Local deterministic queue.",
       recommendation: "Owner input is required; no recommendation was generated.", evidenceFindings: [],
+      evidenceState: { status: "missing", findingCount: 0 },
       inferenceDetail: { label: "Inference", value: "Owner input is missing." }, recommendationDetail: null,
       destination: { scopeType: "company", id: destination.id }, prerequisiteKnowledge: [], requiresOwnerInput: true,
     };
@@ -193,6 +194,8 @@ test("local interview UI requires written owner input and exposes only an explic
     assert.match(active, /type="radio"[^>]*disabled=""[^>]*>Use recommendation/);
     assert.match(active, /Owner-confirmed value<input required=""/);
     assert.match(active, /No recommendation was generated\. Owner input is required\./);
+    assert.match(active, /Evidence state: Missing\./);
+    assert.match(active, /nothing is silently inferred or confirmed/);
 
     const confirmed = renderToStaticMarkup(React.createElement(ConsensusInterviewView, {
       ...common,
@@ -251,6 +254,7 @@ test("client rejects malformed local progression and question authority instead 
       mutate(base, (value) => { value.interview.localProgression.status = "complete"; }),
       mutate(base, (value) => { value.interview.status = "active"; value.interview.session = { id: "session-1", revision: 1 }; value.interview.question = activeQuestion(); delete value.interview.confirmed; delete value.interview.localProgression; delete value.interview.question.requiresOwnerInput; }),
       mutate(base, (value) => { value.interview.status = "active"; value.interview.session = { id: "session-1", revision: 1 }; value.interview.question = { ...activeQuestion(), knowledgeKind: "" }; delete value.interview.confirmed; delete value.interview.localProgression; }),
+      mutate(base, (value) => { value.interview.status = "active"; value.interview.session = { id: "session-1", revision: 1 }; value.interview.question = { ...activeQuestion(), evidenceState: { status: "present", findingCount: 0 } }; delete value.interview.confirmed; delete value.interview.localProgression; }),
     ];
     for (const value of malformed) assert.throws(() => normalizeProjection(value), /malformed_interview_projection/);
   } finally {
@@ -296,5 +300,5 @@ function findReactElement(node, predicate) {
 
 function mutate(value, change) { const copy = structuredClone(value); change(copy); return copy; }
 function activeQuestion() {
-  return { id: "question-1", revision: 1, ordinal: 1, evidenceFindings: [], prerequisiteKnowledge: [], inferenceDetail: null, recommendationDetail: null, destination: null, requiresOwnerInput: true, knowledgeKind: "identity" };
+  return { id: "question-1", revision: 1, ordinal: 1, evidenceFindings: [], evidenceState: { status: "missing", findingCount: 0 }, prerequisiteKnowledge: [], inferenceDetail: null, recommendationDetail: null, destination: null, requiresOwnerInput: true, knowledgeKind: "identity" };
 }

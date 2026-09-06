@@ -206,6 +206,7 @@ function validInterviewProjection(value: unknown): value is InterviewState {
   if (!isRecord(value.question) || !Number.isInteger(value.question.ordinal) || !Number.isInteger(value.question.revision)) return false;
   if (typeof value.question.requiresOwnerInput !== "boolean" || typeof value.question.knowledgeKind !== "string" || !value.question.knowledgeKind.trim() || value.question.knowledgeKind.length > 120) return false;
   if (!Array.isArray(value.question.evidenceFindings) || !value.question.evidenceFindings.every((finding) => isRecord(finding) && typeof finding.excerpt === "string")) return false;
+  if (!hasExactKeys(value.question.evidenceState, ["findingCount", "status"]) || !["missing", "present"].includes(String(value.question.evidenceState.status)) || !Number.isInteger(value.question.evidenceState.findingCount) || Number(value.question.evidenceState.findingCount) !== value.question.evidenceFindings.length || (value.question.evidenceState.status === "missing") !== (value.question.evidenceFindings.length === 0)) return false;
   if (!Array.isArray(value.question.prerequisiteKnowledge) || !value.question.prerequisiteKnowledge.every((item) => hasExactKeys(item, ["digest", "id"]) && boundedClientId(item.id) && typeof item.digest === "string" && /^[a-f0-9]{64}$/.test(item.digest))) return false;
   const prerequisiteKeys = value.question.prerequisiteKnowledge.map((item) => `${item.id}:${item.digest}`);
   const prerequisiteIds = value.question.prerequisiteKnowledge.map((item) => item.id);

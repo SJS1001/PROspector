@@ -221,7 +221,7 @@ test("Interview renders exact lower-level authority metadata in active and confi
         publishedAt: 1_700_000_000_000,
         retrievedAt: 1_700_000_100_000,
         excerpt: "Structured evidence excerpt",
-      }],
+      }], evidenceState: { status: "present", findingCount: 1 },
       inferenceDetail: { label: "Inference — owner review required", value: "Structured inference" },
       recommendationDetail: { rationale: "Structured rationale", value: { excerpt: "Structured recommended value" } },
       destination: { scopeType: "customer_profile", id: "profile-1" },

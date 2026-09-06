@@ -27,6 +27,7 @@ type QuestionView = {
   provenance: string;
   recommendation: string;
   evidenceFindings: Array<{ sourceTitle: string | null; sourceRef: string | null; sourceType: string | null; publishedAt: number | null; retrievedAt: number | null; excerpt: string }>;
+  evidenceState: { status: "missing" | "present"; findingCount: number };
   inferenceDetail: { label: string; value: string } | null;
   recommendationDetail: { rationale: string; value: { excerpt: string } | null } | null;
   destination: InterviewDestination | null;
@@ -313,6 +314,7 @@ export async function readInterviewState(
     provenance?: string;
   };
   const structuredResearch = researchFirst(current.research_json);
+  const projectedEvidence = evidenceProjection(structuredResearch.evidenceFindings);
   const question: QuestionView = {
     id: current.question_id,
     revision: current.question_revision,
@@ -324,7 +326,8 @@ export async function readInterviewState(
       research.provenance ??
       "Legacy policy question created before provenance was stored separately.",
     recommendation: current.recommendation,
-    evidenceFindings: evidenceProjection(structuredResearch.evidenceFindings),
+    evidenceFindings: projectedEvidence,
+    evidenceState: evidenceStateFor(projectedEvidence),
     inferenceDetail: structuredResearch.inference,
     recommendationDetail: !structuredResearch.requiresOwnerInput && current.recommendation ? { rationale: current.recommendation, value: structuredResearch.recommendationValue } : null,
     destination: await projectedInterviewDestination(
@@ -370,6 +373,9 @@ export async function readInterviewState(
         provenance: generalized ? "Repository-seeded evidence and owner answer snapshot." : (snapshot as ProposalSnapshot).provenance,
         recommendation: generalized ? (snapshot as GeneralizedProposalSnapshot).recommendation.rationale : (snapshot as ProposalSnapshot).recommendation,
         evidenceFindings: generalized ? evidenceProjection((snapshot as GeneralizedProposalSnapshot).evidenceFindings) : [],
+        evidenceState: generalized
+          ? evidenceStateFor(evidenceProjection((snapshot as GeneralizedProposalSnapshot).evidenceFindings))
+          : { status: "missing", findingCount: 0 },
         inferenceDetail: generalized ? (snapshot as GeneralizedProposalSnapshot).inference : null,
         recommendationDetail: generalized && !structuredResearch.requiresOwnerInput ? { rationale: (snapshot as GeneralizedProposalSnapshot).recommendation.rationale, value: (snapshot as GeneralizedProposalSnapshot).recommendation.value ?? null } : null,
         destination: generalized ? (snapshot as GeneralizedProposalSnapshot).destination : interviewDestination(current.scope_type, current.scope_id),
@@ -761,8 +767,16 @@ export async function recordInterviewDecision(
     ...(prepared.versionId && prepared.itemId ? [database.prepare("INSERT INTO interview_authority_bindings (answer_id, confirmation_id, knowledge_version_id, knowledge_item_id, proposal_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(input.answerId, confirmationId, prepared.versionId, prepared.itemId, snapshot.knowledgeProposalId, now)] : []),
   ];
   if (snapshot.kind === "hierarchy_completion_offer" && prepared.versionId && prepared.target.scopeType === "profile" && input.decision !== "reject") {
+    const confirmedOfferName = offerName(prepared.value);
     statements.push(database.prepare("INSERT INTO offers (id, workspace_id, created_at, updated_at, revision, profile_id, name, value_json, question_id, answer_id, proposal_id, decision_id, knowledge_version_id, authority_command_id, audit_event_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(`offer_${(await sha256(`${workspace.id}:${decisionId}`)).slice(0, 24)}`, workspace.id, now, now, prepared.target.id, snapshot.value.excerpt.slice(0, 160), stableJson(prepared.value), answer.question_id, input.answerId, snapshot.knowledgeProposalId, decisionId, prepared.versionId, prepared.commandId, auditId));
+      .bind(`offer_${(await sha256(`${workspace.id}:${decisionId}`)).slice(0, 24)}`, workspace.id, now, now, prepared.target.id, confirmedOfferName, stableJson(prepared.value), answer.question_id, input.answerId, snapshot.knowledgeProposalId, decisionId, prepared.versionId, prepared.commandId, auditId));
+    statements.push(database.prepare(
+      `UPDATE market_plays SET lifecycle = 'active', revision = revision + 1, updated_at = ?
+       WHERE workspace_id = ? AND lifecycle = 'draft' AND id = (
+         SELECT cp.play_id FROM customer_profiles cp
+         WHERE cp.id = ? AND cp.workspace_id = ? LIMIT 1
+       )`,
+    ).bind(now, workspace.id, prepared.target.id, workspace.id));
   }
   try {
     await database.batch(statements);
@@ -1177,6 +1191,13 @@ function researchFirst(raw: string): {
   };
 }
 
+function offerName(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new InterviewConflictError("Confirmed Offer value is unavailable");
+  const excerpt = (value as Record<string, unknown>).excerpt;
+  if (typeof excerpt !== "string" || !excerpt.trim()) throw new InterviewConflictError("Confirmed Offer value is unavailable");
+  return excerpt.trim().slice(0, 160);
+}
+
 function evidenceProjection(findings: InterviewEvidenceFinding[]) {
   return findings.map((finding) => ({
     sourceTitle: typeof finding.sourceTitle === "string" ? finding.sourceTitle : null,
@@ -1186,6 +1207,10 @@ function evidenceProjection(findings: InterviewEvidenceFinding[]) {
     retrievedAt: typeof finding.retrievedAt === "number" ? finding.retrievedAt : null,
     excerpt: typeof finding.excerpt === "string" ? finding.excerpt : "",
   }));
+}
+
+function evidenceStateFor(findings: readonly unknown[]) {
+  return { status: findings.length ? "present" as const : "missing" as const, findingCount: findings.length };
 }
 
 function interviewDestination(scopeType: string, id: string): InterviewDestination | null {
