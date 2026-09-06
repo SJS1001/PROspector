@@ -185,16 +185,26 @@ Use these existing artifacts rather than restating product decisions:
   code and security/privacy convergence reviews returned GO with no blocker,
   high, or medium finding. The new discovery port remains unavailable in
   production and no Phase 5 completion, hosted action, provider call, Contact
-  eligibility, export, or outbound effect is claimed. C2 handler/projection, C3
-  UI, and C4 integrated synthetic acceptance remain pending.
+  eligibility, export, or outbound effect is claimed. C2 and C3 are now
+  integrated; C4 integrated synthetic acceptance remains pending.
 - Later on 2026-09-06 C2 was integrated: the closed owner-admitted discovery
   handler, exact replay/conflict translation, current-authority projection,
   five-row signed people cursor, read-time retention masking, and actual
   production route rejection. The merged C1+C2 focused gate passed 37/37 with
   loopback permission; touched lint and production audit are clean. Independent
   code and security/privacy convergence reviews returned GO with zero blocker,
-  high, or medium finding. C3 UI and C4 integrated synthetic acceptance remain;
-  production still composes no discovery service or provider.
+  high, or medium finding. Production still composes no discovery service or
+  provider.
+- Later on 2026-09-06 C3 was integrated: the accessible operator interface,
+  minimized exact projection, current-authority relevance and stale-observation
+  fences, explicit no-match/create/link and email/phone verification-intent
+  controls, synchronous operation guards, cursor recovery, and no-auto-retry
+  behavior. The merged C1-C3 focused gate passed 47/47 with loopback permission;
+  touched lint and production audit are clean. Independent code and
+  security/privacy convergence reviews returned GO with zero blocker, high, or
+  medium finding. C4 integrated synthetic runtime/browser acceptance remains;
+  production still composes no discovery service or provider and no external
+  effect is enabled.
 
 - The latest clean Phase 2 re-review after `2e879dc` and `45bcdc1` verified CR-09 through CR-11 and WR-07 closed, including server-derived candidate authority, reduced UI mutation payloads, and forged/stale request rejection.
 - `npm test` and `npm run lint` passed at that Phase 2 review checkpoint. Subsequent branch commits add Phase 3/4 work and test-runner isolation, so rerun the canonical commands before treating the current checkout as verified.

@@ -217,9 +217,14 @@ masking, durable replay, and production reject-only route passed the merged
 zero blocker, high, or medium finding. The route composes no discovery service
 or provider and grants no Contact eligibility or external effect.
 
-Continue A and B corrections on their existing branches. For C, implement C3
-next: the accessible operator UI over the C2 projection and commands, preserving
-candidate-as-suggestion language, explicit no-match/create/link decisions,
-separate verification intent, stale cursor reset, and no automatic retry. C4
-integrated synthetic acceptance follows. Integrate A, then B, then the remaining
-C slices before D and E.
+Work unit C3 is integrated. Its accessible operator UI preserves candidate-as-
+suggestion language, explicit no-match/create/link decisions, separate email or
+phone verification intent, current-authority and minimized client projections,
+stale cursor reset, mutually exclusive reads and writes, and no automatic retry.
+The merged C1-C3 focused gate passed 47/47; independent code and security/privacy
+reviews returned GO with zero blocker, high, or medium finding. C4 integrated
+synthetic runtime/browser acceptance follows.
+
+Continue A and B corrections on their existing branches and require their
+independent reviews before integration. Integrate the corrected A and B
+candidates, then implement C4 before D and E.
