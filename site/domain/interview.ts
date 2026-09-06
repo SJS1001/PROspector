@@ -684,13 +684,26 @@ export async function submitInterviewAnswer(
     digest: string;
     destination: InterviewDestination & { id: string; locator: string };
   };
+  let guardedProposal: Awaited<ReturnType<typeof prepareGuardedInterviewKnowledgeProposal>> | null = null;
   try {
-    proposal = await createKnowledgeProposal(database, principal, {
-      origin: "owner_edit", destination, kind: research.knowledgeKind, value,
+    const proposalInput = {
+      destination, kind: research.knowledgeKind, value,
       source: { reference: `interview:${current.id}`, custody: "owner-reviewed interview snapshot", retrievedAt: Date.now() },
-      privacy: "private", license: { use: "internal_review_only" }, reuseEligibility: "company_only",
+      privacy: "private" as const, license: { use: "internal_review_only" }, reuseEligibility: "company_only",
       idempotencyKey: derivedKey(input.idempotencyKey, "proposal"),
-    });
+    };
+    if (selection) {
+      guardedProposal = await prepareGuardedInterviewKnowledgeProposal(database, principal, proposalInput, {
+        sessionId: current.session_id,
+        sessionRevision: current.session_revision,
+        questionId: current.id,
+        questionRevision: current.revision,
+        selection,
+      });
+      proposal = guardedProposal;
+    } else {
+      proposal = await createKnowledgeProposal(database, principal, { origin: "owner_edit", ...proposalInput });
+    }
   } catch (error) {
     throw new InterviewConflictError(error instanceof Error ? error.message : "Unable to store proposal");
   }
@@ -710,26 +723,72 @@ export async function submitInterviewAnswer(
   const proposalDigest = await sha256(proposalJson);
   const identity = await sha256(`${workspace.id}:${input.idempotencyKey}`);
   const now = Date.now();
+  const answerId = `ia_${identity.slice(0, 24)}`;
+  const selectedStatements = guardedProposal ? [
+    ...guardedProposal.statements,
+    database.prepare(
+      `INSERT INTO interview_answers
+       (id, workspace_id, session_id, question_id, question_revision, choice, correction_json,
+        idempotency_key, operation_digest, proposal_json, proposal_digest, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+         AND EXISTS (SELECT 1 FROM knowledge_proposals WHERE id = ? AND workspace_id = ? AND proposal_digest = ?)
+         AND EXISTS (
+           SELECT 1 FROM interview_questions q
+           JOIN interview_sessions s ON s.id = q.session_id AND s.workspace_id = q.workspace_id
+           WHERE q.id = ? AND q.workspace_id = ? AND q.session_id = ?
+             AND q.status = 'active' AND q.revision = ?
+             AND s.id = ? AND s.state = 'awaiting_answer' AND s.revision = ? AND s.active_question_id = q.id
+         )`,
+    ).bind(
+      answerId, workspace.id, current.session_id, current.id, current.revision,
+      input.answer === "use_recommendation" ? "accept_recommendation" : "correct",
+      input.answer === "use_recommendation" ? null : stableJson({ value, reason: input.reason, destination }),
+      input.idempotencyKey, operationDigest, proposalJson, proposalDigest, now,
+      guardedProposal.authorityCommandId, workspace.id, proposal.id, workspace.id, proposal.digest,
+      current.id, workspace.id, selection!.sessionId, input.expectedRevision,
+      selection!.sessionId, current.session_revision,
+    ),
+    database.prepare(
+      `UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ? AND session_id = ?
+         AND EXISTS (SELECT 1 FROM interview_answers WHERE id = ? AND workspace_id = ? AND session_id = ?)`,
+    ).bind(now, current.id, workspace.id, input.expectedRevision, selection!.sessionId, answerId, workspace.id, selection!.sessionId),
+    database.prepare(
+      `UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?
+         AND EXISTS (SELECT 1 FROM interview_answers WHERE id = ? AND workspace_id = ? AND session_id = interview_sessions.id)`,
+    ).bind(now, selection!.sessionId, workspace.id, current.session_revision, answerId, workspace.id),
+    database.prepare(
+      `INSERT INTO audit_events
+       (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at)
+       SELECT ?, ?, 'owner', ?, 'interview.answer_submitted', 'interview_answer', ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+         AND EXISTS (SELECT 1 FROM interview_answers WHERE id = ? AND workspace_id = ? AND session_id = ?)`,
+    ).bind(`ae_${identity.slice(0, 24)}`, workspace.id, principal.subject, answerId, stableJson({ operationDigest, proposalDigest, knowledgeProposalId: proposal.id }), now, guardedProposal.authorityCommandId, workspace.id, answerId, workspace.id, selection!.sessionId),
+  ] : null;
   try {
-    await database.batch([
+    await database.batch(selectedStatements ?? [
       database.prepare(`UPDATE interview_questions SET status = 'answered', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'active' AND revision = ?
-        ${selection ? "AND session_id = ?" : ""}`)
-        .bind(now, current.id, workspace.id, input.expectedRevision, ...(selection ? [selection.sessionId] : [])),
+        `).bind(now, current.id, workspace.id, input.expectedRevision),
       database.prepare(`UPDATE interview_sessions SET state = 'awaiting_confirmation', revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND state = 'awaiting_answer' AND revision = ?
-        ${selection ? "AND id = ?" : ""}`)
-        .bind(now, current.session_id, workspace.id, current.session_revision, ...(selection ? [selection.sessionId] : [])),
+        `).bind(now, current.session_id, workspace.id, current.session_revision),
       database.prepare(`INSERT INTO interview_answers (id, workspace_id, session_id, question_id, question_revision, choice, correction_json, idempotency_key, operation_digest, proposal_json, proposal_digest, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(`ia_${identity.slice(0, 24)}`, workspace.id, current.session_id, current.id, current.revision,
+        .bind(answerId, workspace.id, current.session_id, current.id, current.revision,
           input.answer === 'use_recommendation' ? 'accept_recommendation' : 'correct',
           input.answer === 'use_recommendation' ? null : stableJson({ value, reason: input.reason, destination }),
           input.idempotencyKey, operationDigest, proposalJson, proposalDigest, now),
       database.prepare("INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', ?, 'interview.answer_submitted', 'interview_answer', ?, ?, ?)")
-        .bind(`ae_${identity.slice(0, 24)}`, workspace.id, principal.subject, `ia_${identity.slice(0, 24)}`, stableJson({ operationDigest, proposalDigest, knowledgeProposalId: proposal.id }), now),
+        .bind(`ae_${identity.slice(0, 24)}`, workspace.id, principal.subject, answerId, stableJson({ operationDigest, proposalDigest, knowledgeProposalId: proposal.id }), now),
     ]);
   } catch {
     const winner = await database.prepare("SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
     if (!winner || winner.operation_digest !== operationDigest) throw new InterviewConflictError("Another answer won; reload before answering");
+  }
+  if (guardedProposal) {
+    const winner = await database.prepare("SELECT operation_digest FROM interview_answers WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1").bind(workspace.id, input.idempotencyKey).first<{ operation_digest: string }>();
+    if (!winner || winner.operation_digest !== operationDigest) throw new InterviewConflictError("The selected Explore interview changed; reload before answering");
   }
   return readInterviewState(database, principal, selection);
 }
@@ -1502,4 +1561,4 @@ async function sha256(value: string): Promise<string> {
 function hex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-import { createKnowledgeProposal, prepareKnowledgeReview } from "./knowledge";
+import { createKnowledgeProposal, prepareGuardedInterviewKnowledgeProposal, prepareKnowledgeReview } from "./knowledge";

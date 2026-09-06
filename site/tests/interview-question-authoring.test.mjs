@@ -366,6 +366,51 @@ test("an actual Explore-created open session accepts its first internal question
     assert.equal(active.status, "active");
     assert.equal(active.question.destination.id, explored.interview.marketPlayId);
     await assertForbiddenOperationalRowsUnchanged(fixture.database, beforeIssue);
+
+    const selectedAnswer = await interview.submitInterviewAnswer(fixture.database, principal, {
+      questionId: active.question.id,
+      expectedRevision: active.question.revision,
+      answer: "write_correction",
+      value: { excerpt: "Synthetic selected-path answer." },
+      reason: "Exercise the transactionally guarded success path.",
+      idempotencyKey: key(210),
+    }, selection);
+    assert.equal(selectedAnswer.status, "awaiting_confirmation");
+    await interview.recordInterviewDecision(fixture.database, principal, {
+      answerId: selectedAnswer.answer.id,
+      expectedSessionRevision: selectedAnswer.session.revision,
+      expectedQuestionRevision: selectedAnswer.question.revision,
+      decision: "reject",
+      idempotencyKey: key(211),
+    }, selection);
+    const nextProgression = await composer.readLocalInterviewProgression(fixture.database, principal, selection);
+    const nextActive = await composer.advanceLocalInterview(fixture.database, principal, {
+      expectedQueueDigest: nextProgression.queueDigest,
+      idempotencyKey: key(212),
+    }, selection);
+    assert.equal(nextActive.status, "active");
+
+    const beforeLifecycleRace = await selectedMutationSnapshot(fixture.database);
+    const racedDatabase = interleavingDatabase(fixture.database, () => fixture.database.prepare(
+      "UPDATE market_plays SET lifecycle = 'retired' WHERE id = ? AND workspace_id = ?",
+    ).bind(selection.marketPlayId, workspaceId).run());
+    await assert.rejects(interview.submitInterviewAnswer(racedDatabase, principal, {
+      questionId: nextActive.question.id,
+      expectedRevision: nextActive.question.revision,
+      answer: "write_correction",
+      value: { excerpt: "Synthetic owner answer that must not survive lost Explore authority." },
+      reason: "Deterministic transaction interleaving test.",
+      idempotencyKey: key(213),
+    }, selection), /selected Explore interview changed/i);
+    const expectedAfterRace = structuredClone(beforeLifecycleRace);
+    const retiredPlay = expectedAfterRace.market_plays.find((play) => play.id === selection.marketPlayId);
+    assert.ok(retiredPlay);
+    retiredPlay.lifecycle = "retired";
+    assert.deepEqual(
+      await selectedMutationSnapshot(fixture.database),
+      expectedAfterRace,
+      "losing selected Play authority before the batch leaves zero proposal, source, audit, answer, question, or session partial write",
+    );
   } finally {
     await fixture.dispose();
   }
@@ -429,7 +474,7 @@ function knowledgeMutation(body, csrf) {
 }
 
 async function selectedMutationSnapshot(database) {
-  const tables = ["interview_sessions", "interview_questions", "interview_answers", "interview_confirmations", "market_plays", "knowledge_proposals", "knowledge_items", "knowledge_versions", "proposal_decisions", "offers", "authority_commands", "audit_events"];
+  const tables = ["interview_sessions", "interview_questions", "interview_answers", "interview_confirmations", "market_plays", "sources", "source_excerpts", "knowledge_proposals", "knowledge_items", "knowledge_versions", "proposal_decisions", "offers", "authority_commands", "audit_events"];
   return Object.fromEntries(await Promise.all(tables.map(async (table) => [table, (await database.prepare(`SELECT * FROM ${table} ORDER BY id`).all()).results])));
 }
 
@@ -459,6 +504,20 @@ async function activateSyntheticKnowledgeGate(database, workspaceId) {
     gate.post_migration_evidence_reference, gate.independent_review_reference,
     gate.deployed_boundary_proof_reference, tupleDigest, NOW, NOW,
   ).run();
+}
+
+function interleavingDatabase(database, mutate) {
+  let fired = false;
+  return {
+    prepare(sql) { return database.prepare(sql); },
+    async batch(statements) {
+      if (!fired) {
+        fired = true;
+        await mutate();
+      }
+      return database.batch(statements);
+    },
+  };
 }
 
 function key(sequence) {

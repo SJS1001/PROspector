@@ -44,6 +44,118 @@ export async function createKnowledgeProposal(database: D1Database, principal: I
   return proposalById(database, workspace.id, proposalId);
 }
 
+/**
+ * Prepares the owner-edit proposal side of a selected Explore answer without
+ * writing it. The first statement is the transaction-local authority fence;
+ * every source/proposal/audit row is conditional on that command existing.
+ */
+export async function prepareGuardedInterviewKnowledgeProposal(
+  database: D1Database,
+  principal: InterviewPrincipal,
+  input: Omit<ProposalInput, "origin">,
+  guard: {
+    sessionId: string;
+    sessionRevision: number;
+    questionId: string;
+    questionRevision: number;
+    selection: import("./interview").InterviewSelection;
+  },
+) {
+  validateKey(input.idempotencyKey);
+  const origin = validateOrigin("owner_edit");
+  const workspace = await workspaceForKnowledge(database, principal);
+  const destination = await resolveDestination(database, workspace.id, input.destination);
+  const submittedValue = validateValue(input.value);
+  const provenance = validateProvenance(input.source, input.privacy, input.license, input.reuseEligibility);
+  const value = submittedValue;
+  const snapshot = orderedSnapshot({ origin, destination, kind: bounded(input.kind, 120, "knowledge kind"), value, provenance, prerequisites: [] as unknown[], idempotencyKey: input.idempotencyKey });
+  const proposalDigest = await sha256(snapshot);
+  const existing = await database.prepare("SELECT id FROM knowledge_proposals WHERE workspace_id = ? AND proposal_digest = ? LIMIT 1").bind(workspace.id, proposalDigest).first<{ id: string }>();
+  const now = Date.now();
+  const proposalId = existing?.id ?? v7();
+  const commandId = v7();
+  const sourceId = v7();
+  const excerptId = v7();
+  const auditId = v7();
+  const sourceDigest = await sha256(orderedSnapshot({ proposalDigest, provenance, idempotencyKey: input.idempotencyKey }));
+  const commandDigest = await sha256(orderedSnapshot({
+    action: "interview.answer.proposal",
+    proposalDigest,
+    sessionId: guard.sessionId,
+    sessionRevision: guard.sessionRevision,
+    questionId: guard.questionId,
+    questionRevision: guard.questionRevision,
+    selection: guard.selection,
+  }));
+  const command = database.prepare(
+    `INSERT INTO authority_commands
+     (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key,
+      operation_digest, expected_revision, subject_type, subject_id, status)
+     SELECT ?, ?, ?, ?, 1, 'interview.answer.proposal', ?, ?, ?, 'knowledge_proposal', ?, 'accepted'
+     WHERE EXISTS (
+       SELECT 1 FROM interview_questions q
+       JOIN interview_sessions s ON s.id = q.session_id AND s.workspace_id = q.workspace_id
+       JOIN market_play_proposal_decisions d ON d.interview_session_id = s.id AND d.workspace_id = s.workspace_id
+         AND d.proposal_version_id = ? AND d.decision = 'explore'
+         AND json_extract(d.decision_json, '$.interview.id') = s.id
+         AND json_extract(d.decision_json, '$.interview.lifecycle') = 'draft'
+       JOIN market_plays mp ON mp.id = d.draft_market_play_id AND mp.workspace_id = d.workspace_id
+         AND mp.lifecycle IN ('draft','active')
+       JOIN market_play_proposal_versions v ON v.id = d.proposal_version_id AND v.workspace_id = d.workspace_id
+         AND v.proposal_id = d.proposal_id
+       WHERE q.id = ? AND q.workspace_id = ? AND q.revision = ? AND q.status = 'active'
+         AND q.session_id = ? AND s.id = ? AND s.revision = ?
+         AND s.state = 'awaiting_answer' AND s.active_question_id = q.id
+         AND mp.id = ? AND json_extract(d.decision_json, '$.interview.marketPlayId') = mp.id
+     )`,
+  ).bind(
+    commandId, workspace.id, now, now, input.idempotencyKey, commandDigest,
+    guard.questionRevision, proposalId,
+    guard.selection.sourceProposalVersionId,
+    guard.questionId, workspace.id, guard.questionRevision, guard.selection.sessionId,
+    guard.sessionId, guard.sessionRevision, guard.selection.marketPlayId,
+  );
+  const statements: D1PreparedStatement[] = [command];
+  if (!existing) {
+    statements.push(
+      database.prepare(
+        `INSERT INTO sources (id, workspace_id, created_at, updated_at, revision, origin, opaque_locator, source_digest, privacy, license, status)
+         SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'available'
+         WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)`,
+      ).bind(sourceId, workspace.id, now, now, sourceOrigin(origin), `${provenance.reference}#${proposalDigest}`, sourceDigest, provenance.privacy, JSON.stringify(provenance.license), commandId, workspace.id),
+      database.prepare(
+        `INSERT INTO source_excerpts (id, workspace_id, created_at, updated_at, revision, source_id, excerpt_digest, content, locator)
+         SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+           AND EXISTS (SELECT 1 FROM sources WHERE id = ? AND workspace_id = ?)`,
+      ).bind(excerptId, workspace.id, now, now, sourceId, await sha256(submittedValue.excerpt), submittedValue.excerpt, provenance.reference, commandId, workspace.id, sourceId, workspace.id),
+      database.prepare(
+        `INSERT INTO knowledge_proposals
+         (id, workspace_id, created_at, updated_at, revision, company_id, source_id, excerpt_id,
+          destination_scope_type, destination_scope_id, kind, value_json, provenance_json,
+          proposal_digest, origin, status)
+         SELECT ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed'
+         WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+           AND EXISTS (SELECT 1 FROM sources WHERE id = ? AND workspace_id = ?)
+           AND EXISTS (SELECT 1 FROM source_excerpts WHERE id = ? AND workspace_id = ?)`,
+      ).bind(proposalId, workspace.id, now, now, workspace.companyId, sourceId, excerptId, destination.scopeType, destination.id, input.kind, JSON.stringify(value), JSON.stringify(provenance), proposalDigest, origin, commandId, workspace.id, sourceId, workspace.id, excerptId, workspace.id),
+      database.prepare(
+        `INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at)
+         SELECT ?, ?, 'owner', ?, 'knowledge.proposed', 'knowledge_proposal', ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM authority_commands WHERE id = ? AND workspace_id = ?)
+           AND EXISTS (SELECT 1 FROM knowledge_proposals WHERE id = ? AND workspace_id = ?)`,
+      ).bind(auditId, workspace.id, principal.subject, proposalId, JSON.stringify({ proposalDigest, origin }), now, commandId, workspace.id, proposalId, workspace.id),
+    );
+  }
+  return {
+    id: proposalId,
+    digest: proposalDigest,
+    destination: { scopeType: publicScopeType(destination.scopeType), id: destination.id, locator: await destinationLocator(database, workspace.id, destination.scopeType, destination.id) },
+    authorityCommandId: commandId,
+    statements,
+  };
+}
+
 export async function proposeOwnerEdit(database: D1Database, principal: InterviewPrincipal, input: Omit<ProposalInput, "origin">) { return createKnowledgeProposal(database, principal, { ...input, origin: "owner_edit" }); }
 export async function proposeRepositoryResearch(database: D1Database, principal: InterviewPrincipal, input: Omit<ProposalInput, "origin">) { validateResearchUrl(input.source.reference); return createKnowledgeProposal(database, principal, { ...input, origin: "repository_research" }); }
 export async function importPlainText(database: D1Database, principal: InterviewPrincipal, input: Omit<ProposalInput, "origin">) { validatePlainText(input.value.excerpt); return createKnowledgeProposal(database, principal, { ...input, origin: "plain_text_import" }); }
@@ -130,14 +242,16 @@ export async function prepareKnowledgeReview(database: D1Database, principal: In
           )` : ""}
           ${guard?.selectedExplore ? `AND EXISTS (
             SELECT 1 FROM market_play_proposal_decisions selected_decision
+            JOIN interview_sessions selected_session ON selected_session.id = selected_decision.interview_session_id
+              AND selected_session.workspace_id = selected_decision.workspace_id
             JOIN market_plays selected_play ON selected_play.id = selected_decision.draft_market_play_id
               AND selected_play.workspace_id = selected_decision.workspace_id AND selected_play.lifecycle IN ('draft','active')
             JOIN market_play_proposal_versions selected_version ON selected_version.id = selected_decision.proposal_version_id
               AND selected_version.workspace_id = selected_decision.workspace_id AND selected_version.proposal_id = selected_decision.proposal_id
-            WHERE selected_decision.workspace_id = ? AND selected_decision.interview_session_id = s.id
-              AND selected_decision.interview_session_id = ? AND selected_decision.draft_market_play_id = ?
+            WHERE selected_decision.workspace_id = ? AND selected_session.id = ?
+              AND selected_decision.draft_market_play_id = ?
               AND selected_decision.proposal_version_id = ? AND selected_decision.decision = 'explore'
-              AND json_extract(selected_decision.decision_json, '$.interview.id') = s.id
+              AND json_extract(selected_decision.decision_json, '$.interview.id') = selected_session.id
               AND json_extract(selected_decision.decision_json, '$.interview.marketPlayId') = selected_play.id
               AND json_extract(selected_decision.decision_json, '$.interview.lifecycle') = 'draft'
           )` : ""}`;
