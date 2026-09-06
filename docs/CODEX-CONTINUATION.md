@@ -8,9 +8,11 @@
 
 ## Current Claude Cloud transfer — 2026-09-06
 
-Local Codex implementation stopped at clean pushed checkpoint
-`3320f2630d5a8bbd8617d1a674a272abf9a4e9ba` on
-`codex/generic-onboarding-integration`. Continue through
+Local Codex implementation and its transfer record are clean and pushed at
+checkpoint `165c6c7c8c8553863f24ad4e1d342d1d8cfdf8b8` on
+`codex/generic-onboarding-integration`. Cloud work units A and B now have
+separate pushed candidates, but both remain unintegrated pending their exact
+runtime validation gates. Continue through
 [`implementation-lanes/2026-09-06-claude-cloud-transfer.md`](implementation-lanes/2026-09-06-claude-cloud-transfer.md).
 That record supersedes older branch pointers for current implementation work;
 historical hosted evidence and external authority gates below remain unchanged.

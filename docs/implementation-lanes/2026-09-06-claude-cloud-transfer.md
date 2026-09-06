@@ -3,12 +3,43 @@
 **Prepared:** 2026-09-06
 **Repository:** `https://github.com/SJS1001/PROspector.git`
 **Branch:** `codex/generic-onboarding-integration`
-**Clean base:** `3320f2630d5a8bbd8617d1a674a272abf9a4e9ba`
+**Integration checkpoint:** `165c6c7c8c8553863f24ad4e1d342d1d8cfdf8b8`
 **Draft review:** `https://github.com/SJS1001/PROspector/pull/12`
 
+## Cloud candidate status — 2026-09-06
+
+The two initial cloud implementation lanes have produced clean, pushed
+candidates. Neither candidate is integrated yet because its required executable
+runtime proof is still missing. These are implementation candidates, not
+acceptance evidence and not permission to consume the canonical preflight lane.
+
+- **Work unit A:** branch `codex/issue-11-browser-foundation`, commit
+  `a5be61d278872c8fe9f692a656a3fc2335484d9a`. GitHub verifies that this is one
+  commit directly on transfer checkpoint
+  `165c6c7c8c8553863f24ad4e1d342d1d8cfdf8b8`. Static foundation tests passed
+  2/2, Playwright discovered one test, lint and lockfile dry-run checks passed.
+  Executable Chromium proof remains missing: run `npm ci`, install the pinned
+  Chromium runtime, and run `npm run test:browser` in an isolated capable cloud
+  runner. Do not integrate until visible rendering, restart persistence,
+  adversarial origin denial, and the post-run zero-effect verifier all pass.
+- **Work unit B:** branch `codex/offer-readiness-workflow`, commit
+  `6dca353d86cff93552fa32101e29a707f3d69c64`. GitHub verifies two commits
+  directly ahead of the same transfer checkpoint. Repository-wide and focused
+  lint plus diff integrity passed. The Miniflare-backed focused runtime tests
+  were not executed, so stale-tab, race, rejection, rescope, and exact-lineage
+  acceptance remain unproven. Run the focused unit/integration tests in a
+  loopback-capable isolated cloud runner before integration.
+
+The actual cloud task records are `6a9cbc45-99ac-83ea-af1b-5504b4727805`
+(A) and `6a9cbc41-c2b8-83ea-a05e-d617b684c4f4` (B). They are coordination
+locators only; Git branches, commits, and reproducible validation results remain
+the durable authority. Do not launch duplicate A/B writers. Keep work unit C
+serialized behind one schema owner, and start D only after validated B and C
+are integrated.
+
 This is the durable transfer from local Codex implementation to Claude Cloud.
-Fetch the branch and require the exact clean base before starting. Do not rely on
-chat history. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`,
+Fetch the branch and require the exact clean integration checkpoint before
+starting. Do not rely on chat history. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`,
 `docs/GREENFIELD-BASELINE.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, and
 the plan/dependency records named there.
 
