@@ -234,6 +234,7 @@ test("client rejects malformed local progression and question authority instead 
     const { normalizeProjection } = await fixture.vite.ssrLoadModule(new URL("../app/knowledge/knowledge-workspace.tsx", import.meta.url).pathname);
     const node = { id: "company-1", type: "company", parentId: null, name: "Generic Company", revision: 1 };
     const base = {
+      onboarding: { status: "complete", externalEffects: false, company: { id:"company-1",name:"Generic Company",revision:1 }, product: { id:"product-1",name:"Product",revision:1 }, marketPlay: { id:"play-1",name:"Market",revision:1 }, customerProfile: { id:"profile-1",name:"Profile",revision:1 }, fitKnowledgeVersionId:"knowledge-version-1" },
       commercial: { path: [node], products: [], plays: [], profiles: [], offers: [] }, library: [], drift: [], replacements: [],
       interview: {
         status: "confirmed", displayName: "Owner", workspace: { id: "workspace-1", companyName: "Generic Company" },

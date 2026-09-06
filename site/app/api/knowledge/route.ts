@@ -15,6 +15,7 @@ function dependencies(request: Request): KnowledgeHandlerDependencies {
   return {
     database: bindings.DB, subjectPepper: bindings.OWNER_SUBJECT_PEPPER, pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     enableLocalDemoProgression: isLocalDemoRequest(request, bindings),
+    runtimeIsDevelopment: import.meta.env.DEV,
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },

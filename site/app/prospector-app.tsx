@@ -41,12 +41,7 @@ const TORONTO_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   hourCycle: "h23",
 });
 
-const signals = [
-  { company: "Eldorado Gold", target: "McIlvenna Bay", signal: "First concentrate produced; ramp-up toward 4,900 t/d", score: 9, tier: "T1", age: "2h", status: "Review" },
-  { company: "Boliden", target: "Odda expansion", signal: "Commissioning activity and production ramp underway", score: 8, tier: "T1", age: "4h", status: "Review" },
-  { company: "Alamos Gold", target: "Island Gold Phase 3+", signal: "Shaft expansion enters operational transition", score: 8, tier: "T2", age: "6h", status: "Review" },
-  { company: "Covalent Lithium", target: "Mt Holland", signal: "Concentrator optimization remains a stated priority", score: 7, tier: "T2", age: "9h", status: "Needs evidence" },
-];
+const signals: Array<{company:string;target:string;signal:string;score:number;tier:string;age:string;status:string}>=[];
 
 // Kept as a stable source-level copy contract while the rendered controls live in KnowledgeWorkspace.
 export const KNOWLEDGE_FLOW_COPY = ["Consensus Interview", "Submit answer for confirmation", "Confirm submitted answer", "Start corrected review", "Applying this policy to scoring and prospecting remains disabled"] as const;
@@ -64,8 +59,10 @@ export function ProspectorApp({
 } = {}) {
   const [view, setView] = useState<WorkspaceView>(initialView);
   const [access, setAccess] = useState(initialAccess);
-  const [profile, setProfile] = useState("Operating sites");
+  const [profile, setProfile] = useState("No profile selected");
   const [query, setQuery] = useState("");
+  const [resolvedCompanyName,setResolvedCompanyName]=useState(initialCapabilityState?.workspace.companyName?.trim()||"");
+  const companyLabel=resolvedCompanyName||"Company setup";
   const handleUnauthorized = useCallback(
     () => setAccess("unauthorized"),
     [],
@@ -107,7 +104,7 @@ export function ProspectorApp({
 
         <div className="workspace-picker">
           <span>COMPANY</span>
-          <button type="button"><b>Digitalrain</b><small>Owner workspace</small></button>
+          <button type="button" onClick={() => navigateToView("Knowledge")}><b>{companyLabel}</b><small>Owner workspace</small></button>
         </div>
 
         <nav>
@@ -126,11 +123,11 @@ export function ProspectorApp({
 
       <section className="canvas">
         <header className="topbar">
-          <div className="crumbs"><span>Digitalrain</span><b>/</b><span>ONE</span><b>/</b><strong>ONE for Mining</strong></div>
+          <div className="crumbs"><strong>{companyLabel}</strong><b>/</b><span>{view}</span></div>
           <div className="top-actions">
             <label className="search"><span>⌕</span><input aria-label="Search prospects" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" /></label>
             <button className="quiet" type="button" disabled>No live runs</button>
-            <div className="avatar" title="Owner">SS</div>
+            <div className="avatar" title="Owner">O</div>
           </div>
         </header>
 
@@ -142,7 +139,7 @@ export function ProspectorApp({
         <div className="content">
           {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
           {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={navigateToView} />}
-          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} />}
+          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} onCompanyResolved={setResolvedCompanyName} />}
           {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
           {(view === "Review Queue" || view === "Prospects") && (
             <ProspectingWorkspace
@@ -442,18 +439,18 @@ async function fetchCapabilityState(): Promise<
 
 function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: WorkspaceView) => void }) {
   return <>
-    <PageHeading eyebrow="WEDNESDAY · 29 JULY · SYNTHETIC FIXTURE" title="Good morning, Steven." copy="A non-operational example of how evidence-backed work will be separated from decisions." action={<button className="primary" type="button" disabled title="Available after Wave 0">Prospecting disabled</button>} />
+    <PageHeading eyebrow="PRIVATE WORKSPACE · NO LIVE DATA" title="Morning brief" copy="No prospecting results exist until a confirmed Customer Profile and its separate operational gates are ready." action={<button className="primary" type="button" disabled>Prospecting disabled</button>} />
 
     <div className="context-strip">
-      <div><span>PRODUCT</span><b>ONE</b><small>Fixture · Ready example</small></div>
-      <div><span>MARKET PLAY</span><b>ONE for Mining</b><small>Fixture · Ready example</small></div>
-      <label><span>CUSTOMER PROFILE</span><select value={profile} onChange={(event) => setProfile(event.target.value)}><option>Operating sites</option><option>Greenfield projects</option></select><small className={profile === "Operating sites" ? "ready" : "draft"}>{profile === "Operating sites" ? "Ready · weekdays 06:00" : "Draft · runs disabled"}</small></label>
+      <div><span>PRODUCT</span><b>Not selected</b><small>Complete Knowledge setup</small></div>
+      <div><span>MARKET PLAY</span><b>Not selected</b><small>Complete Knowledge setup</small></div>
+      <label><span>CUSTOMER PROFILE</span><select value={profile} onChange={(event) => setProfile(event.target.value)} disabled><option>No profile selected</option></select><small className="draft">Runs disabled</small></label>
     </div>
 
     <section className="metrics" aria-label="Weekly metrics">
-      <article><span>SAMPLE EXPORT-READY</span><strong>3 <small>/ 7</small></strong><div className="meter"><i style={{ width: "43%" }} /></div><p>Illustrative target only</p></article>
-      <article><span>SAMPLE REVIEW QUEUE</span><strong>4</strong><p>Fixture records · actions disabled</p></article>
-      <article><span>SAMPLE SIGNALS</span><strong>11</strong><p>Illustrative source mix</p></article>
+      <article><span>EXPORT-READY</span><strong>0</strong><div className="meter"><i style={{ width: "0%" }} /></div><p>No eligible records</p></article>
+      <article><span>REVIEW QUEUE</span><strong>0</strong><p>No review items</p></article>
+      <article><span>SIGNALS</span><strong>0</strong><p>No discovery runs</p></article>
       <article className="risk"><span>LIVE OUTBOUND</span><strong>Off</strong><p>Wave 0 safety gate</p></article>
     </section>
 
@@ -468,10 +465,10 @@ function MorningBrief({ profile, setProfile, items, setView }: { profile: string
 
       <aside className="side-stack">
         <section className="panel interview-card">
-          <span className="eyebrow">KNOWLEDGE</span><h2>One policy decision can be recorded now.</h2>
-          <p>Should evidence of a connected plant historian count as full data readiness, or only partial readiness until access is confirmed?</p>
-          <div className="evidence-note"><b>Recommendation</b><span>Count it as partial. Connected systems show feasibility, not permission or usable access.</span></div>
-          <button className="dark" type="button" onClick={() => setView("Knowledge")}>Answer in Consensus Interview</button>
+          <span className="eyebrow">KNOWLEDGE</span><h2>Complete your commercial profile.</h2>
+          <p>Enter your Company, first Product, Market Play, and Customer Profile, then confirm fit in the guided interview.</p>
+          <div className="evidence-note"><b>Current authority</b><span>No customer-fit claims have been confirmed.</span></div>
+          <button className="dark" type="button" onClick={() => setView("Knowledge")}>Continue setup</button>
         </section>
         <section className="panel run-card">
           <div className="panel-title"><div><span>SCHEDULE FIXTURE</span><h2>Not activated</h2></div><i className="pulse" /></div>
@@ -481,9 +478,9 @@ function MorningBrief({ profile, setProfile, items, setView }: { profile: string
     </div>
 
     <section className="panel discovery-tease">
-      <div><span className="eyebrow">MARKET DISCOVERY</span><h2>A neighboring market may fit ONE.</h2><p>Bulk materials terminals show a similar uptime and fragmented equipment-data problem. This is a proposal—not an active market.</p></div>
-      <div className="fit"><span>PRODUCT FIT</span><b>High</b><small>4 corroborating sources</small></div>
-      <button className="outline" type="button" onClick={() => setView("Market Discovery")}>Review proposal</button>
+      <div><span className="eyebrow">MARKET DISCOVERY</span><h2>No discovered market proposals yet.</h2><p>Discovery remains unavailable until Product knowledge and its separate capability gates are ready.</p></div>
+      <div className="fit"><span>PRODUCT FIT</span><b>Not assessed</b><small>No confirmed sources</small></div>
+      <button className="outline" type="button" disabled>No proposal</button>
     </section>
   </>;
 }

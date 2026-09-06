@@ -85,6 +85,8 @@ These remain proposed Mining guardrails until confirmed during migration:
 
 Do not run the legacy scheduled-task/enrichment path for production contact data or outreach. It is archived migration evidence and does not meet the new verification, approval, suppression, or audit contract. The safe quick start will be added when Wave 3 and the final adversarial gate pass.
 
+For the guarded, generic blank-workspace flow and its strict local-only boundary, see [Generic company onboarding](docs/GENERIC-ONBOARDING.md).
+
 ## Legacy status
 
 The Mining strategy and assets exist. The old agent/enrichment pipeline is not the new application's runtime and must not be treated as production-safe.

@@ -1,6 +1,5 @@
 import {
   createHierarchyDraft,
-  initializeCommercialModel,
   readCommercialModel,
   CommercialModelConflictError,
 } from "./commercial-model";
@@ -19,10 +18,12 @@ import {
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { createReplacementCandidate, activateReplacement, readEligibleReplacementCandidates, ReplacementConflictError } from "./replacement";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
-import { attachLocalInterviewProgression } from "./interview-question-composer";
+import { advanceLocalInterview, attachLocalInterviewProgression } from "./interview-question-composer";
+import { createOnboardingDraft, initializeOwnerCompanyProduct, OnboardingConflictError, readOnboardingProjection } from "./onboarding";
 
 export const KNOWLEDGE_ACTIONS = [
-  "initialize_commercial_model", "create_hierarchy_draft", "propose_owner_edit",
+  "initialize_owner_workspace", "create_onboarding_draft", "start_onboarding_interview",
+  "create_hierarchy_draft", "propose_owner_edit",
   "propose_repository_research", "import_plain_text", "propose_reuse",
   "propose_allowlisted_package", "submit_interview_answer", "record_interview_decision",
   "review_knowledge_proposal", "create_replacement_candidate", "activate_replacement",
@@ -37,6 +38,7 @@ export type KnowledgeHandlerDependencies = {
   subjectPepper: string;
   pilotOwnerEmail: string;
   enableLocalDemoProgression?: boolean;
+  runtimeIsDevelopment?: boolean;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -60,11 +62,15 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
     const rejected = validateSameOriginMutation(request, KNOWLEDGE_MUTATION_INTENT, MAX_KNOWLEDGE_BODY_BYTES);
     if (rejected) return json({ error: rejected.error }, rejected.status);
     await consumeCsrfToken(dependencies.database, principal.subject, csrfTokenFromRequest(request));
-    if (!await writesActivated(dependencies.database, principal)) return json({ error: INACTIVE_WRITES_PROJECTION }, 503);
+    const localOnboardingSeam=dependencies.enableLocalDemoProgression===true&&dependencies.runtimeIsDevelopment===true&&exactLoopbackMutation(request);
+    const activated=localOnboardingSeam?null:await writesActivated(dependencies.database,principal);
+    if(activated===false)return json({error:INACTIVE_WRITES_PROJECTION},503);
     const body = await readBoundedJson(request, MAX_KNOWLEDGE_BODY_BYTES);
     if (!isRecord(body) || !KNOWLEDGE_ACTIONS.includes(body.action as (typeof KNOWLEDGE_ACTIONS)[number]))
       return json({ error: "unsupported_action" }, 400);
     assertClosedCommand(body);
+    const onboardingAction = body.action === "initialize_owner_workspace" || body.action === "create_onboarding_draft" || body.action === "start_onboarding_interview";
+    if(localOnboardingSeam&&!onboardingAction&&!await writesActivated(dependencies.database,principal))return json({error:INACTIVE_WRITES_PROJECTION},503);
     await dispatch(body, dependencies.database, principal);
     return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true);
   } catch (error) {
@@ -80,7 +86,9 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
 async function dispatch(body: Record<string, unknown>, database: D1Database, principal: InterviewPrincipal) {
   const key = requiredString(body, "idempotencyKey", 80);
   switch (body.action) {
-    case "initialize_commercial_model": return initializeCommercialModel(database, principal, { idempotencyKey: key });
+    case "initialize_owner_workspace": return initializeOwnerCompanyProduct(database, principal, { companyName: requiredString(body,"companyName",160), productName: requiredString(body,"productName",160), idempotencyKey:key });
+    case "create_onboarding_draft": return createOnboardingDraft(database, principal, { type: enumValue(body,"type",["market_play","customer_profile"]), parentId: requiredString(body,"parentId",160), name: requiredString(body,"name",160), expectedRevision: requiredRevision(body,"expectedRevision"), idempotencyKey:key });
+    case "start_onboarding_interview": return advanceLocalInterview(database, principal, { expectedQueueDigest: requiredString(body,"expectedQueueDigest",64), idempotencyKey:key });
     case "create_hierarchy_draft": return createHierarchyDraft(database, principal, {
       type: enumValue(body, "type", ["product", "market_play", "customer_profile"]), parentId: requiredString(body, "parentId", 160), name: requiredString(body, "name", 160), expectedRevision: requiredRevision(body, "expectedRevision"), idempotencyKey: key, productFundamentalsDiverge: optionalBoolean(body, "productFundamentalsDiverge"),
     });
@@ -116,7 +124,9 @@ function assertClosedCommand(body: Record<string, unknown>) {
   const common = ["action", "idempotencyKey"];
   const proposal = [...common, "destination", "kind", "text", "source", "privacy", "license", "reuseEligibility"];
   const allowed: Record<(typeof KNOWLEDGE_ACTIONS)[number], string[]> = {
-    initialize_commercial_model: common,
+    initialize_owner_workspace: [...common, "companyName", "productName"],
+    create_onboarding_draft: [...common, "type", "parentId", "name", "expectedRevision"],
+    start_onboarding_interview: [...common, "expectedQueueDigest"],
     create_hierarchy_draft: [...common, "type", "parentId", "name", "expectedRevision", "productFundamentalsDiverge"],
     propose_owner_edit: proposal,
     propose_repository_research: proposal,
@@ -139,9 +149,9 @@ function assertClosedCommand(body: Record<string, unknown>) {
 }
 
 async function projectionResponse(database: D1Database, principal: InterviewPrincipal, enableLocalDemoProgression = false) {
-  // The library bootstrap already establishes the default commercial model.
-  // Complete it before projecting the interview so a fresh workspace never
-  // races its legacy workspace-scoped question against the company hierarchy.
+  const onboarding = await readOnboardingProjection(database, principal);
+  if (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await liveInterviewExists(database, principal))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject));
+  // Reads are projection-only; onboarding is the sole local-demo bootstrap authority.
   const library = await readKnowledgeLibrary(database, principal);
   const [commercial, interviewState, drift, replacements] = await Promise.all([
     readCommercialModel(database, principal), readInterviewState(database, principal), readDrift(database, principal), readReplacements(database, principal),
@@ -149,8 +159,16 @@ async function projectionResponse(database: D1Database, principal: InterviewPrin
   const interview = enableLocalDemoProgression
     ? await attachLocalInterviewProgression(database, principal, interviewState)
     : interviewState;
-  return withCsrfCookie(json({ commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
+  return withCsrfCookie(json({ onboarding, commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
 }
+
+function exactLoopbackMutation(request: Request) {
+  try {
+    const url=new URL(request.url); const origin=request.headers.get("origin");
+    return request.method==="POST" && ["localhost","127.0.0.1","::1","[::1]"].includes(url.hostname.toLowerCase()) && Boolean(origin) && new URL(origin!).origin===url.origin;
+  } catch { return false; }
+}
+async function liveInterviewExists(database:D1Database, principal:InterviewPrincipal){const row=await database.prepare("SELECT s.id FROM interview_sessions s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_subject IN (?,?) AND s.state IN ('awaiting_answer','awaiting_confirmation') AND s.active_question_id IS NOT NULL LIMIT 1").bind(principal.subject,principal.legacySubject).first();return Boolean(row);}
 
 async function phase2SchemaAvailable(database: D1Database) {
   return Boolean(await database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'phase_activation_gates' LIMIT 1").first());
@@ -282,7 +300,7 @@ function publicScopeToken(value: string) { return value === "play" ? "market_pla
 async function authenticatedPrincipal(dependencies: KnowledgeHandlerDependencies) { return admitPilotOwner(await dependencies.getIdentity(), dependencies.pilotOwnerEmail, dependencies.subjectPepper); }
 function json(value: unknown, status = 200) { return Response.json(value, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } }); }
 function privateWorkspaceUnavailable() { return json({ error: "private_workspace_unavailable" }, 404); }
-function isKnownDomainError(error: unknown) { return error instanceof CommercialModelConflictError || error instanceof KnowledgeConflictError || error instanceof InterviewConflictError || error instanceof ReplacementConflictError; }
+function isKnownDomainError(error: unknown) { return error instanceof CommercialModelConflictError || error instanceof KnowledgeConflictError || error instanceof InterviewConflictError || error instanceof ReplacementConflictError || error instanceof OnboardingConflictError; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function requiredRecord(value: Record<string, unknown>, key: string) { const result = value[key]; if (!isRecord(result)) throw new KnowledgeConflictError("Invalid command"); return result; }
 function requiredString(value: Record<string, unknown>, key: string, max: number) { const result = value[key]; if (typeof result !== "string" || !result.trim() || result.trim().length > max) throw new KnowledgeConflictError("Invalid command"); return result.trim(); }

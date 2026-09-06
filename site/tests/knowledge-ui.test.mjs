@@ -29,6 +29,27 @@ test("KnowledgeWorkspace owns the approved four-view authority UI", async () => 
   }
 });
 
+test("generic onboarding projections reject surplus keys and mutation submission is synchronously locked",async()=>{
+  const vite=await createServer({configFile:false,logLevel:"silent"});
+  try{const workspace=await vite.ssrLoadModule(new URL("../app/knowledge/knowledge-workspace.tsx",import.meta.url).pathname);
+    const blank={onboarding:{status:"company_product_required",externalEffects:false}};
+    assert.deepEqual(workspace.normalizeProjection(blank),blank);
+    assert.throws(()=>workspace.normalizeProjection({onboarding:{...blank.onboarding,companyName:"spoof"}}),/malformed/);
+    const node={id:"node-1",name:"Acme",revision:1};
+    assert.throws(()=>workspace.normalizeProjection({onboarding:{status:"market_play_required",externalEffects:false,company:{...node,extra:true},product:node}}),/malformed/);
+  }finally{await vite.close();}
+  const source=await readFile(new URL("../app/knowledge/knowledge-workspace.tsx",import.meta.url),"utf8");
+  assert.match(source,/if \(state\.kind !== "ready" \|\| mutationLock\.current\) return;[\s\S]*mutationLock\.current=true/);
+  assert.match(source,/<OnboardingView key=\{state\.value\.onboarding\.status\}/);
+  assert.match(source,/operationKeys\.current\.delete\(logicalKey\)/);
+  assert.doesNotMatch(source,/catch \{[\s\S]{0,200}operationKeys\.current\.delete/);
+});
+
+test("main workspace carries no company-specific onboarding fixture claims",async()=>{
+  const source=await readFile(new URL("../app/prospector-app.tsx",import.meta.url),"utf8");
+  for(const claim of ["Digitalrain","ONE for Mining","Good morning, Steven","Operating sites","Greenfield projects","plant historian","4 corroborating sources"])assert.doesNotMatch(source,new RegExp(claim,"i"));
+});
+
 test("Knowledge UI contract keeps authority distinct from operational effects", () => {
   assert.deepEqual(LOCAL_VIEWS, [...new Set(LOCAL_VIEWS)]);
   assert.match(PILOT_BOUNDARY, /outbound effects remain disabled/);

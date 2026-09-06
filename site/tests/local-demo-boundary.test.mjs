@@ -27,6 +27,8 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(demoPage, /credentials: "same-origin"/);
   assert.match(demoPage, /data-local-demo-visible="true"/);
   assert.match(demoPage, /Local demo interview/);
+  assert.match(demoPage, /Start company setup/);
+  assert.doesNotMatch(demoPage, /action:\s*"bootstrap"|Initialize local interview/);
   assert.match(demoPage, /Local demo setup steps/);
   assert.match(demoPage, /demoState === "active"/);
   assert.match(demoPage, /Open Consensus Knowledge/);

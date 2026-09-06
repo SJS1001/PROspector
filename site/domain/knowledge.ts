@@ -1,6 +1,5 @@
 import { v7 } from "uuid";
 
-import { initializeCommercialModel } from "./commercial-model";
 import type { InterviewPrincipal } from "./interview";
 
 export class KnowledgeConflictError extends Error {
@@ -163,7 +162,7 @@ export async function reuseKnowledge(database: D1Database, principal: InterviewP
 type ProposalInput = { origin: AcceptedOrigin; destination: Destination; kind: string; value: { excerpt: string }; source: { reference: string; custody: string; retrievedAt: number }; privacy: "public" | "private" | "restricted"; license: { use: string }; reuseEligibility: string; idempotencyKey: string };
 type ReviewInput = { proposalId: string; decision: "accept" | "reject" | "correct" | "rescope"; correction?: { excerpt: string }; destination?: Destination; predecessorVersionId?: string; expectedRevision: number; idempotencyKey: string };
 type InterviewReviewGuard = { answerId: string; sessionId: string; questionId: string; sessionRevision: number; questionRevision: number; prerequisiteKnowledge: Array<{ id: string; digest: string }>; requireMissingCurrentSlot: boolean };
-async function workspaceForKnowledge(database: D1Database, principal: InterviewPrincipal) { const key = (await sha256(`knowledge-bootstrap:${principal.subject}`)).slice(0, 32); await initializeCommercialModel(database, principal, { idempotencyKey: key }); const row = await database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id WHERE w.owner_subject IN (?, ?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; company_id: string }>(); if (!row) throw new KnowledgeConflictError("Commercial workspace is unavailable"); return { id: row.id, companyId: row.company_id }; }
+async function workspaceForKnowledge(database: D1Database, principal: InterviewPrincipal) { const row = await database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN workspace_companies wc ON wc.workspace_id=w.id JOIN companies c ON c.id=wc.company_id AND c.workspace_id=w.id WHERE w.owner_subject IN (?, ?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; company_id: string }>(); if (!row) throw new KnowledgeConflictError("Commercial workspace is unavailable"); return { id: row.id, companyId: row.company_id }; }
 async function resolveDestination(database: D1Database, workspaceId: string, destination: Destination) {
   const mapping = destination.scopeType === "company"
     ? { scope: "company", query: "SELECT c.id, c.name FROM companies c WHERE c.workspace_id = ?" }

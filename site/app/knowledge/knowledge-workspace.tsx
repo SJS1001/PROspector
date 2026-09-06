@@ -8,23 +8,26 @@ import { ConsensusInterviewView, type InterviewAdvanceCommand, type InterviewAns
 import { knowledgeMutationTransport } from "./mutation-transport";
 import { DriftReplacementsView, type DriftProjection, type DriftReviewCommand, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
 import { KnowledgeLibraryView, type KnowledgeIntakeCommand, type KnowledgeItemProjection, type KnowledgeReviewCommand } from "./knowledge-library";
+import type { OnboardingProjection } from "../../domain/onboarding";
 
 export const KNOWLEDGE_LOCAL_VIEWS = ["Commercial Model", "Interview", "Knowledge Library", "Drift & Replacements"] as const;
 export const CONTROLLED_PILOT_BOUNDARY_COPY = "Commercial knowledge is live. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, and outbound effects remain disabled.";
 export const HIERARCHY_SCOPE_LEGEND = ["Company", "Product", "Market Play", "Customer Profile", "Offer"] as const;
 
 type LocalView = (typeof KNOWLEDGE_LOCAL_VIEWS)[number];
-type Projection = { commercial: CommercialModelProjection; interview: InterviewState; library: KnowledgeItemProjection[]; drift: DriftProjection[]; replacements: ReplacementProjection[] };
+type ActiveProjection = { onboarding: OnboardingProjection; commercial: CommercialModelProjection; interview: InterviewState; library: KnowledgeItemProjection[]; drift: DriftProjection[]; replacements: ReplacementProjection[] };
+type Projection = ActiveProjection | { onboarding: Exclude<OnboardingProjection,{status:"complete"}> };
 type WorkspaceState = { kind: "loading" } | { kind: "ready"; value: Projection } | { kind: "unavailable"; message: string } | { kind: "unauthorized" } | { kind: "unknown"; message: string };
 type MutationNotice = { message: string; actionLabel: "Load current version" | "Check current version" };
 
-export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => void }) {
+export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUnauthorized: () => void; onCompanyResolved?: (name:string)=>void }) {
   const [state, setState] = useState<WorkspaceState>({ kind: "loading" });
   const [view, setView] = useState<LocalView>("Interview");
   const [pending, setPending] = useState<string | null>(null);
   const [notice, setNotice] = useState<MutationNotice | null>(null);
   const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
   const operationKeys = useRef(new Map<string, string>());
+  const mutationLock = useRef(false);
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -40,11 +43,12 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
         return;
       }
       setState({ kind: "ready", value });
+      if(value.onboarding.status!=="company_product_required")onCompanyResolved?.(value.onboarding.company.name);
       setNotice(null);
     } catch {
       setState({ kind: "unavailable", message: "Authoritative knowledge could not be loaded. No authority has changed. Retry the knowledge load." });
     }
-  }, [onUnauthorized]);
+  }, [onCompanyResolved,onUnauthorized]);
 
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
 
@@ -57,7 +61,8 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
   }, []);
 
   const dispatch = useCallback(async (action: string, logicalKey: string, fields: Record<string, unknown>) => {
-    if (state.kind !== "ready") return;
+    if (state.kind !== "ready" || mutationLock.current) return;
+    mutationLock.current=true;
     const operationKey = keyFor(logicalKey);
     const transport = knowledgeMutationTransport(action, window.location.hostname);
     setPending(logicalKey); setNotice(null);
@@ -83,16 +88,19 @@ export function KnowledgeWorkspace({ onUnauthorized }: { onUnauthorized: () => v
         return;
       }
       const value = normalizeProjection(await response.json());
+      if(value.onboarding.status!=="company_product_required")onCompanyResolved?.(value.onboarding.company.name);
       operationKeys.current.delete(logicalKey);
       setState({ kind: "ready", value });
     } catch {
       setNotice({ message: "The outcome could not be verified. Nothing will be retried automatically. Check the current version.", actionLabel: "Check current version" });
-    } finally { setPending(null); }
-  }, [keyFor, load, onUnauthorized, state.kind]);
+    } finally { mutationLock.current=false; setPending(null); }
+  }, [keyFor, load, onCompanyResolved,onUnauthorized, state.kind]);
 
   if (state.kind === "loading") return <section className="panel loading-state" role="status">Loading authoritative knowledge…</section>;
   if (state.kind === "unauthorized") return null;
   if (state.kind !== "ready") return <section className="error-state" role="alert"><p>{state.message}</p><button className="outline" type="button" onClick={() => void load()}>{state.kind === "unknown" ? "Reload this view" : "Retry knowledge load"}</button></section>;
+
+  if (!("commercial" in state.value)) return <OnboardingView key={state.value.onboarding.status} projection={state.value.onboarding} pending={pending} notice={notice} dispatch={dispatch} reload={load} />;
 
   const { commercial, interview, library, drift, replacements } = state.value;
   const mutating = pending !== null;
@@ -140,8 +148,28 @@ function withKnowledgeLocators(items: readonly KnowledgeItemProjection[], commer
 function countsByDestination(items: readonly KnowledgeItemProjection[]) { const counts = new Map<string, { confirmed: number; proposed: number }>(); for (const item of items) { const current = counts.get(item.destination.id) ?? { confirmed: 0, proposed: 0 }; if (item.type === "knowledge_version") current.confirmed += 1; else current.proposed += 1; counts.set(item.destination.id, current); } return counts; }
 function pendingCopy(pending: string) { if (pending.startsWith("advance:")) return "Opening next interview question…"; if (pending.startsWith("answer:")) return "Submitting answer…"; if (pending.startsWith("decision:")) return "Recording owner decision…"; if (pending.startsWith("review:")) return "Recording proposal review…"; if (pending.startsWith("candidate:")) return "Creating replacement candidate…"; if (pending.startsWith("activate:")) return "Activating replacement…"; if (pending.startsWith("owner-edit:")) return "Creating Proposed Knowledge…"; if (pending.startsWith("draft:")) return "Creating hierarchy draft…"; return "Creating Proposed Knowledge…"; }
 
+function OnboardingView({projection,pending,notice,dispatch,reload}:{projection:Exclude<OnboardingProjection,{status:"complete"}>;pending:string|null;notice:MutationNotice|null;dispatch:(action:string,key:string,fields:Record<string,unknown>)=>Promise<void>;reload:()=>Promise<void>}) {
+  const [companyName,setCompanyName]=useState(""); const [productName,setProductName]=useState(""); const [name,setName]=useState("");
+  const busy=Boolean(pending)||Boolean(notice);
+  const title=projection.status==="company_product_required"?"Set up your company and first product":projection.status==="market_play_required"?"Add the first market you want to pursue":projection.status==="customer_profile_required"?"Describe the first customer profile":"Start the fit interview";
+  return <section className="knowledge-workspace onboarding-workspace"><div className="page-heading"><div><span className="eyebrow">PRIVATE · OWNER SETUP</span><h1>{title}</h1><p>Your answers create only your private commercial model. Prospecting, exports, providers, credentials, and outbound actions remain off.</p></div></div>
+    {notice&&<section className="error-state" role="alert"><p>{notice.message}</p><button className="outline" type="button" onClick={()=>void reload()}>{notice.actionLabel}</button></section>}
+    {projection.status==="company_product_required"?<form className="panel" onSubmit={e=>{e.preventDefault();void dispatch("initialize_owner_workspace",`onboarding:${companyName}:${productName}`,{companyName,productName});}}><label>Company name<input required maxLength={160} autoComplete="organization" value={companyName} onChange={e=>setCompanyName(e.target.value)}/></label><label>First product name<input required maxLength={160} value={productName} onChange={e=>setProductName(e.target.value)}/></label><button className="primary" disabled={busy} type="submit">Create private workspace</button></form>:
+    projection.status==="market_play_required"||projection.status==="customer_profile_required"?<form className="panel" onSubmit={e=>{e.preventDefault();const market=projection.status==="market_play_required";const parent=market?projection.product:projection.marketPlay;void dispatch("create_onboarding_draft",`onboarding-draft:${market?"market_play":"customer_profile"}:${parent.id}:${name}`,{type:market?"market_play":"customer_profile",parentId:parent.id,name,expectedRevision:parent.revision});}}><p><b>{projection.company.name}</b> / {projection.product.name}{projection.status==="customer_profile_required"?` / ${projection.marketPlay.name}`:""}</p><label>{projection.status==="market_play_required"?"Market Play name":"Customer Profile name"}<input required maxLength={160} value={name} onChange={e=>setName(e.target.value)}/></label><button className="primary" disabled={busy} type="submit">Continue setup</button></form>:
+    <section className="panel"><p><b>{projection.company.name}</b> / {projection.product.name} / {projection.marketPlay.name} / {projection.customerProfile.name}</p><p>The interview will ask for owner-confirmed knowledge. The profile becomes usable only after an exact confirmed <b>fit</b> answer exists for this Customer Profile.</p><button className="primary" disabled={busy||!projection.interviewQueueDigest} type="button" onClick={()=>{if(projection.interviewQueueDigest)void dispatch("start_onboarding_interview",`onboarding-interview:${projection.interviewQueueDigest}`,{expectedQueueDigest:projection.interviewQueueDigest});}}>Begin interview</button></section>}
+  </section>;
+}
+
 export function normalizeProjection(value: unknown): Projection {
-  if (!isRecord(value) || !isRecord(value.commercial) || !isRecord(value.interview) || !Array.isArray(value.library) || !Array.isArray(value.drift) || !Array.isArray(value.replacements)) throw new Error("malformed_projection");
+  if (!isRecord(value) || !validOnboarding(value.onboarding)) throw new Error("malformed_projection");
+  const topKeys=(keys:string[])=>JSON.stringify(Object.keys(value).sort())===JSON.stringify([...keys].sort());
+  if (["company_product_required","market_play_required","customer_profile_required"].includes(value.onboarding.status)) {
+    if(!topKeys(["onboarding"]))throw new Error("malformed_projection");
+    return { onboarding: value.onboarding as Exclude<OnboardingProjection,{status:"complete"}> };
+  }
+  if(value.onboarding.status==="profile_fit_required"&&value.commercial===undefined){if(value.onboarding.interviewQueueDigest===null||!topKeys(["onboarding"]))throw new Error("malformed_projection");return{onboarding:value.onboarding};}
+  if(!topKeys(["onboarding","commercial","interview","library","drift","replacements"])||(value.onboarding.status==="profile_fit_required"&&value.onboarding.interviewQueueDigest!==null))throw new Error("malformed_projection");
+  if (!isRecord(value.commercial) || !isRecord(value.interview) || !Array.isArray(value.library) || !Array.isArray(value.drift) || !Array.isArray(value.replacements)) throw new Error("malformed_projection");
   const commercial = value.commercial as unknown as CommercialModelProjection;
   const collections = [commercial.path, commercial.products, commercial.plays, commercial.profiles, commercial.offers];
   if (collections.some((collection) => !Array.isArray(collection)) || !commercial.path.length || collections.some((collection) => !collection.every(validNode))) throw new Error("malformed_commercial_projection");
@@ -154,7 +182,20 @@ export function normalizeProjection(value: unknown): Projection {
   const interview = value.interview as InterviewState;
   if (!validInterviewProjection(interview)) throw new Error("malformed_interview_projection");
   if (!value.drift.every(validDriftProjection) || !value.replacements.every(validReplacementProjection)) throw new Error("malformed_drift_projection");
-  return { commercial, interview, library: value.library as KnowledgeItemProjection[], drift: value.drift as DriftProjection[], replacements: value.replacements as ReplacementProjection[] };
+  return { onboarding:value.onboarding as OnboardingProjection, commercial, interview, library: value.library as KnowledgeItemProjection[], drift: value.drift as DriftProjection[], replacements: value.replacements as ReplacementProjection[] };
+}
+function validOnboarding(value:unknown):value is OnboardingProjection {
+  if(!isRecord(value)||value.externalEffects!==false||typeof value.status!=="string")return false;
+  const exact=(item:Record<string,unknown>,keys:string[])=>JSON.stringify(Object.keys(item).sort())===JSON.stringify([...keys].sort());
+  const node=(item:unknown)=>isRecord(item)&&exact(item,["id","name","revision"])&&boundedClientId(item.id)&&typeof item.name==="string"&&Boolean(item.name.trim())&&item.name.length<=160&&Number.isInteger(item.revision)&&Number(item.revision)>=1;
+  if(value.status==="company_product_required")return exact(value,["status","externalEffects"]);
+  if(!node(value.company)||!node(value.product))return false;
+  if(value.status==="market_play_required")return exact(value,["status","externalEffects","company","product"]);
+  if(!node(value.marketPlay))return false;
+  if(value.status==="customer_profile_required")return exact(value,["status","externalEffects","company","product","marketPlay"]);
+  if(!node(value.customerProfile))return false;
+  if(value.status==="profile_fit_required")return exact(value,["status","externalEffects","company","product","marketPlay","customerProfile","interviewQueueDigest"])&&(value.interviewQueueDigest===null||(typeof value.interviewQueueDigest==="string"&&/^[a-f0-9]{64}$/.test(value.interviewQueueDigest)));
+  return value.status==="complete"&&exact(value,["status","externalEffects","company","product","marketPlay","customerProfile","fitKnowledgeVersionId"])&&boundedClientId(value.fitKnowledgeVersionId);
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function validNode(value: unknown): value is CommercialHierarchyNode { return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && ["company", "product", "market_play", "customer_profile", "offer"].includes(String(value.type)) && (value.parentId === null || typeof value.parentId === "string") && typeof value.revision === "number"; }
