@@ -9,17 +9,18 @@ import { createServer } from "vite";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const digest = "a".repeat(64);
-const candidate = (ordinal = 0) => ({ candidateId: `person-suggestion-${ordinal}`, ordinal, displayName: "Synthetic person", roleTitle: "Operations lead", roleSummary: "Owns site operations", candidateDigest: digest, provenance: { sourceReference: "Synthetic public listing", excerpt: "Synthetic bounded evidence", retrievedAt: 1700000000000 }, state: "suggestion_not_contact", eligible: false });
+const hexDigest = (index) => index.toString(16).padStart(64, "0");
+const candidate = (ordinal = 0) => ({ candidateId: `person-suggestion-${ordinal}`, ordinal, displayName: "Synthetic person", roleTitle: "Operations lead", roleSummary: "Owns site operations", candidateDigest: hexDigest(ordinal + 1), provenance: { sourceReference: "Synthetic public listing", excerpt: "Synthetic bounded evidence", retrievedAt: 1700000000000 }, state: "suggestion_not_contact", eligible: false });
 const page = (items = []) => ({ limit: 5, returned: items.length, hasNext: false, nextCursor: null });
 const run = { runId: "run-current", prospectId: "approved-prospect", state: "completed", resultDigest: digest };
 const decision = (kind = "create_new") => ({ decisionId: `decision-${kind}`, runId: "run-current", prospectId: "approved-prospect", decision: kind, candidateId: kind === "no_match" ? null : "person-suggestion-0", contactId: kind === "no_match" ? null : "existing-contact" });
-const relevance = { relevanceId: "relevance-current", prospectId: "approved-prospect", contactId: "existing-contact", contactRevision: 4, contactLabel: "Synthetic person", decisionId: "decision-create_new", roleTitle: "Operations lead", current: true, verificationChannels: ["email", "phone"] };
+const relevance = { relevanceId: "relevance-current", prospectId: "approved-prospect", contactId: "existing-contact", contactRevision: 4, contactLabel: "Synthetic person · contact_0001", decisionId: "decision-create_new", roleTitle: "Operations lead", current: true, verificationChannels: ["email", "phone"] };
 const emptyHistory = () => ({ runs: [], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] });
 const initialProjection = () => ({ capability: "test_composed_only", approvedProspects: [{ prospectId: "approved-prospect", prospectRevision: 3, label: "Approved prospect · ed_prospect1 · reviewed 2026-09-06", knownPerson: false }], linkableContacts: [], people: { runId: null, status: "not_started", items: [], pageInfo: page() }, history: emptyHistory() });
 const discoveryProjection = (overrides = {}) => ({
   capability: "test_composed_only",
   approvedProspects: [{ prospectId: "approved-prospect", prospectRevision: 3, label: "Approved prospect · ed_prospect1 · reviewed 2026-09-06", knownPerson: false }],
-  linkableContacts: [{ contactId: "existing-contact", contactRevision: 4, label: "Synthetic person" }],
+  linkableContacts: [{ contactId: "existing-contact", contactRevision: 4, label: "Synthetic person · contact_0001" }],
   people: { runId: "run-current", resultDigest: digest, status: "completed", items: [candidate(0)], pageInfo: page([candidate(0)]) },
   history: { runs: [run], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] },
   ...overrides,
@@ -52,18 +53,44 @@ test("C3 validates exact projection shape, cardinality, identifiers, references,
   const { vite, ui } = await module();
   try {
     assert.ok(ui.normalizePersonDiscoveryProjection(verificationProjection({ history: { ...verificationProjection().history, verificationIntents: [{ intentId: "intent-current", relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" }] } })));
+    assert.ok(ui.normalizePersonDiscoveryProjection(initialProjection()));
+    for (const state of ["requested", "needs_reconciliation"]) {
+      const resultDigest = state === "requested" ? null : digest;
+      assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { runId: "run-current", resultDigest, status: state, items: [], pageInfo: page() }, history: { runs: [{ ...run, state, resultDigest }], decisions: [], relevance: [], verificationIntents: [], staleTrustedObservations: [] } })));
+    }
+    assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { runId: null, status: "stale_authority", items: [], pageInfo: page() }, history: emptyHistory() })));
     for (const count of [0, 5]) assert.ok(ui.normalizePersonDiscoveryProjection(discoveryProjection({ people: { ...discoveryProjection().people, items: Array.from({ length: count }, (_, index) => candidate(index)), pageInfo: page(Array.from({ length: count })) } })));
     const malformed = [
       discoveryProjection({ people: { ...discoveryProjection().people, pageInfo: { ...discoveryProjection().people.pageInfo, returned: 0 } } }),
       discoveryProjection({ people: { ...discoveryProjection().people, items: [candidate(0), candidate(0)], pageInfo: page([candidate(0), candidate(0)]) } }),
+      discoveryProjection({ people: { ...discoveryProjection().people, items: [candidate(0), { ...candidate(1), ordinal: 0 }], pageInfo: page([candidate(0), candidate(1)]) } }),
       discoveryProjection({ approvedProspects: [discoveryProjection().approvedProspects[0], discoveryProjection().approvedProspects[0]] }),
+      discoveryProjection({ approvedProspects: [discoveryProjection().approvedProspects[0], { ...discoveryProjection().approvedProspects[0], prospectId: "second-prospect" }] }),
       discoveryProjection({ linkableContacts: [discoveryProjection().linkableContacts[0], discoveryProjection().linkableContacts[0]] }),
+      discoveryProjection({ linkableContacts: [discoveryProjection().linkableContacts[0], { ...discoveryProjection().linkableContacts[0], contactId: "second-contact" }] }),
       verificationProjection({ history: { ...verificationProjection().history, relevance: [relevance, { ...relevance }] } }),
       verificationProjection({ history: { ...verificationProjection().history, verificationIntents: [{ intentId: "intent-bad", relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: "impossible", effect: "intent_only" }] } }),
       verificationProjection({ history: { ...verificationProjection().history, relevance: [{ ...relevance, current: false }] } }),
       { ...verificationProjection(), unexpected: true },
+      discoveryProjection({ people: { ...discoveryProjection().people, items: Array.from({ length: 4 }, (_, index) => candidate(index)), pageInfo: { limit: 5, returned: 4, hasNext: true, nextCursor: "abc.def" } } }),
+      discoveryProjection({ people: { runId: null, resultDigest: null, status: "completed", items: [], pageInfo: page() } }),
+      discoveryProjection({ people: { runId: "run-current", resultDigest: digest, status: "requested", items: [], pageInfo: page() } }),
+      discoveryProjection({ people: { runId: "run-current", resultDigest: null, status: "needs_reconciliation", items: [], pageInfo: page() } }),
+      discoveryProjection({ people: { runId: "run-current", resultDigest: null, status: "not_started", items: [], pageInfo: page() } }),
+      discoveryProjection({ people: { ...discoveryProjection().people, status: "requested", items: [], pageInfo: page() } }),
     ];
     for (const value of malformed) assert.equal(ui.normalizePersonDiscoveryProjection(value), null);
+    const extra = (count, make) => Array.from({ length: count }, (_, index) => make(index));
+    const overCap = [
+      { ...initialProjection(), approvedProspects: extra(101, (index) => ({ prospectId: `prospect-${index}`, prospectRevision: 1, label: `Approved ${index}`, knownPerson: false })) },
+      discoveryProjection({ linkableContacts: extra(21, (index) => ({ contactId: `contact-${index}`, contactRevision: 1, label: `Duplicate name · ${String(index).padStart(12, "0")}` })) }),
+      discoveryProjection({ history: { ...discoveryProjection().history, runs: [run, ...extra(50, (index) => ({ runId: `run-${index}`, prospectId: "approved-prospect", state: "completed", resultDigest: hexDigest(index + 1) }))] } }),
+      discoveryProjection({ history: { ...discoveryProjection().history, decisions: extra(51, (index) => ({ ...decision(), decisionId: `decision-${index}` })) } }),
+      verificationProjection({ history: { ...verificationProjection().history, relevance: extra(51, (index) => ({ ...relevance, relevanceId: `relevance-${index}`, contactId: `contact-${index}`, contactLabel: `Synthetic person · ${String(index).padStart(12, "0")}` })) } }),
+      verificationProjection({ history: { ...verificationProjection().history, verificationIntents: extra(51, (index) => ({ intentId: `intent-${index}`, relevanceId: "relevance-current", intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" })) } }),
+      verificationProjection({ history: { ...verificationProjection().history, staleTrustedObservations: extra(21, (index) => ({ sourceObservationId: `observation-${index}`, relevanceId: "relevance-current", channel: "email", verifiedAt: 1600000000000 + index, status: "stale" })) } }),
+    ];
+    for (const value of overCap) assert.equal(ui.normalizePersonDiscoveryProjection(value), null);
   } finally { await vite.close(); }
 });
 
@@ -93,20 +120,63 @@ test("C3 mounted link click is exact and a recorded no-match is terminal", async
     const posts = []; const fetcher = async (url, init = {}) => { if (init.method === "POST") { posts.push(JSON.parse(init.body)); return response({ command: { kind: "accepted" } }); } return response(String(url).includes("?") ? discoveryProjection() : initialProjection()); };
     const renderer = await mountWorkspace(ui, fetcher); chooseDecision(renderer.root, "link_existing"); const record = button(renderer.root, "Record decision"); assert.ok(record); act(() => record.props.onClick()); await settle();
     assert.equal(posts.length, 1); assert.deepEqual({ decision: posts[0].decision, candidateId: posts[0].candidateId, existingContactId: posts[0].existingContactId }, { decision: "link_existing", candidateId: "person-suggestion-0", existingContactId: "existing-contact" }); act(() => renderer.unmount());
-    const noMatchFetcher = async (url) => response(String(url).includes("?") ? discoveryProjection({ history: { runs: [run], decisions: [decision("no_match")], relevance: [], verificationIntents: [], staleTrustedObservations: [] } }) : initialProjection());
-    const terminal = await mountWorkspace(ui, noMatchFetcher); const rendered = JSON.stringify(terminal.toJSON()); assert.match(rendered, /Decision recorded/); assert.match(rendered, /terminal result/); assert.equal(button(terminal.root, "Record decision"), undefined); act(() => terminal.unmount());
+    let noMatchState = discoveryProjection(); const noMatchPosts = [];
+    const noMatchFetcher = async (url, init = {}) => { if (init.method === "POST") { noMatchPosts.push(JSON.parse(init.body)); noMatchState = discoveryProjection({ history: { runs: [run], decisions: [decision("no_match")], relevance: [], verificationIntents: [], staleTrustedObservations: [] } }); return response({ command: { kind: "accepted" } }); } return response(String(url).includes("?") ? noMatchState : initialProjection()); };
+    const terminal = await mountWorkspace(ui, noMatchFetcher);
+    const noMatchRadio = terminal.root.findAllByType("input").find((node) => node.props.name === "person-decision" && node.parent?.children.join("").includes("No match")); assert.ok(noMatchRadio); act(() => noMatchRadio.props.onChange());
+    const noMatchConfirmation = terminal.root.findAllByType("input").find((node) => node.props.type === "checkbox"); assert.ok(noMatchConfirmation); act(() => noMatchConfirmation.props.onChange({ target: { checked: true } }));
+    const noMatchRecord = button(terminal.root, "Record decision"); assert.ok(noMatchRecord); act(() => noMatchRecord.props.onClick()); await settle();
+    assert.deepEqual({ decision: noMatchPosts[0].decision, candidateId: noMatchPosts[0].candidateId, existingContactId: noMatchPosts[0].existingContactId }, { decision: "no_match", candidateId: null, existingContactId: null });
+    const rendered = JSON.stringify(terminal.toJSON()); assert.match(rendered, /Decision recorded/); assert.match(rendered, /terminal result/); assert.equal(button(terminal.root, "Record decision"), undefined); act(() => terminal.unmount());
+  } finally { await vite.close(); }
+});
+
+test("C3 duplicate business names remain distinguishable and link the exact selected Contact", async () => {
+  const { vite, ui } = await module();
+  try {
+    const duplicateProjection = discoveryProjection({ linkableContacts: [
+      { contactId: "existing-contact", contactRevision: 4, label: "Synthetic person · contact_0001" },
+      { contactId: "second-contact", contactRevision: 2, label: "Synthetic person · contact_0002" },
+    ] });
+    const posts = [];
+    const fetcher = async (url, init = {}) => { if (init.method === "POST") { posts.push(JSON.parse(init.body)); return response({ command: { kind: "accepted" } }); } return response(String(url).includes("?") ? duplicateProjection : initialProjection()); };
+    const renderer = await mountWorkspace(ui, fetcher); const root = renderer.root;
+    const candidateRadio = input(root, "person-candidate"); act(() => candidateRadio.props.onChange());
+    const linkRadio = root.findAllByType("input").find((node) => node.props.name === "person-decision" && node.parent?.children.join("").includes("Link existing person")); act(() => linkRadio.props.onChange());
+    const contacts = select(root, "Exact existing Contact"); assert.deepEqual(contacts.findAllByType("option").slice(1).map((item) => item.children.join("")), ["Synthetic person · contact_0001", "Synthetic person · contact_0002"]); act(() => contacts.props.onChange({ target: { value: "second-contact" } }));
+    const confirmation = root.findAllByType("input").find((node) => node.props.type === "checkbox"); act(() => confirmation.props.onChange({ target: { checked: true } }));
+    const record = button(root, "Record decision"); act(() => record.props.onClick()); await settle();
+    assert.equal(posts[0].existingContactId, "second-contact"); act(() => renderer.unmount());
+  } finally { await vite.close(); }
+});
+
+test("C3 double Next starts one cursor read and a cursor 409 performs exactly one first-page reset", async () => {
+  const { vite, ui } = await module();
+  try {
+    const items = Array.from({ length: 5 }, (_, index) => candidate(index));
+    const firstPage = discoveryProjection({ people: { ...discoveryProjection().people, items, pageInfo: { limit: 5, returned: 5, hasNext: true, nextCursor: "abc.def" } } });
+    const urls = []; let resolveCursor;
+    const cursorResponse = new Promise((resolve) => { resolveCursor = resolve; });
+    const fetcher = async (url) => { urls.push(String(url)); if (String(url).includes("peopleCursor")) return cursorResponse; return response(String(url).includes("?") ? firstPage : initialProjection()); };
+    const renderer = await mountWorkspace(ui, fetcher); const next = button(renderer.root, "Next people"); assert.ok(next);
+    act(() => { next.props.onClick(); next.props.onClick(); });
+    assert.equal(urls.filter((url) => url.includes("peopleCursor")).length, 1, "same-tick Next clicks start one cursor read");
+    const firstPagesBefore = urls.filter((url) => url.includes("prospectId") && !url.includes("peopleCursor")).length;
+    resolveCursor(response({ error: "people_page_drifted" }, 409)); await settle();
+    assert.equal(urls.filter((url) => url.includes("prospectId") && !url.includes("peopleCursor")).length - firstPagesBefore, 1, "cursor drift resets the first page exactly once");
+    assert.match(JSON.stringify(renderer.toJSON()), /first page was reloaded/); act(() => renderer.unmount());
   } finally { await vite.close(); }
 });
 
 test("C3 pending guard, 409 recovery, lost-response recovery, and focus never retry a mutation", async () => {
   const { vite, ui } = await module();
   try {
-    for (const outcome of ["409", "lost"]) {
+    for (const outcome of ["409", "lost", "recovery_non_ok", "recovery_throw"]) {
       let reads = 0, posts = 0, resolvePost; const focus = { count: 0 };
-      const pending = new Promise((resolve, reject) => { resolvePost = outcome === "409" ? () => resolve(response({ error: "conflict" }, 409)) : () => reject(new Error("lost response")); });
-      const fetcher = async (url, init = {}) => { if (init.method === "POST") { posts += 1; return pending; } reads += 1; return response(reads === 1 ? initialProjection() : discoveryProjection()); };
+      const pending = new Promise((resolve, reject) => { resolvePost = outcome === "lost" ? () => reject(new Error("lost response")) : () => resolve(response({ error: "conflict" }, 409)); });
+      const fetcher = async (url, init = {}) => { if (init.method === "POST") { posts += 1; return pending; } reads += 1; if (reads > 2 && outcome === "recovery_non_ok") return response({ error: "unavailable" }, 503); if (reads > 2 && outcome === "recovery_throw") throw new Error("refresh unavailable"); return response(reads === 1 ? initialProjection() : discoveryProjection()); };
       const renderer = await mountWorkspace(ui, fetcher, focus); chooseDecision(renderer.root, "create_new"); const record = button(renderer.root, "Record decision"); assert.ok(record); act(() => { record.props.onClick(); record.props.onClick(); }); assert.equal(posts, 1, `${outcome}: same-tick double click issues one mutation`); assert.equal(button(renderer.root, "Record decision"), undefined, `${outcome}: pending state disables the action`);
-      const readsBeforeRecovery = reads; resolvePost(); await settle(); assert.equal(posts, 1, `${outcome}: uncertain result is never retried`); assert.equal(reads - readsBeforeRecovery, 1, `${outcome}: exactly one authoritative refresh follows the uncertain result`); assert.match(JSON.stringify(renderer.toJSON()), /not retried/); assert.ok(focus.count > 0); act(() => renderer.unmount());
+      const readsBeforeRecovery = reads; resolvePost(); await settle(); assert.equal(posts, 1, `${outcome}: uncertain result is never retried`); assert.equal(reads - readsBeforeRecovery, 1, `${outcome}: exactly one authoritative refresh follows the uncertain result`); const rendered = JSON.stringify(renderer.toJSON()); assert.match(rendered, /not retried/); if (outcome.startsWith("recovery_")) assert.match(rendered, /no further request was made/); assert.ok(focus.count > 0); act(() => renderer.unmount());
     }
   } finally { await vite.close(); }
 });

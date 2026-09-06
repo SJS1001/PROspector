@@ -174,29 +174,52 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
   )
     return null;
   if (
+    approvedProspects.length > 100 ||
+    linkableContacts.length > 20 ||
+    runs.length > 50 ||
+    decisions.length > 50 ||
+    relevance.length > 50 ||
+    verificationIntents.length > 50 ||
+    staleTrustedObservations.length > 20
+  )
+    return null;
+  if (
     !unique(approvedProspects, "prospectId") ||
     !unique(approvedProspects, "label") ||
     !unique(linkableContacts, "contactId") ||
+    !unique(linkableContacts, "label") ||
     !unique(people.items, "candidateId") ||
+    !unique(people.items, "ordinal") ||
     !unique(runs, "runId") ||
     !unique(decisions, "decisionId") ||
     !unique(relevance, "relevanceId") ||
     !unique(relevance, "contactId") ||
+    !unique(relevance, "contactLabel") ||
     !unique(verificationIntents, "intentId") ||
     !unique(staleTrustedObservations, "sourceObservationId")
   )
     return null;
   const prospectIds = new Set(approvedProspects.map((item) => item.prospectId));
   const runIds = new Set(runs.map((item) => item.runId));
+  const runById = new Map(runs.map((item) => [item.runId, item]));
   const decisionIds = new Set(decisions.map((item) => item.decisionId));
   const relevanceIds = new Set(relevance.map((item) => item.relevanceId));
+  const contactLabels = new Map(linkableContacts.map((item) => [item.contactId, item.label]));
+  const decisionById = new Map(decisions.map((item) => [item.decisionId, item]));
+  const peopleRun = people.runId === null ? null : runs.find((item) => item.runId === people.runId);
   if (
     runs.some((item) => !prospectIds.has(item.prospectId)) ||
-    decisions.some((item) => !runIds.has(item.runId) || !prospectIds.has(item.prospectId)) ||
-    relevance.some((item) => !prospectIds.has(item.prospectId) || !decisionIds.has(item.decisionId)) ||
+    decisions.some((item) => !runIds.has(item.runId) || !prospectIds.has(item.prospectId) || runById.get(item.runId)?.state !== "completed") ||
+    relevance.some((item) => {
+      const linkedDecision = decisionById.get(item.decisionId);
+      const projectedLabel = contactLabels.get(item.contactId);
+      return !prospectIds.has(item.prospectId) || !decisionIds.has(item.decisionId) || linkedDecision?.contactId !== item.contactId || (projectedLabel !== undefined && projectedLabel !== item.contactLabel);
+    }) ||
     verificationIntents.some((item) => !relevanceIds.has(item.relevanceId)) ||
     staleTrustedObservations.some((item) => !relevanceIds.has(item.relevanceId)) ||
-    (people.runId !== null && !runIds.has(people.runId))
+    (people.runId !== null && !peopleRun) ||
+    (peopleRun && (peopleRun.state !== people.status || peopleRun.resultDigest !== people.resultDigest)) ||
+    ((people.status === "not_started" || people.status === "stale_authority") && (runs.length > 0 || decisions.length > 0 || relevance.length > 0 || verificationIntents.length > 0 || staleTrustedObservations.length > 0))
   )
     return null;
   return {
@@ -222,6 +245,8 @@ export function PersonDiscoveryWorkspace({
   const [selectedProspectId, setSelectedProspectId] = useState("");
   const [ui, setUi] = useState<PersonDiscoveryUiState>(initialPersonDiscoveryUiState);
   const mutationPending = useRef(false);
+  const readPending = useRef(false);
+  const readGeneration = useRef(0);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const chosen = projection?.approvedProspects.find((item) => item.prospectId === selectedProspectId) ?? null;
   const discoveryAuthority = chosen && !chosen.knownPerson ? chosen : null;
@@ -260,8 +285,10 @@ export function PersonDiscoveryWorkspace({
       decision: "",
       confirmed: false,
     }));
-  async function load(prospectId: string, cursor: string | null, preserveNotice = false): Promise<void> {
-    if (!prospectId) return;
+  async function load(prospectId: string, cursor: string | null, preserveNotice = false, supersede = false): Promise<void> {
+    if (!prospectId || (readPending.current && !supersede)) return;
+    const generation = ++readGeneration.current;
+    readPending.current = true;
     setUi((state) => ({
       ...state,
       pending: true,
@@ -279,6 +306,7 @@ export function PersonDiscoveryWorkspace({
         headers: { accept: "application/json" },
         credentials: "same-origin",
       });
+      if (generation !== readGeneration.current) return;
       if (response.status === 409) {
         setUi((state) => ({
           ...state,
@@ -291,26 +319,32 @@ export function PersonDiscoveryWorkspace({
           cursor: null,
           previous: [],
           notice: {
-            kind: "stale",
-            text: "This list changed while you were reviewing it. The first page was reloaded; select a person again.",
+            kind: "stale" as const,
+            text: preserveNotice
+              ? `${state.notice.text} The authoritative refresh also changed; no further request was made.`
+              : "This list changed while you were reviewing it. The first page was reloaded; select a person again.",
           },
         }));
-        if (!preserveNotice) await load(prospectId, null, true);
+        if (!preserveNotice) await load(prospectId, null, true, true);
         return;
       }
       if (!response.ok) {
-        setNotice({
-          kind: "error",
-          text: "Person discovery is unavailable. Reload and try again; no provider call was made.",
-        });
+        setUi((state) => ({
+          ...state,
+          notice: preserveNotice
+            ? { kind: "stale", text: `${state.notice.text} The authoritative refresh failed; no further request was made.` }
+            : { kind: "error", text: "Person discovery is unavailable. Reload and try again; no provider call was made." },
+        }));
         return;
       }
       const parsed = normalizePersonDiscoveryProjection(await response.json());
       if (!parsed) {
-        setNotice({
-          kind: "error",
-          text: "The person-discovery response was incomplete. No action was taken.",
-        });
+        setUi((state) => ({
+          ...state,
+          notice: preserveNotice
+            ? { kind: "stale", text: `${state.notice.text} The authoritative refresh was incomplete; no further request was made.` }
+            : { kind: "error", text: "The person-discovery response was incomplete. No action was taken." },
+        }));
         return;
       }
       setProjection(parsed);
@@ -335,13 +369,19 @@ export function PersonDiscoveryWorkspace({
             },
       }));
     } catch {
-      setNotice({
-        kind: "error",
-        text: "Person discovery could not be loaded. Check your connection; no provider call was made.",
-      });
+      if (generation === readGeneration.current)
+        setUi((state) => ({
+          ...state,
+          notice: preserveNotice
+            ? { kind: "stale", text: `${state.notice.text} The authoritative refresh could not be loaded; no further request was made.` }
+            : { kind: "error", text: "Person discovery could not be loaded. Check your connection; no provider call was made." },
+        }));
     } finally {
-      setUi((state) => ({ ...state, pending: false }));
-      focusStatus();
+      if (generation === readGeneration.current) {
+        readPending.current = false;
+        setUi((state) => ({ ...state, pending: false }));
+        focusStatus();
+      }
     }
   }
   useEffect(() => {
@@ -469,7 +509,7 @@ export function PersonDiscoveryWorkspace({
     if (id) void load(id, null);
   }
   function move(direction: "next" | "previous") {
-    if (!selectedProspectId || ui.pending) return;
+    if (!selectedProspectId || ui.pending || readPending.current) return;
     if (direction === "next" && projection?.people.pageInfo.nextCursor) {
       setUi((state) => ({
         ...state,
@@ -933,7 +973,7 @@ function contact(value: unknown): Contact | null {
     exact(value, ["contactId", "contactRevision", "label"]) &&
     opaque(value.contactId) &&
     positive(value.contactRevision) &&
-    text(value.label, 160)
+    distinguishedContactLabel(value.label)
     ? (value as Contact)
     : null;
 }
@@ -950,11 +990,19 @@ function personPage(value: Record<string, unknown>): PersonPage | null {
     return null;
   const items = value.items.map(candidate),
     pageInfo = page(value.pageInfo);
+  const neutral = value.status === "not_started" || value.status === "stale_authority";
+  const requested = value.status === "requested";
+  const reconciled = value.status === "needs_reconciliation";
+  const completed = value.status === "completed";
   if (
     !items.every(isPresent) ||
     !pageInfo ||
     pageInfo.returned !== items.length ||
-    (value.status === "completed" ? !opaque(value.runId) || !digest(value.resultDigest) : items.length !== 0)
+    (neutral && (value.runId !== null || (value.resultDigest !== undefined && value.resultDigest !== null))) ||
+    (requested && (!opaque(value.runId) || value.resultDigest !== null)) ||
+    (reconciled && (!opaque(value.runId) || !digest(value.resultDigest))) ||
+    (completed && (!opaque(value.runId) || !digest(value.resultDigest))) ||
+    (!completed && (items.length !== 0 || pageInfo.returned !== 0 || pageInfo.hasNext || pageInfo.nextCursor !== null))
   )
     return null;
   return {
@@ -1053,7 +1101,7 @@ function relevanceRow(value: unknown): Relevance | null {
     opaque(value.prospectId) &&
     opaque(value.contactId) &&
     positive(value.contactRevision) &&
-    text(value.contactLabel, 160) &&
+    distinguishedContactLabel(value.contactLabel) &&
     opaque(value.decisionId) &&
     text(value.roleTitle, 160) &&
     value.current === true &&
@@ -1109,7 +1157,8 @@ function page(value: Record<string, unknown>): PersonPage["pageInfo"] | null {
     value.returned <= PEOPLE_LIMIT &&
     typeof value.hasNext === "boolean" &&
     (value.nextCursor === null || cursor(value.nextCursor)) &&
-    value.hasNext === (value.nextCursor !== null)
+    value.hasNext === (value.nextCursor !== null) &&
+    (!value.hasNext || value.returned === PEOPLE_LIMIT)
     ? {
         limit: 5,
         returned: value.returned,
@@ -1158,6 +1207,9 @@ function cursor(value: unknown): value is string {
 }
 function text(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
+}
+function distinguishedContactLabel(value: unknown): value is string {
+  return text(value, 160) && /^.+ · [A-Za-z0-9_-]{12}$/.test(value);
 }
 function isPresent<T>(value: T | null): value is T {
   return value !== null;

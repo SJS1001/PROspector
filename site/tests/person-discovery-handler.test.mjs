@@ -275,7 +275,7 @@ test("C2 link_existing accepts only the explicit same-workspace Contact and crea
     const linkedProjection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
     const linkedPayload = await linkedProjection.json();
     assert.equal(linkedPayload.history.relevance[0].contactRevision, 1);
-    assert.equal(linkedPayload.history.relevance[0].contactLabel, "Explicit Contact");
+    assert.match(linkedPayload.history.relevance[0].contactLabel, /^Explicit Contact · [A-Za-z0-9_-]{12}$/);
     const replay = await handler.handlePersonDiscoveryPost(mutation(link, await csrf(handler, dependencies)), dependencies);
     assert.equal(replay.status, 200);
     const changed = await handler.handlePersonDiscoveryPost(mutation({ ...link, existingContactId: "wrong-contact" }, await csrf(handler, dependencies)), dependencies);
@@ -569,6 +569,15 @@ test("C3 initial read minimizes scoped history and current-authority drift remov
     assert.equal(currentPayload.history.relevance[0].current, true);
     assert.deepEqual(currentPayload.history.relevance[0].verificationChannels, ["email", "phone"]);
     assert.deepEqual(currentPayload.history.verificationIntents[0], { intentId: currentPayload.history.verificationIntents[0].intentId, relevanceId: persisted.relevance_id, intent: "initial_verification", channel: "email", sourceObservationId: null, effect: "intent_only" });
+    await fixture.database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'c3-duplicate-name-contact',workspace_id,?,?,1,company_id,?,display_name FROM contacts WHERE id=? AND workspace_id=?").bind(PERSON_DISCOVERY_NOW + 150, PERSON_DISCOVERY_NOW + 150, "6".repeat(64), persisted.contact_id, fixture.workspaceId).run();
+    const duplicated = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
+    const duplicatedPayload = await duplicated.json();
+    const sameNameContacts = duplicatedPayload.linkableContacts.filter((item) => item.label.startsWith("Synthetic c3-minimized-current 0 · "));
+    assert.equal(sameNameContacts.length, 2);
+    assert.equal(new Set(sameNameContacts.map((item) => item.label)).size, 2, "owner-scoped opaque discriminators distinguish duplicate business names");
+    assert.ok(sameNameContacts.every((item) => /^Synthetic c3-minimized-current 0 · [A-Za-z0-9_-]{12}$/.test(item.label) && !item.label.includes(item.contactId)));
+    assert.equal(currentPayload.history.relevance[0].contactLabel, duplicatedPayload.history.relevance[0].contactLabel, "the owner-scoped Contact label remains stable across reads");
+    assert.equal(duplicatedPayload.history.relevance[0].contactLabel, duplicatedPayload.linkableContacts.find((item) => item.contactId === persisted.contact_id).label, "relevance and Contact selectors share the stable discriminator");
 
     const newerRunId = "c3-current-no-match-run";
     const newerResultDigest = "3".repeat(64);
