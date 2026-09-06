@@ -37,6 +37,12 @@ the durable authority. Do not launch duplicate A/B writers. Keep work unit C
 serialized behind one schema owner, and start D only after validated B and C
 are integrated.
 
+Read-only integration analysis confirms that A and B change disjoint file sets.
+Git's three-way merge calculation completed without conflicts and produced
+synthetic tree `ae7c73020a4d6fcffc6873309c4e7357e02b9110`. This proves only static
+merge compatibility; it does not validate either runtime, integrate a branch,
+or release the held preflight lane.
+
 This is the durable transfer from local Codex implementation to Claude Cloud.
 Fetch the branch and require the exact clean integration checkpoint before
 starting. Do not rely on chat history. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`,
