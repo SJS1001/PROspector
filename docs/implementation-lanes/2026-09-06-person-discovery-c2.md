@@ -73,10 +73,14 @@ authorizes an external effect.
 ## Closure evidence — 2026-09-06
 
 The C2 handler suite now proves the transport rejects every wrong-action
-accepted payload, empty or malformed nested accepted record, and
-blocked/conflict reason outside that action's finite allowlist. Those denials
-make no extra fake call and add no run, decision, Contact, relevance, intent,
-effect, authority-command, or audit row beyond the fixture baseline.
+accepted payload, empty or malformed action-matched nested accepted record,
+impossible run state/result pair, malformed candidate array, and
+blocked/conflict reason outside that action's finite allowlist. The public
+accepted-run validator requires an exact envelope, canonical run operation key,
+state-correlated result/reason/candidate shape, bounded exact candidates and
+provenance; decision and intent envelopes are exact too. Those denials make no
+extra fake call and add no run, decision, Contact, relevance, intent, effect,
+authority-command, or audit row beyond the fixture baseline.
 
 Exact stored decision and verification-intent replays survive each independent
 Company, Product, Market Play, Profile, Prospect, and effective-configuration
@@ -86,15 +90,18 @@ start winner and one durable owner-decision winner. The suite also proves
 single-use CSRF, legacy-owner admission without outsider admission, and a
 stale-authority GET projection.
 
-At the candidate expiry instant and one millisecond afterward, both
-`create_new` and `link_existing` reject atomically before the physical
-retention sweep, with no decision, Contact, relevance, authority-command,
-audit, or fake-provider call. A physical redaction between pages invalidates
-the old signed cursor; an uncursored expiry projection is neutral and payload
-free. Existing Contact/relevance lineage keeps `knownPerson` true after the
-historical candidate payload is physically redacted.
+Each expiry case starts from a fresh completed, undecided candidate. At the
+candidate expiry instant and one millisecond afterward, both `create_new` and
+`link_existing` return the specific `candidate_unavailable` denial before the
+physical retention sweep, with no decision, Contact, relevance,
+authority-command, audit, or fake-provider call. A cursor is minted only after
+the decision/relevance generation changes, proven valid immediately before
+physical redaction, then proven to drift solely because that redaction advances
+generation. An uncursored expiry projection is neutral and payload free.
+Existing Contact/relevance lineage keeps `knownPerson` true after historical
+candidate payload is physically redacted.
 
-Executed sequentially with loopback-capable Miniflare fixtures: all fourteen
+Executed sequentially with loopback-capable Miniflare fixtures: all sixteen
 `person-discovery-handler` cases; all three core `person-discovery` cases; all
 ten recovery/retention cases; all four authority-fence cases; and all four
 migration/production-port cases. No provider, credential, hosted target,

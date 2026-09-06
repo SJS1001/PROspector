@@ -190,7 +190,13 @@ export function createPersonDiscoveryService(options: ServiceOptions): PersonDis
       if (!run || run.status !== "completed" || run.resultDigest !== command.expectedResultDigest) return blockedDecision("stale_or_foreign_authority");
       if (!await isDiscoveryRunAuthorityCurrent(options.database, scope, command.runId)) return blockedDecision("stale_or_foreign_authority");
       const candidate = command.candidateId ? run.candidates.find((item) => item.id === command.candidateId) : null;
-      if (command.decision !== "no_match" && !candidate) return blockedDecision("candidate_unavailable");
+      // The database trigger repeats this fence at commit time.  Keeping the
+      // same boundary here produces a deterministic, payload-safe denial at
+      // and after expiry even when retention has not physically redacted yet.
+      const candidateCurrent = candidate
+        && candidate.redactedAt === null
+        && candidate.payloadExpiresAt > safeNow(now());
+      if (command.decision !== "no_match" && !candidateCurrent) return blockedDecision("candidate_unavailable");
       const contactId = command.decision === "create_new" ? idFactory() : command.existingContactId ?? null;
       const relevanceId = command.decision === "no_match" ? null : idFactory();
       const relevanceDigest = candidate && contactId

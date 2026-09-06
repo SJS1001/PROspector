@@ -382,49 +382,38 @@ test("C2 rejects every foreign service outcome shape and reason without exposing
       assert.equal(calls, 1);
       assert.deepEqual(await protectedCounts(fixture), baseline);
     }
+    const actionMatchedMalformed = [
+      [scenarios[0][1], { kind: "accepted", replayed: false, run: { id: "bad", requestDigest: "a".repeat(64), operationKey: `pd_${"b".repeat(64)}`, status: "requested", resultDigest: "c".repeat(64), reason: null, requestedDeadlineAt: 1, candidates: [] } }],
+      [scenarios[0][1], { kind: "accepted", replayed: false, run: { id: "bad", requestDigest: "a".repeat(64), operationKey: `pd_${"b".repeat(64)}`, status: "completed", resultDigest: "c".repeat(64), reason: null, requestedDeadlineAt: 1, candidates: [{}] } }],
+      [scenarios[1][1], { kind: "accepted", replayed: false, decision: { id: "bad", runId: "run", decisionDigest: "a".repeat(64), decision: "link_existing", candidateId: "candidate", contactId: null, relevanceId: "relevance" } }],
+      [scenarios[2][1], { kind: "accepted", replayed: false, intent: { id: "bad", intentDigest: "a".repeat(64), intent: "stale_refresh", channel: "email", freshnessWindowMs: 1, freshnessPolicyDigest: "b".repeat(64), sourceObservationId: null }, providerCallAuthorized: false, contactEvidenceCreated: false }],
+    ];
+    for (const [body, result] of actionMatchedMalformed) {
+      let calls = 0;
+      const fake = { start: async () => { calls += 1; return result; }, decide: async () => { calls += 1; return result; }, recordVerificationIntent: async () => { calls += 1; return result; } };
+      const response = await handler.handlePersonDiscoveryPost(mutation(body, await csrf(handler, deps(fixture, fake))), deps(fixture, fake));
+      assert.deepEqual(await response.json(), { command: { kind: "blocked", reason: "invalid_service_result" } });
+      assert.equal(calls, 1);
+      assert.deepEqual(await protectedCounts(fixture), baseline);
+    }
   } finally { await fixture.dispose(); }
 });
 
 test("C2 handler keeps durable decision and verification-intent replays exact across all authority drift", async () => {
-  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-replay-authority-drift");
-  try {
-    await alignOwner(fixture);
-    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
-    let calls = 0;
-    const service = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => { calls += 1; return completed("drift", 1); }), now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids("drift") });
-    const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
-    const dependencies = deps(fixture, service);
-    await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "drift-start", { maxCandidates: 1 }), await csrf(handler, dependencies)), dependencies);
-    const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
-    const payload = await projection.json();
-    const decision = { action: "decide_person_discovery", runId: payload.people.runId, expectedResultDigest: payload.history.runs[0].resultDigest, decision: "create_new", candidateId: payload.people.items[0].candidateId, existingContactId: null, expectedProspectRevision: fixture.prospectRevision, idempotencyKey: "drift-decision" };
-    assert.equal((await handler.handlePersonDiscoveryPost(mutation(decision, await csrf(handler, dependencies)), dependencies)).status, 200);
-    const relevanceId = (await fixture.database.prepare("SELECT id FROM prospect_contact_role_relevance WHERE workspace_id=?").bind(fixture.workspaceId).first()).id;
-    const contactRevision = Number((await fixture.database.prepare("SELECT revision FROM contacts WHERE workspace_id=?").bind(fixture.workspaceId).first()).revision);
-    const intent = { action: "record_verification_intent", relevanceId, intent: "initial_verification", channel: "email", sourceObservationId: null, expectedProspectRevision: fixture.prospectRevision, expectedContactRevision: contactRevision, idempotencyKey: "drift-intent" };
-    assert.equal((await handler.handlePersonDiscoveryPost(mutation(intent, await csrf(handler, dependencies)), dependencies)).status, 200);
-    const before = await protectedCounts(fixture);
-    const company = await fixture.database.prepare("SELECT company_id FROM workspace_companies WHERE workspace_id=?").bind(fixture.workspaceId).first();
-    const play = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=? AND workspace_id=?").bind(fixture.profileId, fixture.workspaceId).first();
-    const product = await fixture.database.prepare("SELECT product_id FROM market_plays WHERE id=? AND workspace_id=?").bind(play.play_id, fixture.workspaceId).first();
-    const drifts = [
-      ["company", "UPDATE companies SET status='paused' WHERE id=? AND workspace_id=?", [company.company_id, fixture.workspaceId]],
-      ["product", "UPDATE products SET lifecycle='paused' WHERE id=? AND workspace_id=?", [product.product_id, fixture.workspaceId]],
-      ["play", "UPDATE market_plays SET lifecycle='paused' WHERE id=? AND workspace_id=?", [play.play_id, fixture.workspaceId]],
-      ["profile", "UPDATE customer_profiles SET lifecycle='paused' WHERE id=? AND workspace_id=?", [fixture.profileId, fixture.workspaceId]],
-      ["prospect", "UPDATE profile_prospects SET revision=revision+1 WHERE id=? AND workspace_id=?", [fixture.prospectId, fixture.workspaceId]],
-      ["configuration", "UPDATE typed_configurations SET active=0 WHERE id=? AND workspace_id=?", [fixture.configurationId, fixture.workspaceId]],
-    ];
-    for (const [, sql, values] of drifts) {
-      await fixture.database.prepare(sql).bind(...values).run();
-      assert.equal((await handler.handlePersonDiscoveryPost(mutation(decision, await csrf(handler, dependencies)), dependencies)).status, 200);
-      assert.equal((await handler.handlePersonDiscoveryPost(mutation(intent, await csrf(handler, dependencies)), dependencies)).status, 200);
-      assert.equal((await handler.handlePersonDiscoveryPost(mutation({ ...decision, candidateId: "different-candidate" }, await csrf(handler, dependencies)), dependencies)).status, 409);
-      assert.equal((await handler.handlePersonDiscoveryPost(mutation({ ...intent, channel: "phone" }, await csrf(handler, dependencies)), dependencies)).status, 409);
-    }
-    assert.equal(calls, 1);
-    assert.deepEqual(await protectedCounts(fixture), before, "all stale replay/conflict paths are zero-write");
-  } finally { await fixture.dispose(); }
+  for (const dimension of ["company", "product", "play", "profile", "prospect", "configuration"]) {
+    const fixture = await createPersonDiscoveryFixture(`person-discovery-handler-replay-${dimension}`);
+    try {
+      const setup = await acceptedDecisionAndIntent(fixture, `drift-${dimension}`);
+      const before = await protectedCounts(fixture);
+      await applyAuthorityDrift(fixture, dimension);
+      assert.equal((await setup.handler.handlePersonDiscoveryPost(mutation(setup.decision, await csrf(setup.handler, setup.dependencies)), setup.dependencies)).status, 200);
+      assert.equal((await setup.handler.handlePersonDiscoveryPost(mutation(setup.intent, await csrf(setup.handler, setup.dependencies)), setup.dependencies)).status, 200);
+      assert.equal((await setup.handler.handlePersonDiscoveryPost(mutation({ ...setup.decision, candidateId: "different-candidate" }, await csrf(setup.handler, setup.dependencies)), setup.dependencies)).status, 409);
+      assert.equal((await setup.handler.handlePersonDiscoveryPost(mutation({ ...setup.intent, channel: "phone" }, await csrf(setup.handler, setup.dependencies)), setup.dependencies)).status, 409);
+      assert.equal(setup.calls.value, 1);
+      assert.deepEqual(await protectedCounts(fixture), before, `${dimension} replay/conflict stays zero-write`);
+    } finally { await fixture.dispose(); }
+  }
 });
 
 test("C2 handler concurrency, legacy ownership, CSRF replay, expiry, redaction, and stale projection all fail closed", async () => {
@@ -456,43 +445,68 @@ test("C2 handler concurrency, legacy ownership, CSRF replay, expiry, redaction, 
     const csrfReplay = await handler.handlePersonDiscoveryPost(mutation(start, token), dependencies);
     assert.equal(csrfReplay.status, 403);
     assert.deepEqual(await protectedCounts(fixture), beforeCsrfReplay, "CSRF replay creates no second durable command");
-    const expiry = Number((await fixture.database.prepare("SELECT payload_expires_at FROM person_discovery_candidates WHERE id=?").bind(decision.candidateId).first()).payload_expires_at);
-    const beforeExpiry = await protectedCounts(fixture);
-    let expiryService;
-    let expiryDependencies;
-    for (const [offset, label] of [[0, "at"], [1, "after"]]) {
-      const instant = expiry + offset;
-      expiryService = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => { throw new Error("must not call"); }), now: () => instant, idFactory: ids(`expiry-${label}`) });
-      expiryDependencies = { ...dependencies, personDiscoveryService: expiryService, now: () => instant };
-      for (const command of [
-        { ...decision, idempotencyKey: `expiry-create-${label}` },
-        { ...decision, decision: "link_existing", existingContactId: (await fixture.database.prepare("SELECT id FROM contacts WHERE workspace_id=?").bind(fixture.workspaceId).first()).id, idempotencyKey: `expiry-link-${label}` },
-      ]) {
-        const response = await handler.handlePersonDiscoveryPost(mutation(command, await csrf(handler, expiryDependencies)), expiryDependencies);
-        assert.equal(response.status, 409);
-      }
-    }
-    assert.deepEqual(await protectedCounts(fixture), beforeExpiry, "expiry rejects before decision/contact/relevance/command/audit writes");
-    const beforeRedaction = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), expiryDependencies);
-    const ownerScope = { workspaceId: fixture.workspaceId, principalSubject: (await fixture.database.prepare("SELECT owner_subject FROM workspaces WHERE id=?").bind(fixture.workspaceId).first()).owner_subject };
-    const redaction = await expiryService.redactExpiredPayloads(ownerScope);
-    assert.ok(redaction.redacted >= 1);
-    const afterRedaction = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), expiryDependencies);
-    const afterRedactionPayload = await afterRedaction.json();
-    const beforeRedactionPayload = await beforeRedaction.json();
-    assert.ok(afterRedactionPayload.people.items.length > 0, JSON.stringify(afterRedactionPayload));
-    assert.ok(beforeRedactionPayload.people.items.length > 0, JSON.stringify(beforeRedactionPayload));
-    assert.equal(afterRedactionPayload.people.items[0].state, "payload_unavailable");
-    assert.equal(beforeRedactionPayload.people.items[0].state, "payload_unavailable");
-    const drifted = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(payload.people.pageInfo.nextCursor)}`), expiryDependencies);
-    assert.equal(drifted.status, 409, "physical redaction between pages invalidates signed projection state");
-    const known = await handler.handlePersonDiscoveryGet(new Request("https://prospector.invalid/api/contacts/person-discovery"), expiryDependencies);
-    assert.equal((await known.json()).approvedProspects[0].knownPerson, true, "historical payload redaction does not erase current Contact/relevance lineage");
     const outsider = await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, "outsider-post"), await csrf(handler, dependencies)), { ...dependencies, getIdentity: async () => ({ email: "outsider@example.invalid", displayName: "Outsider" }) });
     assert.equal(outsider.status, 404);
     await fixture.database.prepare("UPDATE profile_prospects SET revision=revision+1 WHERE id=? AND workspace_id=?").bind(fixture.prospectId, fixture.workspaceId).run();
     const stale = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), { ...dependencies, now: () => PERSON_DISCOVERY_NOW + 100 });
     assert.equal((await stale.json()).people.status, "stale_authority", "a stale authority is never projected as active discovery authority");
+  } finally { await fixture.dispose(); }
+});
+
+test("C2 expiry rejects fresh undecided create and link commands atomically at and after retention", async () => {
+  for (const [decisionKind, offset] of [["create_new", 0], ["link_existing", 0], ["create_new", 1], ["link_existing", 1]]) {
+    const fixture = await createPersonDiscoveryFixture(`person-discovery-handler-expiry-${decisionKind}-${offset}`);
+    try {
+      await alignOwner(fixture);
+      const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+      const issuedAt = PERSON_DISCOVERY_NOW + 100;
+      const setup = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => completed(`expiry-${decisionKind.replace("_", "-")}-${offset}`, 1)), now: () => issuedAt, idFactory: ids(`expiry-setup-${decisionKind}-${offset}`) });
+      const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+      const setupDependencies = deps(fixture, setup);
+      assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, `expiry-start-${decisionKind}-${offset}`, { maxCandidates: 1 }), await csrf(handler, setupDependencies)), setupDependencies)).status, 200);
+      const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setupDependencies);
+      const payload = await projection.json();
+      const candidateId = payload.people.items[0].candidateId;
+      const expiry = Number((await fixture.database.prepare("SELECT payload_expires_at FROM person_discovery_candidates WHERE id=?").bind(candidateId).first()).payload_expires_at);
+      let existingContactId = null;
+      if (decisionKind === "link_existing") {
+        const company = await fixture.database.prepare("SELECT company_id FROM workspace_companies WHERE workspace_id=?").bind(fixture.workspaceId).first();
+        existingContactId = `expiry-existing-${offset}`;
+        await fixture.database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) VALUES (?,?,?, ?,1,?,?,'Existing')").bind(existingContactId, fixture.workspaceId, issuedAt, issuedAt, company.company_id, "f".repeat(64)).run();
+      }
+      const calls = { value: 0 };
+      const expiryService = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => { calls.value += 1; throw new Error("expired candidate must not invoke a port"); }), now: () => expiry + offset, idFactory: ids(`expiry-${decisionKind}-${offset}`) });
+      const dependencies = { ...setupDependencies, personDiscoveryService: expiryService, now: () => expiry + offset };
+      const before = await protectedCounts(fixture);
+      const command = { action: "decide_person_discovery", runId: payload.people.runId, expectedResultDigest: payload.history.runs[0].resultDigest, decision: decisionKind, candidateId, existingContactId, expectedProspectRevision: fixture.prospectRevision, idempotencyKey: `expiry-decision-${decisionKind}-${offset}` };
+      const response = await handler.handlePersonDiscoveryPost(mutation(command, await csrf(handler, dependencies)), dependencies);
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), { command: { kind: "blocked", reason: "candidate_unavailable" } });
+      assert.equal(calls.value, 0);
+      assert.deepEqual(await protectedCounts(fixture), before);
+    } finally { await fixture.dispose(); }
+  }
+});
+
+test("C2 redaction alone invalidates a freshly minted people cursor and preserves known-person lineage", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-handler-redaction-cursor");
+  try {
+    const setup = await acceptedDecisionAndIntent(fixture, "redaction-cursor", 6);
+    const minted = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), setup.dependencies);
+    const mintedPayload = await minted.json();
+    const cursor = mintedPayload.people.pageInfo.nextCursor;
+    assert.ok(cursor);
+    const cursorUrl = `https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}&peopleCursor=${encodeURIComponent(cursor)}`;
+    assert.equal((await setup.handler.handlePersonDiscoveryGet(new Request(cursorUrl), setup.dependencies)).status, 200, "fresh cursor works before redaction");
+    const expiry = Number((await fixture.database.prepare("SELECT min(payload_expires_at) expiry FROM person_discovery_candidates WHERE run_id=?").bind(mintedPayload.people.runId).first()).expiry);
+    const redactor = (await loadPersonDiscoveryModules(fixture)).discovery.createPersonDiscoveryService({ database: fixture.database, now: () => expiry, idFactory: ids("redaction-cursor") });
+    const ownerScope = { workspaceId: fixture.workspaceId, principalSubject: (await fixture.database.prepare("SELECT owner_subject FROM workspaces WHERE id=?").bind(fixture.workspaceId).first()).owner_subject };
+    assert.ok((await redactor.redactExpiredPayloads(ownerScope)).redacted >= 1);
+    assert.equal((await setup.handler.handlePersonDiscoveryGet(new Request(cursorUrl), setup.dependencies)).status, 409, "only the physical redaction advances the cursor generation");
+    const neutral = await setup.handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), { ...setup.dependencies, now: () => expiry });
+    const neutralPayload = await neutral.json();
+    assert.equal(neutralPayload.people.items[0].state, "payload_unavailable");
+    assert.equal(neutralPayload.approvedProspects[0].knownPerson, true);
   } finally { await fixture.dispose(); }
 });
 
@@ -534,6 +548,41 @@ async function alignOwner(fixture) {
   const interview = await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname);
   const principal = await interview.principalFromIdentity("owner@example.invalid", PERSON_DISCOVERY_OWNER.displayName, "0123456789abcdef0123456789abcdef");
   await fixture.database.prepare("UPDATE workspaces SET owner_subject=? WHERE id=?").bind(principal.subject, fixture.workspaceId).run();
+}
+async function acceptedDecisionAndIntent(fixture, prefix, maxCandidates = 1) {
+  await alignOwner(fixture);
+  const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+  const calls = { value: 0 };
+  const service = discovery.createPersonDiscoveryService({ database: fixture.database, port: testPort.bindPersonDiscoveryTestPort(async () => { calls.value += 1; return completed(prefix, maxCandidates); }), now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids(prefix) });
+  const handler = await fixture.vite.ssrLoadModule(new URL("../domain/person-discovery-handler.ts", import.meta.url).pathname);
+  const dependencies = deps(fixture, service);
+  assert.equal((await handler.handlePersonDiscoveryPost(mutation(startBody(fixture, `${prefix}-start`, { maxCandidates }), await csrf(handler, dependencies)), dependencies)).status, 200);
+  const projection = await handler.handlePersonDiscoveryGet(new Request(`https://prospector.invalid/api/contacts/person-discovery?prospectId=${fixture.prospectId}`), dependencies);
+  const payload = await projection.json();
+  const decision = { action: "decide_person_discovery", runId: payload.people.runId, expectedResultDigest: payload.history.runs[0].resultDigest, decision: "create_new", candidateId: payload.people.items[0].candidateId, existingContactId: null, expectedProspectRevision: fixture.prospectRevision, idempotencyKey: `${prefix}-decision` };
+  assert.equal((await handler.handlePersonDiscoveryPost(mutation(decision, await csrf(handler, dependencies)), dependencies)).status, 200);
+  const relevanceId = (await fixture.database.prepare("SELECT id FROM prospect_contact_role_relevance WHERE workspace_id=?").bind(fixture.workspaceId).first()).id;
+  const contactRevision = Number((await fixture.database.prepare("SELECT revision FROM contacts WHERE workspace_id=?").bind(fixture.workspaceId).first()).revision);
+  const intent = { action: "record_verification_intent", relevanceId, intent: "initial_verification", channel: "email", sourceObservationId: null, expectedProspectRevision: fixture.prospectRevision, expectedContactRevision: contactRevision, idempotencyKey: `${prefix}-intent` };
+  assert.equal((await handler.handlePersonDiscoveryPost(mutation(intent, await csrf(handler, dependencies)), dependencies)).status, 200);
+  return { handler, dependencies, decision, intent, calls };
+}
+async function applyAuthorityDrift(fixture, dimension) {
+  if (dimension === "company") {
+    const row = await fixture.database.prepare("SELECT company_id FROM workspace_companies WHERE workspace_id=?").bind(fixture.workspaceId).first();
+    return fixture.database.prepare("UPDATE companies SET status='paused' WHERE id=? AND workspace_id=?").bind(row.company_id, fixture.workspaceId).run();
+  }
+  if (dimension === "product") {
+    const row = await fixture.database.prepare("SELECT play.product_id FROM customer_profiles profile JOIN market_plays play ON play.id=profile.play_id AND play.workspace_id=profile.workspace_id WHERE profile.id=? AND profile.workspace_id=?").bind(fixture.profileId, fixture.workspaceId).first();
+    return fixture.database.prepare("UPDATE products SET lifecycle='paused' WHERE id=? AND workspace_id=?").bind(row.product_id, fixture.workspaceId).run();
+  }
+  if (dimension === "play") {
+    const row = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=? AND workspace_id=?").bind(fixture.profileId, fixture.workspaceId).first();
+    return fixture.database.prepare("UPDATE market_plays SET lifecycle='paused' WHERE id=? AND workspace_id=?").bind(row.play_id, fixture.workspaceId).run();
+  }
+  if (dimension === "profile") return fixture.database.prepare("UPDATE customer_profiles SET lifecycle='paused' WHERE id=? AND workspace_id=?").bind(fixture.profileId, fixture.workspaceId).run();
+  if (dimension === "prospect") return fixture.database.prepare("UPDATE profile_prospects SET revision=revision+1 WHERE id=? AND workspace_id=?").bind(fixture.prospectId, fixture.workspaceId).run();
+  return fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id=? AND workspace_id=?").bind(fixture.configurationId, fixture.workspaceId).run();
 }
 function mutation(body, cookie) { return new Request("https://prospector.invalid/api/contacts/person-discovery", { method: "POST", headers: { origin: "https://prospector.invalid", "sec-fetch-site": "same-origin", "x-prospector-intent": "person-discovery-mutation", "content-type": "application/json", cookie }, body: JSON.stringify(body) }); }
 function csrfCookie(response) { const raw = response.headers.get("set-cookie"); const match = raw?.match(/prospector-local-csrf=([^;]+)/); assert.ok(match); return `prospector-local-csrf=${match[1]}`; }
