@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Offline work unit C1 integrated and verified; A/B corrections and C2 handler/projection remain pending while hosted Stage 3B attachment remains separately gated
+stopped_at: Offline work units C1 and C2 integrated and verified; A/B corrections and C3 operator UI remain pending while hosted Stage 3B attachment remains separately gated
 last_updated: "2026-09-06"
 last_activity: 2026-09-06
 progress:
@@ -16,12 +16,12 @@ progress:
 
 # Project State
 
-**Offline implementation update (2026-09-06):** Work unit C1 and the prerequisite
-`0018` importer normalization are integrated on the generic-onboarding branch.
-The merged 30-case focused gate and independent code/security reviews are clean.
-C2 handler/projection, C3 UI, and C4 integrated synthetic acceptance remain;
-this work earns no Phase 5 plan credit and changes no hosted/provider/effect
-authority. The current transfer ledger is
+**Offline implementation update (2026-09-06):** Work units C1 and C2 plus the
+prerequisite `0018` importer normalization are integrated on the
+generic-onboarding branch. The merged 37-case focused gate and independent
+code/security reviews are clean. C3 UI and C4 integrated synthetic acceptance
+remain; this work earns no Phase 5 plan credit and changes no
+hosted/provider/effect authority. The current transfer ledger is
 `docs/implementation-lanes/2026-09-06-claude-cloud-transfer.md`.
 
 ## Project Reference

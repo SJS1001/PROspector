@@ -187,6 +187,14 @@ Use these existing artifacts rather than restating product decisions:
   production and no Phase 5 completion, hosted action, provider call, Contact
   eligibility, export, or outbound effect is claimed. C2 handler/projection, C3
   UI, and C4 integrated synthetic acceptance remain pending.
+- Later on 2026-09-06 C2 was integrated: the closed owner-admitted discovery
+  handler, exact replay/conflict translation, current-authority projection,
+  five-row signed people cursor, read-time retention masking, and actual
+  production route rejection. The merged C1+C2 focused gate passed 37/37 with
+  loopback permission; touched lint and production audit are clean. Independent
+  code and security/privacy convergence reviews returned GO with zero blocker,
+  high, or medium finding. C3 UI and C4 integrated synthetic acceptance remain;
+  production still composes no discovery service or provider.
 
 - The latest clean Phase 2 re-review after `2e879dc` and `45bcdc1` verified CR-09 through CR-11 and WR-07 closed, including server-derived candidate authority, reduced UI mutation payloads, and forged/stale request rejection.
 - `npm test` and `npm run lint` passed at that Phase 2 review checkpoint. Subsequent branch commits add Phase 3/4 work and test-runner isolation, so rerun the canonical commands before treating the current checkout as verified.

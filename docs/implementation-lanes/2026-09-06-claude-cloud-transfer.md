@@ -210,8 +210,16 @@ reviews returned GO with no blocker, high, or medium finding. This earns no
 Phase 5 plan credit and enables no provider, runtime, contact-point, export, or
 outbound effect.
 
-Continue A and B corrections on their existing branches. For C, implement C2
-next: the closed owner-admitted handler/command/projection seam over the C1
-service, keeping the production discovery port unavailable and the candidate
-distinct from Contact authority. C3 UI and C4 integrated synthetic acceptance
-follow. Integrate A, then B, then the remaining C slices before D and E.
+Work unit C2 is also integrated. Its owner-admitted handler, exact command
+translation, current-authority projection, five-row people cursor, retention
+masking, durable replay, and production reject-only route passed the merged
+37-case C1+C2 loopback gate. Independent convergence review returned GO with
+zero blocker, high, or medium finding. The route composes no discovery service
+or provider and grants no Contact eligibility or external effect.
+
+Continue A and B corrections on their existing branches. For C, implement C3
+next: the accessible operator UI over the C2 projection and commands, preserving
+candidate-as-suggestion language, explicit no-match/create/link decisions,
+separate verification intent, stale cursor reset, and no automatic retry. C4
+integrated synthetic acceptance follows. Integrate A, then B, then the remaining
+C slices before D and E.
