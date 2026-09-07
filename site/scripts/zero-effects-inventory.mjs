@@ -45,14 +45,7 @@ export const CANONICAL_EFFECT_TABLES = Object.freeze([
 // Local synthetic onboarding, interview, knowledge, and configuration state. These may
 // hold the demo rows the browser journey writes, bounded by LOCAL_STATE_ROW_CEILING.
 export const CANONICAL_LOCAL_STATE_TABLES = Object.freeze([
-  // `contacts_projection_generations` holds trigger-maintained counters, not an
-  // effect. Now that the local bootstrap applies the whole checked chain, 0018's
-  // guards write a row here whenever the synthetic onboarding journey touches
-  // `typed_configurations`, `workspaces`, or a gate. Classifying it as an effect
-  // table would fail every full-chain run on a counter no operator can reach; the
-  // C4 verifier already treats it the same way.
   "accounts", "artifact_configuration_dependencies", "audit_events", "authority_commands", "companies",
-  "contacts_projection_generations",
   "configuration_activations", "configuration_knowledge_dependencies", "csrf_tokens", "customer_profiles",
   "drift_impact_snapshots", "import_batches", "import_items", "interview_answers", "interview_authority_bindings",
   "interview_authority_review", "interview_confirmations", "interview_questions", "interview_sessions",
@@ -201,7 +194,18 @@ export const CANONICAL_TRIGGERS = Object.freeze([
   "source_custody_quarantine_only",
 ]);
 
-export const CANONICAL_TABLES = Object.freeze([...CANONICAL_EFFECT_TABLES, ...CANONICAL_LOCAL_STATE_TABLES].sort());
+// Derived projection state: rows no operator action can create directly and no runtime
+// code writes. `0018` installs triggers that maintain these counters, and app code only
+// ever reads them, so once the local bootstrap applies the whole checked chain the
+// ordinary synthetic onboarding journey populates them. They are neither an effect
+// surface (unreachable by any operator) nor free-form local state, so they are bounded
+// like local state but named separately: a table may only land here deliberately, and
+// the migration-parity test below still refuses to let a new one be ignored.
+export const CANONICAL_DERIVED_TABLES = Object.freeze([
+  "contacts_projection_generations",
+]);
+
+export const CANONICAL_TABLES = Object.freeze([...CANONICAL_EFFECT_TABLES, ...CANONICAL_LOCAL_STATE_TABLES, ...CANONICAL_DERIVED_TABLES].sort());
 
 // Phase 2 hosted-contract names the checked schema never creates. They stay forbidden
 // rather than unknown so a reintroduction is reported as an effect surface, not as an
@@ -230,12 +234,13 @@ export function isReservedObjectName(name) {
   return OBJECT_NAME_PATTERN.test(name) && RESERVED_OBJECT_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
-// "effect" and "retired-effect" must be empty, "local-state" is bounded, "reserved" is
-// engine metadata, and "unknown" fails verification.
+// "effect" and "retired-effect" must be empty, "local-state" and "derived" are bounded,
+// "reserved" is engine metadata, and "unknown" fails verification.
 export function classifyTable(name) {
   if (CANONICAL_EFFECT_TABLES.includes(name)) return "effect";
   if (RETIRED_EFFECT_TABLES.includes(name)) return "retired-effect";
   if (CANONICAL_LOCAL_STATE_TABLES.includes(name)) return "local-state";
+  if (CANONICAL_DERIVED_TABLES.includes(name)) return "derived";
   if (isReservedObjectName(name)) return "reserved";
   return "unknown";
 }

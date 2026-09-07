@@ -6,6 +6,7 @@ import { basename, resolve } from "node:path";
 import test from "node:test";
 
 import {
+  CANONICAL_DERIVED_TABLES,
   CANONICAL_EFFECT_TABLES,
   CANONICAL_LOCAL_STATE_TABLES,
   CANONICAL_TABLES,
@@ -51,15 +52,45 @@ test("every effect table introduced by migrations 0010-0019 is verified, not ign
   const introduced = [...late.tables].filter((name) => !early.tables.has(name)).sort();
   assert.ok(introduced.length >= 30, `expected the later chain to introduce tables, saw ${introduced.length}`);
   // This is the regression the previous denylist missed: none of these tables were
-  // covered, so an effect row in any of them passed verification silently.
-  for (const name of introduced) assert.equal(classifyTable(name), "effect", name);
+  // covered, so an effect row in any of them passed verification silently. Every
+  // introduced table must therefore be classified, and "effect" unless it is named
+  // in the derived allowlist -- a table cannot become derived by accident.
+  for (const name of introduced) {
+    const classification = classifyTable(name);
+    if (CANONICAL_DERIVED_TABLES.includes(name)) {
+      assert.equal(classification, "derived", name);
+      continue;
+    }
+    assert.equal(classification, "effect", name);
+  }
+  assert.ok(
+    CANONICAL_DERIVED_TABLES.every((name) => introduced.includes(name)),
+    "the derived allowlist may only name tables the later chain actually introduces",
+  );
 
   for (const name of introduced) {
+    if (CANONICAL_DERIVED_TABLES.includes(name)) continue;
     await withFixture(async ({ stateRoot, write }) => {
       write(`CREATE TABLE "${name}" (id TEXT PRIMARY KEY); INSERT INTO "${name}" VALUES ('effect-row');`);
       const denied = verify(stateRoot);
       assert.notEqual(denied.status, 0, `${name} must fail verification`);
       assert.match(denied.stderr, new RegExp(`${name}_must_remain_empty`));
+    });
+  }
+
+  // A derived table is bounded, not ignored: a row is accepted, but blowing past the
+  // ceiling still fails, so it cannot become an unbounded write surface.
+  for (const name of CANONICAL_DERIVED_TABLES) {
+    await withFixture(async ({ stateRoot, write }) => {
+      write(`CREATE TABLE "${name}" (id TEXT PRIMARY KEY); INSERT INTO "${name}" VALUES ('derived-row');`);
+      assert.equal(verify(stateRoot).status, 0, `${name} must accept its trigger-maintained row`);
+    });
+    await withFixture(async ({ stateRoot, write }) => {
+      const rows = Array.from({ length: LOCAL_STATE_ROW_CEILING + 1 }, (_, index) => `('row-${index}')`).join(",");
+      write(`CREATE TABLE "${name}" (id TEXT PRIMARY KEY); INSERT INTO "${name}" VALUES ${rows};`);
+      const denied = verify(stateRoot);
+      assert.notEqual(denied.status, 0, `${name} must fail past the ceiling`);
+      assert.match(denied.stderr, new RegExp(`${name}_exceeds_local_state_ceiling`));
     });
   }
 });
