@@ -68,7 +68,9 @@ test("replacement candidate creation rolls back when the active configuration lo
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
     const replacement = await fixture.vite.ssrLoadModule(new URL("../domain/replacement.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
     const principal = { subject: "replacement-owner", legacySubject: "replacement-legacy", displayName: "Owner" };
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009280" });
     const inputFor = (key, excerpt) => ({
       origin: "owner_edit", destination: { scopeType: "product", locator: "ONE" }, kind: "capability", value: { excerpt },
       source: { reference: `opaque:${key}`, custody: "synthetic-test", retrievedAt: 1_700_000_000_000 }, privacy: "private",
@@ -119,7 +121,9 @@ test("replacement activation requires an accepted proposal-backed open Drift rev
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
     const replacement = await fixture.vite.ssrLoadModule(new URL("../domain/replacement.ts", import.meta.url).pathname);
     const handler = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge-handler.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
     const principal = { subject: "drift-review-owner", legacySubject: "drift-review-legacy", displayName: "Owner" };
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009310" });
     const proposal = async (suffix, excerpt) => {
       const proposed = await knowledge.createKnowledgeProposal(fixture.database, principal, {
         origin: "owner_edit", destination: { scopeType: "product", locator: "ONE" }, kind: "capability", value: { excerpt },
@@ -165,7 +169,9 @@ test("replacement creation re-derives authority from an eligible server projecti
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
     const replacement = await fixture.vite.ssrLoadModule(new URL("../domain/replacement.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
     const principal = { subject: "replacement-authority-owner", legacySubject: "replacement-authority-legacy", displayName: "Owner" };
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009510" });
     const propose = async (suffix, excerpt) => {
       const proposal = await knowledge.createKnowledgeProposal(fixture.database, principal, {
         origin: "owner_edit", destination: { scopeType: "product", locator: "ONE" }, kind: "capability", value: { excerpt },
