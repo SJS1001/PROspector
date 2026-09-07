@@ -1,0 +1,102 @@
+# Synthetic enrichment reconciliation decision
+
+Date: 2026-09-07
+
+## Gap this closes
+
+`executeEnrichmentOperation` records `needs_reconciliation` for a timeout, an
+ambiguous acceptance, or any post-claim integrity failure, and then stops. That
+stop is correct: the locked Phase 5 decisions forbid retry, provider switch, and
+silent expiry extension for an uncertain charge.
+
+Nothing in the checked Phase 5 code, however, describes how such a reservation is
+ever honestly closed. `EnrichmentAuthorityRepository` exposes `settleReservation`
+and `markNeedsReconciliation`, and `enrichment-repository.ts` will accept a
+settlement whose latest event is `needs_reconciliation`, but no caller reaches
+that path: `executeEnrichmentOperation` only settles a reservation it has just
+claimed from `reserved`, and `contacts-command-service.ts` exposes only
+`createGrant`, `runGrantedOperation`, `applyIdentityMerge`, and
+`applyIdentitySplit`. An uncertain reservation therefore holds its worst-case
+units and cost against the grant, profile, workspace, and provider budgets
+permanently, and `05-PATTERNS.md`'s requirement that "reconciliation is a
+distinct audited state transition" has no executable description.
+
+This lane adds that missing description only.
+
+## Scope
+
+`site/domain/synthetic-enrichment-reconciliation-decision.ts` is a pure,
+deterministic decision over three fictional inputs:
+
+- one already-recorded synthetic uncertain reservation (`timeout` or
+  `ambiguous` only) carrying its exact grant, operation key, provider identity
+  and version, catalog reference, quote revision, configuration binding, durable
+  revision, acknowledgement digest, reserved units/cost, and currency;
+- one owner-transcribed synthetic provider billing statement whose outcome is
+  `documented_charge`, `documented_no_charge`, or `undocumented`; and
+- the current durable authority observed at decision time.
+
+It projects at most one of two future states — settle the documented billable
+amount, or release a documented no-charge reservation — and otherwise holds.
+
+## Fail-closed rules
+
+- Reject by default. Only an admitted owner, an unchanged `needs_reconciliation`
+  row at its exact recorded durable revision and acknowledgement digest, a
+  consumed grant, an owner-reviewed statement, and a disabled-effects fence can
+  produce a resolvable result.
+- Every statement binding — reservation, workspace, grant, operation key,
+  provider identity and version, catalog reference, quote revision, currency —
+  must match the uncertain reservation exactly.
+- A statement observed before the uncertainty was recorded, or after the
+  evaluation time, is rejected.
+- A documented charge may never exceed the committed reservation in units or
+  cost, and must document at least one unit. A no-charge statement that
+  documents an amount is rejected.
+- `undocumented` always holds. Absence of evidence is never inferred as either a
+  successful or a failed charge.
+- A documented charge can only ever project `partial`. The operation's contact
+  outcome was never observed, so `completed` is unreachable by reconciliation.
+- Any remaining worst-case reservation is released rather than carried forward
+  as spare authority for another operation.
+- Malformed, accessor-bearing, extra-key, missing-key, non-synthetic, and
+  unbranded (structurally forged) material throws rather than resolving.
+
+## Deliberate non-authority
+
+The module imports nothing. It has no repository, D1, route, browser,
+provider-port, credential, contact-coordinate, or external-effect dependency.
+Every result — resolvable or held — carries `persistenceAuthorized`,
+`retryAuthorized`, `providerSwitchAuthorized`, `expiryExtensionAuthorized`,
+`providerInvocationAuthorized`, `budgetIncreaseAuthorized`, and
+`contactEvidencePromotionAuthorized` as literal `false`, and all six effect
+counters as literal `0`. A billing statement documents money only; its
+`providerEvidence` field is permanently `false`, so no verification class can be
+gained through reconciliation.
+
+`site/app`, `site/worker`, `site/adapters`, and `site/scripts` compose it
+nowhere, and a test enforces that.
+
+## Validation
+
+Run from `site/` on Node.js `v22.22.2`:
+
+- `node --test --test-concurrency=1 tests/synthetic-enrichment-reconciliation-decision.test.mjs` — 13/13.
+- `node scripts/run-test-suite.mjs tests/enrichment-contract.test.mjs tests/controlled-enrichment-integration.test.mjs tests/contacts-command-service.test.mjs tests/contacts-ui.test.mjs` — 6/6, 22/22, 4/4, 11/11.
+- `node scripts/run-test-suite.mjs tests/contact-eligibility.test.mjs tests/identity-resolution.test.mjs tests/synthetic-enrichment-prerequisite-plan.test.mjs` — all green.
+- `npm run lint` — clean.
+
+## Boundary
+
+This is bounded local preparation under
+`.planning/phases/05-controlled-enrichment-and-verified-contacts/05-PREPARATION.md`.
+It uses fictional data only. No provider, credential, secret, account, quote,
+paid request, spend, hosted target, Sites project, deployment, real contact, or
+outbound effect was used or enabled. Production contact-provider composition and
+Phase 5 activation remain reject-only and unconfigured.
+
+It executes and completes no Phase 5 plan, changes no `depends_on` contract,
+earns no phase credit, and creates no `05-*-SUMMARY.md`. Phase 4 acceptance,
+Plans `05-01` through `05-09`, persistence composition of this decision, an
+owner-facing reconciliation command, provider selection, credentials, and the
+live-provider release gate all remain separate, non-substitutable checkpoints.
