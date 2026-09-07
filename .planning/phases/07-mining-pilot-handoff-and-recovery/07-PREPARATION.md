@@ -326,6 +326,71 @@ more synthetic preparation modules as a substitute for actual Plan 07-02 or
 later execution. Further Phase 7 progress must satisfy its real greenfield
 target, human, persistence, and operational gates.
 
+## Runtime conformance binding (tests only)
+
+`site/preparation/phase7-csv-policy-definition.ts` declares the canonical CSV
+schema and byte policies as labels, while `site/domain/crm-csv-codec.ts`
+implements them as bytes and imports nothing. Each side therefore carried its
+own hardcoded copy of the 22-field order, schema version, and byte rules, and
+each had a focused suite asserting only its own copy. Nothing asserted that the
+two copies agreed.
+
+`site/tests/crm-csv-contract-conformance.test.mjs` is a tests-only, read-only
+binding between them. It adds no preparation module, is not a new preparation
+slice, and does not reopen the line the capstone above closed. It changes no
+policy string, no runtime module, and no authority. It cross-constructs the
+policy definition from the runtime `CRM_CSV_SCHEMA_VERSION` and
+`CRM_CSV_FIELD_IDS` constants, so runtime schema or field-order drift makes the
+construction reject, and then proves each declared label against the codec's
+in-memory bytes:
+
+- ordered field and schema parity, with reordered, rotated, dropped,
+  duplicated, extended, renamed, and version-bumped runtime-derived field lists
+  each rejecting rather than cross-constructing;
+- canonical order over the declared Prospect, Contact, then contact-point sort
+  keys, invariant across all 120 input permutations and across every reassigned
+  non-sort label, using a fixture in which sorting by contact point before
+  Contact would reorder rows;
+- the declared encoding, absent byte-order mark, CRLF separator, single header
+  row, RFC 4180 double-quote, and empty-field null labels verified with a strict
+  byte-level reader that fails on a bare quote, an unterminated quoted field, a
+  lone CR, or a lone LF, with quoting proven minimal rather than universal;
+- whitespace, C0/C1 control, and U+FEFF formula vectors neutralized before
+  quoting across eighty leader and payload combinations, the apostrophe placed
+  ahead of the leader, and E.164 leading-plus contact values recovered exactly
+  without digit loss; and
+- duplicate-conflict semantics swept across all 22 fields with the stable
+  Prospect plus contact-point pair as the only row identity, and every
+  preparation effect counter zero and every authorization false both before and
+  after real CSV bytes exist in the same process.
+
+Three current behaviours are now pinned as documented boundaries rather than
+endorsed as sufficient. The neutralized class is exactly `\p{White_Space}`,
+`\p{Cc}`, and U+FEFF, so a leading U+200B, U+200E, U+00AD, or U+2060 before a
+formula character is not neutralized. Sort comparison is UTF-16 code-unit order,
+not code-point order. The `empty_field` null policy makes `null` and `""`
+byte-identical on output while the deduplication signature still separates them,
+so one identity carrying both fails closed as a conflict.
+
+The suite restates the codec's no-import invariant rather than weakening it, and
+scans `app/`, `worker/`, `domain/`, `adapters/`, and `db/` module specifiers to
+prove no runtime module imports a preparation module.
+
+Validation recorded on 2026-09-07 at commit `d1510f0`: the focused conformance
+suite passed 12/12, the CRM CSV trio (`crm-csv-contract-conformance`,
+`crm-csv-codec`, and `phase7-preparation-csv-policy-definition`) passed 33/33,
+and canonical `npm run lint` passed clean repository-wide on Node.js `v22.22.2`.
+Eleven codec mutations applied to an isolated scratch copy were each caught by
+this suite; the repository codec was not modified. Canonical `npm test`,
+including the production build, was not run in this lane, and the preflight lane
+was not used. The lane record is
+`docs/implementation-lanes/2026-09-07-crm-csv-contract-conformance.md`.
+
+This is local test evidence only. It creates no Phase 7 summary and earns no
+plan or phase credit. It grants no runtime, persistence, CSV
+materialization/delivery/download, export, hosted, provider, or effect
+authority.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
