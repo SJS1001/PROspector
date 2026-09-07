@@ -382,6 +382,68 @@ test("the default port stays unavailable and no runtime module composes a retrie
   }
 });
 
+test("a declared decompression expansion is bounded by ratio, not only by its absolute ceiling", () => {
+  // An absolute cap alone leaves the expansion ratio unbounded: pairing a tiny
+  // transfer budget with the absolute ceiling declares a 33,554,432:1 expansion
+  // and retires the decompression-bomb control while still looking capped.
+  assertRejected(
+    () => port.admitRetrievalRequest(request({ maximumBytes: 1, maximumDecompressedBytes: 33_554_432 })),
+    "request_caps",
+    "an unbounded expansion ratio must fail closed even under the absolute cap",
+  );
+
+  const ratio = port.RETRIEVAL_ADMISSION_LIMITS.maximumDecompressionRatio;
+  assert.equal(Number.isSafeInteger(ratio) && ratio >= 1, true, "the ratio limit is an explicit integer");
+
+  // The effective ceiling is the lower of the absolute cap and the ratio.
+  for (const [maximumBytes, admissible] of [[1, ratio], [4_096, 4_096 * ratio], [8_388_608, 33_554_432]]) {
+    const admitted = port.admitRetrievalRequest(request({ maximumBytes, maximumDecompressedBytes: admissible }));
+    assert.equal(admitted.maximumDecompressedBytes, admissible, `${maximumBytes}B may expand to ${admissible}B`);
+    assertRejected(
+      () => port.admitRetrievalRequest(request({ maximumBytes, maximumDecompressedBytes: admissible + 1 })),
+      "request_caps",
+      `${maximumBytes}B must not declare more than ${admissible}B decompressed`,
+    );
+  }
+
+  // Equality remains admissible: no expansion is always within the ratio.
+  assert.equal(port.admitRetrievalRequest(request({ maximumBytes: 4_096, maximumDecompressedBytes: 4_096 })).maximumDecompressedBytes, 4_096);
+});
+
+test("every safe-adapter requirement is bound to the checks that enforce it", async () => {
+  const requirements = [...port.SAFE_RETRIEVAL_REQUIREMENTS];
+  const reasons = [...port.RETRIEVAL_REJECTION_REASONS];
+  const rules = port.RETRIEVAL_ADMISSION_RULES;
+
+  assert.equal(new Set(requirements).size, requirements.length, "requirement labels are unique");
+  assert.equal(new Set(reasons).size, reasons.length, "rejection reasons are unique");
+  assert.equal(Object.isFrozen(rules), true, "the binding cannot be rewritten at runtime");
+  assert.deepEqual(Object.keys(rules).sort(), [...requirements].sort(), "every requirement is bound, and nothing else is");
+
+  // Forward: each requirement names real, unique, enforced reasons.
+  const cited = new Set();
+  for (const requirement of requirements) {
+    const bound = rules[requirement];
+    assert.equal(Array.isArray(bound) && bound.length > 0, true, `${requirement} must name an enforcing check`);
+    assert.equal(Object.isFrozen(bound), true, `${requirement} binding is immutable`);
+    assert.equal(new Set(bound).size, bound.length, `${requirement} lists each reason once`);
+    for (const reason of bound) {
+      assert.equal(reasons.includes(reason), true, `${requirement} cites unknown reason ${reason}`);
+      cited.add(reason);
+    }
+  }
+
+  // Reverse: a reason added without a governing requirement fails here, which is
+  // what stops the prose list from drifting away from the implementation.
+  assert.deepEqual([...cited].sort(), [...reasons].sort(), "every rejection reason is governed by a requirement");
+
+  // Each declared reason is actually reachable in the seam rather than nominal.
+  const contents = await readFile(PORT_PATH, "utf8");
+  for (const reason of reasons) {
+    assert.equal(contents.includes(`"${reason}"`), true, `reason ${reason} must be used by the implementation`);
+  }
+});
+
 async function sourceFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
     if (error.code === "ENOENT") return [];
