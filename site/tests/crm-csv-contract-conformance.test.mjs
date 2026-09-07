@@ -34,6 +34,15 @@ const EFFECT_KEYS = Object.freeze([
   "downloadInvocations",
   "providerCalls",
 ]);
+// Absolute references for the canonical artifact and the policy digest,
+// derived from these modules. Unlike the relational digest checks elsewhere in
+// this suite, they fail when the digest construction or the byte layout changes
+// on both sides at once.
+const GOLDEN_POLICY_DIGEST = "614f3aa6d41cc1488483de4110098f2ad1d1d34187d96acd3f18fbb0855993d8";
+const GOLDEN_ARTIFACT_SHA256 = "c163d3d855825ccaef8a647a11159143c41d5a09b3468b081244b351311cb366";
+const GOLDEN_ARTIFACT_BYTE_LENGTH = 1739;
+const GOLDEN_HEADER_ONLY_SHA256 = "600e4d660c21cccb8079d814f3dadc3b5340ad2aac227eab979894739d865ad6";
+const GOLDEN_HEADER_ONLY_BYTE_LENGTH = 336;
 const QUOTE = 0x22;
 const COMMA = 0x2c;
 const CR = 0x0d;
@@ -109,6 +118,34 @@ function row(codec, patch = {}) {
     offer_ref: null,
     ...patch,
   };
+}
+
+/**
+ * The fixture the artifact goldens describe. It deliberately spans the cell
+ * shapes the byte policies are about: a plain row, one carrying every quoting
+ * trigger, and one with a neutralized E.164 value and multibyte text. `row`
+ * leaves `offer_ref` null, so the null policy is covered too.
+ */
+function goldenRows(codec) {
+  return [
+    row(codec, { prospect_id: "prospect-1", contact_id: "contact-1", contact_point_id: "point-1" }),
+    row(codec, {
+      prospect_id: "prospect-1",
+      contact_id: "contact-2",
+      contact_point_id: "point-2",
+      account_target: "Northern, Metals",
+      selected_role: 'Operations "lead"',
+      evidence_refs: "line one\r\nline two",
+    }),
+    row(codec, {
+      prospect_id: "prospect-2",
+      contact_id: "contact-1",
+      contact_point_id: "point-3",
+      contact_kind: "phone",
+      contact_value: "+15555550100",
+      activity_status: `ready ${String.fromCodePoint(0x2014)} caf${String.fromCodePoint(0xe9)} ${String.fromCodePoint(0x1f680)}`,
+    }),
+  ];
 }
 
 function identity(codec, record) {
@@ -756,6 +793,54 @@ test("the policy artifact carries no row, byte, or checksum material from the co
     assert.notEqual(artifact.digest, document.sha256, "policy digest is not a CSV checksum");
     assert.equal(artifact.digest.length, 64);
     assert.equal(document.sha256.length, 64);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("the pinned policy digest and canonical artifact bytes have not moved", async () => {
+  const { vite, codec, policies } = await load();
+  try {
+    // Every other digest assertion in this suite is relational: it compares a
+    // value against another freshly computed one. That cannot see a change to
+    // the digest construction itself — swapping the hash, reordering the
+    // snapshot serialization, or altering how a cell becomes bytes moves both
+    // sides together and stays green. These two constants are the absolute
+    // reference the relational checks lack.
+    const artifact = await policies.buildSyntheticCsvPolicyDefinition(policyFromRuntime(codec));
+    assert.equal(
+      artifact.digest,
+      GOLDEN_POLICY_DIGEST,
+      "policy digest moved: a declared label, the snapshot shape, or the digest construction changed",
+    );
+
+    const document = await codec.encodeCrmCsv(goldenRows(codec));
+    assert.equal(
+      document.sha256,
+      GOLDEN_ARTIFACT_SHA256,
+      "canonical CSV bytes moved: check field order, quoting, null encoding, or the record terminator",
+    );
+    assert.equal(document.byteLength, GOLDEN_ARTIFACT_BYTE_LENGTH);
+    assert.equal(document.rowCount, 3);
+    assert.equal(document.uniqueProspectCount, 2);
+
+    // The golden must describe the canonical artifact, not one input order.
+    const reversed = await codec.encodeCrmCsv([...goldenRows(codec)].reverse());
+    assert.equal(reversed.sha256, GOLDEN_ARTIFACT_SHA256);
+
+    // The header-only document pins the field order and the trailing terminator
+    // on their own, with no cell content in the way.
+    const empty = await codec.encodeCrmCsv([]);
+    assert.equal(empty.sha256, GOLDEN_HEADER_ONLY_SHA256, "the header row itself moved");
+    assert.equal(empty.byteLength, GOLDEN_HEADER_ONLY_BYTE_LENGTH);
+
+    // The goldens are only meaningful if they are the real digests of the real
+    // bytes, so recompute one independently of the codec's own reporting.
+    const recomputed = new Uint8Array(await crypto.subtle.digest("SHA-256", document.bytes));
+    assert.equal(
+      Array.from(recomputed, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+      GOLDEN_ARTIFACT_SHA256,
+    );
   } finally {
     await vite.close();
   }
