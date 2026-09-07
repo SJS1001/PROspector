@@ -6,10 +6,15 @@ Date: 2026-09-07
 
 **Branch:** `claude/phase5-p5-audit`
 **Candidate commit:** `ebcf9b1edcd0a1e38f810f377a7aa0b75857efd1`
-**Base:** `codex/generic-onboarding-integration` at
-`95e9eccb` (merge of pull request #12), itself over
+**Base:** `main` at `95e9eccb`, the commit merging pull request #12
+(`codex/generic-onboarding-integration` into `main`), itself over
 `0b7935ce990addb9bce3da399d655f0b357038fa`
 **Review:** `https://github.com/SJS1001/PROspector/pull/13`
+
+The work started from `codex/generic-onboarding-integration`. That branch was
+merged into `main` by pull request #12, so GitHub retargeted pull request #13
+onto `main`; `95e9eccb` is reachable from `main` and not from
+`codex/generic-onboarding-integration`.
 
 This branch is periodically rebased onto its advancing base by the repository
 owner, so the candidate commit SHA above moves. Pull request #13 is the stable
