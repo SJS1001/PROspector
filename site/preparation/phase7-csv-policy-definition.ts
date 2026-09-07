@@ -45,7 +45,7 @@ type PolicySnapshot = Readonly<{
   headerPolicy: "single_header_row";
   quotingPolicy: "rfc4180_double_quote";
   nullPolicy: "empty_field";
-  formulaNeutralizationPolicy: "prefix_apostrophe_for_equals_plus_minus_at";
+  formulaNeutralizationPolicy: "prefix_apostrophe_for_equals_plus_minus_at_after_leading_whitespace_control_bom";
   createdAt: number;
 }>;
 
@@ -209,9 +209,14 @@ function normalizePolicy(value: unknown): PolicySnapshot {
     headerPolicy: exactValue(input.headerPolicy, "single_header_row"),
     quotingPolicy: exactValue(input.quotingPolicy, "rfc4180_double_quote"),
     nullPolicy: exactValue(input.nullPolicy, "empty_field"),
+    // Names the rule the runtime codec actually implements: the apostrophe is
+    // placed ahead of any leading whitespace, control characters, or BOM that
+    // precede an `=`, `+`, `-`, or `@`, because a spreadsheet discards those
+    // before deciding a cell is a formula. The earlier name covered only the
+    // bare trigger characters and understated the defense.
     formulaNeutralizationPolicy: exactValue(
       input.formulaNeutralizationPolicy,
-      "prefix_apostrophe_for_equals_plus_minus_at",
+      "prefix_apostrophe_for_equals_plus_minus_at_after_leading_whitespace_control_bom",
     ),
     createdAt: timestamp(input.createdAt),
   });

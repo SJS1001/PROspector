@@ -38,7 +38,7 @@ const EFFECT_KEYS = Object.freeze([
 // derived from these modules. Unlike the relational digest checks elsewhere in
 // this suite, they fail when the digest construction or the byte layout changes
 // on both sides at once.
-const GOLDEN_POLICY_DIGEST = "614f3aa6d41cc1488483de4110098f2ad1d1d34187d96acd3f18fbb0855993d8";
+const GOLDEN_POLICY_DIGEST = "96658be50c1167ab34aa351e797a81832c14168de7e50273f2e315257360667b";
 const GOLDEN_ARTIFACT_SHA256 = "c163d3d855825ccaef8a647a11159143c41d5a09b3468b081244b351311cb366";
 const GOLDEN_ARTIFACT_BYTE_LENGTH = 1739;
 const GOLDEN_HEADER_ONLY_SHA256 = "600e4d660c21cccb8079d814f3dadc3b5340ad2aac227eab979894739d865ad6";
@@ -81,7 +81,7 @@ function policyFromRuntime(codec, patch = {}) {
     headerPolicy: "single_header_row",
     quotingPolicy: "rfc4180_double_quote",
     nullPolicy: "empty_field",
-    formulaNeutralizationPolicy: "prefix_apostrophe_for_equals_plus_minus_at",
+    formulaNeutralizationPolicy: "prefix_apostrophe_for_equals_plus_minus_at_after_leading_whitespace_control_bom",
     createdAt: NOW,
     ...patch,
   };
@@ -531,7 +531,7 @@ test("whitespace, control, and byte-order-mark formula vectors neutralize before
     const artifact = await policies.buildSyntheticCsvPolicyDefinition(policyFromRuntime(codec));
     assert.equal(
       artifact.snapshot.formulaNeutralizationPolicy,
-      "prefix_apostrophe_for_equals_plus_minus_at",
+      "prefix_apostrophe_for_equals_plus_minus_at_after_leading_whitespace_control_bom",
     );
 
     const cp = (code) => String.fromCodePoint(code);
