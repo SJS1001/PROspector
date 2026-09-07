@@ -16,9 +16,15 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   ]);
   assert.match(page, /ProspectorApp/);
   assert.match(layout, /PROspector — Human-governed GTM/);
-  assert.match(app, /Good morning, Steven/);
+  // The brief heading and the export-ready tile are asserted by their current
+  // de-personalized, no-sample-data shape: the workbench no longer hard-codes an
+  // owner's name, and the tile reports a real zero rather than sample records.
+  assert.match(app, /title="Morning brief"/);
+  assert.match(app, /PRIVATE WORKSPACE · NO LIVE DATA/);
   assert.match(app, /Consensus Interview/);
-  assert.match(app, /Sample export-ready/i);
+  assert.match(app, /EXPORT-READY/);
+  assert.match(app, /No eligible records/);
+  assert.doesNotMatch(app, /Good morning, \w|Sample export-ready/i);
   assert.match(app, /Controlled capability pilot/);
   assert.match(app, /Prospecting disabled/);
   assert.match(app, /0 live prospects/);

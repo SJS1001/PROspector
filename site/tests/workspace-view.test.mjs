@@ -36,7 +36,11 @@ test("workspace navigation is server-seeded, history-aware, and demo-directed to
   const demo = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
 
   assert.match(page, /workspaceViewFromParam\(requestedView\)/);
-  assert.match(page, /initialView=\{initialView\}/);
+  // The prop is now a computed expression because blank local onboarding is
+  // redirected to Knowledge, so assert that it is still seeded from the
+  // server-parsed initialView rather than pinning the exact expression text.
+  assert.match(page, /initialView=\{[^}]*\binitialView\b[^}]*\}/);
+  assert.match(page, /blankLocalOnboarding[^}]*"Knowledge"/);
   assert.match(app, /window\.history\.pushState/);
   assert.match(app, /addEventListener\("popstate", restoreView\)/);
   assert.match(app, /aria-current=\{view === item\.label \? "page" : undefined\}/);

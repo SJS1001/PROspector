@@ -573,17 +573,38 @@ disk:
    target-config CLI's manifest check mismatches by construction. Case 3 was
    verified in a detached base worktree, where a third case additionally fails
    as a downstream artifact of the same mismatch.
-4. `tests/rendered-html.test.mjs` fails 1/4 on "build/source smoke identifies
-   the controlled workbench and removes the starter". It asserts the literal
-   `Good morning, Steven` in a page source that this branch has refactored.
-5. `tests/workspace-view.test.mjs` fails 1/2 on "workspace navigation is
-   server-seeded, history-aware, and demo-directed to Knowledge". It asserts the
-   literal `initialView={initialView}` in a route source that this branch has
-   refactored.
+4. `tests/rendered-html.test.mjs` failed 1/4 on "build/source smoke identifies
+   the controlled workbench and removes the starter". It asserted the literals
+   `Good morning, Steven` and `Sample export-ready` in a page source that this
+   branch has since de-personalized and stripped of sample data. **Fixed on this
+   branch** (see below).
+5. `tests/workspace-view.test.mjs` failed 1/2 on "workspace navigation is
+   server-seeded, history-aware, and demo-directed to Knowledge". It asserted
+   the literal `initialView={initialView}` in a route source where that prop is
+   now a computed expression carrying the blank-local-onboarding redirect to
+   Knowledge. **Fixed on this branch** (see below).
 
-All five defects belong to other lanes and were deliberately left untouched.
+Defects 1 through 3 belong to other lanes and were deliberately left untouched.
 This slice touches no file under `site/drizzle/`, adds no migration, and changes
-no fixture, app, route, or UI source.
+no app, route, or UI source.
+
+Defects 4 and 5 were separately authorized and repaired here as stale test
+assertions, not as source changes. In both cases the source was correct and the
+assertion had gone stale against a deliberate improvement, so each literal was
+replaced by an assertion of the same property in its current shape:
+
+- `rendered-html` now asserts the `Morning brief` heading, the
+  `PRIVATE WORKSPACE · NO LIVE DATA` eyebrow, and the `EXPORT-READY` tile with
+  `No eligible records`, plus a new negative guard rejecting any return of a
+  hard-coded owner greeting or `Sample export-ready` copy. This is stronger than
+  the original: it now pins the no-live-data posture rather than sample records.
+- `workspace-view` now asserts that the `initialView` prop is still seeded from
+  the server-parsed value without pinning the exact expression text, plus a new
+  assertion that the blank-local-onboarding redirect to `Knowledge` is present.
+
+Each replacement regex was checked to still fail when the property regresses, so
+neither assertion was weakened into a vacuous match. Both suites pass 6/6 and
+lint clean. No application, route, or component source was modified.
 
 Because the canonical runner halts on first failure, the gate was instead
 exercised in full across four passes that together cover all 119 canonical test
@@ -595,14 +616,16 @@ files exactly once:
   could not halt the rest: 28 suites and 135 cases, 133 passing, with failure 3
   above the only failing suite;
 - the 36 still-unrun suites from that set: 260 cases, 258 passing, with failures
-  4 and 5 above the only failing suites;
+  4 and 5 above the only failing suites. After the assertion repairs those two
+  suites pass 6/6, leaving that pass at 260/260;
 - the 22 `outreach-preparation-*` and `phase7-preparation-*` suites as the
   245/245 aggregate recorded above.
 
 `tests/drift-replacement.test.mjs` (failure 1, 6 cases) completes the 119.
 Across all passes: 796 cases, 788 passing, and all 8 failures confined to the
-five pre-existing suites above. No failure in any pass is attributable to this
-slice. The new module is imported by no runtime, domain, adapter, worker, or
+five pre-existing suites above. With defects 4 and 5 repaired, 790 pass and the
+6 remaining failures sit in defects 1 through 3, which stay open for their own
+lanes. No failure in any pass is attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
 test file outside its own focused suite, and the static composition guard
 enforces that. This is local preparation evidence only.
 
