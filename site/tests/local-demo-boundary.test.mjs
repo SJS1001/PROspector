@@ -18,8 +18,14 @@ const tableCount = (output) => {
 test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async () => {
   const source = await readFile(resolve(root, "app/runtime-identity.ts"), "utf8");
   assert.match(source, /import\.meta\.env\.DEV/);
-  assert.match(source, /TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
-  assert.match(source, /local-owner@prospector\.invalid/);
+  assert.match(source, /TRUSTED_IDENTITY_PROVIDER === "local-demo"/);
+  // The demo identity lives in its own dev-only module so a production build
+  // drops it with the folded branch; runtime-identity must not carry it inline.
+  assert.doesNotMatch(source, /local-owner@prospector\.invalid/);
+  assert.match(source, /await import\("\.\/_local-demo-identity"\)/);
+  const demoIdentity = await readFile(resolve(root, "app/_local-demo-identity.ts"), "utf8");
+  assert.match(demoIdentity, /local-owner@prospector\.invalid/);
+  assert.match(demoIdentity, /Local Demo Owner/);
   assert.match(source, /isLoopbackHostname/);
   assert.match(source, /new URL\(origin\)\.origin !== new URL\(request\.url\)\.origin/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);

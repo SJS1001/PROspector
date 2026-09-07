@@ -59,12 +59,14 @@ test("the production build folds away the LOCAL_DEMO identity and synthetic-port
   const files = await deployedTextFiles();
   // These live behind gates the bundler can fold within a single function body,
   // so they are the direct read on whether dead-code elimination actually ran.
-  // Observed on 0b7935ce: the folds are correct -- resolveRuntimeIdentity ends
-  // `|| true) return null` and isTestPersonDiscoveryPort collapses to
-  // `return false` -- but the rsc environment emits unminified output, so the
-  // now-unreachable DEMO constant is still carried into dist/server/index.js.
+  // The rsc environment emits unminified output, so an unreachable statement is
+  // still carried into the artifact -- folding alone is not enough. Both of
+  // these therefore sit inside branches whose *whole block* is eliminated: the
+  // demo identity behind a positive `if (import.meta.env.DEV && ...)` gate that
+  // dynamic-imports app/_local-demo-identity, and the test-port symbol behind
+  // the `import.meta.env.PROD` guard that collapses to `return false`.
   assertAbsent(files, [
-    { pattern: "local-owner@prospector.invalid", label: "app/runtime-identity.ts:9 DEMO identity" },
+    { pattern: "local-owner@prospector.invalid", label: "app/_local-demo-identity.ts LOCAL_DEMO_IDENTITY" },
     { pattern: "prospector.person-discovery.test-port", label: "domain/person-discovery.ts:579 test-port symbol key" },
   ], "the build-mode gate folded but the dead branch was not eliminated");
 });
