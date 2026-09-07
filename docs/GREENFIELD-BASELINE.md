@@ -23,7 +23,8 @@ authoritative starting point. Every future environment must be greenfield:
   migration journal, deployment, secret, or evidence reference;
 - keep checked deployable metadata target-neutral; generated placeholder
   resource identities are local build sentinels and are not deployable;
-- apply the checked migration chain only to a new empty target;
+- apply only the authorized release chain to a new empty target; a migration
+  checked ahead of that chain requires its own separate authorization;
 - verify the new target independently before treating it as usable;
 - keep gates, schedules, providers, enrichment, Gmail, calling, exports, and
   every outbound effect disabled until their own checked authorization passes;
