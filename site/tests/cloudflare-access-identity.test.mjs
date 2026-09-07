@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { createServer } from "vite";
 
@@ -183,13 +183,40 @@ test("explicit identity modes never fall back across Cloudflare, Sites, or LOCAL
       ),
       null,
     );
-    assert.deepEqual(
+    // The retired Sites provider is gone from the execution path. An
+    // unverified `oai-authenticated-user-email` header can no longer mint an
+    // owner identity under any binding shape: "sites" now falls through to the
+    // local-demo block and is rejected for not being "local-demo".
+    for (const sitesBindings of [
+      { TRUSTED_IDENTITY_PROVIDER: "sites" },
+      { TRUSTED_IDENTITY_PROVIDER: "sites", LOCAL_DEMO: "1" },
+      { TRUSTED_IDENTITY_PROVIDER: "sites", LOCAL_DEMO: undefined },
+      {
+        TRUSTED_IDENTITY_PROVIDER: "sites",
+        CLOUDFLARE_ACCESS_ISSUER: ISSUER,
+        CLOUDFLARE_ACCESS_AUDIENCE: AUDIENCE,
+      },
+    ]) {
+      assert.equal(
+        await identity.resolveRuntimeIdentity(request, sitesHeaders, sitesBindings),
+        null,
+        `${JSON.stringify(sitesBindings)} must not admit a header-asserted owner`,
+      );
+    }
+
+    const headerOnly = new Headers({
+      "oai-authenticated-user-email": "owner@example.com",
+      "oai-authenticated-user-full-name": "Owner",
+      "oai-authenticated-user-full-name-encoding": "percent-encoded-utf-8",
+    });
+    assert.equal(
       await identity.resolveRuntimeIdentity(
-        request,
-        sitesHeaders,
+        new Request("https://hosted.example/api/interview", { headers: headerOnly }),
+        headerOnly,
         { TRUSTED_IDENTITY_PROVIDER: "sites" },
       ),
-      { email: "spoofed@example.com", displayName: "spoofed@example.com" },
+      null,
+      "a well-formed platform header set is still not an owner credential",
     );
 
     const demoBindings = {
@@ -367,6 +394,39 @@ test("every owner-facing runtime identity caller supplies the Cloudflare binding
     assert.doesNotMatch(source, /runtimeIdentity|admitPilotOwner/, `${file} must not resolve identity itself`);
   }
 });
+
+test("no runtime source trusts a retired Sites platform identity header", async () => {
+  const offenders = [];
+  for (const root of ["app", "domain"]) {
+    for (const file of await sourceFiles(new URL(`../${root}/`, import.meta.url))) {
+      if (/oai-authenticated-user/.test(await readFile(file, "utf8")))
+        offenders.push(file.pathname);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "the retired Sites header-trust path must stay deleted from app/ and domain/",
+  );
+  await assert.rejects(
+    readFile(new URL("../app/chatgpt-auth.ts", import.meta.url), "utf8"),
+    /ENOENT/,
+    "the retired Sites identity module must not come back",
+  );
+});
+
+async function sourceFiles(directory) {
+  const found = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const child = new URL(
+      `${encodeURIComponent(entry.name)}${entry.isDirectory() ? "/" : ""}`,
+      directory,
+    );
+    if (entry.isDirectory()) found.push(...await sourceFiles(child));
+    else found.push(child);
+  }
+  return found;
+}
 
 async function signedFixture(kid = "test-key-1") {
   const keyPair = await crypto.subtle.generateKey(
