@@ -553,17 +553,26 @@ suite passed 13/13, the aggregate Phase 6 and Phase 7 preparation suites passed
 245/245, the static composition guard passed 3/3, canonical `npm run lint`
 passed, and the canonical `npm test` production build completed.
 
-The canonical `npm test` gate could not run to completion on this branch, for a
-reason that predates this slice. `tests/drift-replacement.test.mjs` fails 3/6 at
-checkout `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` both with and without this
-slice applied: it calls `applyMigrations` without the
-`initializeCommercialModel` seed that every other knowledge-dependent suite
-performs, so `createKnowledgeProposal` raises `knowledge_conflict`
-("Commercial workspace is unavailable"). That defect belongs to another lane and
-was deliberately left untouched. The canonical runner halts on first failure, so
-the suites ordered after it were not exercised here; the new module is imported
-by no runtime, domain, adapter, worker, or test file outside its own focused
-suite, and the static composition guard enforces that. This is local preparation
+The canonical `npm test` gate could not run to completion on this branch, for
+two reasons that both predate this slice. Each was reproduced at checkout
+`5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` with this slice's files absent:
+
+1. `tests/drift-replacement.test.mjs` fails 3/6. It calls `applyMigrations`
+   without the `initializeCommercialModel` seed that every other
+   knowledge-dependent suite performs, so `createKnowledgeProposal` raises
+   `knowledge_conflict` ("Commercial workspace is unavailable").
+2. `tests/fixture-safety.test.mjs` fails 1/1 on "remaining fixture-governed
+   consequential controls render natively disabled", asserting that an Approve
+   control renders with the native `disabled` attribute.
+
+Both defects belong to other lanes and were deliberately left untouched. The
+canonical runner halts on first failure, so the gate was additionally exercised
+over the canonical file list minus `drift-replacement`: 32 suites and 150 cases
+ran before halting on the second pre-existing failure above, with 149 passing
+and no failure attributable to this slice. The suites ordered after
+`fixture-safety` remain unexercised here. The new module is imported by no
+runtime, domain, adapter, worker, or test file outside its own focused suite,
+and the static composition guard enforces that. This is local preparation
 evidence only.
 
 ## Deferred adapters and exact external decision
