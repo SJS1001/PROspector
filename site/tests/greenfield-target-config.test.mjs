@@ -8,7 +8,7 @@ const root = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(root, "..");
 const script = resolve(root, "scripts/greenfield-target-config.mjs");
 
-test("the approved CLI seam stops the release while the chain outruns the manifest", async () => {
+test("the approved CLI seam prepares one private fail-closed target candidate", async () => {
   const nonce = `${process.pid}-${Date.now()}`;
   const directory = resolve(root, `.wrangler/greenfield-target-test-${nonce}`);
   const mappingPath = resolve(directory, "mapping.json");
@@ -37,29 +37,53 @@ test("the approved CLI seam stops the release while the chain outruns the manife
       outputPath,
     ], { cwd: root, encoding: "utf8" });
 
-    // The local migration chain has advanced past the release the checked
-    // manifest pins (0000-0009), so the CLI now fail-closes here before it can
-    // prepare a candidate. That is the manifest's stated contract -- "a missing,
-    // additional, renamed, reordered, or digest-mismatched file stops the
-    // release" -- and the hosted target is still at 0009, so the gate is
-    // correct and stays armed.
-    //
-    // Direct happy-path coverage is therefore suspended, not deleted. It
-    // returns when either the manifest is refreshed against a newly authorized
-    // remote apply, or the script's migration root becomes injectable so this
-    // test can drive a 0000-0009 fixture. This assertion fails loudly on the
-    // former, which is the intended prompt to restore the block below.
-    assert.equal(result.status, 1, result.stderr);
-    assert.equal(result.stdout, "");
-    assert.deepEqual(JSON.parse(result.stderr), {
-      ok: false,
-      status: "blocked",
-      code: "migration_manifest_mismatch",
-    });
-    // The fail-closed path must still write nothing and leak no private value.
-    await assert.rejects(() => readFile(outputPath), { code: "ENOENT" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    const receipt = JSON.parse(result.stdout);
+    assert.deepEqual(Object.keys(receipt).sort(), [
+      "buildDigest",
+      "candidateDigest",
+      "code",
+      "expectedSchemaDigest",
+      "migrationManifestDigest",
+      "ok",
+      "sourceDigest",
+      "status",
+    ]);
+    assert.equal(receipt.ok, true);
+    assert.equal(receipt.status, "prepared");
+    assert.equal(receipt.code, "greenfield_target_candidate_ready");
+    assert.match(receipt.buildDigest, /^[a-f0-9]{64}$/u);
+    assert.match(receipt.expectedSchemaDigest, /^[a-f0-9]{64}$/u);
     for (const privateValue of Object.values(mapping)) {
       assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(privateValue, "u"));
+    }
+
+    const candidate = JSON.parse(await readFile(outputPath, "utf8"));
+    assert.equal(candidate.name, mapping.workerName);
+    assert.equal(candidate.main, "../../dist/server/index.js");
+    assert.deepEqual(candidate.compatibility_flags, ["nodejs_compat"]);
+    assert.equal(candidate.workers_dev, false);
+    assert.equal(candidate.preview_urls, false);
+    assert.deepEqual(candidate.triggers, { crons: [] });
+    assert.deepEqual(candidate.assets, { directory: "../../dist/client" });
+    assert.deepEqual(candidate.d1_databases, [{
+      binding: "DB",
+      database_name: mapping.databaseName,
+      database_id: mapping.databaseId,
+      migrations_dir: "../../drizzle",
+      migrations_pattern: "../../drizzle/*.sql",
+    }]);
+    assert.deepEqual(candidate.r2_buckets, [{
+      binding: "FILES",
+      bucket_name: mapping.bucketName,
+    }]);
+    for (const forbidden of [
+      "routes", "route", "vars", "services", "queues", "send_email",
+      "workflows", "pipelines", "durable_objects", "ai", "browser",
+      "logfwdr", "tail_consumers", "unsafe", "env",
+    ]) {
+      assert.equal(Object.hasOwn(candidate, forbidden), false, forbidden);
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -182,17 +206,11 @@ test("the CLI never overwrites an existing target candidate", async () => {
 
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
-    // The manifest gate aborts ahead of the output-exists check while the local
-    // chain outruns the pinned release, so that is the code reported today.
-    // Restore "output_exists" here once the manifest is refreshed; until then
-    // this assertion fails loudly at that moment, by design.
     assert.deepEqual(JSON.parse(result.stderr), {
       ok: false,
       status: "blocked",
-      code: "migration_manifest_mismatch",
+      code: "output_exists",
     });
-    // The property this test exists for is unchanged and still proven: whatever
-    // stops the run, an existing private candidate is never overwritten.
     assert.equal(await readFile(outputPath, "utf8"), sentinel);
   } finally {
     await rm(directory, { recursive: true, force: true });
