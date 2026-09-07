@@ -155,17 +155,12 @@ gate does not pass end-to-end on this base independently of this work.
   and `Export disabled` still render natively disabled. **Repaired in this
   branch** (see below).
 - `site/tests/greenfield-target-config.test.mjs` — 2/6 failed with
-  `migration_manifest_mismatch`. **The manifest is not stale and the gate is
-  correct.** `02-99-MIGRATION-MANIFEST.md` pins exactly ten files, `0000`
-  through `0009`, and its verification contract stops the release on any
-  additional migration. `0010` through `0019` have since landed locally, so
-  the gate fires as designed. `.planning/STATE.md` records the hosted D1
-  target still at `0009` — ten journal rows, 92 tables, 206 indexes, 149
-  triggers, no pending migration — and nothing records `0010` through `0019`
-  being applied remotely. Extending the manifest would assert release evidence
-  for a chain never applied to or verified against the target, so it was not
-  done. **The two tests were corrected instead** (see below); the gate stays
-  armed and no evidence changed.
+  `migration_manifest_mismatch`. The manifest was not stale and the gate was
+  correct: it pinned ten files while the local chain had grown to twenty, and
+  the hosted target remains at `0009`. This lane pinned the tests to that
+  fail-closed behaviour rather than extend the manifest. `main` has since
+  extended it in `5cafe71` under an explicit no-hosted-evidence disclaimer, so
+  the pins were removed and the original expectations restored. **Resolved.**
 - `site/tests/rendered-html.test.mjs` and `site/tests/workspace-view.test.mjs`
   — stale assertions left by the generic onboarding rework `3320f26`, which
   removed the hardcoded personal greeting, the seeded sample prospects, and the
@@ -193,26 +188,30 @@ a no-enabled-consequential-control guard. Its guard keys on consequential verbs
 with its own anti-vacuity floor, which is more maintainable than this lane's
 allowlist of inert labels, so nothing was carried forward.
 
-### Corrected release-gate expectations
+### Corrected release-gate expectations — resolved upstream
 
 `site/tests/greenfield-target-config.test.mjs` assumed a `drizzle/` holding
-exactly the manifest's ten files. Both failing cases were corrected to assert
-the gate's real current behaviour rather than to disarm it:
+exactly the manifest's ten files. This lane declined to extend the manifest,
+because `0010` through `0019` were never applied to or verified against the
+hosted target and asserting otherwise would have fabricated release evidence.
+Instead both failing cases were pinned to the gate's real behaviour
+(`migration_manifest_mismatch`), deliberately so that a future manifest refresh
+would fail them loudly rather than drift silently.
 
-- The former "prepares one private fail-closed target candidate" case now
-  asserts the release stops with `migration_manifest_mismatch`, writes no
-  candidate, and leaks no private mapping value; it is renamed accordingly.
-- The no-overwrite case still proves its actual safety property — an existing
-  private candidate survives — and records that the manifest gate now aborts
-  ahead of the `output_exists` check.
+`main` then landed `5cafe71`, which extended the manifest to all twenty
+migrations and updated `site/scripts/greenfield-target-config.mjs` accordingly.
+That extension is sound: the ten pre-existing rows are unchanged and were
+independently recomputed byte-for-byte, the expected row count now derives from
+the checked Drizzle journal rather than a literal, and it states explicitly that
+"the appended migrations were not applied remotely and carry no hosted
+evidence" with the recorded remote journal remaining at ten rows. Local bytes
+are described; the hosted boundary is preserved.
 
-Both assertions pin the current blocking code deliberately, so refreshing the
-manifest against a future authorized remote apply fails them loudly and prompts
-the revert. Direct happy-path coverage of candidate preparation is **suspended,
-not deleted**: restoring it needs either that manifest refresh or an injectable
-migration root in `site/scripts/greenfield-target-config.mjs`, which is shared
-Phase 2 release tooling outside this lane. The suite passes 6/6 and lint is
-clean.
+The pins fired exactly as intended and are now removed:
+`site/tests/greenfield-target-config.test.mjs` is restored to its pre-pin
+content and passes 6/6 against the extended manifest. **The suspended
+happy-path coverage of candidate preparation is restored** — that gap is
+closed, and the release gate remains armed on any future drift.
 
 ### Strengthened the fixture-safety guard
 
