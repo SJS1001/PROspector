@@ -350,14 +350,21 @@ test("every owner-facing runtime identity caller supplies the Cloudflare binding
     "app/api/interview/route.ts",
     "app/api/knowledge/route.ts",
     "app/api/prospecting/route.ts",
-    "app/contacts/page.tsx",
+    "app/owner-admission.ts",
   ];
   for (const file of files) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
-    assert.match(source, /TRUSTED_IDENTITY_PROVIDER|RuntimeIdentityBindings/, `${file} must bind the provider mode`);
+    assert.match(source, /TRUSTED_IDENTITY_PROVIDER|RuntimeIdentityBindings|OperatorAdmissionBindings/, `${file} must bind the provider mode`);
     assert.match(source, /CLOUDFLARE_ACCESS_ISSUER|RuntimeIdentityBindings/, `${file} must bind the Access issuer`);
     assert.match(source, /CLOUDFLARE_ACCESS_AUDIENCE|RuntimeIdentityBindings/, `${file} must bind the Access audience`);
     assert.match(source, /runtimeIdentity\([^)]*bindings|runtimeIdentity\([^)]*, b\)/s, `${file} must pass the complete identity bindings`);
+  }
+  // Both operator entry points admit through that one seam rather than resolving
+  // identity themselves, so neither can drift from the Access contract.
+  for (const file of ["app/page.tsx", "app/contacts/page.tsx"]) {
+    const source = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.match(source, /admitOperatorSession\(/, `${file} must admit through the shared operator session`);
+    assert.doesNotMatch(source, /runtimeIdentity|admitPilotOwner/, `${file} must not resolve identity itself`);
   }
 });
 

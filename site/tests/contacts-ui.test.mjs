@@ -545,7 +545,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
     const html = renderToStaticMarkup(React.createElement(workspace.ContactsWorkspace));
     for (const text of ["Eligibility", "Verified contacts", "Contact Suggestions", "Authority and identity", "Stage 1", "Stage 2", "No provider call will be made"]) assert.match(html, new RegExp(text));
     assert.match(html, /aria-live="polite"/); assert.match(html, /contacts-granted-operation-explanation/); assert.equal((html.match(/contacts-granted-operation-explanation/g) ?? []).length, 2, "one unique explanation ID is referenced once and rendered once");
-    const pageSource = await source("app/contacts/page.tsx"); assert.match(pageSource, /admitPilotOwner/); assert.match(pageSource, /ContactsWorkspace/);
+    const pageSource = await source("app/contacts/page.tsx"); assert.match(pageSource, /admitOperatorSession/); assert.match(pageSource, /activeTask="contacts"/);
     let posts = 0;
     const beforeReadiness = await workspace.postContactConfirmation(async () => { posts += 1; return new Response("unexpected"); }, { authorityReady: false, confirmed: true, pending: false, idempotencyKey: "stable-synthetic-key" }, { prospectId: "projected-prospect", expectedProspectRevision: 1 });
     assert.equal(beforeReadiness, null); assert.equal(posts, 0, "a deferred authoritative GET leaves Stage 1 unable to issue POST");
@@ -783,7 +783,7 @@ test("Contacts command outcomes stay closed and local-demo uses the non-Secure C
     const oneCandidateMerge = { id: "merge-one", subjectKind: "contact", kind: "merge", revision: 1, candidateRevisions: [{ subjectId: "contact-one", revision: 1 }], sourceLineageIds: ["lineage-one"] };
     assert.equal(leaves.normalizeContactsProjection({ ...baseActive, identityPage: page([oneCandidateMerge]) }), null, "one-candidate merge is not actionable");
     assert.equal(leaves.normalizeContactsProjection({ ...baseActive, identityPage: page([{ ...oneCandidateMerge, candidateRevisions: [...oneCandidateMerge.candidateRevisions, { subjectId: "contact-two", revision: 1 }] }]) }).identityPage.items.length, 1, "two-candidate merge is accepted");
-    const sourceText = await source("app/prospects/contacts-workspace.tsx"); assert.doesNotMatch(sourceText, /synthetic-preview-only|candidateRevisions\[0\]/); assert.match(sourceText, /Partial grant receipt/); assert.match(sourceText, /stageTwoAuthorityComplete = false/); assert.match(sourceText, /selectedPrimary/);
+    const sourceText = await source("app/prospects/contacts-workspace.tsx"); assert.doesNotMatch(sourceText, /synthetic-preview-only|candidateRevisions\[0\]/); assert.match(sourceText, /Grant receipt details/); assert.match(sourceText, /stageTwoAuthorityComplete = false/); assert.match(sourceText, /selectedPrimary/);
     const route = await source("app/api/contacts/route.ts"); assert.match(route, /isLocalDemoRequest/); assert.doesNotMatch(route, /commandService|phase4Accepted/);
   } finally { await fixture.dispose(); }
 });

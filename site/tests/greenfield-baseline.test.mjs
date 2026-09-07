@@ -29,6 +29,18 @@ test("greenfield attestation builds only a fresh empty local baseline and claims
         enrichment_grants: 0,
         contact_point_observations: 0,
         suppressions: 0,
+        contacts: 0,
+        outreach_outbox_items: 0,
+        contacts_projection_generations: 0,
+        person_discovery_runs: 0,
+        person_discovery_candidates: 0,
+        contact_verification_intents: 0,
+        outreach_packages: 0,
+        outreach_messages: 0,
+        outreach_recipient_dispatch_authorities: 0,
+        outreach_pre_call_recheck_receipts: 0,
+        outreach_dispatch_attempt_preparations: 0,
+        outreach_dispatch_attempt_preparation_events: 0,
       },
     });
   } finally {

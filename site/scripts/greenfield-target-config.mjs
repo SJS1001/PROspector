@@ -10,15 +10,16 @@ const REPOSITORY_ROOT = resolve(ROOT, "..");
 const PRIVATE_ROOT = resolve(ROOT, ".wrangler");
 const BUILD_PATH = resolve(ROOT, "dist/server/wrangler.json");
 const MIGRATION_ROOT = resolve(ROOT, "drizzle");
+const MIGRATION_JOURNAL_PATH = resolve(MIGRATION_ROOT, "meta/_journal.json");
 const MANIFEST_PATH = resolve(
   ROOT,
   "../.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md",
 );
 const EXPECTED_SCHEMA_PATH = resolve(
   ROOT,
-  "../.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md",
+  "../.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA-0019.md",
 );
-const EXPECTED_SCHEMA_DIGEST = "be56cec622b4a893d865bbee10d1dc5790cc1339bf40feb6212471f3f2dbe7e8";
+const EXPECTED_SCHEMA_DIGEST = "3a4d20dfdb186caf9f320c62dc45af3eba34d1b793fd001cf14075179a1b6c09";
 const REVIEWED_COMPATIBILITY_DATE = "2026-07-30";
 const TARGET_NEUTRAL_BUILD_CONFIG_DIGEST = "928dc72d08e8031e6d970cff7b1676b4724967d06a1c82dc70e37b2ad73b3530";
 const SAFE_NAME = /^[a-z0-9](?:[a-z0-9_-]{0,94}[a-z0-9])?$/u;
@@ -202,29 +203,17 @@ async function verifyMigrationManifest(source) {
       const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replaceAll("`", ""));
       return { order: cells[0], name: cells[1], digest: cells[2] };
     });
-  if (expected.length !== 10) throw new Error("migration_manifest_invalid");
+  if (expected.length !== await journalMigrationCount()) {
+    throw new Error("migration_manifest_invalid");
+  }
   const expectedNames = expected.map((item) => item.name);
   const actualEntries = await readdir(MIGRATION_ROOT, { withFileTypes: true });
   const actualSqlEntries = actualEntries
     .filter((entry) => entry.name.endsWith(".sql"))
     .sort((left, right) => left.name.localeCompare(right.name));
-  if (actualSqlEntries.some((entry) => !entry.isFile())) throw new Error("migration_manifest_mismatch");
-  const actualNames = actualSqlEntries.map((entry) => entry.name);
-  // The manifest pins the reviewed 0000-0009 chain and is Stage 2 acceptance
-  // evidence bound to the exact bytes applied remotely, so it is never rewritten
-  // to match a longer chain. Later reviewed migrations may be appended, but the
-  // pinned prefix must remain intact, byte-for-byte, and in order.
-  if (actualNames.length < expectedNames.length
-      || JSON.stringify(actualNames.slice(0, expectedNames.length)) !== JSON.stringify(expectedNames)) {
+  if (actualSqlEntries.some((entry) => !entry.isFile())
+      || JSON.stringify(actualSqlEntries.map((entry) => entry.name)) !== JSON.stringify(expectedNames)) {
     throw new Error("migration_manifest_mismatch");
-  }
-  // Anything beyond the pinned prefix must continue the sequence contiguously,
-  // so a stray, misnumbered, duplicated, or gapped migration still fails closed.
-  for (const [offset, name] of actualNames.slice(expectedNames.length).entries()) {
-    const order = String(expectedNames.length + offset).padStart(4, "0");
-    if (!new RegExp(`^${order}_[A-Za-z0-9._-]+\\.sql$`, "u").test(name)) {
-      throw new Error("migration_manifest_mismatch");
-    }
   }
   for (let index = 0; index < expected.length; index += 1) {
     const item = expected[index];
@@ -236,6 +225,24 @@ async function verifyMigrationManifest(source) {
     const actual = digest(await readFile(resolve(MIGRATION_ROOT, item.name)));
     if (actual !== item.digest) throw new Error("migration_manifest_mismatch");
   }
+}
+
+// The chain length is the checked Drizzle journal's, never a literal: a manifest
+// that has fallen behind an appended migration must fail closed here instead of
+// silently pinning an older release.
+async function journalMigrationCount() {
+  let journal;
+  try {
+    journal = JSON.parse(await readFile(MIGRATION_JOURNAL_PATH, "utf8"));
+  } catch {
+    throw new Error("migration_manifest_invalid");
+  }
+  const entries = journal?.entries;
+  if (!Array.isArray(entries) || entries.length === 0
+      || entries.some((entry) => typeof entry?.tag !== "string" || !Number.isInteger(entry?.idx))) {
+    throw new Error("migration_manifest_invalid");
+  }
+  return entries.length;
 }
 
 function privateJsonPath(path, code) {
