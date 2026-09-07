@@ -3,19 +3,14 @@ import { readdir, realpath, stat } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { relative, resolve, sep } from "node:path";
 
-import { PHASE2_FORBIDDEN_TABLE_NAMES } from "./phase2-hosted-contract.mjs";
-
-const OPERATIONAL_TABLE_NAMES = Object.freeze([...new Set([
-  ...PHASE2_FORBIDDEN_TABLE_NAMES,
-  "phase_activation_gates",
-  "market_play_proposal_decisions", "market_play_proposal_evidence", "market_play_proposal_lineage", "market_play_proposal_versions", "market_play_proposals",
-  "private_synthetic_proof_authorizations", "private_synthetic_proof_consumptions",
-  "product_configuration_lineage", "product_discovery_configuration_prerequisites", "product_discovery_run_events", "product_discovery_runs", "product_discovery_schedules", "product_discovery_submissions",
-  "profile_configuration_activations", "profile_configuration_candidates", "profile_prospects", "prospect_cooldowns", "prospect_reentry_events", "prospect_review_decisions",
-  "prospecting_candidates", "prospecting_run_events", "prospecting_runs", "prospecting_schedules", "prospecting_signals", "prospecting_source_lineage", "qualification_assessments", "runner_assignment_revocations", "runner_assignments", "runner_submissions",
-  "contact_eligibility_snapshots", "contact_evidence_assignments", "contact_point_observations", "enrichment_budget_accounts", "enrichment_grant_issuance_events", "enrichment_grant_prospects", "enrichment_grants", "enrichment_reservation_budget_entries", "enrichment_reservation_events", "enrichment_reservations",
-  "identity_decisions", "identity_lineage", "identity_suggestion_candidates", "identity_suggestion_impacts", "identity_suggestions", "provider_quotes", "runner_budget_accounts", "runner_spend_grants", "runner_spend_reservation_events", "runner_spend_reservations", "contact_verification_receipts",
-])]);
+import {
+  CANONICAL_LOCAL_STATE_TABLES,
+  FORBIDDEN_TABLE_NAMES,
+  LOCAL_STATE_ROW_CEILING,
+  OBJECT_NAME_PATTERN,
+  classifyTable,
+  classifyTrigger,
+} from "./zero-effects-inventory.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const stateArgument = valueAfter("--state");
@@ -34,40 +29,67 @@ const sqliteFiles = (await walk(resolvedState)).filter((path) => path.endsWith("
 let applicationDatabase = null;
 let objectRows = 0;
 let multipartRows = 0;
+const forbidden = {};
+const forbiddenSightings = [];
+for (const name of FORBIDDEN_TABLE_NAMES) forbidden[name] = { present: false, count: 0 };
+
+// Every persisted SQLite file is inspected, not only the application database: an
+// effect row is an effect row wherever the runtime wrote it.
 for (const path of sqliteFiles) {
   const database = new DatabaseSync(path, { readOnly: true });
+  let retained = false;
   try {
-    if (database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='_mf_objects'").get()) {
-      objectRows += Number(database.prepare("SELECT COUNT(*) AS count FROM _mf_objects").get().count);
+    const objects = readObjects(database);
+    if (objects.tables.has("_mf_objects")) objectRows += countRows(database, "_mf_objects");
+    if (objects.tables.has("_mf_multipart_uploads")) multipartRows += countRows(database, "_mf_multipart_uploads");
+    for (const name of FORBIDDEN_TABLE_NAMES) {
+      if (!objects.tables.has(name) && !objects.views.has(name)) continue;
+      const count = countRows(database, name);
+      forbidden[name] = { present: true, count: forbidden[name].count + count };
+      if (count > 0) forbiddenSightings.push({ table: name, count, file: relative(resolvedState, path) });
     }
-    if (database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='_mf_multipart_uploads'").get()) {
-      multipartRows += Number(database.prepare("SELECT COUNT(*) AS count FROM _mf_multipart_uploads").get().count);
-    }
-    const workspace = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workspaces'").get();
-    if (workspace) {
+    if (objects.tables.has("workspaces")) {
       if (applicationDatabase) throw new Error("multiple_application_databases");
-      applicationDatabase = { database, path };
-      continue;
+      applicationDatabase = { database, path, objects };
+      retained = true;
     }
   } finally {
-    if (applicationDatabase?.database !== database) database.close();
+    if (!retained) database.close();
   }
 }
 if (!applicationDatabase) throw new Error("application_database_not_found");
 
-const forbidden = {};
 try {
   assert.equal(objectRows, 0, "r2_objects_must_remain_empty");
   assert.equal(multipartRows, 0, "r2_multipart_uploads_must_remain_empty");
-  for (const table of OPERATIONAL_TABLE_NAMES) {
-    assert.match(table, /^[a-z][a-z0-9_]*$/);
-    const present = Boolean(applicationDatabase.database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
-    const count = present ? Number(applicationDatabase.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count) : 0;
-    assert.equal(count, 0, `${table}_must_remain_empty`);
-    forbidden[table] = { present, count };
+  for (const [name, { count }] of Object.entries(forbidden)) assert.equal(count, 0, `${name}_must_remain_empty`);
+
+  // Fail closed on the application schema itself. Anything present that the canonical
+  // inventory does not classify is treated as a potential effect surface, so a table,
+  // view, or trigger introduced by a later migration cannot pass unverified. Only this
+  // database is audited for unknown objects: the other persisted files are Miniflare KV,
+  // R2, and cache stores whose own schemas are not part of the application inventory.
+  const { objects } = applicationDatabase;
+  const unknownObjects = [
+    ...[...objects.tables].filter((name) => classifyTable(name) === "unknown").map((name) => ({ type: "table", name })),
+    ...[...objects.views].filter((name) => classifyTable(name) === "unknown").map((name) => ({ type: "view", name })),
+  ].sort((left, right) => left.name.localeCompare(right.name));
+  const unknownTriggers = [...objects.triggers].filter((name) => classifyTrigger(name) === "unknown").sort();
+  assert.deepEqual(unknownObjects, [], `unclassified_database_objects_forbidden:${unknownObjects.map(({ name }) => name).join(",")}`);
+  assert.deepEqual(unknownTriggers, [], `unclassified_triggers_forbidden:${unknownTriggers.join(",")}`);
+
+  const localState = {};
+  for (const name of CANONICAL_LOCAL_STATE_TABLES) {
+    if (!objects.tables.has(name)) continue;
+    const count = countRows(applicationDatabase.database, name);
+    assert.ok(count <= LOCAL_STATE_ROW_CEILING, `${name}_exceeds_local_state_ceiling`);
+    localState[name] = count;
   }
-  const workspaceCount = Number(applicationDatabase.database.prepare("SELECT COUNT(*) AS count FROM workspaces").get().count);
-  const confirmedFitCount = Number(applicationDatabase.database.prepare("SELECT COUNT(*) AS count FROM knowledge_versions WHERE status='confirmed' AND kind='fit'").get().count);
+
+  assert.ok(objects.tables.has("knowledge_versions"), "knowledge_versions_must_be_present");
+  const workspaceCount = countRows(applicationDatabase.database, "workspaces");
+  const confirmedFitCount = Number(applicationDatabase.database
+    .prepare("SELECT COUNT(*) AS count FROM knowledge_versions WHERE status='confirmed' AND kind='fit'").get().count);
   if (requireCompletion) {
     assert.equal(workspaceCount, 1, "exactly_one_synthetic_workspace_required");
     assert.equal(confirmedFitCount, 1, "exactly_one_confirmed_fit_required");
@@ -75,7 +97,21 @@ try {
     assert.ok(workspaceCount >= 0 && workspaceCount <= 1, "bounded_synthetic_workspace_required");
     assert.ok(confirmedFitCount >= 0 && confirmedFitCount <= 1, "bounded_confirmed_fit_required");
   }
-  process.stdout.write(`${JSON.stringify({ status: requireCompletion ? "passed" : "zero-effects-only", synthetic: true, workspaceCount, confirmedFitCount, forbiddenRows: 0, objectRows, multipartRows, forbidden })}\n`);
+  process.stdout.write(`${JSON.stringify({
+    status: requireCompletion ? "passed" : "zero-effects-only",
+    synthetic: true,
+    workspaceCount,
+    confirmedFitCount,
+    forbiddenRows: forbiddenSightings.length,
+    objectRows,
+    multipartRows,
+    databaseFiles: sqliteFiles.length,
+    unknownObjects: [],
+    unknownTriggers: [],
+    triggerCount: objects.triggers.size,
+    localState,
+    forbidden,
+  })}\n`);
 } finally {
   applicationDatabase.database.close();
 }
@@ -88,6 +124,23 @@ function valueAfter(flag) {
 function assertInside(parent, child) {
   const path = relative(parent, child);
   if (!path || path.startsWith(`..${sep}`) || path === ".." || resolve(parent, path) !== child) throw new Error("browser_state_path_invalid");
+}
+
+// Indexes are excluded on purpose: they hold no rows and cannot carry an effect.
+function readObjects(database) {
+  const objects = { tables: new Set(), views: new Set(), triggers: new Set() };
+  for (const row of database.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table','view','trigger')").all()) {
+    const name = String(row.name);
+    if (row.type === "table") objects.tables.add(name);
+    else if (row.type === "view") objects.views.add(name);
+    else objects.triggers.add(name);
+  }
+  return objects;
+}
+
+function countRows(database, name) {
+  assert.match(name, OBJECT_NAME_PATTERN);
+  return Number(database.prepare(`SELECT COUNT(*) AS count FROM "${name}"`).get().count);
 }
 
 async function walk(directory) {
