@@ -3,6 +3,7 @@ import test from "node:test";
 import { buildPreflightCommands } from "../scripts/phase2-hosted-preflight.mjs";
 import {
   applyPhase2Migrations,
+  reapplyMigrationBackfills,
   createD1Fixture,
   seedBoundHistorian,
   seedCoexistenceHistorian,
@@ -23,7 +24,7 @@ async function historianSnapshot(database) {
   return result.results;
 }
 
-test("0000-0004 preserves bound historian authority and is idempotent", async () => {
+test("0000-0004 preserves bound historian authority and its backfills re-run without duplicating it", async () => {
   const fixture = await createD1Fixture("migration-bound");
   try {
     const historian = await seedBoundHistorian(fixture.database);
@@ -36,9 +37,18 @@ test("0000-0004 preserves bound historian authority and is idempotent", async ()
     assert.equal(company.results.length, 1);
     const authority = await fixture.database.prepare("SELECT COUNT(*) AS count FROM interview_authority_bindings WHERE answer_id = ?").bind(historian.answerId).first();
     assert.equal(Number(authority.count), 1);
-    await applyPhase2Migrations(fixture.database);
+    /* The fixture memoizes applied files, so calling apply again proves
+     * nothing. Re-execute the guarded backfills themselves. */
+    const { reapplied, refused } = await reapplyMigrationBackfills(fixture.database);
+    assert.ok(reapplied >= 7, `the chain's guarded backfills must actually re-run, re-applied ${reapplied}`);
+    /* The one backfill without its own guard is refused by the immutability
+     * trigger the same chain installs, so no replay can rewrite a confirmed
+     * knowledge version. */
+    assert.deepEqual(refused.map((entry) => entry.table), ["knowledge_versions"]);
+    assert.match(refused[0].message, /knowledge versions are immutable/);
     const retried = await fixture.database.prepare("SELECT COUNT(*) AS count FROM interview_authority_bindings WHERE answer_id = ?").bind(historian.answerId).first();
-    assert.equal(Number(retried.count), 1);
+    assert.equal(Number(retried.count), 1, "a re-run backfill must not duplicate authority");
+    assert.deepEqual(await historianSnapshot(fixture.database), before, "a re-run backfill must change no historian fact");
   } finally { await fixture.dispose(); }
 });
 
