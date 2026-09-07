@@ -158,12 +158,14 @@ test("D-12 private synthetic proof binds immutable server authority and one cons
 });
 
 test("D-07/D-13 discovery workspace source preserves Product scope and fails closed", async () => {
-  const [workspace, app] = await Promise.all([
+  const [workspace, app, views] = await Promise.all([
     productionSource("../app/discovery/discovery-workspace.tsx", "the authoritative discovery workspace does not exist"),
     productionSource("../app/prospector-app.tsx", "the primary application shell does not exist"),
+    productionSource("../app/workspace-view.ts", "the workspace task vocabulary does not exist"),
   ]);
-  assert.match(app, /Knowledge[\s\S]*Market Discovery[\s\S]*Review Queue/);
-  assert.match(app, /Pilot Status/);
+  assert.match(views, /Company & products[\s\S]*Market discovery[\s\S]*Review prospects/);
+  assert.match(views, /"Status"/);
+  assert.match(app, /DiscoveryWorkspace/);
   assert.match(workspace, /\/api\/discovery/);
   assert.match(workspace, /credentials:\s*["']same-origin["']/);
   assert.match(workspace, /cache:\s*["']no-store["']/);

@@ -105,13 +105,13 @@ test("Prospects and Review Queue compose distinct owner-scoped workflows", async
     };
     const prospects = renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Prospects",
+        initialView: "prospects",
         initialProspectingProjection: projection,
       }),
     );
     const review = renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Review Queue",
+        initialView: "review-prospects",
         initialProspectingProjection: projection,
       }),
     );
@@ -177,7 +177,7 @@ test("Pilot Status renders the evidence hierarchy and a neutral denial", async (
     };
     const ownerHtml = renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Pilot Status",
+        initialView: "status",
         initialCapabilityState: capabilityState,
       }),
     );
@@ -227,7 +227,7 @@ test("workspace hydration text is stable across server and Safari locale formatt
     };
     const renderWorkspace = () => renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Pilot Status",
+        initialView: "status",
         initialCapabilityState: capabilityState,
       }),
     );

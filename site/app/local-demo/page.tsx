@@ -63,9 +63,9 @@ export default function LocalDemo() {
         </ol>
         <div className="local-demo-actions">
           {demoState === "active" ? (
-            <Link className="local-demo-primary" href="/?view=knowledge">Open Consensus Knowledge <span aria-hidden="true">→</span></Link>
+            <Link className="local-demo-primary" href="/?view=company-products">Open Consensus Knowledge <span aria-hidden="true">→</span></Link>
           ) : (
-            <Link className="local-demo-primary" href="/?view=knowledge">Start company setup <span aria-hidden="true">→</span></Link>
+            <Link className="local-demo-primary" href="/?view=company-products">Start company setup <span aria-hidden="true">→</span></Link>
           )}
         </div>
         <p className="local-demo-status" role="status" aria-live="polite">{statusCopy[demoState]}</p>

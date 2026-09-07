@@ -46,7 +46,7 @@ export default async function Home({ searchParams }: HomeProps = {}) {
     <ProspectorApp
       initialAccess={initialAccess}
       initialCapabilityState={initialCapabilityState}
-      initialView={blankLocalOnboarding && initialView === "Pilot Status" ? "Knowledge" : initialView}
+      initialView={blankLocalOnboarding && initialView === "status" ? "company-products" : initialView}
     />
   );
 }

@@ -1,20 +1,29 @@
+/**
+ * Stable route identity is separate from the label shown to the operator, so
+ * relabeling a task never changes its URL slug or the identity other code
+ * keys on. Only tasks backed by a real service are listed; Morning Brief and
+ * Exports & History are intentionally absent until those services exist.
+ */
 export const WORKSPACE_VIEWS = [
-  { label: "Pilot Status", key: "01", slug: null },
-  { label: "Morning Brief", key: "02", slug: "morning-brief" },
-  { label: "Knowledge", key: "03", slug: "knowledge" },
-  { label: "Market Discovery", key: "04", slug: "market-discovery" },
-  { label: "Review Queue", key: "05", slug: "review-queue" },
-  { label: "Prospects", key: "06", slug: "prospects" },
-  { label: "Exports & History", key: "07", slug: "exports-history" },
+  { id: "status", label: "Status", slug: null },
+  { id: "company-products", label: "Company & products", slug: "company-products" },
+  { id: "market-discovery", label: "Market discovery", slug: "market-discovery" },
+  { id: "review-prospects", label: "Review prospects", slug: "review-prospects" },
+  { id: "prospects", label: "Prospects", slug: "prospects" },
+  { id: "contacts", label: "Contacts", slug: "contacts" },
 ] as const;
 
-export type WorkspaceView = (typeof WORKSPACE_VIEWS)[number]["label"];
+export type WorkspaceTaskId = (typeof WORKSPACE_VIEWS)[number]["id"];
 
-export function workspaceViewFromParam(value: unknown): WorkspaceView {
-  if (typeof value !== "string") return "Pilot Status";
-  return WORKSPACE_VIEWS.find((view) => view.slug === value)?.label ?? "Pilot Status";
+export function workspaceTaskLabel(id: WorkspaceTaskId): string {
+  return WORKSPACE_VIEWS.find((view) => view.id === id)?.label ?? id;
 }
 
-export function workspaceViewParam(view: WorkspaceView): string | null {
-  return WORKSPACE_VIEWS.find((item) => item.label === view)?.slug ?? null;
+export function workspaceViewFromParam(value: unknown): WorkspaceTaskId {
+  if (typeof value !== "string") return "status";
+  return WORKSPACE_VIEWS.find((view) => view.slug === value)?.id ?? "status";
+}
+
+export function workspaceViewParam(id: WorkspaceTaskId): string | null {
+  return WORKSPACE_VIEWS.find((item) => item.id === id)?.slug ?? null;
 }
