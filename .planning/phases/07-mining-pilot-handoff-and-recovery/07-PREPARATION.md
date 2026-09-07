@@ -391,6 +391,70 @@ plan or phase credit. It grants no runtime, persistence, CSV
 materialization/delivery/download, export, hosted, provider, or effect
 authority.
 
+## Runtime-directory cores created outside this lane
+
+**Status:** acknowledged for accuracy; earns no plan or phase credit
+
+The section above binds one of these modules to its policy definition but does
+not record where either came from. Two Phase 7-shaped modules live under
+`site/domain/` rather than `site/preparation/`, created by cloud lane `34e8af9`
+on 2026-09-04, after the capstone above closed this lane. They are recorded
+here because the list of verified preparation slices does not describe them,
+and their absence from this file made the checked Phase 7 surface look smaller
+than it is.
+
+- `site/domain/weekly-outcome.ts` exposes `reduceWeeklyOutcome`, a pure reducer
+  over a supplied Prospect history stream. Its focused suite is
+  `site/tests/weekly-outcome.test.mjs`. Its behaviour and authority boundary
+  are described in `docs/implementation-lanes/cloud-weekly-outcome.md`.
+- `site/domain/crm-csv-codec.ts` exposes `encodeCrmCsv`. Unlike
+  `site/preparation/phase7-csv-policy-definition.ts`, which fixes schema and
+  policy labels only, this codec does validate, deduplicate, canonically sort,
+  and **encode caller-supplied rows into UTF-8 bytes with a SHA-256**. It reads
+  no eligibility projection and performs no persistence, delivery, or download.
+
+Both modules are imported only by tests. `site/worker/index.ts` composes
+neither, and no application route reaches them. Neither imports any
+`site/preparation/` module, so the runtime/preparation isolation rule in the
+mandatory safeguards above still holds.
+
+Plan ownership is explicit and unsatisfied. `site/tests/weekly-outcome.test.mjs`
+is named by `07-01-PLAN.md` and `site/domain/weekly-outcome.ts` is named by
+`07-05-PLAN.md`, but Plans 07-01 through 07-03 remain blocked on incomplete
+Plan 06-10 and every later plan is blocked behind them. The existence of these
+files is not execution of those plans. No `07-xx-SUMMARY.md` exists or is
+authorized, and no Plan 07-01, 07-02, 07-05, 07-06, or Phase 7 credit follows
+from them. `docs/implementation-lanes/2026-09-05-completion-inventory.md`
+records the same boundary as Phase 7 `0/10`, "CSV/weekly cores only".
+
+One gap follows directly from the weekly-outcome core and is pinned rather than
+closed. The reducer models a fourteen-state prospect lifecycle and counts the
+first transition to `ExportReady`, but `profile_prospects.state` in
+`site/db/schema.ts` admits only `qualified`, `approved`, `rejected`, `deferred`,
+and `cooled_down`, and no prospect state-transition history table exists. Ten of
+the fourteen modelled states have no persisted counterpart, so nothing in the
+repository can currently produce the history stream `reduceWeeklyOutcome`
+consumes. `NotQualified`, `InsufficientEvidence`, and `Disqualified` do appear
+in `prospecting_candidates.status`, but that is a different entity's status and
+does not back a Prospect state. The reverse gap also holds: persisted
+`cooled_down` is not modelled, so a future adapter must map or reject it rather
+than pass it through.
+
+`site/tests/weekly-outcome-persisted-state-conformance.test.mjs` holds both
+directions against exact allowlists so neither can widen, or be silently closed
+by a schema edit, without a deliberate decision. It additionally requires the
+reducer's runtime `STATES` array and its `ProspectState` union — two separate
+hand-maintained copies — to list exactly the same states, and asserts that no
+persisted event kind yet carries `state_transition`, `prospect_created`, or
+`contact_linked`. Actually persisting those transitions is Plan 07-04 work and
+is not authorized by this lane.
+
+Validation: the suite's four cases were not executed in the authoring
+environment, which has no installed dependencies; the file imports `vite` to
+read the Drizzle schema as a module, as it did before these additions. Syntax
+and both added source-parsing patterns were verified against the current
+sources. The suite must be run before this record is relied upon.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
