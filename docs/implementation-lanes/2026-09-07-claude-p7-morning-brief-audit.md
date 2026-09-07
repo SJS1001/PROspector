@@ -137,14 +137,14 @@ committed module is byte-identical to the pre-mutation file:
 | disable the raw-identity fence | 8 pass, 1 fail |
 | drop the weekly `asOf` binding | 8 pass, 1 fail |
 
-### Canonical gate status: two pre-existing suite failures
+### Canonical gate status: three pre-existing suite failures
 
 **The canonical `npm test` does not pass on this branch, and it does not pass on
 the base commit either.** It exited `1`. The suite runner stops at the first
-failing file, so the run halted before reaching most suites, including this
+failing file, so it halted long before reaching most suites, including this
 lane's own.
 
-Two suite files fail. Each was re-run alone on a detached checkout of the
+Three suite files fail. Each was re-run alone on a detached checkout of the
 untouched base `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c`, with this lane's
 three files absent from the worktree, and each reproduced identically:
 
@@ -152,32 +152,60 @@ three files absent from the worktree, and each reproduced identically:
 | --- | --- | --- | --- |
 | `tests/drift-replacement.test.mjs` | 3 of 6 tests fail with `Commercial workspace is unavailable` / `knowledge_conflict`, thrown from `domain/knowledge.ts:435` (`workspaceForKnowledge`) through a Miniflare D1 fixture | 3 pass, 3 fail | 3 pass, 3 fail |
 | `tests/fixture-safety.test.mjs` | its single test fails: `Approve disabled must render with the native disabled attribute` | 0 pass, 1 fail | 0 pass, 1 fail |
+| `tests/greenfield-target-config.test.mjs` | 2 of 6 tests fail with `migration_manifest_mismatch`; the overwrite case reports that code instead of the expected `output_exists` | 4 pass, 2 fail | 4 pass, 2 fail |
 
-Both are therefore pre-existing conditions of this checkpoint or this
-environment. Neither involves `domain/morning-brief.ts`, which no other module
+All three are therefore pre-existing conditions of this checkpoint or this
+environment. None involves `domain/morning-brief.ts`, which no other module
 imports. This lane does not fix them and makes no claim about their cause; they
 are recorded here so the next account does not mistake them for regressions
 introduced by this branch, and so no reader mistakes this lane for a green
 canonical gate.
 
-Because the runner halts on first failure, the suite was re-run excluding those
-two files so that `tests/morning-brief.test.mjs` is exercised through the
-canonical runner rather than only standalone. Progressive results on this exact
-source:
+`tests/greenfield-target-config.test.mjs` deserves the next account's attention
+on its own merits: it is the Cloudflare target-configuration seam, and a
+`migration_manifest_mismatch` there means the checked migration manifest no
+longer matches the migration bytes it is bound to. That is a Plan 02-99 concern,
+not a Phase 7 one, and this lane deliberately did not touch it.
+
+### Progressive suite results on this exact source
+
+Because the runner halts on the first failure, the suite was re-run with the
+already-diagnosed files excluded, so that later suites — including this lane's —
+could be reached:
 
 | Run | Result |
 | --- | --- |
 | `npm test` (build + all suites) | build PASS; 104 tests pass across 23 files, then exit 1 at `drift-replacement` |
 | build + all suites except `drift-replacement` | build PASS; 149 tests pass across 32 files, then exit 1 at `fixture-safety` |
-| all suites except `drift-replacement` and `fixture-safety` | recorded in the row below |
+| all suites except `drift-replacement` and `fixture-safety` | 183 tests pass across 37 files, then exit 1 at `greenfield-target-config` |
+| the 80-file tail after `greenfield-target-config`, excluding all three | **stopped at owner request**; 41 tests passed across 10 files with zero failures when it was halted |
 
-> **Residual run:** at the time of this revision the third run was still in
-> progress — 19 suite files complete with zero failures — and its outcome is
-> therefore not yet claimed. It is finalized in a follow-up revision of this
-> document. Until that revision lands, the evidence this lane actually holds is
-> the focused suite, the combined 41/41 focused lane, the production build, the
-> whole-project lint, the strict typecheck, the production audit, the diff
-> check, and the mutation results above.
+**`tests/morning-brief.test.mjs` was never reached through the canonical
+runner.** It sorts after `greenfield-target-config`, and the tail run that would
+have reached it was stopped before it got there. The suite has only ever been
+run standalone and inside the five-suite focused lane, where it passes 9/9 and
+41/41 respectively. That is a real limitation of this evidence, not a formality:
+no run has yet proven this suite behaves identically under the canonical
+runner's sequencing alongside the fixture-heavy Miniflare suites.
+
+Everything this lane genuinely holds is the focused suite, the combined focused
+lane, the production build, the whole-project lint, the strict typecheck, the
+production audit, the diff check, and the mutation results above. Nothing here
+is a canonical-gate pass.
+
+### Exact next validation action
+
+From `site/`, on a checkout of this branch:
+
+```bash
+node scripts/run-test-suite.mjs $(ls tests/*.test.mjs \
+  | grep -vE 'drift-replacement|fixture-safety|greenfield-target-config' \
+  | awk '$0 > "tests/greenfield-target-config.test.mjs"')
+```
+
+That completes the 80-file tail and exercises `tests/morning-brief.test.mjs`
+under the canonical runner. Separately, diagnose the three pre-existing failures
+against the base commit rather than against this branch.
 
 ## Status
 
@@ -186,3 +214,8 @@ unpushed and unmerged. This lane earns no Phase 7 plan or phase credit, grants n
 runtime, persistence, export, delivery, archive, restore, hosted, provider, or
 outbound authority, and changes no gate recorded in `.planning/STATE.md` or
 `docs/CODEX-CONTINUATION.md`.
+
+Validation is deliberately closed short of a canonical-gate pass: the tail run
+was stopped at owner request, so this lane's own suite has been proven only
+standalone and in its focused lane, never under the canonical runner. The exact
+command to close that gap is recorded above.
