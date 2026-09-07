@@ -6,8 +6,6 @@ import {
   type CloudflareAccessConfig,
 } from "./cloudflare-access";
 
-const DEMO = { email: "local-owner@prospector.invalid", displayName: "Local Demo Owner" } as const;
-
 export type RuntimeIdentityBindings = {
   TRUSTED_IDENTITY_PROVIDER?: unknown;
   LOCAL_DEMO?: unknown;
@@ -53,22 +51,35 @@ export async function resolveRuntimeIdentity(
   if (
     bindings.TRUSTED_IDENTITY_PROVIDER !== "local-demo"
     || accessMode !== "disabled"
-    || !import.meta.env.DEV
     || bindings.LOCAL_DEMO !== "1"
   ) return null;
-  const host = request
-    ? new URL(request.url).hostname
-    : hostnameFromHostHeader(requestHeaders.get("host"));
-  if (!isLoopbackHostname(host)) return null;
-  if (request && request.method !== "GET" && request.method !== "HEAD") {
-    const origin = request.headers.get("origin");
-    try {
-      if (!origin || new URL(origin).origin !== new URL(request.url).origin) return null;
-    } catch {
-      return null;
+  // The whole local-demo path lives inside this build-time gate so that a
+  // production build has no *reference* left to the demo identity. Rollup
+  // eliminates a statically-false branch, but it does not eliminate statements
+  // that merely became unreachable after an earlier `return`. With the gate as
+  // one clause of the guard above, the folded output kept `return DEMO` in the
+  // body, DEMO stayed referenced, and the literal shipped in dist/server.
+  // Keeping the constant inside the branch removes it with the branch.
+  //
+  // tests/production-bundle-boundary.test.mjs enforces that against the
+  // artifact; tests/local-demo-boundary.test.mjs pins these checks to this file.
+  if (import.meta.env.DEV) {
+    const DEMO = { email: "local-owner@prospector.invalid", displayName: "Local Demo Owner" } as const;
+    const host = request
+      ? new URL(request.url).hostname
+      : hostnameFromHostHeader(requestHeaders.get("host"));
+    if (!isLoopbackHostname(host)) return null;
+    if (request && request.method !== "GET" && request.method !== "HEAD") {
+      const origin = request.headers.get("origin");
+      try {
+        if (!origin || new URL(origin).origin !== new URL(request.url).origin) return null;
+      } catch {
+        return null;
+      }
     }
+    return DEMO;
   }
-  return DEMO;
+  return null;
 }
 
 export function isLocalDemoRequest(
