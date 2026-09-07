@@ -179,10 +179,10 @@ are recorded here so the next account does not mistake them for regressions
 introduced by this branch, and so no reader mistakes this lane for a green
 canonical gate.
 
-`tests/rendered-html.test.mjs` and `tests/workspace-view.test.mjs` are
-source-text smoke assertions whose regexes no longer match the source they scan.
-Whether the fixtures or the source are the stale side is a question for the
-owning lanes; this lane did not touch any of them.
+All five have since been diagnosed read-only, below. **None is a product
+defect.** Four are stale test assertions and the fifth is a release gate
+correctly refusing an outgrown migration chain. Each fix belongs to the lane
+that owns the file; this lane changed none of them.
 
 #### Correction: the `migration_manifest_mismatch` is not byte drift
 
@@ -221,6 +221,61 @@ the manifest to the current chain, or scope the verifier to the released prefix
 — and it is explicitly not this lane's call. Nothing in `02-99` territory, the
 manifest, the verifier, or `site/drizzle/` was modified. This diagnosis is
 read-only: no Cloudflare, hosted, or remote action was involved in producing it.
+
+#### Diagnosis of the other four failures
+
+Each was investigated read-only on this checkpoint. No source, test, fixture, or
+migration was modified, and no Cloudflare, hosted, or remote action was
+involved.
+
+**`tests/rendered-html.test.mjs` — stale assertion; the source is correct.**
+It asserts `app/prospector-app.tsx` matches `/Good morning, Steven/`. That
+hardcoded personal greeting no longer exists anywhere under `app/`; it was
+replaced by the generic `title="Morning brief"` in `PageHeading`
+(`app/prospector-app.tsx:442`) by commit `3320f26`, "feat: add guarded generic
+company onboarding". The assertion now enforces precisely what the project
+deliberately removed — an owner's first name hardcoded into rendered output —
+so the test is the side that should change, not the source.
+
+**`tests/workspace-view.test.mjs` — stale assertion against changed source.**
+It asserts `app/page.tsx` matches the literal `/initialView=\{initialView\}/`.
+Line 49 now reads
+`initialView={blankLocalOnboarding && initialView === "Pilot Status" ? "Knowledge" : initialView}`,
+a blank-workspace redirect to Knowledge added by the onboarding lane. The
+behaviour the test intends to cover is intact — `page.tsx:22` still calls
+`workspaceViewFromParam(requestedView)` and the prop is still passed — but an
+exact-text regex cannot survive the conditional. The assertion needs widening.
+
+**`tests/fixture-safety.test.mjs` — stale assertion over a dead render path.**
+It asserts `<button disabled>Approve disabled</button>` appears in the SSR
+output. The label still exists and is still natively disabled
+(`app/prospector-app.tsx:492`), but it lives inside `SignalRow`, which is fed
+from `const signals = []` (`app/prospector-app.tsx:44`). That fixture lead list
+was deliberately emptied, so `SignalRow` never renders and Morning Brief shows
+`No prospects match that search.` instead. The same situation was already
+handled deliberately elsewhere in that file: `KNOWLEDGE_FLOW_COPY` (line 47)
+was kept as an explicit source-level copy contract when the Knowledge controls
+moved out of the rendered tree. No equivalent was kept for the Approve/Defer
+labels; the same remedy applies.
+
+**`tests/drift-replacement.test.mjs` — missing workspace bootstrap in the
+test.** This one is not a text assertion. All three failing cases call
+`createD1Fixture` and `applyMigrations`, then immediately
+`createKnowledgeProposal`. `workspaceForKnowledge` (`domain/knowledge.ts:300`)
+requires a `workspaces` → `workspace_companies` → `companies` row for the
+principal and raises `KnowledgeConflictError("Commercial workspace is
+unavailable")` when none exists. No migration creates a workspace: `0004` only
+back-fills `companies` and `workspace_companies` *from existing* `workspaces`
+rows. Workspace creation now lives solely in the guarded onboarding paths,
+`domain/onboarding.ts:60` and `domain/commercial-model.ts:57`. A seeding helper
+does exist at `tests/helpers/d1.mjs:158`, but this suite never calls it and its
+principal subject is `replacement-owner` while the helper seeds
+`owner-${suffix}`. The authority guard is behaving correctly; the test is
+missing a bootstrap step it once received implicitly. Whether
+`createKnowledgeProposal` previously auto-created the workspace is a question
+for the owning lane — `domain/knowledge.ts` does not import
+`domain/commercial-model.ts`, and this error path has not changed since
+`5826816`.
 
 ### Progressive suite results on this exact source
 
@@ -283,13 +338,19 @@ typecheck, the production audit, the diff check, and the mutation results above.
 Every suite file has been run on this branch, so no further validation of this
 lane is outstanding. What remains is not this lane's work:
 
-Diagnose the five pre-existing failures against the base commit rather than
-against this branch. `tests/greenfield-target-config.test.mjs` is already
-diagnosed above and needs a Plan 02-99 decision rather than further
-investigation. For the remaining four, decide in each case whether the fixture
-or the source is the stale side. Until that is settled, the canonical `npm test`
-cannot pass on this checkpoint for reasons that have nothing to do with
-Phase 7.
+All five pre-existing failures are diagnosed above and none requires further
+investigation. What each needs is a decision by the lane that owns the file:
+
+| Suite | Remedy, for the owning lane |
+| --- | --- |
+| `tests/greenfield-target-config.test.mjs` | Plan 02-99 decision: re-pin the manifest to the current chain, or scope the verifier to the released `0000`-`0009` prefix |
+| `tests/rendered-html.test.mjs` | drop or replace the `/Good morning, Steven/` assertion; the source is correct |
+| `tests/workspace-view.test.mjs` | widen the `initialView` regex to admit the conditional form |
+| `tests/fixture-safety.test.mjs` | render a signal fixture, or keep an explicit source-level copy contract as `KNOWLEDGE_FLOW_COPY` already does |
+| `tests/drift-replacement.test.mjs` | bootstrap a workspace for the test principal before the first `createKnowledgeProposal` call |
+
+Until those are settled, the canonical `npm test` cannot pass on this
+checkpoint, for reasons that have nothing to do with Phase 7.
 
 ## Status
 
