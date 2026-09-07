@@ -137,14 +137,14 @@ committed module is byte-identical to the pre-mutation file:
 | disable the raw-identity fence | 8 pass, 1 fail |
 | drop the weekly `asOf` binding | 8 pass, 1 fail |
 
-### Canonical gate status: three pre-existing suite failures
+### Canonical gate status: five pre-existing suite failures
 
 **The canonical `npm test` does not pass on this branch, and it does not pass on
 the base commit either.** It exited `1`. The suite runner stops at the first
 failing file, so it halted long before reaching most suites, including this
 lane's own.
 
-Three suite files fail. Each was re-run alone on a detached checkout of the
+Five suite files fail. Each was re-run alone on a detached checkout of the
 untouched base `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c`, with this lane's
 three files absent from the worktree, and each reproduced identically:
 
@@ -153,19 +153,29 @@ three files absent from the worktree, and each reproduced identically:
 | `tests/drift-replacement.test.mjs` | 3 of 6 tests fail with `Commercial workspace is unavailable` / `knowledge_conflict`, thrown from `domain/knowledge.ts:435` (`workspaceForKnowledge`) through a Miniflare D1 fixture | 3 pass, 3 fail | 3 pass, 3 fail |
 | `tests/fixture-safety.test.mjs` | its single test fails: `Approve disabled must render with the native disabled attribute` | 0 pass, 1 fail | 0 pass, 1 fail |
 | `tests/greenfield-target-config.test.mjs` | 2 of 6 tests fail with `migration_manifest_mismatch`; the overwrite case reports that code instead of the expected `output_exists` | 4 pass, 2 fail | 4 pass, 2 fail |
+| `tests/rendered-html.test.mjs` | its build/source smoke fails: the rendered source no longer matches `/Good morning, Steven/` | 3 pass, 1 fail | 3 pass, 1 fail |
+| `tests/workspace-view.test.mjs` | navigation smoke fails: the worker source no longer matches `/initialView=\{initialView\}/` | 1 pass, 1 fail | 1 pass, 1 fail |
 
-All three are therefore pre-existing conditions of this checkpoint or this
+All five are therefore pre-existing conditions of this checkpoint or this
 environment. None involves `domain/morning-brief.ts`, which no other module
 imports. This lane does not fix them and makes no claim about their cause; they
 are recorded here so the next account does not mistake them for regressions
 introduced by this branch, and so no reader mistakes this lane for a green
 canonical gate.
 
-`tests/greenfield-target-config.test.mjs` deserves the next account's attention
-on its own merits: it is the Cloudflare target-configuration seam, and a
-`migration_manifest_mismatch` there means the checked migration manifest no
-longer matches the migration bytes it is bound to. That is a Plan 02-99 concern,
-not a Phase 7 one, and this lane deliberately did not touch it.
+Two of these deserve the next account's attention on their own merits, and
+neither is a Phase 7 concern:
+
+- `tests/greenfield-target-config.test.mjs` is the Cloudflare
+  target-configuration seam. A `migration_manifest_mismatch` there means the
+  checked migration manifest no longer matches the migration bytes it is bound
+  to. That is Plan 02-99 territory.
+- `tests/rendered-html.test.mjs` and `tests/workspace-view.test.mjs` are
+  source-text smoke assertions that no longer match the source they scan. Taken
+  together with the manifest mismatch, this checkpoint has drifted away from
+  several of its own fixtures in more than one place. Whether the fixtures or
+  the source are stale is a question for the owning lanes; this lane did not
+  touch any of them.
 
 ### Progressive suite results on this exact source
 
@@ -178,7 +188,13 @@ could be reached:
 | `npm test` (build + all suites) | build PASS; 104 tests pass across 23 files, then exit 1 at `drift-replacement` |
 | build + all suites except `drift-replacement` | build PASS; 149 tests pass across 32 files, then exit 1 at `fixture-safety` |
 | all suites except `drift-replacement` and `fixture-safety` | 183 tests pass across 37 files, then exit 1 at `greenfield-target-config` |
-| the 80-file tail after `greenfield-target-config`, excluding all three | restarted on `8125a73` and carried past this lane's own suite; 24 files complete with zero failures at the point recorded below |
+| the 80-file tail after `greenfield-target-config`, excluding all three | restarted on `8125a73`; 532 tests pass across 69 files, then exit 1 at `rendered-html` |
+| the final 9 files after `rendered-html`, excluding all four | 46 tests pass across 9 files, 1 fail at `workspace-view` |
+
+Every suite file in the repository has now been executed on this branch. Across
+the four runs, **every test passes except the ten belonging to the five
+pre-existing failures above**, each of which reproduces identically on the
+untouched base commit.
 
 **`tests/morning-brief.test.mjs` passes under the canonical runner.** The
 earlier revision of this document recorded that it had never been reached,
@@ -205,11 +221,12 @@ ok 9 - the module composes no port, provider, effect, or preparation dependency
 # duration_ms 4822.992487
 ```
 
-Twenty-four files of that tail were complete with zero failures when this result
-was recorded; the remaining files were still running and their outcome is not
-claimed here. The three pre-existing failures above are excluded from that list
-by construction, so this tail is not a canonical `npm test` pass and nothing in
-this lane claims one.
+That tail then ran to completion. The five pre-existing failures are excluded
+from these lists by construction, so no run recorded here is a canonical
+`npm test` pass, and nothing in this lane claims one.
+
+`tests/weekly-outcome.test.mjs`, the existing core this projector composes,
+also passes 9/9 in the same sequencing.
 
 The evidence this lane holds is therefore: the focused suite standalone (9/9),
 the combined five-suite focused lane (41/41), the same suite under the canonical
@@ -218,21 +235,14 @@ typecheck, the production audit, the diff check, and the mutation results above.
 
 ### Exact next validation action
 
-The tail command below was run and carried past this lane's suite; re-run it to
-carry the remaining files to completion:
+Every suite file has been run on this branch, so no further validation of this
+lane is outstanding. What remains is not this lane's work:
 
-```bash
-node scripts/run-test-suite.mjs $(ls tests/*.test.mjs \
-  | grep -vE 'drift-replacement|fixture-safety|greenfield-target-config' \
-  | awk '$0 > "tests/greenfield-target-config.test.mjs"')
-```
-
-Separately, and more importantly for the project rather than for this lane,
-diagnose the three pre-existing failures against the base commit rather than
-against this branch. `tests/greenfield-target-config.test.mjs` should come
-first: a `migration_manifest_mismatch` on the Cloudflare target-configuration
-seam is Plan 02-99 territory and means the checked manifest no longer matches
-the migration bytes it is bound to.
+Diagnose the five pre-existing failures against the base commit rather than
+against this branch, starting with `tests/greenfield-target-config.test.mjs`.
+Decide in each case whether the fixture or the source is the stale side. Until
+that is settled, the canonical `npm test` cannot pass on this checkpoint for
+reasons that have nothing to do with Phase 7.
 
 ## Status
 
@@ -243,7 +253,7 @@ outbound authority, and changes no gate recorded in `.planning/STATE.md` or
 `docs/CODEX-CONTINUATION.md`.
 
 Validation stops short of a canonical-gate pass, and deliberately says so: the
-canonical `npm test` exits 1 on this branch and on its base alike, for three
+canonical `npm test` exits 1 on this branch and on its base alike, for five
 pre-existing reasons this lane did not introduce and did not fix. This lane's
 own suite is proven standalone, in its focused lane, and under the canonical
 runner.
