@@ -37,7 +37,8 @@ export default async function Home({ searchParams }: HomeProps = {}) {
   }
   if (initialAccess === "unauthorized" && import.meta.env.DEV && bindings.TRUSTED_IDENTITY_PROVIDER === "local-demo" && bindings.LOCAL_DEMO === "1") {
     try {
-      admitPilotOwner(await runtimeIdentity(undefined, bindings), bindings.PILOT_OWNER_EMAIL, bindings.OWNER_SUBJECT_PEPPER);
+      if (!bindings.PILOT_OWNER_EMAIL || !bindings.OWNER_SUBJECT_PEPPER) throw new Error("missing_owner_bindings");
+      await admitPilotOwner(await runtimeIdentity(undefined, bindings), bindings.PILOT_OWNER_EMAIL, bindings.OWNER_SUBJECT_PEPPER);
       initialAccess = "authorized";
       blankLocalOnboarding = true;
     } catch { /* fail closed */ }
