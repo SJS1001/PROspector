@@ -554,8 +554,9 @@ suite passed 13/13, the aggregate Phase 6 and Phase 7 preparation suites passed
 passed, and the canonical `npm test` production build completed.
 
 The canonical `npm test` gate could not run to completion on this branch, for
-two reasons that both predate this slice. Each was reproduced at checkout
-`5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` with this slice's files absent:
+three reasons that all predate this slice. Each was reproduced at checkout
+`5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` with this slice's files absent from
+disk:
 
 1. `tests/drift-replacement.test.mjs` fails 3/6. It calls `applyMigrations`
    without the `initializeCommercialModel` seed that every other
@@ -564,15 +565,34 @@ two reasons that both predate this slice. Each was reproduced at checkout
 2. `tests/fixture-safety.test.mjs` fails 1/1 on "remaining fixture-governed
    consequential controls render natively disabled", asserting that an Approve
    control renders with the native `disabled` attribute.
+3. `tests/greenfield-target-config.test.mjs` fails 2/6, both cases with
+   `migration_manifest_mismatch`. `02-99-MIGRATION-MANIFEST.md` pins the ordered
+   SHA-256 manifest of the `0000`-`0009` chain to migration source
+   `46d082e962c4acc1771e92ad300d61913d50ead4`, but `site/drizzle/` on this
+   branch holds twenty migrations through `0019_person_discovery.sql`, so the
+   target-config CLI's manifest check mismatches by construction. Case 3 was
+   verified in a detached base worktree, where a third case additionally fails
+   as a downstream artifact of the same mismatch.
 
-Both defects belong to other lanes and were deliberately left untouched. The
-canonical runner halts on first failure, so the gate was additionally exercised
-over the canonical file list minus `drift-replacement`: 32 suites and 150 cases
-ran before halting on the second pre-existing failure above, with 149 passing
-and no failure attributable to this slice. The suites ordered after
-`fixture-safety` remain unexercised here. The new module is imported by no
-runtime, domain, adapter, worker, or test file outside its own focused suite,
-and the static composition guard enforces that. This is local preparation
+All three defects belong to other lanes and were deliberately left untouched.
+This slice touches no file under `site/drizzle/`, adds no migration, and changes
+no fixture or UI source.
+
+Because the canonical runner halts on first failure, the gate was exercised in
+two further passes:
+
+- the canonical file list minus `drift-replacement`: 32 suites and 150 cases,
+  149 passing, halting on failure 2 above;
+- the 86 suites ordered after `fixture-safety`, run independently so a failure
+  could not halt the rest: 28 suites and 135 cases completed, 133 passing, with
+  failure 3 above as the only failing suite. That pass was stopped early by
+  request; the remaining 58 files were not run here, though 17 of them are the
+  `outreach-preparation-*` and `phase7-preparation-*` suites already covered by
+  the 245/245 aggregate above.
+
+No failure in any pass is attributable to this slice. The new module is imported
+by no runtime, domain, adapter, worker, or test file outside its own focused
+suite, and the static composition guard enforces that. This is local preparation
 evidence only.
 
 ## Deferred adapters and exact external decision
