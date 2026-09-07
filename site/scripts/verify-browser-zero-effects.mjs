@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { relative, resolve, sep } from "node:path";
 
 import {
+  CANONICAL_DERIVED_TABLES,
   CANONICAL_LOCAL_STATE_TABLES,
   FORBIDDEN_TABLE_NAMES,
   LOCAL_STATE_ROW_CEILING,
@@ -79,7 +80,7 @@ try {
   assert.deepEqual(unknownTriggers, [], `unclassified_triggers_forbidden:${unknownTriggers.join(",")}`);
 
   const localState = {};
-  for (const name of CANONICAL_LOCAL_STATE_TABLES) {
+  for (const name of [...CANONICAL_LOCAL_STATE_TABLES, ...CANONICAL_DERIVED_TABLES]) {
     if (!objects.tables.has(name)) continue;
     const count = countRows(applicationDatabase.database, name);
     assert.ok(count <= LOCAL_STATE_ROW_CEILING, `${name}_exceeds_local_state_ceiling`);
