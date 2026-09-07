@@ -72,7 +72,7 @@ test("generic onboarding is fenced to a resolver-proven local demo and exact loo
   assert.match(page,/TRUSTED_IDENTITY_PROVIDER === "local-demo"/);
   assert.match(page,/bindings\.LOCAL_DEMO === "1"/);
   assert.match(page,/import\.meta\.env\.DEV/);
-  assert.match(page,/admitPilotOwner\(await runtimeIdentity/);
+  assert.match(page,/await admitPilotOwner\(await runtimeIdentity/);
 });
 
 test("knowledge mutation routing cannot drop an exact Explore selection before answer or confirmation", async () => {
