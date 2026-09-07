@@ -13,6 +13,11 @@ import {
   createBrowserAcceptanceRuntimeRoot,
   scrubbedBrowserEnvironment,
 } from "../scripts/browser-acceptance-boundary.mjs";
+import {
+  CANONICAL_MIGRATION_COUNT,
+  CANONICAL_MIGRATION_FILENAMES,
+  CANONICAL_MIGRATION_HEAD,
+} from "../scripts/migration-chain.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -167,22 +172,24 @@ test("bootstrap, Miniflare, and verifier share one absolute per-run state path",
   }
 });
 
-test("browser bootstrap remains the exact authoritative 0000-0009 chain", async () => {
+test("browser bootstrap applies the canonical chain and hardcodes no migration list", async () => {
   const bootstrap = await readFile(resolve(root, "scripts/local-bootstrap.mjs"), "utf8");
-  const migrations = [...bootstrap.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/g)].map((match) => match[1]);
-  assert.deepEqual(migrations, [
+  assert.deepEqual(
+    [...bootstrap.matchAll(/"(\d{4}_[A-Za-z0-9._-]+\.sql)"/g)].map((match) => match[1]),
+    [],
+    "a hardcoded copy of the chain is exactly how the bootstrap fell behind the journal",
+  );
+  assert.match(bootstrap, /from "\.\/migration-chain\.mjs"/, "the bootstrap must read the canonical source of truth");
+  assert.match(bootstrap, /const MIGRATIONS = CANONICAL_MIGRATION_FILENAMES;/);
+  assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].slice(0, 5), [
     "0000_jittery_meteorite.sql",
     "0001_true_spencer_smythe.sql",
     "0002_eager_supreme_intelligence.sql",
     "0003_acoustic_magik.sql",
     "0004_consensus_knowledge.sql",
-    "0005_even_mastermind.sql",
-    "0006_private-proof-run-binding.sql",
-    "0007_profile_prospecting.sql",
-    "0008_controlled_enrichment.sql",
-    "0009_gorgeous_captain_universe.sql",
-  ]);
-  assert.equal(/"001\d_/.test(bootstrap), false, "later candidate migrations are outside browser acceptance");
+  ], "the reviewed Phase 2 head of the chain is fixed");
+  assert.equal(CANONICAL_MIGRATION_HEAD, CANONICAL_MIGRATION_FILENAMES.at(-1));
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 20, "the browser lane must reach the integrated person-discovery head");
 });
 
 test("zero-effect verifier accepts the exact synthetic fit and rejects a forbidden row", async () => {

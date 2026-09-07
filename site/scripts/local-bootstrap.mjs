@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
+import { CANONICAL_MIGRATION_FILENAMES, CANONICAL_MIGRATION_HEAD } from "./migration-chain.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const requestedState = process.argv.indexOf("--state");
@@ -8,13 +9,9 @@ const STATE = requestedState >= 0 && process.argv[requestedState + 1]
   ? resolve(ROOT, process.argv[requestedState + 1])
   : resolve(ROOT, ".local", "miniflare-state");
 if (!STATE.startsWith(resolve(ROOT, ".local") + "/")) throw new Error("local_state_path_invalid");
-const MIGRATIONS = [
-  "0000_jittery_meteorite.sql", "0001_true_spencer_smythe.sql",
-  "0002_eager_supreme_intelligence.sql", "0003_acoustic_magik.sql",
-  "0004_consensus_knowledge.sql", "0005_even_mastermind.sql",
-  "0006_private-proof-run-binding.sql", "0007_profile_prospecting.sql",
-  "0008_controlled_enrichment.sql", "0009_gorgeous_captain_universe.sql",
-];
+// The checked journal is the single source of truth for the chain; a local
+// bootstrap that stops short of its head is a defect, not a boundary.
+const MIGRATIONS = CANONICAL_MIGRATION_FILENAMES;
 
 if (!process.argv.includes("--reset")) {
   throw new Error("local_reset_required: run npm run db:local:reset");
@@ -28,4 +25,4 @@ for (const migration of MIGRATIONS) {
 }
 const check = spawnSync(resolve(ROOT, "node_modules", ".bin", "wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", STATE, "--config", "wrangler.local.jsonc", "--command", "PRAGMA foreign_key_check;"], { encoding: "utf8" });
 if (check.status !== 0 || /\"results\":\[\[[^\]]/.test(check.stdout)) throw new Error("local_foreign_key_check_failed");
-console.log(JSON.stringify({ status: "ready", state: STATE, migrationCount: MIGRATIONS.length, disposable: true }));
+console.log(JSON.stringify({ status: "ready", state: STATE, migrationCount: MIGRATIONS.length, migrationHead: CANONICAL_MIGRATION_HEAD, migrationSource: "checked-repository-journal", disposable: true }));

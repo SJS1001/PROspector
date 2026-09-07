@@ -15,6 +15,11 @@ const OPERATIONAL_TABLE_NAMES = Object.freeze([...new Set([
   "prospecting_candidates", "prospecting_run_events", "prospecting_runs", "prospecting_schedules", "prospecting_signals", "prospecting_source_lineage", "qualification_assessments", "runner_assignment_revocations", "runner_assignments", "runner_submissions",
   "contact_eligibility_snapshots", "contact_evidence_assignments", "contact_point_observations", "enrichment_budget_accounts", "enrichment_grant_issuance_events", "enrichment_grant_prospects", "enrichment_grants", "enrichment_reservation_budget_entries", "enrichment_reservation_events", "enrichment_reservations",
   "identity_decisions", "identity_lineage", "identity_suggestion_candidates", "identity_suggestion_impacts", "identity_suggestions", "provider_quotes", "runner_budget_accounts", "runner_spend_grants", "runner_spend_reservation_events", "runner_spend_reservations", "contact_verification_receipts",
+  // Present once the bootstrap applies the full canonical chain. The onboarding
+  // lane must never reach person discovery, so these stay asserted-empty.
+  // `contacts_projection_generations` is deliberately absent: its rows are
+  // trigger-maintained counters, not an operational effect.
+  "person_discovery_runs", "person_discovery_run_events", "person_discovery_candidates", "person_discovery_provenance", "person_discovery_owner_decisions", "prospect_contact_role_relevance", "contact_verification_intents",
 ])]);
 
 const root = resolve(import.meta.dirname, "..");
