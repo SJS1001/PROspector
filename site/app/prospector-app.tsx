@@ -1,17 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KnowledgeWorkspace } from "./knowledge/knowledge-workspace";
 import { DiscoveryWorkspace } from "./discovery/discovery-workspace";
 import {
   ProspectingWorkspace,
   type ProspectingProjection,
 } from "./prospecting/prospecting-workspace";
+import { ContactsWorkspace } from "./prospects/contacts-workspace";
 import {
-  WORKSPACE_VIEWS,
-  workspaceViewFromParam,
-  workspaceViewParam,
-  type WorkspaceView,
+  emptyOperatorContext,
+  isOperatorContextEmpty,
+  operatorContextTrail,
+  readStoredOperatorContext,
+  setOperatorPath,
+  writeStoredOperatorContext,
+  type OperatorContext,
+  type OperatorContextPath,
+} from "./operator-context";
+import {
+  CONTACTS_TASK_ID,
+  DEFAULT_SHELL_TASK,
+  OPERATOR_TASKS,
+  operatorTaskHref,
+  operatorTaskLabel,
+  shellTaskFromParam,
+  shellTaskParam,
+  type OperatorTaskId,
+  type ShellTaskId,
 } from "./workspace-view";
 
 type CapabilityStatus = "proven" | "blocked" | "unproven";
@@ -41,36 +57,41 @@ const TORONTO_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   hourCycle: "h23",
 });
 
-const signals: Array<{company:string;target:string;signal:string;score:number;tier:string;age:string;status:string}>=[];
-
 // Kept as a stable source-level copy contract while the rendered controls live in KnowledgeWorkspace.
 export const KNOWLEDGE_FLOW_COPY = ["Consensus Interview", "Submit answer for confirmation", "Confirm submitted answer", "Start corrected review", "Applying this policy to scoring and prospecting remains disabled"] as const;
 
 export function ProspectorApp({
-  initialView = "Pilot Status",
+  initialView = DEFAULT_SHELL_TASK,
+  activeTask,
+  identityKey = "",
   initialAccess = "authorized",
   initialCapabilityState = null,
   initialProspectingProjection = EMPTY_PROSPECTING_PROJECTION,
 }: {
-  initialView?: WorkspaceView;
+  initialView?: ShellTaskId;
+  /** Only the dedicated admitted Contacts route may pin the shell to Contacts. */
+  activeTask?: typeof CONTACTS_TASK_ID;
+  identityKey?: string;
   initialAccess?: "authorized" | "unauthorized";
   initialCapabilityState?: CapabilityApiState | null;
   initialProspectingProjection?: ProspectingProjection;
 } = {}) {
-  const [view, setView] = useState<WorkspaceView>(initialView);
+  const onContactsRoute = activeTask === CONTACTS_TASK_ID;
+  const [view, setView] = useState<ShellTaskId>(initialView);
   const [access, setAccess] = useState(initialAccess);
-  const [profile, setProfile] = useState("No profile selected");
-  const [query, setQuery] = useState("");
-  const [resolvedCompanyName,setResolvedCompanyName]=useState(initialCapabilityState?.workspace.companyName?.trim()||"");
-  const companyLabel=resolvedCompanyName||"Company setup";
-  const handleUnauthorized = useCallback(
-    () => setAccess("unauthorized"),
-    [],
-  );
-  const navigateToView = useCallback((nextView: WorkspaceView) => {
+  const [context, setContext] = useState<OperatorContext>(() => emptyOperatorContext(identityKey));
+  const [hydrated, setHydrated] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const navigated = useRef(false);
+  const task: OperatorTaskId = onContactsRoute ? CONTACTS_TASK_ID : view;
+  const companyLabel =
+    context.company?.name || initialCapabilityState?.workspace.companyName?.trim() || "Company setup";
+  const handleUnauthorized = useCallback(() => setAccess("unauthorized"), []);
+  const navigateToView = useCallback((nextView: ShellTaskId) => {
+    navigated.current = true;
     setView(nextView);
     const url = new URL(window.location.href);
-    const parameter = workspaceViewParam(nextView);
+    const parameter = shellTaskParam(nextView);
     if (parameter) url.searchParams.set("view", parameter);
     else url.searchParams.delete("view");
     const destination = `${url.pathname}${url.search}${url.hash}`;
@@ -79,23 +100,46 @@ export function ProspectorApp({
   }, []);
 
   useEffect(() => {
+    if (onContactsRoute) return;
     const restoreView = () => {
+      navigated.current = true;
       const parameter = new URL(window.location.href).searchParams.get("view");
-      setView(workspaceViewFromParam(parameter));
+      setView(shellTaskFromParam(parameter));
     };
     window.addEventListener("popstate", restoreView);
     return () => window.removeEventListener("popstate", restoreView);
-  }, []);
+  }, [onContactsRoute]);
 
-  const filteredSignals = useMemo(
-    () => signals.filter((item) => `${item.company} ${item.target} ${item.signal}`.toLowerCase().includes(query.toLowerCase())),
-    [query],
+  // Keyboard users land on the task they chose instead of re-traversing the rail.
+  useEffect(() => {
+    if (navigated.current) contentRef.current?.focus();
+  }, [view]);
+
+  // Restored after hydration so the server-rendered shell and the browser agree,
+  // and only ever for the exact admitted identity key.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setContext(readStoredOperatorContext(browserStorage(), identityKey));
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [identityKey]);
+
+  useEffect(() => {
+    if (hydrated) writeStoredOperatorContext(browserStorage(), context);
+  }, [hydrated, context]);
+
+  const recordCommercialPath = useCallback(
+    (path: OperatorContextPath | null) =>
+      setContext((current) => setOperatorPath(current, identityKey, path)),
+    [identityKey],
   );
 
   if (access === "unauthorized") return <PrivateWorkspaceUnavailable />;
 
   return (
     <main className="app-shell">
+      <a className="skip-link" href="#operator-task">Skip to task content</a>
       <aside className="rail" aria-label="Primary navigation">
         <div className="brand-block">
           <div className="brand-mark" aria-hidden="true">P</div>
@@ -104,29 +148,28 @@ export function ProspectorApp({
 
         <div className="workspace-picker">
           <span>COMPANY</span>
-          <button type="button" onClick={() => navigateToView("Knowledge")}><b>{companyLabel}</b><small>Owner workspace</small></button>
+          {onContactsRoute
+            ? <a href={operatorTaskHref("knowledge")}><b>{companyLabel}</b><small>Owner workspace</small></a>
+            : <button type="button" onClick={() => navigateToView("knowledge")}><b>{companyLabel}</b><small>Owner workspace</small></button>}
         </div>
 
-        <nav>
-          {WORKSPACE_VIEWS.map((item) => (
-            <button key={item.label} type="button" className={view === item.label ? "active" : ""} aria-current={view === item.label ? "page" : undefined} onClick={() => navigateToView(item.label)}>
-              <span>{item.key}</span>{item.label}
-            </button>
-          ))}
+        <nav aria-label="Operator tasks">
+          {OPERATOR_TASKS.map((item) => {
+            const current = item.id === task;
+            const label = operatorTaskLabel(item.id);
+            return item.id === CONTACTS_TASK_ID || onContactsRoute ? (
+              <a key={item.id} href={operatorTaskHref(item.id)} className={current ? "active" : ""} aria-current={current ? "page" : undefined}>{label}</a>
+            ) : (
+              <button key={item.id} type="button" className={current ? "active" : ""} aria-current={current ? "page" : undefined} onClick={() => navigateToView(item.id as ShellTaskId)}>{label}</button>
+            );
+          })}
         </nav>
-
-        <div className="rail-foot">
-          <div className="runner"><i /><div><b>Codex runner</b><span>Not connected · fixture mode</span></div></div>
-          <button type="button" onClick={() => navigateToView("Pilot Status")}>Pilot settings <span>→</span></button>
-        </div>
       </aside>
 
       <section className="canvas">
         <header className="topbar">
-          <div className="crumbs"><strong>{companyLabel}</strong><b>/</b><span>{view}</span></div>
+          <div className="crumbs"><strong>{companyLabel}</strong><b>/</b><span>{operatorTaskLabel(task)}</span></div>
           <div className="top-actions">
-            <label className="search"><span>⌕</span><input aria-label="Search prospects" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" /></label>
-            <button className="quiet" type="button" disabled>No live runs</button>
             <div className="avatar" title="Owner">O</div>
           </div>
         </header>
@@ -136,23 +179,48 @@ export function ProspectorApp({
           <span>Commercial knowledge is live. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, and outbound effects remain disabled.</span>
         </div>
 
-        <div className="content">
-          {view === "Pilot Status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
-          {view === "Morning Brief" && <MorningBrief profile={profile} setProfile={setProfile} items={filteredSignals} setView={navigateToView} />}
-          {view === "Knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} onCompanyResolved={setResolvedCompanyName} />}
-          {view === "Market Discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
-          {(view === "Review Queue" || view === "Prospects") && (
+        <OperatorContextStrip context={context} />
+
+        <div className="content" id="operator-task" role="region" tabIndex={-1} ref={contentRef} aria-label={`${operatorTaskLabel(task)} task`}>
+          {task === "status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
+          {task === "knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} onCommercialPathResolved={recordCommercialPath} />}
+          {task === "market-discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
+          {(task === "review-queue" || task === "prospects") && (
             <ProspectingWorkspace
               projection={initialProspectingProjection}
-              mode={view === "Review Queue" ? "review" : "prospects"}
+              mode={task === "review-queue" ? "review" : "prospects"}
               onUnauthorized={handleUnauthorized}
             />
           )}
-          {view === "Exports & History" && <Exports />}
+          {task === CONTACTS_TASK_ID && <ContactsWorkspace onAuthUnavailable={handleUnauthorized} />}
         </div>
       </section>
     </main>
   );
+}
+
+/** Presentation-only recall of the scope the operator is reading. It repeats the
+ * server-projected path; it never selects, widens, or authorizes anything. */
+function OperatorContextStrip({ context }: { context: OperatorContext }) {
+  const trail = operatorContextTrail(context);
+  return (
+    <div className="operator-context" role="group" aria-label="Current commercial scope">
+      {isOperatorContextEmpty(context)
+        ? <p>No commercial scope has been read yet. Open Company &amp; products to complete setup.</p>
+        : trail.map((step) => (
+          <div key={step.scope}><span>{step.label}</span><b>{step.entry.name}</b></div>
+        ))}
+    </div>
+  );
+}
+
+function browserStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function PageHeading({ eyebrow, title, copy, action }: { eyebrow: string; title: string; copy: string; action?: React.ReactNode }) {
@@ -435,66 +503,6 @@ async function fetchCapabilityState(): Promise<
     kind: "authorized",
     value: normalizeCapabilityState(await response.json()),
   };
-}
-
-function MorningBrief({ profile, setProfile, items, setView }: { profile: string; setProfile: (value: string) => void; items: typeof signals; setView: (view: WorkspaceView) => void }) {
-  return <>
-    <PageHeading eyebrow="PRIVATE WORKSPACE · NO LIVE DATA" title="Morning brief" copy="No prospecting results exist until a confirmed Customer Profile and its separate operational gates are ready." action={<button className="primary" type="button" disabled>Prospecting disabled</button>} />
-
-    <div className="context-strip">
-      <div><span>PRODUCT</span><b>Not selected</b><small>Complete Knowledge setup</small></div>
-      <div><span>MARKET PLAY</span><b>Not selected</b><small>Complete Knowledge setup</small></div>
-      <label><span>CUSTOMER PROFILE</span><select value={profile} onChange={(event) => setProfile(event.target.value)} disabled><option>No profile selected</option></select><small className="draft">Runs disabled</small></label>
-    </div>
-
-    <section className="metrics" aria-label="Weekly metrics">
-      <article><span>EXPORT-READY</span><strong>0</strong><div className="meter"><i style={{ width: "0%" }} /></div><p>No eligible records</p></article>
-      <article><span>REVIEW QUEUE</span><strong>0</strong><p>No review items</p></article>
-      <article><span>SIGNALS</span><strong>0</strong><p>No discovery runs</p></article>
-      <article className="risk"><span>LIVE OUTBOUND</span><strong>Off</strong><p>Wave 0 safety gate</p></article>
-    </section>
-
-    <div className="two-column">
-      <section className="panel review-panel">
-        <div className="panel-title"><div><span>TODAY’S PRIORITY</span><h2>Evidence review</h2></div><button type="button" onClick={() => setView("Review Queue")}>Open queue →</button></div>
-        <div className="signal-list">
-          {items.slice(0, 3).map((item) => <SignalRow key={item.company} item={item} />)}
-          {!items.length && <div className="empty">No prospects match that search.</div>}
-        </div>
-      </section>
-
-      <aside className="side-stack">
-        <section className="panel interview-card">
-          <span className="eyebrow">KNOWLEDGE</span><h2>Complete your commercial profile.</h2>
-          <p>Enter your Company, first Product, Market Play, and Customer Profile, then confirm fit in the guided interview.</p>
-          <div className="evidence-note"><b>Current authority</b><span>No customer-fit claims have been confirmed.</span></div>
-          <button className="dark" type="button" onClick={() => setView("Knowledge")}>Continue setup</button>
-        </section>
-        <section className="panel run-card">
-          <div className="panel-title"><div><span>SCHEDULE FIXTURE</span><h2>Not activated</h2></div><i className="pulse" /></div>
-          <dl><div><dt>Planned window</dt><dd>Last success + 24h overlap</dd></div><div><dt>Runner</dt><dd>Not connected</dd></div><div><dt>Budget</dt><dd>No authority granted</dd></div></dl>
-        </section>
-      </aside>
-    </div>
-
-    <section className="panel discovery-tease">
-      <div><span className="eyebrow">MARKET DISCOVERY</span><h2>No discovered market proposals yet.</h2><p>Discovery remains unavailable until Product knowledge and its separate capability gates are ready.</p></div>
-      <div className="fit"><span>PRODUCT FIT</span><b>Not assessed</b><small>No confirmed sources</small></div>
-      <button className="outline" type="button" disabled>No proposal</button>
-    </section>
-  </>;
-}
-
-function SignalRow({ item }: { item: (typeof signals)[number] }) {
-  return <article className="signal-row">
-    <div className="score"><b>{item.score}</b><span>/10</span></div>
-    <div className="signal-copy"><div><strong>{item.company}</strong><span>· {item.target}</span></div><p>{item.signal}</p><small><b>{item.tier}</b> Synthetic source tier · {item.age} sample age · {item.status}</small></div>
-    <div className="row-actions"><button type="button" disabled title="Requires a persisted, audited decision workflow">Approve disabled</button><button type="button" disabled title="Requires a persisted, audited decision workflow">Defer disabled</button></div>
-  </article>;
-}
-
-function Exports() {
-  return <><PageHeading eyebrow="PORTABILITY & HANDOFF" title="Exports & History" copy="These controls stay disabled until live eligibility and restore safety are proven." /><div className="export-grid"><section className="panel export-card"><span className="file-mark">CSV</span><h2>CRM Handoff</h2><p>Planned: one row per verified, non-suppressed contact with stable Prospect IDs and approved package references.</p><dl><div><dt>Eligible now</dt><dd>0 live prospects</dd></div><div><dt>Last export</dt><dd>Never</dd></div></dl><button className="primary" type="button" disabled title="Available after Wave 3">CSV disabled</button></section><section className="panel export-card"><span className="file-mark safe">LOCK</span><h2>Company Workspace Export</h2><p>Planned: encrypted, versioned, integrity-checked knowledge, history, objects, and suppression tombstones.</p><dl><div><dt>Restore drill</dt><dd>Not yet completed</dd></div><div><dt>Hosted retention</dt><dd>Not activated</dd></div></dl><button className="outline" type="button" disabled title="Available after Wave 0">Export disabled</button></section></div></>;
 }
 
 const EMPTY_PROSPECTING_PROJECTION: ProspectingProjection = Object.freeze({

@@ -69,10 +69,14 @@ test("generic onboarding is fenced to a resolver-proven local demo and exact loo
   assert.match(handler,/new URL\(origin!\)\.origin===url\.origin/);
   assert.match(route,/runtimeIsDevelopment: import\.meta\.env\.DEV/);
   const page=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
-  assert.match(page,/TRUSTED_IDENTITY_PROVIDER === "local-demo"/);
-  assert.match(page,/bindings\.LOCAL_DEMO === "1"/);
-  assert.match(page,/import\.meta\.env\.DEV/);
-  assert.match(page,/admitPilotOwner\(await runtimeIdentity/);
+  assert.match(page,/admitOperatorSession\(bindings\)/);
+  const admission=await readFile(new URL("../app/owner-admission.ts",import.meta.url),"utf8");
+  assert.match(admission,/admitPilotOwner\(\s*await runtimeIdentity/);
+  const identity=await readFile(new URL("../app/runtime-identity.ts",import.meta.url),"utf8");
+  assert.match(identity,/TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
+  assert.match(identity,/bindings\.LOCAL_DEMO !== "1"/);
+  assert.match(identity,/import\.meta\.env\.DEV/);
+  assert.match(identity,/isLoopbackHostname\(host\)/);
 });
 
 test("knowledge mutation routing cannot drop an exact Explore selection before answer or confirmation", async () => {
