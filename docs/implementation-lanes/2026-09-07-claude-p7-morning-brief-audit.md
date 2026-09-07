@@ -178,24 +178,48 @@ could be reached:
 | `npm test` (build + all suites) | build PASS; 104 tests pass across 23 files, then exit 1 at `drift-replacement` |
 | build + all suites except `drift-replacement` | build PASS; 149 tests pass across 32 files, then exit 1 at `fixture-safety` |
 | all suites except `drift-replacement` and `fixture-safety` | 183 tests pass across 37 files, then exit 1 at `greenfield-target-config` |
-| the 80-file tail after `greenfield-target-config`, excluding all three | **stopped at owner request**; 41 tests passed across 10 files with zero failures when it was halted |
+| the 80-file tail after `greenfield-target-config`, excluding all three | restarted on `8125a73` and carried past this lane's own suite; 24 files complete with zero failures at the point recorded below |
 
-**`tests/morning-brief.test.mjs` was never reached through the canonical
-runner.** It sorts after `greenfield-target-config`, and the tail run that would
-have reached it was stopped before it got there. The suite has only ever been
-run standalone and inside the five-suite focused lane, where it passes 9/9 and
-41/41 respectively. That is a real limitation of this evidence, not a formality:
-no run has yet proven this suite behaves identically under the canonical
-runner's sequencing alongside the fixture-heavy Miniflare suites.
+**`tests/morning-brief.test.mjs` passes under the canonical runner.** The
+earlier revision of this document recorded that it had never been reached,
+because it sorts after `greenfield-target-config` and the first tail run was
+stopped before it got there. That gap is now closed. The tail was restarted on
+commit `8125a73` with a clean worktree, and this lane's suite ran as file #22 of
+that list, in canonical-runner sequencing after the fixture-heavy Miniflare
+suites rather than standalone:
 
-Everything this lane genuinely holds is the focused suite, the combined focused
-lane, the production build, the whole-project lint, the strict typecheck, the
-production audit, the diff check, and the mutation results above. Nothing here
-is a canonical-gate pass.
+```text
+ok 1 - composes the weekly cohort, separate handoff counts, and a current upstream schedule with zero authority
+ok 2 - a restored workspace reports the schedule disabled pending a fresh upstream activation
+ok 3 - absent, drifted, misdefined, foreign, future, and stale schedule evidence never reports a state
+ok 4 - absent, stale, future, drifted, or self-inconsistent handoff readiness withholds every count
+ok 5 - weekly history that is unavailable, out of scope, out of time, or a forged projection blocks the brief
+ok 6 - a Draft profile scope contributes no cohort, contacts, or losses
+ok 7 - hostile, malformed, and non-plain input shapes fail closed
+ok 8 - identifier-shaped raw contact values are rejected rather than reported
+ok 9 - the module composes no port, provider, effect, or preparation dependency
+1..9
+# tests 9
+# pass 9
+# fail 0
+# duration_ms 4822.992487
+```
+
+Twenty-four files of that tail were complete with zero failures when this result
+was recorded; the remaining files were still running and their outcome is not
+claimed here. The three pre-existing failures above are excluded from that list
+by construction, so this tail is not a canonical `npm test` pass and nothing in
+this lane claims one.
+
+The evidence this lane holds is therefore: the focused suite standalone (9/9),
+the combined five-suite focused lane (41/41), the same suite under the canonical
+runner (9/9), the production build, the whole-project lint, the strict
+typecheck, the production audit, the diff check, and the mutation results above.
 
 ### Exact next validation action
 
-From `site/`, on a checkout of this branch:
+The tail command below was run and carried past this lane's suite; re-run it to
+carry the remaining files to completion:
 
 ```bash
 node scripts/run-test-suite.mjs $(ls tests/*.test.mjs \
@@ -203,9 +227,12 @@ node scripts/run-test-suite.mjs $(ls tests/*.test.mjs \
   | awk '$0 > "tests/greenfield-target-config.test.mjs"')
 ```
 
-That completes the 80-file tail and exercises `tests/morning-brief.test.mjs`
-under the canonical runner. Separately, diagnose the three pre-existing failures
-against the base commit rather than against this branch.
+Separately, and more importantly for the project rather than for this lane,
+diagnose the three pre-existing failures against the base commit rather than
+against this branch. `tests/greenfield-target-config.test.mjs` should come
+first: a `migration_manifest_mismatch` on the Cloudflare target-configuration
+seam is Plan 02-99 territory and means the checked manifest no longer matches
+the migration bytes it is bound to.
 
 ## Status
 
@@ -215,7 +242,8 @@ runtime, persistence, export, delivery, archive, restore, hosted, provider, or
 outbound authority, and changes no gate recorded in `.planning/STATE.md` or
 `docs/CODEX-CONTINUATION.md`.
 
-Validation is deliberately closed short of a canonical-gate pass: the tail run
-was stopped at owner request, so this lane's own suite has been proven only
-standalone and in its focused lane, never under the canonical runner. The exact
-command to close that gap is recorded above.
+Validation stops short of a canonical-gate pass, and deliberately says so: the
+canonical `npm test` exits 1 on this branch and on its base alike, for three
+pre-existing reasons this lane did not introduce and did not fix. This lane's
+own suite is proven standalone, in its focused lane, and under the canonical
+runner.
