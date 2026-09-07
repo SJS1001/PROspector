@@ -135,10 +135,10 @@ test("actual services settle one synthetic provider result into current ContactR
     const settlementPersistence = await load(fixture,"contact-settlement-persistence");
     const eligibility = await load(fixture,"contact-eligibility");
     const eligibilityPersistence = await load(fixture,"contact-eligibility-persistence");
-    const [repositoryModule, issuance, authority, operation, providerPort, contactEvidence] = await Promise.all([
-      load(fixture,"enrichment-repository"), load(fixture,"enrichment-grant-issuance"),
-      load(fixture,"enrichment-authority"), load(fixture,"enrichment-operation"),
-      load(fixture,"contact-provider-port"), load(fixture,"contact-evidence"),
+    const [repositoryModule, issuance, authority, operation, providerPort, contactEvidence] = await loadDomain(fixture, [
+      "enrichment-repository", "enrichment-grant-issuance",
+      "enrichment-authority", "enrichment-operation",
+      "contact-provider-port", "contact-evidence",
     ]);
     const settlementAttestor = await createSyntheticContactSettlementAttestor(fixture);
     const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
@@ -425,10 +425,8 @@ async function readyObservedCandidate(fixture) {
     (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
     VALUES ('p5i-quote',?,'synthetic-contact-provider','v1','synthetic-catalog',1,'business_contact_lookup/v1','CAD',10,?,?,?)`)
     .bind(lifecycle.workspaceId,"b".repeat(64),NOW+20_000,NOW).run();
-  const [repositoryModule,issuance,authority] = await Promise.all([
-    fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname),
-    fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname),
-    fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname),
+  const [repositoryModule,issuance,authority] = await loadDomain(fixture, [
+    "enrichment-repository", "enrichment-grant-issuance", "enrichment-authority",
   ]);
   const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:()=>NOW});
   return { lifecycle, repository, issuance, authority };
@@ -437,6 +435,11 @@ async function readyObservedCandidate(fixture) {
 function grantRequest(lifecycle, expectedRevision, idempotencyKey) { return { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision,idempotencyKey,now:NOW+5 }; }
 
 function load(fixture,name) { return fixture.vite.ssrLoadModule(new URL(`../domain/${name}.ts`,import.meta.url).pathname); }
+/* One at a time: port and verifier authority is a module-scoped WeakSet brand,
+ * so it only holds while every module shares one instance of the file that owns
+ * it. Concurrent loads let two of them instantiate a shared dependency twice,
+ * and the operation then correctly rejects an object branded by the other. */
+async function loadDomain(fixture,names) { const modules=[]; for (const name of names) modules.push(await load(fixture,name)); return modules; }
 
 async function enableSyntheticControlledEnrichmentGate(database,workspaceId) {
   const gate = {
