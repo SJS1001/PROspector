@@ -123,10 +123,18 @@ current checkpoint unchanged.
 
 ### Full-suite sweep
 
-Every `site/tests/*.test.mjs` file was then run in its own process in one
-non-stopping sweep, so no single failure could hide the rest: **80 files, 602
-passing, 2 failing**. Both failures were pre-existing and are recorded below.
-The candidate's own suite passed 13/13 in that sweep.
+**Status: re-run in progress — the numbers in this section are pre-repair and
+will be replaced.**
+
+An initial sweep ran the 80 `site/tests/*.test.mjs` files following
+`greenfield-target-config.test.mjs`, each in its own process and non-stopping so
+no single failure could hide the rest: **80 files, 602 passing, 2 failing**.
+Both failures were pre-existing. The candidate's own suite passed 13/13.
+
+That sweep predates the four repairs recorded below. A complete sweep over all
+119 test files is running against the current head; this section will be
+replaced with its exact tally. Until then, treat the counts above as describing
+the pre-repair tree only, and do not cite them as the current result.
 
 ### Pre-existing failures on the base branch
 
