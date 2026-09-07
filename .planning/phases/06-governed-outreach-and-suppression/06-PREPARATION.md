@@ -562,9 +562,13 @@ disk:
    without the `initializeCommercialModel` seed that every other
    knowledge-dependent suite performs, so `createKnowledgeProposal` raises
    `knowledge_conflict` ("Commercial workspace is unavailable").
-2. `tests/fixture-safety.test.mjs` fails 1/1 on "remaining fixture-governed
-   consequential controls render natively disabled", asserting that an Approve
-   control renders with the native `disabled` attribute.
+2. `tests/fixture-safety.test.mjs` failed 1/1 on "remaining fixture-governed
+   consequential controls render natively disabled". The Approve and Defer
+   controls were absent from the rendered workbench, not enabled in it: the
+   shipped `signals` fixture array is now deliberately empty, so no sample
+   prospect row renders and `SignalRow` is unreachable through the workbench.
+   Both controls are still `disabled` in the component itself. **Fixed on this
+   branch** (see below).
 3. `tests/greenfield-target-config.test.mjs` fails 2/6, both cases with
    `migration_manifest_mismatch`. `02-99-MIGRATION-MANIFEST.md` pins the ordered
    SHA-256 manifest of the `0000`-`0009` chain to migration source
@@ -584,14 +588,26 @@ disk:
    now a computed expression carrying the blank-local-onboarding redirect to
    Knowledge. **Fixed on this branch** (see below).
 
-Defects 1 through 3 belong to other lanes and were deliberately left untouched.
-This slice touches no file under `site/drizzle/`, adds no migration, and changes
-no app, route, or UI source.
+Defects 1 and 3 belong to other lanes and were deliberately left untouched. This
+slice touches no file under `site/drizzle/` and adds no migration.
 
-Defects 4 and 5 were separately authorized and repaired here as stale test
-assertions, not as source changes. In both cases the source was correct and the
-assertion had gone stale against a deliberate improvement, so each literal was
-replaced by an assertion of the same property in its current shape:
+Defects 2, 4 and 5 were separately authorized and repaired here. In every case
+the source was correct and the assertion had gone stale against a deliberate
+improvement — the branch has been systematically removing fabricated sample data
+and hard-coded personal copy from the shipped workbench — so each stale literal
+was replaced by an assertion of the same property in its current shape rather
+than deleted:
+
+- `fixture-safety` keeps asserting `Prospecting disabled`, `CSV disabled`, and
+  `Export disabled` against the rendered workbench. Because `signals` is now
+  empty, `Approve disabled` and `Defer disabled` can no longer be reached
+  through it, so the guard renders `SignalRow` directly and proves both controls
+  are still natively disabled. It additionally asserts that the workbench ships
+  no `signal-row` at all. `SignalRow` is exported for this purpose only; no
+  behaviour changed, and the component remains unreachable from shipped data.
+  Two separate regressions were injected to confirm the guard is not vacuous: an
+  Approve control rendered without `disabled`, and a sample row returned to the
+  shipped `signals` array. Each made the suite fail, and the source was restored.
 
 - `rendered-html` now asserts the `Morning brief` heading, the
   `PRIVATE WORKSPACE · NO LIVE DATA` eyebrow, and the `EXPORT-READY` tile with
@@ -603,8 +619,11 @@ replaced by an assertion of the same property in its current shape:
   assertion that the blank-local-onboarding redirect to `Knowledge` is present.
 
 Each replacement regex was checked to still fail when the property regresses, so
-neither assertion was weakened into a vacuous match. Both suites pass 6/6 and
-lint clean. No application, route, or component source was modified.
+no assertion was weakened into a vacuous match. The three repaired suites pass
+7/7 together, all eight UI-rendering suites pass 62/62, and canonical
+`npm run lint` and the project typecheck are clean. The only application-source
+change in this lane is the one-word `export` on `SignalRow` plus its explanatory
+comment; no route, component behaviour, markup, or copy was modified.
 
 Because the canonical runner halts on first failure, the gate was instead
 exercised in full across four passes that together cover all 119 canonical test
@@ -623,8 +642,8 @@ files exactly once:
 
 `tests/drift-replacement.test.mjs` (failure 1, 6 cases) completes the 119.
 Across all passes: 796 cases, 788 passing, and all 8 failures confined to the
-five pre-existing suites above. With defects 4 and 5 repaired, 790 pass and the
-6 remaining failures sit in defects 1 through 3, which stay open for their own
+five pre-existing suites above. With defects 2, 4 and 5 repaired, 791 pass and
+the 5 remaining failures sit in defects 1 and 3, which stay open for their own
 lanes. No failure in any pass is attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
 test file outside its own focused suite, and the static composition guard
 enforces that. This is local preparation evidence only.

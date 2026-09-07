@@ -14,7 +14,7 @@ test("remaining fixture-governed consequential controls render natively disabled
   });
 
   try {
-    const { ProspectorApp } = await server.ssrLoadModule(
+    const { ProspectorApp, SignalRow } = await server.ssrLoadModule(
       new URL("../app/prospector-app.tsx", import.meta.url).pathname,
     );
     const html = [
@@ -28,22 +28,42 @@ test("remaining fixture-governed consequential controls render natively disabled
       renderToStaticMarkup(createElement(ProspectorApp, { initialView })),
     ).join("\n");
 
-    assert.match(html, /Controlled capability pilot/);
-    for (const label of [
-      "Prospecting disabled",
-      "Approve disabled",
-      "Defer disabled",
-      "CSV disabled",
-      "Export disabled",
-    ]) {
+    // The workbench ships no fabricated prospect rows, so the per-row Approve
+    // and Defer controls are unreachable through it. That is the stronger
+    // posture, but it must not silently retire the row-level guarantee: render
+    // SignalRow directly so its controls are still proven natively disabled.
+    const rowHtml = renderToStaticMarkup(createElement(SignalRow, {
+      item: {
+        company: "Synthetic Company",
+        target: "Synthetic target",
+        signal: "Synthetic signal",
+        score: 0,
+        tier: "Synthetic",
+        age: "0d",
+        status: "Synthetic",
+      },
+    }));
+
+    const assertNativelyDisabled = (source, label, where) => {
       const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       assert.match(
-        html,
+        source,
         new RegExp(`<button(?=[^>]*disabled)[^>]*>${escaped}</button>`),
-        `${label} must render with the native disabled attribute`,
+        `${label} must render with the native disabled attribute in ${where}`,
       );
+    };
+
+    assert.match(html, /Controlled capability pilot/);
+    for (const label of ["Prospecting disabled", "CSV disabled", "Export disabled"]) {
+      assertNativelyDisabled(html, label, "the rendered workbench");
+    }
+    for (const label of ["Approve disabled", "Defer disabled"]) {
+      assertNativelyDisabled(rowHtml, label, "a rendered signal row");
     }
 
+    // No sample prospect row may ship in the workbench itself.
+    assert.match(html, /No prospects match that search\./);
+    assert.doesNotMatch(html, /class="signal-row"/);
     assert.doesNotMatch(html, /Connected · advisory|Last run 06:00/);
   } finally {
     await server.close();

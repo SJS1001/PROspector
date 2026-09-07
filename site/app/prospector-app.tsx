@@ -485,7 +485,10 @@ function MorningBrief({ profile, setProfile, items, setView }: { profile: string
   </>;
 }
 
-function SignalRow({ item }: { item: (typeof signals)[number] }) {
+// Exported so the fixture-safety guard can prove the row's consequential
+// controls stay natively disabled. `signals` is deliberately empty, so this row
+// never renders from shipped data and cannot be reached through the workbench.
+export function SignalRow({ item }: { item: (typeof signals)[number] }) {
   return <article className="signal-row">
     <div className="score"><b>{item.score}</b><span>/10</span></div>
     <div className="signal-copy"><div><strong>{item.company}</strong><span>· {item.target}</span></div><p>{item.signal}</p><small><b>{item.tier}</b> Synthetic source tier · {item.age} sample age · {item.status}</small></div>
