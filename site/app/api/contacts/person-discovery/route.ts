@@ -1,7 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isLocalDemoRequest, runtimeIdentity } from "../../../runtime-identity";
 import { handlePersonDiscoveryGet, handlePersonDiscoveryPost, type PersonDiscoveryHandlerDependencies } from "../../../../domain/person-discovery-handler";
-import { createPersonDiscoveryC4Service } from "../../../../domain/person-discovery-c4-acceptance";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +19,23 @@ async function dependencies(request: Request): Promise<PersonDiscoveryHandlerDep
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     csrfCookieMode: isLocalDemoRequest(request, bindings) ? "local-demo" : "secure",
     getIdentity: async () => runtimeIdentity(request, bindings),
-    personDiscoveryService: createPersonDiscoveryC4Service(request, bindings, bindings.DB),
+    personDiscoveryService: await localDemoPersonDiscoveryService(request, bindings, bindings.DB),
   };
+}
+
+/** The synthetic C4 acceptance port is a development-only seam. Importing it
+ * dynamically inside a branch that folds away in a production build keeps
+ * domain/person-discovery-c4-acceptance -- and its synthetic candidate
+ * fixtures -- out of `dist/` entirely, which a static import could not do.
+ * Production continues to supply no PersonDiscoveryService at all. */
+async function localDemoPersonDiscoveryService(
+  request: Request,
+  bindings: { LOCAL_DEMO?: string; TRUSTED_IDENTITY_PROVIDER?: string; PROSPECTOR_PERSON_DISCOVERY_C4?: string },
+  database: D1Database,
+) {
+  if (import.meta.env.DEV) {
+    const { createPersonDiscoveryC4Service } = await import("../../../../domain/person-discovery-c4-acceptance");
+    return createPersonDiscoveryC4Service(request, bindings, database);
+  }
+  return undefined;
 }
