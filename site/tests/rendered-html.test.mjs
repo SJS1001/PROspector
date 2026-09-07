@@ -16,9 +16,12 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   ]);
   assert.match(page, /ProspectorApp/);
   assert.match(layout, /PROspector — Human-governed GTM/);
-  assert.match(app, /Good morning, Steven/);
+  // The shell is generic: it must not hardcode an owner name, a seed Company,
+  // or a seed Market Play. The brief identifies the workspace by state instead.
+  assert.match(app, /PRIVATE WORKSPACE · NO LIVE DATA/);
+  assert.match(app, /No prospecting results exist until a confirmed Customer Profile/);
+  assert.doesNotMatch(app, /Good morning, [A-Z]|Digitalrain|ONE for Mining/);
   assert.match(app, /Consensus Interview/);
-  assert.match(app, /Sample export-ready/i);
   assert.match(app, /Controlled capability pilot/);
   assert.match(app, /Prospecting disabled/);
   assert.match(app, /0 live prospects/);
