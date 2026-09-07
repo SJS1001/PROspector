@@ -41,9 +41,16 @@ npm run baseline:greenfield
 ```
 
 The command resets only ignored state below `site/.local`, applies the checked
-repository migration chain to that disposable database, checks foreign keys,
-and proves selected authority and operational tables are empty. Its safe JSON
-result explicitly records `originalProjectMigrationClaim: "none"`.
+`0000`-`0009` prefix of the repository migration chain to that disposable
+database, checks foreign keys, and proves selected authority and operational
+tables are empty. Its safe JSON result explicitly records
+`originalProjectMigrationClaim: "none"`, and reports `appliedMigrations`
+against `checkedChainMigrations` with `coversCheckedChain` so the attested
+scope is never read as the whole chain.
+
+Later migrations are outside this attestation. The tables they create are
+absent from the resulting database, so a clean result proves nothing about
+them.
 
 This attestation proves reproducible local bootstrap only. It makes no claim
 about the inaccessible original project or any future hosted target.

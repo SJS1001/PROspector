@@ -8,7 +8,7 @@ const root = resolve(import.meta.dirname, "..");
 const state = ".local/test-greenfield-baseline-state";
 const statePath = resolve(root, state);
 
-test("greenfield attestation builds only a fresh empty local baseline and claims nothing about the original project", async () => {
+test("greenfield attestation reports the exact chain prefix it applied and claims nothing about the original project", async () => {
   await rm(statePath, { recursive: true, force: true });
   try {
     const output = execFileSync(process.execPath, ["scripts/greenfield-baseline.mjs", "--reset", "--state", state], { cwd: root, encoding: "utf8" });
@@ -16,7 +16,10 @@ test("greenfield attestation builds only a fresh empty local baseline and claims
     assert.deepEqual(report, {
       status: "ready",
       baselineKind: "greenfield-local",
-      migrationSource: "checked-repository-chain",
+      migrationSource: "checked-repository-chain-prefix",
+      appliedMigrations: 10,
+      checkedChainMigrations: 20,
+      coversCheckedChain: false,
       originalProjectEvidence: "waived-unavailable",
       originalProjectMigrationClaim: "none",
       hostedEvidence: false,

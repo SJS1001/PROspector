@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstatSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -18,7 +18,16 @@ if (!stateRelative || stateRelative.startsWith("..") || stateRelative.includes(s
 rejectSymlink(localRoot);
 rejectSymlink(statePath);
 
-run(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", requestedState]);
+const bootstrap = JSON.parse(run(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", requestedState]).stdout.trim());
+/* The bootstrap deliberately applies a prefix of the checked chain, so the
+ * report states both counts: a reader must never take `ready` for proof that
+ * every checked migration ran. */
+const checkedChainMigrations = JSON.parse(readFileSync(resolve(ROOT, "drizzle", "meta", "_journal.json"), "utf8")).entries.length;
+const appliedMigrations = bootstrap.migrationCount;
+if (!Number.isSafeInteger(appliedMigrations) || appliedMigrations < 1 || appliedMigrations > checkedChainMigrations) {
+  throw new Error("greenfield_migration_count_invalid");
+}
+const coversCheckedChain = appliedMigrations === checkedChainMigrations;
 const counts = queryCounts(statePath);
 for (const [table, count] of Object.entries(counts)) {
   assert.equal(count, 0, `greenfield_nonempty:${table}`);
@@ -27,7 +36,10 @@ for (const [table, count] of Object.entries(counts)) {
 process.stdout.write(`${JSON.stringify({
   status: "ready",
   baselineKind: "greenfield-local",
-  migrationSource: "checked-repository-chain",
+  migrationSource: coversCheckedChain ? "checked-repository-chain" : "checked-repository-chain-prefix",
+  appliedMigrations,
+  checkedChainMigrations,
+  coversCheckedChain,
   originalProjectEvidence: "waived-unavailable",
   originalProjectMigrationClaim: "none",
   hostedEvidence: false,
