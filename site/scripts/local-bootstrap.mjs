@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 
@@ -8,13 +8,9 @@ const STATE = requestedState >= 0 && process.argv[requestedState + 1]
   ? resolve(ROOT, process.argv[requestedState + 1])
   : resolve(ROOT, ".local", "miniflare-state");
 if (!STATE.startsWith(resolve(ROOT, ".local") + "/")) throw new Error("local_state_path_invalid");
-const MIGRATIONS = [
-  "0000_jittery_meteorite.sql", "0001_true_spencer_smythe.sql",
-  "0002_eager_supreme_intelligence.sql", "0003_acoustic_magik.sql",
-  "0004_consensus_knowledge.sql", "0005_even_mastermind.sql",
-  "0006_private-proof-run-binding.sql", "0007_profile_prospecting.sql",
-  "0008_controlled_enrichment.sql", "0009_gorgeous_captain_universe.sql",
-];
+// Derived from the checked Drizzle journal so an appended migration is applied
+// here without a second list to keep in step.
+const MIGRATIONS = await readJournalMigrations();
 
 if (!process.argv.includes("--reset")) {
   throw new Error("local_reset_required: run npm run db:local:reset");
@@ -29,3 +25,23 @@ for (const migration of MIGRATIONS) {
 const check = spawnSync(resolve(ROOT, "node_modules", ".bin", "wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", STATE, "--config", "wrangler.local.jsonc", "--command", "PRAGMA foreign_key_check;"], { encoding: "utf8" });
 if (check.status !== 0 || /\"results\":\[\[[^\]]/.test(check.stdout)) throw new Error("local_foreign_key_check_failed");
 console.log(JSON.stringify({ status: "ready", state: STATE, migrationCount: MIGRATIONS.length, disposable: true }));
+
+async function readJournalMigrations() {
+  let journal;
+  try {
+    journal = JSON.parse(await readFile(resolve(ROOT, "drizzle", "meta", "_journal.json"), "utf8"));
+  } catch {
+    throw new Error("local_migration_journal_invalid");
+  }
+  const entries = journal?.entries;
+  if (!Array.isArray(entries) || entries.length === 0) throw new Error("local_migration_journal_invalid");
+  return entries
+    .map((entry) => {
+      if (!Number.isInteger(entry?.idx) || !/^\d{4}_[a-z0-9_-]+$/iu.test(entry?.tag ?? "")) {
+        throw new Error("local_migration_journal_invalid");
+      }
+      return entry;
+    })
+    .sort((left, right) => left.idx - right.idx)
+    .map((entry) => `${entry.tag}.sql`);
+}

@@ -12,9 +12,12 @@ npm run dev -- --port 8788 --host 127.0.0.1
 ```
 
 `db:local:reset` recreates the local Miniflare state at
-`site/.local/miniflare-state` from migrations 0000–0009 and verifies foreign
-keys. The directory is ignored by Git and may be deleted at any time. It never
-points at a hosted database.
+`site/.local/miniflare-state` from the complete checked migration chain and
+verifies foreign keys. The chain applied is read from
+`site/drizzle/meta/_journal.json` in journal order, so it always covers every
+checked migration and needs no update here when one is appended. The directory
+is ignored by Git and may be deleted at any time. It never points at a hosted
+database.
 
 The browser server uses local Miniflare bindings. The ignored `.dev.vars` file
 is the supported local Worker-binding mechanism for the Cloudflare Vite plugin.
