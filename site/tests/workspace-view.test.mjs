@@ -40,7 +40,7 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
 test("workspace navigation is server-seeded, history-aware, and demo-directed to Company & products", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
   const app = await readFile(new URL("app/prospector-app.tsx", root), "utf8");
-  const demo = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
+  const demo = await readFile(new URL("app/local-demo/_screen.tsx", root), "utf8");
 
   assert.match(page, /workspaceViewFromParam\(requestedView\)/);
   assert.match(page, /initialView=\{blankLocalOnboarding[\s\S]*?: initialView\}/);

@@ -24,8 +24,8 @@ test("runtime composition stays deterministic, secretless, loopback-only, and ze
   for (const invariant of ["import.meta.env.DEV", "synthetic-zero-network-c4-v1", "TRUSTED_IDENTITY_PROVIDER", "LOCAL_DEMO", "127.0.0.1", "synthetic_acceptance"]) assert.match(source, new RegExp(invariant.replaceAll(".", "\\.")));
   assert.doesNotMatch(source, /\bfetch\s*\(|https?:\/\/|credential|process\.env|provider[_-]?(?:key|token|secret)/i);
   const route = await readFile(resolve(root, "app/api/contacts/person-discovery/route.ts"), "utf8");
-  assert.match(route, /createPersonDiscoveryC4Service\(request, bindings, bindings\.DB\)/);
-  const seed = await readFile(resolve(root, "app/api/local-demo/person-discovery-c4/route.ts"), "utf8");
+  assert.match(route, /createPersonDiscoveryC4Service\(request, bindings, database\)/);
+  const seed = await readFile(resolve(root, "app/api/local-demo/person-discovery-c4/_handler.ts"), "utf8");
   assert.match(seed, /personDiscoveryC4Enabled/);
   assert.match(seed, /runtimeIdentity\(request, bindings\)/);
   assert.match(seed, /status: 404/);

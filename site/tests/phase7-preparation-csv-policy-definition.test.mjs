@@ -65,7 +65,7 @@ function candidateInput(patch = {}) {
     headerPolicy: "single_header_row",
     quotingPolicy: "rfc4180_double_quote",
     nullPolicy: "empty_field",
-    formulaNeutralizationPolicy: "prefix_apostrophe_for_equals_plus_minus_at",
+    formulaNeutralizationPolicy: "prefix_apostrophe_for_equals_plus_minus_at_after_leading_whitespace_control_bom",
     createdAt: NOW,
     ...patch,
   };
@@ -167,7 +167,7 @@ test("the text-safety policy is fixed without materializing bytes", async () => 
     assert.equal(artifact.snapshot.nullPolicy, "empty_field");
     assert.equal(
       artifact.snapshot.formulaNeutralizationPolicy,
-      "prefix_apostrophe_for_equals_plus_minus_at",
+      "prefix_apostrophe_for_equals_plus_minus_at_after_leading_whitespace_control_bom",
     );
     assert.equal(Object.hasOwn(artifact.snapshot, "bytes"), false);
   } finally {

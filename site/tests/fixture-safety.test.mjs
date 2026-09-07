@@ -29,6 +29,11 @@ test("remaining fixture-governed consequential controls render natively disabled
     ).join("\n");
 
     assert.match(html, /Controlled capability pilot/);
+    // Morning Brief and Exports & History (and with them "Prospecting
+    // disabled", "Approve disabled", "Defer disabled", "CSV disabled", and
+    // "Export disabled") were removed as part of Work Unit D: those tasks have
+    // no backing service yet, so they are hidden rather than shown disabled.
+    // See the doesNotMatch assertion below for the corresponding fence.
     for (const label of [
       "Enrich contact disabled",
       "Buy credits disabled",
