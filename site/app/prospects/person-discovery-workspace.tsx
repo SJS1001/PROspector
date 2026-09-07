@@ -237,12 +237,14 @@ export function normalizePersonDiscoveryProjection(value: unknown): PersonDiscov
 export function PersonDiscoveryWorkspace({
   fetcher = fetch,
   idFactory = () => crypto.randomUUID(),
-}: Readonly<{ fetcher?: typeof fetch; idFactory?: () => string }> = {}) {
+  onAuthUnavailable,
+}: Readonly<{ fetcher?: typeof fetch; idFactory?: () => string; onAuthUnavailable?: () => void }> = {}) {
   const [projection, setProjection] = useState<PersonDiscoveryProjection | null>(null);
   const [selectedProspectId, setSelectedProspectId] = useState("");
   const [ui, setUi] = useState<PersonDiscoveryUiState>(initialPersonDiscoveryUiState);
   const mutationPending = useRef(false);
   const readPending = useRef(false);
+  const collapsed = useRef(false);
   const readGeneration = useRef(0);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const chosen = projection?.approvedProspects.find((item) => item.prospectId === selectedProspectId) ?? null;
@@ -271,6 +273,9 @@ export function PersonDiscoveryWorkspace({
   const decisionReady =
     !!ui.decision && ui.confirmed && (ui.decision === "no_match" || !!candidate) && (ui.decision !== "link_existing" || !!selectedContact);
   const focusStatus = () => queueMicrotask(() => statusRef.current?.focus());
+  /** A Contacts admission 404 collapses the whole shell at once; no recovery
+   * read or retry may follow it. */
+  const collapse = () => { if (!collapsed.current) { collapsed.current = true; onAuthUnavailable?.(); } };
   const setNotice = (notice: Notice) => setUi((state) => ({ ...state, notice }));
   const resetReview = () =>
     setUi((state) => ({
@@ -283,7 +288,7 @@ export function PersonDiscoveryWorkspace({
       confirmed: false,
     }));
   async function load(prospectId: string, cursor: string | null, preserveNotice = false, supersede = false): Promise<void> {
-    if (!prospectId || (readPending.current && !supersede)) return;
+    if (!prospectId || collapsed.current || (readPending.current && !supersede)) return;
     const generation = ++readGeneration.current;
     readPending.current = true;
     setUi((state) => ({
@@ -304,6 +309,7 @@ export function PersonDiscoveryWorkspace({
         credentials: "same-origin",
       });
       if (generation !== readGeneration.current) return;
+      if (response.status === 404) { collapse(); return; }
       if (response.status === 409) {
         setUi((state) => ({
           ...state,
@@ -386,8 +392,12 @@ export function PersonDiscoveryWorkspace({
       headers: { accept: "application/json" },
       credentials: "same-origin",
     })
-      .then(async (response) => (response.ok ? normalizePersonDiscoveryProjection(await response.json()) : null))
+      .then(async (response) => {
+        if (response.status === 404) { collapse(); return null; }
+        return response.ok ? normalizePersonDiscoveryProjection(await response.json()) : null;
+      })
       .then((value) => {
+        if (collapsed.current) return;
         if (!value) {
           setNotice({
             kind: "error",
@@ -420,12 +430,13 @@ export function PersonDiscoveryWorkspace({
     await load(selectedProspectId, null, true);
   }
   async function command(body: Record<string, unknown>, unknown: string) {
-    if (mutationPending.current || readPending.current) return;
+    if (collapsed.current || mutationPending.current || readPending.current) return;
     mutationPending.current = true;
     setUi((state) => ({ ...state, pending: true }));
     try {
       const response = await postPersonDiscoveryCommand(fetcher, body);
-      if (!response.ok) await recoverUnknown(unknown);
+      if (response.status === 404) collapse();
+      else if (!response.ok) await recoverUnknown(unknown);
       else if (selectedProspectId) await load(selectedProspectId, null);
     } catch {
       await recoverUnknown(unknown);
