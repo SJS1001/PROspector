@@ -29,10 +29,12 @@ test("remaining fixture-governed consequential controls render natively disabled
     ).join("\n");
 
     assert.match(html, /Controlled capability pilot/);
+    // "Approve disabled" and "Defer disabled" were retired with the Mining
+    // signals fixture in 3320f26; SignalRow is their only render site and it is
+    // now unreachable. Do not re-add them without re-seeding that fixture. This
+    // follows 7598ba0, which retired "Prospect disabled" the same way.
     for (const label of [
       "Prospecting disabled",
-      "Approve disabled",
-      "Defer disabled",
       "CSV disabled",
       "Export disabled",
     ]) {
