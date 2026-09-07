@@ -43,7 +43,10 @@ test("workspace navigation is server-seeded, history-aware, and demo-directed to
   const demo = await readFile(new URL("app/local-demo/_screen.tsx", root), "utf8");
 
   assert.match(page, /workspaceViewFromParam\(requestedView\)/);
-  assert.match(page, /initialView=\{blankLocalOnboarding[\s\S]*?: initialView\}/);
+  // The server seeds the view from the URL, then redirects a blank local-demo
+  // workspace to Company & products instead of the default Status landing.
+  assert.match(page, /initialView=\{[^}]*\binitialView\b[^}]*\}/);
+  assert.match(page, /blankLocalOnboarding && initialView === "status" \? "company-products" : initialView/);
   assert.match(app, /window\.history\.pushState/);
   assert.match(app, /addEventListener\("popstate", restoreView\)/);
   assert.match(app, /aria-current=\{view === item\.id \? "page" : undefined\}/);

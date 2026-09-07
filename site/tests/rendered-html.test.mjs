@@ -16,12 +16,14 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   ]);
   assert.match(page, /ProspectorApp/);
   assert.match(layout, /PROspector — Human-governed GTM/);
-  assert.match(app, /Good morning, Steven/);
+  // The shell is generic: it must not hardcode an owner name, a seed Company,
+  // or a seed Market Play. Morning Brief (which carried the old
+  // "PRIVATE WORKSPACE · NO LIVE DATA" state copy) was removed with Work Unit
+  // D because it has no backing service yet; see operator-interface.test.mjs
+  // and the doesNotMatch below for its replacement fence.
+  assert.doesNotMatch(app, /Good morning, [A-Z]|Digitalrain|ONE for Mining/);
   assert.match(app, /Consensus Interview/);
-  assert.match(app, /Sample export-ready/i);
   assert.match(app, /Controlled capability pilot/);
-  assert.match(app, /Prospecting disabled/);
-  assert.match(app, /0 live prospects/);
   assert.match(app, /Submit answer for confirmation/);
   assert.match(app, /Confirm submitted answer/);
   assert.match(app, /Start corrected review/);
