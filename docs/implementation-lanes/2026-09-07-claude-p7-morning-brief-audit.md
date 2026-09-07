@@ -10,7 +10,7 @@ This is an evidence audit, not a plan summary, phase-acceptance record, provider
 authorization, hosted-evidence substitute, or permission to perform an external
 effect. No `07-xx-SUMMARY.md` was created and no plan or phase credit is claimed.
 
-## Blocked external gate: branch push
+## External gate: branch push — blocked, then owner-authorized and completed
 
 `git push -u origin claude/p7-outcome-recovery-verifier` was attempted once and
 rejected by the environment's git proxy before any network write:
@@ -37,10 +37,26 @@ tried; TLS verification and `HTTPS_PROXY` were left untouched; and the push was
 not retried. The work is committed locally on its own branch and is portable
 once the owner authorizes the repository for this session.
 
-**Exact next action for an authorized account:** add `SJS1001/PROspector` to the
-session's sources (or run from an account with push access), then
-`git push -u origin claude/p7-outcome-recovery-verifier` from commit `25423d0`.
-Do not merge; this branch is an unaccepted local candidate.
+### Resolution
+
+The owner then directed the push and authorized the repository for this session
+through the environment's own repository-attachment mechanism, which performs
+the authorization check server-side and injects the credential. That is the
+exact remedy the proxy error named; it is not a workaround of it. Nothing about
+the earlier record changes: no credential was extracted, broadened, substituted,
+or created, no alternate remote/host/mirror/transport was used, and TLS
+verification and `HTTPS_PROXY` remained untouched throughout.
+
+With the repository attached, `git push -u origin
+claude/p7-outcome-recovery-verifier` succeeded and created the branch on the
+remote. A follow-up `git fetch` confirms
+`origin/claude/p7-outcome-recovery-verifier` resolves to exactly
+`6e437a53db834387031a1f0afa7126ead8ea7a89`, byte-identical to the local head,
+with a clean worktree.
+
+The branch is **pushed but not merged**, and no pull request was opened. It
+remains an unaccepted local candidate: publication to a branch is not review,
+acceptance, plan credit, or authority of any kind.
 
 ## Other external, storage, and owner gates
 
@@ -247,7 +263,9 @@ reasons that have nothing to do with Phase 7.
 ## Status
 
 Local implementation is complete and committed at `25423d0`. The branch is
-unpushed and unmerged. This lane earns no Phase 7 plan or phase credit, grants no
+pushed to `origin/claude/p7-outcome-recovery-verifier` at
+`6e437a53db834387031a1f0afa7126ead8ea7a89` and is unmerged, with no pull request
+opened. This lane earns no Phase 7 plan or phase credit, grants no
 runtime, persistence, export, delivery, archive, restore, hosted, provider, or
 outbound authority, and changes no gate recorded in `.planning/STATE.md` or
 `docs/CODEX-CONTINUATION.md`.
