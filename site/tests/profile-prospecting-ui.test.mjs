@@ -227,7 +227,12 @@ test("Profile selector renders server-projected lifecycle and encodes exact GET 
     assert.match(html, /value="profile-operating" selected=""/);
     assert.match(html, /Operating sites · ready/);
     assert.match(html, /Greenfield · draft/);
-    assert.match(html, /Selected Profile <code>profile-operating/);
+    assert.match(html, /Selected Profile Operating sites\./);
+    assert.match(
+      html,
+      /<details class="task-state-technical"><summary>Profile technical details<\/summary>[\s\S]*?profile-operating/,
+      "the exact Profile reference stays inside the closed technical record",
+    );
     assert.match(html, /Digitalrain[\s\S]*ONE[\s\S]*ONE for Mining/);
   });
 });
