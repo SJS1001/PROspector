@@ -33,7 +33,7 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(demoPage, /demoState === "active"/);
   assert.match(demoPage, /Open Consensus Knowledge/);
   assert.match(demoPage, /import Link from "next\/link"/);
-  assert.match(demoPage, /href="\/\?view=knowledge"/);
+  assert.match(demoPage, /href="\/\?view=company-products"/);
   assert.match(demoPage, /aria-live="polite"/);
   assert.doesNotMatch(demoPage, /headers\.get\("set-cookie"\)|cookie:/);
   const styles = await readFile(resolve(root, "app/globals.css"), "utf8");
@@ -105,7 +105,7 @@ test("local demo routes only interview authority commands through the dedicated 
       assert.equal(knowledgeMutationTransport("advance_local_interview", hostname).endpoint, "/api/interview");
       assert.equal(knowledgeMutationTransport("propose_owner_edit", hostname).endpoint, "/api/knowledge");
     }
-    const selection = "?view=knowledge&interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003";
+    const selection = "?view=company-products&interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003";
     assert.equal(
       knowledgeMutationTransport("advance_local_interview", "localhost", selection).endpoint,
       "/api/interview?interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003",

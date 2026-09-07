@@ -30,7 +30,7 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
     return route.abort("blockedbyclient");
   });
 
-  await page.goto("/?view=knowledge");
+  await page.goto("/?view=company-products");
   await expect(page.getByRole("heading", { name: "Set up your company and first product" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.locator("vite-error-overlay")).toHaveCount(0);
@@ -121,7 +121,7 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
 
   await stopServer(server);
   server = await startServer();
-  await page.goto("/?view=knowledge");
+  await page.goto("/?view=company-products");
   await expect(page.getByRole("heading", { name: "Consensus knowledge" })).toBeVisible();
   await expect(page.getByText("Northstar", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Harbor Pulse", { exact: true }).first()).toBeVisible();

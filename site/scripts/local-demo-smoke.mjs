@@ -60,7 +60,7 @@ try {
   assert.match(workspaceHtml, /Private pilot boundary/);
   assert.doesNotMatch(workspaceHtml, /Private workspace unavailable/);
 
-  const knowledge = await fetch(`${base}/?view=knowledge`);
+  const knowledge = await fetch(`${base}/?view=company-products`);
   assert.equal(knowledge.status, 200);
   const knowledgeHtml = await knowledge.text();
   assert.match(knowledgeHtml, /Loading authoritative knowledge/);
