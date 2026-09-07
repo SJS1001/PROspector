@@ -13,7 +13,7 @@ test.afterAll(async () => { await stopServer(server); });
 test("synthetic Approved Prospect reaches governed intents, survives restart, and never leaves loopback", async ({ page, request, context, browser }) => {
   const external: string[] = [];
   await context.route("**/*", async (route) => { const url = new URL(route.request().url()); if (url.origin === origin) return route.continue(); external.push(url.origin); return route.abort("blockedbyclient"); });
-  const seed = await request.post(`${origin}/api/local-demo/person-discovery-c4`, { headers: { origin, "sec-fetch-site": "same-origin" } });
+  const seed = await request.post(`${origin}/api/local-demo/person-discovery-c4`, { headers: { origin, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-seed" } });
   expect(seed.status()).toBe(200);
   expect(await seed.json()).toEqual({ status: "ready", prospectId: "c4-approved-prospect" });
   await page.goto("/contacts");

@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { browserAcceptanceWorkerConfig } from "../scripts/browser-acceptance-boundary.mjs";
 import { PERSON_DISCOVERY_C4_BINDING_NAME, PERSON_DISCOVERY_C4_BINDING_VALUE, PERSON_DISCOVERY_C4_MIGRATIONS, personDiscoveryC4Bindings } from "../scripts/person-discovery-browser-boundary.mjs";
-import { applyPersonDiscoveryMigrations, createD1Fixture } from "./helpers/d1.mjs";
+import { createServer } from "vite";
+import { applyPersonDiscoveryMigrations, countRows, createD1Fixture, snapshotForbiddenOperationalRows } from "./helpers/d1.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 test("C4 is a separate full-chain exact-binding browser lane", async () => {
@@ -28,6 +29,7 @@ test("runtime composition stays deterministic, secretless, loopback-only, and ze
   const seed = await readFile(resolve(root, "app/api/local-demo/person-discovery-c4/_handler.ts"), "utf8");
   assert.match(seed, /personDiscoveryC4Enabled/);
   assert.match(seed, /runtimeIdentity\(request, bindings\)/);
+  assert.match(seed, /validateSameOriginMutation\(request, "person-discovery-c4-seed", 0\)/);
   assert.match(seed, /status: 404/);
 });
 
@@ -71,4 +73,53 @@ test("C4 seed creates one explicit Approved Prospect with no schedule", async ()
     assert.equal(projection.capability, "test_composed_only");
     assert.deepEqual(projection.approvedProspects.map((row) => row.prospectId), ["c4-approved-prospect"]);
   } finally { await fixture.dispose(); }
+});
+
+test("the C4 seed route refuses a mutation that is not proven same-origin", async () => {
+  const fixture = await createD1Fixture("c4-seed-same-origin");
+  let routeVite;
+  try {
+    await applyPersonDiscoveryMigrations(fixture.database);
+    globalThis.__prospectorRouteTestEnv = {
+      DB: fixture.database,
+      OWNER_SUBJECT_PEPPER: "synthetic-browser-acceptance-pepper-32-bytes-minimum",
+      PILOT_OWNER_EMAIL: "local-owner@prospector.invalid",
+      TRUSTED_IDENTITY_PROVIDER: "local-demo",
+      LOCAL_DEMO: "1",
+      [PERSON_DISCOVERY_C4_BINDING_NAME]: PERSON_DISCOVERY_C4_BINDING_VALUE,
+    };
+    routeVite = await createServer({ configFile: false, logLevel: "silent", plugins: [{
+      name: "test-cloudflare-workers",
+      resolveId(id) { if (id === "cloudflare:workers") return "\0test-cloudflare-workers"; },
+      load(id) { if (id === "\0test-cloudflare-workers") return "export const env = globalThis.__prospectorRouteTestEnv"; },
+    }] });
+    const route = await routeVite.ssrLoadModule(resolve(root, "app/api/local-demo/person-discovery-c4/route.ts"));
+    const seedOrigin = "http://127.0.0.1:8788";
+    const seedUrl = `${seedOrigin}/api/local-demo/person-discovery-c4`;
+    const before = await snapshotForbiddenOperationalRows(fixture.database);
+
+    // Correct C4 bindings and a loopback URL, but `sec-fetch-site` is absent,
+    // so the mutation is not proven same-origin. The route answers with its own
+    // uniform not-found surface and seeds nothing.
+    const refused = await route.POST(new Request(seedUrl, {
+      method: "POST",
+      headers: { origin: seedOrigin, "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-seed" },
+    }));
+    assert.equal(refused.status, 404);
+    assert.deepEqual(await refused.json(), { error: "not_found" });
+    assert.equal(await countRows(fixture.database, "profile_prospects"), 0);
+    assert.deepEqual(await snapshotForbiddenOperationalRows(fixture.database), before);
+
+    // The exact header set the browser acceptance lane sends is still admitted.
+    const accepted = await route.POST(new Request(seedUrl, {
+      method: "POST",
+      headers: { origin: seedOrigin, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-seed" },
+    }));
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { status: "ready", prospectId: "c4-approved-prospect" });
+  } finally {
+    delete globalThis.__prospectorRouteTestEnv;
+    if (routeVite) await routeVite.close();
+    await fixture.dispose();
+  }
 });
