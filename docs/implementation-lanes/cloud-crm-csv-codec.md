@@ -11,4 +11,5 @@ six-case cloud result below is historical, not the final integration evidence.
 - Owned files: `site/domain/crm-csv-codec.ts`, `site/tests/crm-csv-codec.test.mjs`, and this record
 - Scope: offline closed-input CSV encoding using the existing Phase 7 canonical 22-column policy, deterministic stable-ID ordering/deduplication, formula neutralization, and exact-byte SHA-256
 - Focused verification: `node --test tests/crm-csv-codec.test.mjs` — PASS, 6/6; `npx eslint domain/crm-csv-codec.ts tests/crm-csv-codec.test.mjs` — PASS
+- Conformance follow-up (2026-09-07): `2026-09-07-crm-csv-contract-conformance.md` records the tests-only suite that binds this codec's bytes to the Phase 7 CSV policy definition's declared labels. No codec change.
 - Limitations: no eligibility/source read, persistence, route, download, delivery, provider, hosted action, phase acceptance, or operational activation; canonical full test/build validation remains pending coordinator authorization

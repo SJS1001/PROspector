@@ -326,6 +326,143 @@ more synthetic preparation modules as a substitute for actual Plan 07-02 or
 later execution. Further Phase 7 progress must satisfy its real greenfield
 target, human, persistence, and operational gates.
 
+## Runtime conformance binding (tests only)
+
+`site/preparation/phase7-csv-policy-definition.ts` declares the canonical CSV
+schema and byte policies as labels, while `site/domain/crm-csv-codec.ts`
+implements them as bytes and imports nothing. Each side therefore carried its
+own hardcoded copy of the 22-field order, schema version, and byte rules, and
+each had a focused suite asserting only its own copy. Nothing asserted that the
+two copies agreed.
+
+`site/tests/crm-csv-contract-conformance.test.mjs` is a tests-only, read-only
+binding between them. It adds no preparation module, is not a new preparation
+slice, and does not reopen the line the capstone above closed. It changes no
+policy string, no runtime module, and no authority. It cross-constructs the
+policy definition from the runtime `CRM_CSV_SCHEMA_VERSION` and
+`CRM_CSV_FIELD_IDS` constants, so runtime schema or field-order drift makes the
+construction reject, and then proves each declared label against the codec's
+in-memory bytes:
+
+- ordered field and schema parity, with reordered, rotated, dropped,
+  duplicated, extended, renamed, and version-bumped runtime-derived field lists
+  each rejecting rather than cross-constructing;
+- canonical order over the declared Prospect, Contact, then contact-point sort
+  keys, invariant across all 120 input permutations and across every reassigned
+  non-sort label, using a fixture in which sorting by contact point before
+  Contact would reorder rows;
+- the declared encoding, absent byte-order mark, CRLF separator, single header
+  row, RFC 4180 double-quote, and empty-field null labels verified with a strict
+  byte-level reader that fails on a bare quote, an unterminated quoted field, a
+  lone CR, or a lone LF, with quoting proven minimal rather than universal;
+- whitespace, C0/C1 control, and U+FEFF formula vectors neutralized before
+  quoting across eighty leader and payload combinations, the apostrophe placed
+  ahead of the leader, and E.164 leading-plus contact values recovered exactly
+  without digit loss; and
+- duplicate-conflict semantics swept across all 22 fields with the stable
+  Prospect plus contact-point pair as the only row identity, and every
+  preparation effect counter zero and every authorization false both before and
+  after real CSV bytes exist in the same process.
+
+Three current behaviours are now pinned as documented boundaries rather than
+endorsed as sufficient. The neutralized class is exactly `\p{White_Space}`,
+`\p{Cc}`, and U+FEFF, so a leading U+200B, U+200E, U+00AD, or U+2060 before a
+formula character is not neutralized. Sort comparison is UTF-16 code-unit order,
+not code-point order. The `empty_field` null policy makes `null` and `""`
+byte-identical on output while the deduplication signature still separates them,
+so one identity carrying both fails closed as a conflict.
+
+The suite restates the codec's no-import invariant rather than weakening it, and
+scans `app/`, `worker/`, `domain/`, `adapters/`, and `db/` module specifiers to
+prove no runtime module imports a preparation module.
+
+Validation recorded on 2026-09-07 at commit `d1510f0`: the focused conformance
+suite passed 12/12, the CRM CSV trio (`crm-csv-contract-conformance`,
+`crm-csv-codec`, and `phase7-preparation-csv-policy-definition`) passed 33/33,
+and canonical `npm run lint` passed clean repository-wide on Node.js `v22.22.2`.
+Eleven codec mutations applied to an isolated scratch copy were each caught by
+this suite; the repository codec was not modified. Canonical `npm test`,
+including the production build, was not run in this lane, and the preflight lane
+was not used. The lane record is
+`docs/implementation-lanes/2026-09-07-crm-csv-contract-conformance.md`.
+
+This is local test evidence only. It creates no Phase 7 summary and earns no
+plan or phase credit. It grants no runtime, persistence, CSV
+materialization/delivery/download, export, hosted, provider, or effect
+authority.
+
+## Runtime-directory cores created outside this lane
+
+**Status:** acknowledged for accuracy; earns no plan or phase credit
+
+The section above binds one of these modules to its policy definition but does
+not record where either came from. Two Phase 7-shaped modules live under
+`site/domain/` rather than `site/preparation/`, created by cloud lane `34e8af9`
+on 2026-09-04, after the capstone above closed this lane. They are recorded
+here because the list of verified preparation slices does not describe them,
+and their absence from this file made the checked Phase 7 surface look smaller
+than it is.
+
+- `site/domain/weekly-outcome.ts` exposes `reduceWeeklyOutcome`, a pure reducer
+  over a supplied Prospect history stream. Its focused suite is
+  `site/tests/weekly-outcome.test.mjs`. Its behaviour and authority boundary
+  are described in `docs/implementation-lanes/cloud-weekly-outcome.md`.
+- `site/domain/crm-csv-codec.ts` exposes `encodeCrmCsv`. Unlike
+  `site/preparation/phase7-csv-policy-definition.ts`, which fixes schema and
+  policy labels only, this codec does validate, deduplicate, canonically sort,
+  and **encode caller-supplied rows into UTF-8 bytes with a SHA-256**. It reads
+  no eligibility projection and performs no persistence, delivery, or download.
+
+Both modules are imported only by tests. `site/worker/index.ts` composes
+neither, and no application route reaches them. Neither imports any
+`site/preparation/` module, so the runtime/preparation isolation rule in the
+mandatory safeguards above still holds.
+
+Plan ownership is explicit and unsatisfied. `site/tests/weekly-outcome.test.mjs`
+is named by `07-01-PLAN.md` and `site/domain/weekly-outcome.ts` is named by
+`07-05-PLAN.md`, but Plans 07-01 through 07-03 remain blocked on incomplete
+Plan 06-10 and every later plan is blocked behind them. The existence of these
+files is not execution of those plans. No `07-xx-SUMMARY.md` exists or is
+authorized, and no Plan 07-01, 07-02, 07-05, 07-06, or Phase 7 credit follows
+from them. `docs/implementation-lanes/2026-09-05-completion-inventory.md`
+records the same boundary as Phase 7 `0/10`, "CSV/weekly cores only".
+
+One gap follows directly from the weekly-outcome core and is pinned rather than
+closed. The reducer models a fourteen-state prospect lifecycle and counts the
+first transition to `ExportReady`, but `profile_prospects.state` in
+`site/db/schema.ts` admits only `qualified`, `approved`, `rejected`, `deferred`,
+and `cooled_down`, and no prospect state-transition history table exists. Ten of
+the fourteen modelled states have no persisted counterpart, so nothing in the
+repository can currently produce the history stream `reduceWeeklyOutcome`
+consumes. `NotQualified`, `InsufficientEvidence`, and `Disqualified` do appear
+in `prospecting_candidates.status`, but that is a different entity's status and
+does not back a Prospect state. The reverse gap also holds: persisted
+`cooled_down` is not modelled, so a future adapter must map or reject it rather
+than pass it through.
+
+`site/tests/weekly-outcome-persisted-state-conformance.test.mjs` holds both
+directions against exact allowlists so neither can widen, or be silently closed
+by a schema edit, without a deliberate decision. It additionally requires the
+reducer's runtime `STATES` array and its `ProspectState` union — two separate
+hand-maintained copies — to list exactly the same states, and asserts that no
+persisted event kind yet carries `state_transition`, `prospect_created`, or
+`contact_linked`. Actually persisting those transitions is Plan 07-04 work and
+is not authorized by this lane.
+
+Validation recorded on 2026-09-07: the extended conformance suite passed 4/4,
+the weekly-outcome pair (`weekly-outcome` and
+`phase7-preparation-weekly-outcome`) passed 21/21, `npx eslint` on the changed
+file passed clean, and `npm audit --omit=dev` reported zero production
+vulnerabilities on Node.js `v22.22.2`. Each of the three added cases was
+mutation-checked against a temporary edit that was reverted immediately:
+emptying the unmodelled allowlist fails the reverse-direction case, removing
+one state from the runtime `STATES` array fails the union-agreement case, and
+introducing a `state_transition` literal into `db/schema.ts` fails the
+event-kind case. No repository source was left modified. Canonical `npm test`,
+including the production build, was not run in this lane and the preflight lane
+was not used. This supersedes an earlier record in commit `9bf5a4a`, which
+correctly stated at the time that the suite had not been executed.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,

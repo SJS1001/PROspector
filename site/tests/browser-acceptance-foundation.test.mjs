@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { basename, resolve } from "node:path";
 import test from "node:test";
@@ -167,22 +167,27 @@ test("bootstrap, Miniflare, and verifier share one absolute per-run state path",
   }
 });
 
-test("browser bootstrap remains the exact authoritative 0000-0009 chain", async () => {
+test("browser bootstrap remains the exact authoritative checked chain", async () => {
   const bootstrap = await readFile(resolve(root, "scripts/local-bootstrap.mjs"), "utf8");
-  const migrations = [...bootstrap.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/g)].map((match) => match[1]);
-  assert.deepEqual(migrations, [
-    "0000_jittery_meteorite.sql",
-    "0001_true_spencer_smythe.sql",
-    "0002_eager_supreme_intelligence.sql",
-    "0003_acoustic_magik.sql",
-    "0004_consensus_knowledge.sql",
-    "0005_even_mastermind.sql",
-    "0006_private-proof-run-binding.sql",
-    "0007_profile_prospecting.sql",
-    "0008_controlled_enrichment.sql",
-    "0009_gorgeous_captain_universe.sql",
-  ]);
-  assert.equal(/"001\d_/.test(bootstrap), false, "later candidate migrations are outside browser acceptance");
+  // The chain is the checked Drizzle journal's, so browser acceptance runs
+  // against the real current schema. A second hard-coded list here is what let
+  // the applied chain silently stop at 0009 while the repository moved on.
+  assert.match(bootstrap, /"drizzle", "meta", "_journal\.json"/);
+  assert.deepEqual(
+    [...bootstrap.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/g)].map((match) => match[1]),
+    [],
+    "the bootstrap must name no migration literally",
+  );
+
+  const journal = JSON.parse(await readFile(resolve(root, "drizzle/meta/_journal.json"), "utf8"));
+  const chain = journal.entries
+    .slice()
+    .sort((left, right) => left.idx - right.idx)
+    .map((entry) => `${entry.tag}.sql`);
+  const onDisk = (await readdir(resolve(root, "drizzle")))
+    .filter((name) => name.endsWith(".sql"))
+    .sort((left, right) => left.localeCompare(right));
+  assert.deepEqual(chain, onDisk, "the journal and site/drizzle must describe the same chain");
 });
 
 test("zero-effect verifier accepts the exact synthetic fit and rejects a forbidden row", async () => {
