@@ -138,9 +138,14 @@ gate does not pass end-to-end on this base independently of this work.
 - `site/tests/drift-replacement.test.mjs` — 3/6 failed with
   `Commercial workspace is unavailable` / `knowledge_conflict` at
   `site/domain/knowledge.ts:435`. Repaired on the base branch by `0b7935c`.
-- `site/tests/fixture-safety.test.mjs` — 1/1 fails with
-  `Approve disabled must render with the native disabled attribute`. Still
-  open; untouched by this lane.
+- `site/tests/fixture-safety.test.mjs` — 1/1 failed with
+  `Approve disabled must render with the native disabled attribute`. **Not a
+  safety regression.** The Approve and Defer controls lived only inside the
+  seeded sample signal rows; `3320f26` emptied that fixture (`const signals =
+  []`), so `SignalRow` renders zero times and no approve/defer control renders
+  at all — safer than a disabled one. `Prospecting disabled`, `CSV disabled`,
+  and `Export disabled` still render natively disabled. **Repaired in this
+  branch** (see below).
 - `site/tests/greenfield-target-config.test.mjs` — 2/6 failed with
   `migration_manifest_mismatch`. **The manifest is not stale and the gate is
   correct.** `02-99-MIGRATION-MANIFEST.md` pins exactly ten files, `0000`
@@ -196,6 +201,29 @@ the revert. Direct happy-path coverage of candidate preparation is **suspended,
 not deleted**: restoring it needs either that manifest refresh or an injectable
 migration root in `site/scripts/greenfield-target-config.mjs`, which is shared
 Phase 2 release tooling outside this lane. The suite passes 6/6 and lint is
+clean.
+
+### Strengthened the fixture-safety guard
+
+`site/tests/fixture-safety.test.mjs` asserted that five consequential controls
+render natively disabled. Two of them, Approve and Defer, no longer render at
+all because their sample fixture is gone. Rather than re-add a fixture to
+satisfy the assertion, the test now:
+
+- keeps asserting the three controls that do render are natively disabled;
+- asserts Approve and Defer are absent entirely; and
+- adds the property those labels stood for, stated directly: **no consequential
+  control may render enabled.** Every enabled button must match a named list of
+  inert navigation and read-only reload controls, so any future enabled Approve,
+  Send, Export, or Run control fails the test until it is deliberately listed.
+
+A rendered probe across all six views confirmed the current state: 80 buttons,
+58 enabled, and every enabled one is inert navigation (`Pilot Status`,
+`Morning Brief`, `Knowledge`, `Market Discovery`, `Review Queue`, `Prospects`,
+`Exports & History`, `Company setup`, `Pilot settings`, `Open queue`, `Continue
+setup`, `Load current authority`). The new guard was negative-controlled by
+removing one known label, which fails it with the exact offending control named.
+Coverage is strictly stronger than before; the suite passes 1/1 and lint is
 clean.
 
 ## Boundary
