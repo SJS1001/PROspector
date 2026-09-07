@@ -2,6 +2,33 @@
 
 Date: 2026-09-07
 
+## Checkpoint
+
+**Branch:** `claude/phase5-p5-audit`
+**Candidate commit:** `ebcf9b1edcd0a1e38f810f377a7aa0b75857efd1`
+**Base:** `codex/generic-onboarding-integration` at
+`95e9eccb` (merge of pull request #12), itself over
+`0b7935ce990addb9bce3da399d655f0b357038fa`
+**Review:** `https://github.com/SJS1001/PROspector/pull/13`
+
+This branch is periodically rebased onto its advancing base by the repository
+owner, so the candidate commit SHA above moves. Pull request #13 is the stable
+locator; treat the SHA as the checkpoint at the time of writing and re-read the
+pull request head if they disagree.
+
+Every rebase so far has replayed the candidate unchanged. The lineage is
+`2621534a604bfebadca2b0d370530b62040b564c` (original, over base
+`5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c`) to
+`38f5c477beb308a3a74be370cbf805ccb54e2e28` (over `0b7935c`) to
+`ebcf9b1` (over `95e9eccb`). All three carry the identical patch id
+`bf2eb6f5399a7ecd8a0ccaab119c89abe0b166a1`, the same three files, and
+`+924/-0`; no rebase changed candidate content, and `0b7935c` to `95e9eccb`
+is an empty file-level diff.
+
+The base commit `0b7935c` initializes replacement workspace fixtures in
+`site/tests/drift-replacement.test.mjs`. It repairs one of the pre-existing
+failures recorded below and touches no candidate file.
+
 ## Gap this closes
 
 `executeEnrichmentOperation` records `needs_reconciliation` for a timeout, an
@@ -79,12 +106,32 @@ nowhere, and a test enforces that.
 
 ## Validation
 
-Run from `site/` on Node.js `v22.22.2`:
+Run from `site/` on Node.js `v22.22.2`. The results below were produced on
+the original tree `2621534a`. Each later rebase replayed the identical
+candidate patch onto an unchanged file-level base, so they describe the
+current checkpoint unchanged.
 
 - `node --test --test-concurrency=1 tests/synthetic-enrichment-reconciliation-decision.test.mjs` — 13/13.
 - `node scripts/run-test-suite.mjs tests/enrichment-contract.test.mjs tests/controlled-enrichment-integration.test.mjs tests/contacts-command-service.test.mjs tests/contacts-ui.test.mjs` — 6/6, 22/22, 4/4, 11/11.
 - `node scripts/run-test-suite.mjs tests/contact-eligibility.test.mjs tests/identity-resolution.test.mjs tests/synthetic-enrichment-prerequisite-plan.test.mjs` — all green.
 - `npm run lint` — clean.
+
+### Pre-existing failures on the base branch
+
+Each was reproduced at base `5c3440e` in a detached checkout with the three
+candidate files absent, producing identical results. None is caused by this
+candidate, and the canonical `npm test` gate therefore does not pass
+end-to-end on this base independently of it.
+
+- `site/tests/drift-replacement.test.mjs` — 3/6 failed with
+  `Commercial workspace is unavailable` / `knowledge_conflict` at
+  `site/domain/knowledge.ts:435`. Repaired on the base branch by `0b7935c`.
+- `site/tests/fixture-safety.test.mjs` — 1/1 failed with
+  `Approve disabled must render with the native disabled attribute`.
+- `site/tests/greenfield-target-config.test.mjs` — 2/6 failed with
+  `migration_manifest_mismatch`. The checked manifest is bound to migration
+  source `46d082e962c4acc1771e92ad300d61913d50ead4` while `0010` through
+  `0019` have since landed; this is stale-manifest drift, not a regression.
 
 ## Boundary
 
