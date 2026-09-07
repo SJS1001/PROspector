@@ -12,12 +12,12 @@ const NOW = 1_100;
 test("multi-contact verification uses one branded batch call and admits only a complete ordered verdict set", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [issuance, authority, operation, providerPort, evidence] = await Promise.all([
-      load(vite, "enrichment-grant-issuance"),
-      load(vite, "enrichment-authority"),
-      load(vite, "enrichment-operation"),
-      load(vite, "contact-provider-port"),
-      load(vite, "contact-evidence"),
+    const [issuance, authority, operation, providerPort, evidence] = await loadDomain(vite, [
+      "enrichment-grant-issuance",
+      "enrichment-authority",
+      "enrichment-operation",
+      "contact-provider-port",
+      "contact-evidence",
     ]);
     const envelopes = [
       contactEnvelope(),
@@ -144,12 +144,12 @@ test("multi-contact verification uses one branded batch call and admits only a c
 test("multi-contact verification never falls back to per-item or externally forged verifier callbacks", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [issuance, authority, operation, providerPort, evidence] = await Promise.all([
-      load(vite, "enrichment-grant-issuance"),
-      load(vite, "enrichment-authority"),
-      load(vite, "enrichment-operation"),
-      load(vite, "contact-provider-port"),
-      load(vite, "contact-evidence"),
+    const [issuance, authority, operation, providerPort, evidence] = await loadDomain(vite, [
+      "enrichment-grant-issuance",
+      "enrichment-authority",
+      "enrichment-operation",
+      "contact-provider-port",
+      "contact-evidence",
     ]);
     const envelopes = [
       contactEnvelope(),
@@ -209,8 +209,20 @@ test("multi-contact verification never falls back to per-item or externally forg
   }
 });
 
-async function load(vite, name) {
-  return vite.ssrLoadModule(new URL(`../domain/${name}.ts`, import.meta.url).pathname);
+/**
+ * Loads one module at a time. Verifier authority is a module-scoped WeakSet
+ * brand, so it only holds while every module shares one instance of
+ * contact-evidence. Requesting these concurrently lets two loads instantiate
+ * that shared dependency twice under load, and the operation then correctly
+ * rejects a verifier branded by the other instance -- a real defect in the
+ * fixture that reads as an intermittent failure of the boundary under test.
+ */
+async function loadDomain(vite, names) {
+  const modules = [];
+  for (const name of names) {
+    modules.push(await vite.ssrLoadModule(new URL(`../domain/${name}.ts`, import.meta.url).pathname));
+  }
+  return modules;
 }
 
 async function admittedHarness({ issuance, authority }) {

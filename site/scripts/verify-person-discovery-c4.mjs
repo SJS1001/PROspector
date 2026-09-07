@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { relative, resolve, sep } from "node:path";
+import { CANONICAL_MIGRATION_COUNT } from "./migration-chain.mjs";
 
 const EXACT = Object.freeze({
   workspaces: 1, companies: 1, workspace_companies: 1, products: 1, market_plays: 1,
@@ -57,7 +58,7 @@ try {
   assert.notEqual(linkage.candidate_id, linkage.contact_id, "a suggestion row must never become a Contact row");
   const intentions = application.prepare("SELECT channel,intent FROM contact_verification_intents ORDER BY channel").all();
   assert.deepEqual(intentions.map((row) => `${row.channel}:${row.intent}`), ["email:initial_verification", "phone:initial_verification"]);
-  process.stdout.write(`${JSON.stringify({ status: "passed", synthetic: true, migrationCount: 20, exact: EXACT, forbiddenRows: 0, r2Objects: objectRows, r2Multipart: multipartRows })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: "passed", synthetic: true, migrationCount: CANONICAL_MIGRATION_COUNT, exact: EXACT, forbiddenRows: 0, r2Objects: objectRows, r2Multipart: multipartRows })}\n`);
 } finally { application.close(); }
 
 function count(db, table) { assert.match(table, /^[a-z_][a-z0-9_]*$/); return Number(db.prepare(`SELECT COUNT(*) count FROM ${table}`).get().count); }

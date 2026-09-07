@@ -172,7 +172,18 @@ test("browser bootstrap remains the exact authoritative checked chain", async ()
   // The chain is the checked Drizzle journal's, so browser acceptance runs
   // against the real current schema. A second hard-coded list here is what let
   // the applied chain silently stop at 0009 while the repository moved on.
-  assert.match(bootstrap, /"drizzle", "meta", "_journal\.json"/);
+  //
+  // The bootstrap reaches the journal through scripts/migration-chain.mjs
+  // rather than re-reading it inline, so assert the whole path: the bootstrap
+  // takes its chain from that module, and that module reads the journal.
+  assert.match(bootstrap, /import \{[^}]*CANONICAL_MIGRATION_FILENAMES[^}]*\} from "\.\/migration-chain\.mjs"/u);
+  const chainModule = await readFile(resolve(root, "scripts/migration-chain.mjs"), "utf8");
+  assert.match(chainModule, /"meta\/_journal\.json"/u);
+  assert.deepEqual(
+    [...chainModule.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/gu)].map((match) => match[1]),
+    [],
+    "the shared chain module must name no migration literally either",
+  );
   assert.deepEqual(
     [...bootstrap.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/g)].map((match) => match[1]),
     [],

@@ -31,7 +31,11 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
 test("workspace navigation is server-seeded, history-aware, and demo-directed to Knowledge", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
   const app = await readFile(new URL("app/prospector-app.tsx", root), "utf8");
-  const demo = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
+  // The demo screen moved out of the route module in be6a8c2 so no LOCAL_DEMO
+  // markup can reach the production bundle; the route now only guards it. The
+  // navigation contract still belongs to the screen, so assert it there.
+  const demo = await readFile(new URL("app/local-demo/_screen.tsx", root), "utf8");
+  const demoRoute = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
 
   assert.match(page, /shellTaskFromParam\(requestedView\)/);
   assert.match(page, /initialView=\{blankWorkspace && initialView === "status" \? "knowledge" : initialView\}/);
@@ -40,4 +44,8 @@ test("workspace navigation is server-seeded, history-aware, and demo-directed to
   assert.match(app, /aria-current=\{current \? "page" : undefined\}/);
   assert.match(demo, /href="\/\?view=knowledge"/);
   assert.match(demo, /Open Consensus Knowledge/);
+  // The route itself must stay a development-only boundary that renders nothing
+  // in production, so the screen is reachable only behind the folded branch.
+  assert.match(demoRoute, /import\.meta\.env\.DEV/u);
+  assert.match(demoRoute, /notFound\(\)/u);
 });

@@ -19,7 +19,7 @@ const RUNTIME_ENTRIES = Object.freeze([
 export const BROWSER_ACCEPTANCE_BINDINGS = Object.freeze({
   TRUSTED_IDENTITY_PROVIDER: "local-demo",
   LOCAL_DEMO: "1",
-  // Must match the single fixed identity in app/runtime-identity.ts. The
+  // Must match the single fixed identity in app/_local-demo-identity.ts. The
   // acceptance lane configures owner authority; it does not mint another user.
   PILOT_OWNER_EMAIL: "local-owner@prospector.invalid",
   OWNER_SUBJECT_PEPPER: "synthetic-browser-acceptance-pepper-32-bytes-minimum",

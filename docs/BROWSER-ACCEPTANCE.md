@@ -53,13 +53,27 @@ Chromium path. It requires `/api/interview` to admit the single fixed synthetic
 owner and then runs the incomplete zero-effect check; it does not claim the full
 onboarding journey passed.
 
-After the browser closes, `verify-browser-zero-effects.mjs` opens the persisted
-SQLite file read-only, requires exactly one synthetic workspace and confirmed
-fit version, and proves every operational table covered by the authoritative
-`0000`–`0009` browser contract is absent or empty. Tables introduced only by
-later local candidate migrations are outside this lane's schema and completion
-scope: those migrations are not applied, and this verifier makes no claim about
-their rows. It also requires zero local R2 objects and incomplete multipart
+After the browser closes, `verify-browser-zero-effects.mjs` opens every persisted
+SQLite file read-only and requires exactly one synthetic workspace and confirmed
+fit version. It checks emptiness against the canonical inventory in
+`scripts/zero-effects-inventory.mjs`, which classifies every table the checked
+`drizzle/*.sql` chain can create exactly once: effect-capable tables must be
+absent or empty, and the local onboarding, interview, knowledge, and
+configuration tables may hold the bounded synthetic demo rows. The inventory
+covers the full `0000`–`0019` chain, so the outreach, outbox, dispatch,
+projection, and person-discovery tables introduced after `0009` are verified
+rather than ignored, and it also keeps every retired Phase 2 hosted-contract
+name forbidden.
+
+The check is fail-closed. Any table, view, or trigger present in the persisted
+database that the inventory does not name fails verification, so a later
+migration cannot add an unverified effect surface to this lane; the parity check
+in `site/tests/zero-effects-verifier.test.mjs` fails until the new objects are
+classified. Effect rows are counted in every persisted SQLite file, not only the
+application database, and a canonical trigger cannot smuggle a row past the
+check because emptiness is proved by counting rows. Allowlisted local tables are
+bounded by an explicit per-table ceiling, so a bulk load cannot pass as demo
+state. The verifier also requires zero local R2 objects and incomplete multipart
 rows.
 If an earlier browser or server check fails, the runner invokes the
 verifier in explicitly incomplete mode: it still proves zero forbidden rows but

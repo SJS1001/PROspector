@@ -6,8 +6,6 @@ import {
   type CloudflareAccessConfig,
 } from "./cloudflare-access";
 
-const DEMO = { email: "local-owner@prospector.invalid", displayName: "Local Demo Owner" } as const;
-
 export type RuntimeIdentityBindings = {
   TRUSTED_IDENTITY_PROVIDER?: unknown;
   LOCAL_DEMO?: unknown;
@@ -50,25 +48,33 @@ export async function resolveRuntimeIdentity(
       ? { email: platform.email, displayName: platform.displayName }
       : null;
   }
+  // Positive-form gate. `if (import.meta.env.DEV && ...)` folds to `if (false)`
+  // and the whole block -- including the dynamic import of the demo identity --
+  // is eliminated. The previous negative form (`|| !import.meta.env.DEV`) folded
+  // to `|| true) return null`, which is equally unreachable but left every
+  // following statement, and the identity constant, in the emitted bundle.
   if (
-    bindings.TRUSTED_IDENTITY_PROVIDER !== "local-demo"
-    || accessMode !== "disabled"
-    || !import.meta.env.DEV
-    || bindings.LOCAL_DEMO !== "1"
-  ) return null;
-  const host = request
-    ? new URL(request.url).hostname
-    : hostnameFromHostHeader(requestHeaders.get("host"));
-  if (!isLoopbackHostname(host)) return null;
-  if (request && request.method !== "GET" && request.method !== "HEAD") {
-    const origin = request.headers.get("origin");
-    try {
-      if (!origin || new URL(origin).origin !== new URL(request.url).origin) return null;
-    } catch {
-      return null;
+    import.meta.env.DEV
+    && bindings.TRUSTED_IDENTITY_PROVIDER === "local-demo"
+    && accessMode === "disabled"
+    && bindings.LOCAL_DEMO === "1"
+  ) {
+    const host = request
+      ? new URL(request.url).hostname
+      : hostnameFromHostHeader(requestHeaders.get("host"));
+    if (!isLoopbackHostname(host)) return null;
+    if (request && request.method !== "GET" && request.method !== "HEAD") {
+      const origin = request.headers.get("origin");
+      try {
+        if (!origin || new URL(origin).origin !== new URL(request.url).origin) return null;
+      } catch {
+        return null;
+      }
     }
+    const { LOCAL_DEMO_IDENTITY } = await import("./_local-demo-identity");
+    return LOCAL_DEMO_IDENTITY;
   }
-  return DEMO;
+  return null;
 }
 
 export function isLocalDemoRequest(

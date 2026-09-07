@@ -13,11 +13,17 @@ npm run dev -- --port 8788 --host 127.0.0.1
 
 `db:local:reset` recreates the local Miniflare state at
 `site/.local/miniflare-state` from the complete checked migration chain and
-verifies foreign keys. The chain applied is read from
-`site/drizzle/meta/_journal.json` in journal order, so it always covers every
-checked migration and needs no update here when one is appended. The directory
-is ignored by Git and may be deleted at any time. It never points at a hosted
-database.
+verifies foreign keys. The directory is ignored by Git and may be deleted at any
+time. It never points at a hosted database.
+
+The chain is not restated anywhere. `scripts/migration-chain.mjs` derives it from
+the drizzle-kit journal at `site/drizzle/meta/_journal.json`, cross-checks it
+against the `.sql` files on disk, and fails closed on any gap, duplicate,
+orphaned file, or missing file. The local bootstrap, the greenfield attestation,
+and the browser acceptance lanes all read that one list, so a new migration
+reaches every local path without editing them. A fresh reset therefore includes
+the Contacts and Person Discovery schema; a bootstrap that stopped short of the
+journal head would leave those tables absent.
 
 The browser server uses local Miniflare bindings. The ignored `.dev.vars` file
 is the supported local Worker-binding mechanism for the Cloudflare Vite plugin.

@@ -59,28 +59,31 @@ test("the production build folds away the LOCAL_DEMO identity and synthetic-port
   const files = await deployedTextFiles();
   // These live behind gates the bundler can fold within a single function body,
   // so they are the direct read on whether dead-code elimination actually ran.
-  // Observed on 0b7935ce: the folds are correct -- resolveRuntimeIdentity ends
-  // `|| true) return null` and isTestPersonDiscoveryPort collapses to
-  // `return false` -- but the rsc environment emits unminified output, so the
-  // now-unreachable DEMO constant is still carried into dist/server/index.js.
+  // The rsc environment emits unminified output, so an unreachable statement is
+  // still carried into the artifact -- folding alone is not enough. Both of
+  // these therefore sit inside branches whose *whole block* is eliminated: the
+  // demo identity behind a positive `if (import.meta.env.DEV && ...)` gate that
+  // dynamic-imports app/_local-demo-identity, and the test-port symbol behind
+  // the `import.meta.env.PROD` guard that collapses to `return false`.
   assertAbsent(files, [
-    { pattern: "local-owner@prospector.invalid", label: "app/runtime-identity.ts:9 DEMO identity" },
+    { pattern: "local-owner@prospector.invalid", label: "app/_local-demo-identity.ts LOCAL_DEMO_IDENTITY" },
     { pattern: "prospector.person-discovery.test-port", label: "domain/person-discovery.ts:579 test-port symbol key" },
   ], "the build-mode gate folded but the dead branch was not eliminated");
 });
 
 test("the production build does not emit the local-demo routes", async () => {
   const files = await deployedTextFiles();
-  // app/local-demo/page.tsx and app/api/local-demo/person-discovery-c4/route.ts
-  // carry no import.meta.env reference at all. They are file-system routes, so
-  // nothing currently keeps them out of a production route table: `/local-demo`
-  // answers 200 with LOCAL_DEMO-branded HTML and no identity check whatsoever.
-  // Constant folding cannot fix this; the routes have to be excluded from the
-  // production build.
+  // The route files stay routable in every mode -- vinext discovers them from
+  // the filesystem -- so each one is a thin dev-gated shell whose body lives in
+  // a sibling `_`-prefixed module reached only by a dynamic import inside an
+  // `import.meta.env.DEV` branch. That branch folds away in a production build
+  // and Rollup drops the chunk, so the markup never reaches `dist/` and the
+  // routes answer like any unknown path. Before that split, `/local-demo`
+  // served 200 with LOCAL_DEMO-branded HTML and no identity check at all.
   assertAbsent(files, [
-    { pattern: "data-local-demo-visible", label: "app/local-demo/page.tsx:49" },
-    { pattern: "Local demo interview", label: "app/local-demo/page.tsx:52" },
-    { pattern: "synthetic_seed_failed", label: "app/api/local-demo/person-discovery-c4/route.ts:15" },
+    { pattern: "data-local-demo-visible", label: "app/local-demo/_screen.tsx:49" },
+    { pattern: "Local demo interview", label: "app/local-demo/_screen.tsx:52" },
+    { pattern: "synthetic_seed_failed", label: "app/api/local-demo/person-discovery-c4/_handler.ts:17" },
   ], "a local-demo route module reached the deployed artifact");
 });
 

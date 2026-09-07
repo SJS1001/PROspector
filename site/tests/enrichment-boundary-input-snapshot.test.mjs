@@ -2,8 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "vite";
 
-async function load(vite, name) {
-  return vite.ssrLoadModule(new URL(`../domain/${name}.ts`, import.meta.url).pathname);
+/**
+ * Loads one module at a time. Port and verifier authority is a module-scoped
+ * WeakSet brand, so it only holds while every module shares one instance of the
+ * file that owns it. Requesting these concurrently lets two loads instantiate a
+ * shared dependency twice, and the operation then correctly rejects an object
+ * branded by the other instance.
+ */
+async function loadDomain(vite, names) {
+  const modules = [];
+  for (const name of names) {
+    modules.push(await vite.ssrLoadModule(new URL(`../domain/${name}.ts`, import.meta.url).pathname));
+  }
+  return modules;
 }
 
 function issuanceSnapshot() {
@@ -138,9 +149,9 @@ function exactInputVariants(valid, accessorKey) {
 test("reservation snapshots exact public input before any repository access", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [issuance, authority] = await Promise.all([
-      load(vite, "enrichment-grant-issuance"),
-      load(vite, "enrichment-authority"),
+    const [issuance, authority] = await loadDomain(vite, [
+      "enrichment-grant-issuance",
+      "enrichment-authority",
     ]);
     const grant = await issueGrant(issuance);
     const persistedAuthority = reservationAuthority(grant);
@@ -206,11 +217,11 @@ test("reservation snapshots exact public input before any repository access", as
 test("execution snapshots exact public input before claim, provider, or settlement", async () => {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    const [issuance, authority, operation, portModule] = await Promise.all([
-      load(vite, "enrichment-grant-issuance"),
-      load(vite, "enrichment-authority"),
-      load(vite, "enrichment-operation"),
-      load(vite, "contact-provider-port"),
+    const [issuance, authority, operation, portModule] = await loadDomain(vite, [
+      "enrichment-grant-issuance",
+      "enrichment-authority",
+      "enrichment-operation",
+      "contact-provider-port",
     ]);
     const grant = await issueGrant(issuance);
     const persistedAuthority = reservationAuthority(grant);

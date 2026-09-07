@@ -18,12 +18,18 @@ const tableCount = (output) => {
 test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async () => {
   const source = await readFile(resolve(root, "app/runtime-identity.ts"), "utf8");
   assert.match(source, /import\.meta\.env\.DEV/);
-  assert.match(source, /TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
-  assert.match(source, /local-owner@prospector\.invalid/);
+  assert.match(source, /TRUSTED_IDENTITY_PROVIDER === "local-demo"/);
+  // The demo identity lives in its own dev-only module so a production build
+  // drops it with the folded branch; runtime-identity must not carry it inline.
+  assert.doesNotMatch(source, /local-owner@prospector\.invalid/);
+  assert.match(source, /await import\("\.\/_local-demo-identity"\)/);
+  const demoIdentity = await readFile(resolve(root, "app/_local-demo-identity.ts"), "utf8");
+  assert.match(demoIdentity, /local-owner@prospector\.invalid/);
+  assert.match(demoIdentity, /Local Demo Owner/);
   assert.match(source, /isLoopbackHostname/);
   assert.match(source, /new URL\(origin\)\.origin !== new URL\(request\.url\)\.origin/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);
-  const demoPage = await readFile(resolve(root, "app/local-demo/page.tsx"), "utf8");
+  const demoPage = await readFile(resolve(root, "app/local-demo/_screen.tsx"), "utf8");
   assert.match(demoPage, /credentials: "same-origin"/);
   assert.match(demoPage, /data-local-demo-visible="true"/);
   assert.match(demoPage, /Local demo interview/);
@@ -40,6 +46,33 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(styles, /\.local-demo-screen \{ min-height:100vh; display:grid; place-items:center;/);
   const routes = await Promise.all(["contacts","discovery","interview","knowledge","prospecting"].map((name) => readFile(resolve(root, `app/api/${name}/route.ts`), "utf8")));
   for (const route of routes) assert.match(route, /runtimeIdentity/);
+
+  // The admission in app/page.tsx must be awaited and must be the only source
+  // of the rendered access state. It rejects for a denied identity; unawaited,
+  // the rejection escapes as an unhandled rejection while a following statement
+  // marks the visitor authorized anyway -- admitting precisely when admission
+  // was refused, which defeats the loopback check for the page paths, where the
+  // identity resolves the host from the Host header.
+  //
+  // The route now admits through admitOperatorSession rather than a bare
+  // admitPilotOwner call, so assert the same guarantee on that shape: the call
+  // is awaited, it is not wrapped in a catch that could swallow its rejection,
+  // and the access passed to the shell is derived from its result rather than
+  // assigned independently.
+  const home = await readFile(resolve(root, "app/page.tsx"), "utf8");
+  assert.match(home, /const session = await admitOperatorSession\(bindings\);/u);
+  assert.match(home, /initialAccess=\{session\.admitted \? "authorized" : "unauthorized"\}/u);
+  assert.doesNotMatch(
+    home,
+    /initialAccess\s*=\s*"authorized"/u,
+    "access must never be assigned independently of the admission result",
+  );
+  const admissionLine = home.split("\n").findIndex((line) => line.includes("admitOperatorSession(bindings)"));
+  const firstTry = home.split("\n").findIndex((line) => /\btry\s*\{/u.test(line));
+  assert.ok(
+    admissionLine >= 0 && (firstTry === -1 || admissionLine < firstTry),
+    "the admission must resolve before any try block that could swallow its rejection",
+  );
 });
 
 test("LOCAL_DEMO recognizes only canonical loopback hostnames, including bracketed IPv6", async () => {

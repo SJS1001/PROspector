@@ -73,10 +73,30 @@ test("generic onboarding is fenced to a resolver-proven local demo and exact loo
   const admission=await readFile(new URL("../app/owner-admission.ts",import.meta.url),"utf8");
   assert.match(admission,/admitPilotOwner\(\s*await runtimeIdentity/);
   const identity=await readFile(new URL("../app/runtime-identity.ts",import.meta.url),"utf8");
-  assert.match(identity,/TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
-  assert.match(identity,/bindings\.LOCAL_DEMO !== "1"/);
-  assert.match(identity,/import\.meta\.env\.DEV/);
-  assert.match(identity,/isLoopbackHostname\(host\)/);
+  // dd0727f flipped this gate from negative to positive form so the block, and
+  // the demo identity constant it imports, fold out of the production bundle
+  // entirely. The fence itself is unchanged in strength: the demo path is still
+  // reachable only in a development build, under the local-demo provider, with
+  // Cloudflare Access disabled and LOCAL_DEMO set, and only from a loopback
+  // host. Assert the conjunction rather than any one literal, so dropping a
+  // single condition fails here.
+  assert.match(
+    identity,
+    /import\.meta\.env\.DEV\s*&&\s*bindings\.TRUSTED_IDENTITY_PROVIDER === "local-demo"\s*&&\s*accessMode === "disabled"\s*&&\s*bindings\.LOCAL_DEMO === "1"/u,
+  );
+  assert.match(identity,/if \(!isLoopbackHostname\(host\)\) return null;/u);
+  // A non-GET demo request must additionally match origin to URL exactly.
+  assert.match(identity,/new URL\(origin\)\.origin !== new URL\(request\.url\)\.origin\) return null/u);
+  // The identity constant must stay behind the folded dynamic import, never a
+  // static top-level import that would survive into dist/.
+  assert.match(identity,/await import\("\.\/_local-demo-identity"\)/u);
+  assert.doesNotMatch(identity,/^import .*_local-demo-identity/mu);
+  // The exported isLocalDemoRequest predicate is a second entry point to the
+  // same demo path and must carry the same four conditions plus loopback.
+  assert.match(
+    identity,
+    /export function isLocalDemoRequest[\s\S]{0,400}?return import\.meta\.env\.DEV\s*&&\s*bindings\.TRUSTED_IDENTITY_PROVIDER === "local-demo"\s*&&\s*bindings\.LOCAL_DEMO === "1"\s*&&\s*accessMode === "disabled"\s*&&\s*isLoopbackHostname\(/u,
+  );
 });
 
 test("knowledge mutation routing cannot drop an exact Explore selection before answer or confirmation", async () => {

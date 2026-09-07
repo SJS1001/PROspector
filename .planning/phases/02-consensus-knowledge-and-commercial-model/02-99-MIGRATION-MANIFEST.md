@@ -21,6 +21,17 @@
 | 0007 | `0007_profile_prospecting.sql` | `ed769453ae7d13b1a2bbbfadb26152a2e32468f7f19b9a33eceab496c5254638` |
 | 0008 | `0008_controlled_enrichment.sql` | `32089363b5668f8b43c01f8bee936da6f384bfe37615d9fd3790e7cc9847f9c6` |
 | 0009 | `0009_gorgeous_captain_universe.sql` | `e139a0bd7dee8c7395f9403b569fcc12f6610bb531f3439f42918419b025a548` |
+
+## Checked ahead of the release chain
+
+These migrations are checked local bytes only. Stage 2 applied `0000`
+through `0009`; nothing after `0009` has hosted evidence, so no candidate
+may offer these to a remote apply until a separate owner authorization
+moves them into the release chain above. Their digests are recorded here so
+the working tree is still proved byte-for-byte, not merely counted.
+
+| Order | Migration | SHA-256 |
+|---:|---|---|
 | 0010 | `0010_governed_outreach.sql` | `0c0c50f6faf6827da1e43398192a7260552e0f857b60c1123dd9e970e6f1ea27` |
 | 0011 | `0011_enrichment_candidate_lineage.sql` | `9a122e9fbf152e0f7839c6c6eb2bb74f4cb47a1490f32f041690f2c8fece0e72` |
 | 0012 | `0012_governed_outreach_outbox.sql` | `829948ceb285fdcf106061d46c13510135dbb08f3279774c30bcbc6b836930ca` |
@@ -34,13 +45,19 @@
 
 ## Verification contract
 
-The release candidate must contain exactly the SQL files listed above, in this
-lexical order, and no other migration. The expected row count is not a literal:
-it is the entry count of the checked Drizzle journal at
-`site/drizzle/meta/_journal.json`, so a manifest that has fallen behind an
-appended migration fails closed instead of pinning a stale release. Before any
-remote apply, recompute every digest from `site/drizzle/` and compare it
-byte-for-byte with this table. A missing, additional, renamed, reordered, or
+A release candidate may offer exactly the SQL files in **Ordered release
+chain**, in that lexical order, and no other migration. That set is pinned:
+extending it is a separate owner decision under this plan, never a consequence
+of the working tree growing. The candidate bounds its own
+`migrations_pattern` to those exact filenames rather than a directory wildcard,
+so an unreleased migration cannot reach `wrangler d1 migrations apply` even
+though it sits in the same directory.
+
+The working tree may run ahead of that set. Files beyond it must appear in
+**Checked ahead of the release chain**, continue the same contiguous numbering
+with no gap, duplicate, or reorder, and match their recorded digests. Before
+any remote apply, recompute every digest in both tables from `site/drizzle/`
+and compare byte-for-byte. A missing, additional, renamed, reordered, or
 digest-mismatched file stops the release.
 
 This manifest proves only the checked local migration bytes. It does not prove
