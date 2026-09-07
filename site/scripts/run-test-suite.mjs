@@ -15,6 +15,7 @@ const testFiles = (requestedFiles.length > 0
 if (testFiles.length === 0) throw new Error("No test files were found.");
 
 let fixtureWindowCount = 0;
+const failed = [];
 for (const testFile of testFiles) {
   // Miniflare's D1 proxy uses many short-lived loopback connections. macOS
   // retains them for 2× its 15-second TCP MSL. Drain adaptively before the
@@ -28,8 +29,17 @@ for (const testFile of testFiles) {
   }
   const status = await runTestFile(testFile);
   fixtureWindowCount += fixtureCount;
-  if (status !== 0) process.exitCode = status;
-  if (status !== 0) break;
+  // Record every failing file and keep going. Stopping at the first failure
+  // hid the rest of the suite from the run that is meant to prove it.
+  if (status !== 0) {
+    process.exitCode = status;
+    failed.push(testFile);
+  }
+}
+
+if (failed.length > 0) {
+  console.error(`\n${failed.length} test file${failed.length === 1 ? "" : "s"} failed:`);
+  for (const testFile of failed) console.error(`  ${testFile}`);
 }
 
 function runTestFile(testFile) {
