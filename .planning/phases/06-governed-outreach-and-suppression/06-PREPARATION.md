@@ -551,134 +551,40 @@ completion credit.
 Validation recorded on 2026-09-07 on Node.js `v22.22.2`: the focused admission
 suite passed 13/13, the aggregate Phase 6 and Phase 7 preparation suites passed
 245/245, the static composition guard passed 3/3, canonical `npm run lint`
-passed, and the canonical `npm test` production build completed.
+passed, and the canonical `npm run build` completed.
 
-The canonical `npm test` gate could not run to completion on this branch, for
-five reasons that all predate this slice. Each was reproduced at checkout
-`5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` with this slice's files absent from
-disk:
+This lane was developed from `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` on
+`codex/generic-onboarding-integration`. At that checkout five canonical suites
+failed for reasons unrelated to this slice, and this lane briefly carried
+repairs for them. `origin/main` has since landed its own repairs for all five,
+and in every case main's is the better fix, so on merging main into this branch
+all five were resolved by taking main's side and this lane's repairs were
+dropped. The most important of these: main deletes the dead `SignalRow`,
+`MorningBrief`, `signals` and `Exports()` fixtures from `prospector-app.tsx`
+outright and asserts they are absent, where this lane had exported `SignalRow`
+so a test could still reach it — directly contradictory, and main's is right.
+Main likewise regenerates the migration manifest across the full chain and
+cross-checks it against the drizzle journal, which is stricter than the
+prefix-tolerant check this lane had written.
 
-1. `tests/drift-replacement.test.mjs` failed 3/6 with `knowledge_conflict`
-   ("Commercial workspace is unavailable"). The suite passes 6/6 at `2e879dc`,
-   so this is a regression rather than a suite that never worked. The cause is a
-   deliberate governance improvement: `workspaceForKnowledge` in
-   `site/domain/knowledge.ts` used to call `initializeCommercialModel` itself,
-   so merely reading knowledge silently created a Digitalrain commercial
-   workspace as a side effect. That implicit bootstrap was removed and the
-   resolver now also requires the `workspace_companies` join. Every other
-   knowledge-dependent suite was updated to seed the hierarchy explicitly; this
-   one was missed. **Fixed on this branch** (see below).
-2. `tests/fixture-safety.test.mjs` failed 1/1 on "remaining fixture-governed
-   consequential controls render natively disabled". The Approve and Defer
-   controls were absent from the rendered workbench, not enabled in it: the
-   shipped `signals` fixture array is now deliberately empty, so no sample
-   prospect row renders and `SignalRow` is unreachable through the workbench.
-   Both controls are still `disabled` in the component itself. **Fixed on this
-   branch** (see below).
-3. `tests/greenfield-target-config.test.mjs` failed 2/6, both cases with
-   `migration_manifest_mismatch`. `02-99-MIGRATION-MANIFEST.md` pins the ordered
-   SHA-256 manifest of the `0000`-`0009` chain to migration source
-   `46d082e962c4acc1771e92ad300d61913d50ead4`, but `site/drizzle/` on this
-   branch holds twenty migrations through `0019_person_discovery.sql`, and
-   `verifyMigrationManifest` required the directory to equal the manifest
-   exactly, so it mismatched by construction. Verified in a detached base
-   worktree, where a third case additionally fails as a downstream artifact of
-   the same mismatch. **Fixed on this branch** (see below).
-4. `tests/rendered-html.test.mjs` failed 1/4 on "build/source smoke identifies
-   the controlled workbench and removes the starter". It asserted the literals
-   `Good morning, Steven` and `Sample export-ready` in a page source that this
-   branch has since de-personalized and stripped of sample data. **Fixed on this
-   branch** (see below).
-5. `tests/workspace-view.test.mjs` failed 1/2 on "workspace navigation is
-   server-seeded, history-aware, and demo-directed to Knowledge". It asserted
-   the literal `initialView={initialView}` in a route source where that prop is
-   now a computed expression carrying the blank-local-onboarding redirect to
-   Knowledge. **Fixed on this branch** (see below).
+None of that repair work is part of this slice, and none of it is claimed as
+evidence here. It is recorded only so a later reader is not misled by this
+lane's earlier commits.
 
-This slice touches no file under `site/drizzle/` and adds no migration.
+After the merge, this branch's entire delta against `origin/main` is exactly
+three files: `site/preparation/mail-port-admission-decision.ts`, its focused
+suite, and this record. The merged tree builds clean, and the focused admission
+suite plus the static composition guard pass 16/16 on it.
 
-Defect 3 was separately authorized and repaired here **without rewriting any
-governed evidence**. `02-99-MIGRATION-MANIFEST.md` is Stage 2 acceptance
-evidence bound to the exact bytes Wrangler applied remotely, so re-pinning it to
-the current chain was rejected as a fix. Instead `verifyMigrationManifest` in
-`site/scripts/greenfield-target-config.mjs` was corrected: the pinned ten must
-still be present, in order, and byte-identical by SHA-256, but they are now
-verified as an intact *prefix* rather than as the whole directory, and every
-migration beyond them must continue the sequence contiguously. The manifest file
-is byte-identical and was never modified.
+Two cases of `tests/greenfield-target-config.test.mjs` fail on the merged tree.
+They fail identically on pristine `origin/main` (4/6), with the relevant script,
+test, manifest, expected-schema and `drizzle/` files byte-identical between the
+two, so they are an open upstream defect in another lane's in-progress work and
+are neither caused nor repaired by this slice.
 
-The real safety properties are preserved and the shape is tightened rather than
-relaxed. Four injected regressions were each confirmed to fail the suite before
-the source was restored: a gapped extra migration (`0021` with no `0020`), a
-tampered byte in pinned `0000`, a renamed pinned `0005`, and a duplicate `0010`
-name. The pre-existing case that rejects a stray out-of-sequence
-`9999_unchecked_*.sql` migration still passes unchanged. The suite passes 6/6
-and the greenfield and migration suites pass 61/61.
-
-Defect 1 was separately authorized and repaired here by adding the explicit
-`initializeCommercialModel` seed to the three affected cases, exactly as
-`knowledge-repository.test.mjs` and its neighbours do. That is the same function
-the removed implicit bootstrap called, so the seeded hierarchy is identical and
-only the idempotency key differs; no assertion was changed or relaxed, and the
-source keeps the stricter no-implicit-effect resolver. The suite passes 6/6 and
-its knowledge/commercial neighbours pass 28/28.
-
-Defects 2, 4 and 5 were separately authorized and repaired here. In every case
-the source was correct and the assertion had gone stale against a deliberate
-improvement — the branch has been systematically removing fabricated sample data
-and hard-coded personal copy from the shipped workbench — so each stale literal
-was replaced by an assertion of the same property in its current shape rather
-than deleted:
-
-- `fixture-safety` keeps asserting `Prospecting disabled`, `CSV disabled`, and
-  `Export disabled` against the rendered workbench. Because `signals` is now
-  empty, `Approve disabled` and `Defer disabled` can no longer be reached
-  through it, so the guard renders `SignalRow` directly and proves both controls
-  are still natively disabled. It additionally asserts that the workbench ships
-  no `signal-row` at all. `SignalRow` is exported for this purpose only; no
-  behaviour changed, and the component remains unreachable from shipped data.
-  Two separate regressions were injected to confirm the guard is not vacuous: an
-  Approve control rendered without `disabled`, and a sample row returned to the
-  shipped `signals` array. Each made the suite fail, and the source was restored.
-
-- `rendered-html` now asserts the `Morning brief` heading, the
-  `PRIVATE WORKSPACE · NO LIVE DATA` eyebrow, and the `EXPORT-READY` tile with
-  `No eligible records`, plus a new negative guard rejecting any return of a
-  hard-coded owner greeting or `Sample export-ready` copy. This is stronger than
-  the original: it now pins the no-live-data posture rather than sample records.
-- `workspace-view` now asserts that the `initialView` prop is still seeded from
-  the server-parsed value without pinning the exact expression text, plus a new
-  assertion that the blank-local-onboarding redirect to `Knowledge` is present.
-
-Each replacement regex was checked to still fail when the property regresses, so
-no assertion was weakened into a vacuous match. The three repaired suites pass
-7/7 together, all eight UI-rendering suites pass 62/62, and canonical
-`npm run lint` and the project typecheck are clean. The only application-source
-change in this lane is the one-word `export` on `SignalRow` plus its explanatory
-comment; no route, component behaviour, markup, or copy was modified.
-
-Because the canonical runner halts on first failure, the gate was instead
-exercised in full across four passes that together cover all 119 canonical test
-files exactly once:
-
-- the canonical list minus `drift-replacement`, in runner order: 32 suites and
-  150 cases, 149 passing, halting on failure 2 above;
-- the 86 suites ordered after `fixture-safety`, run independently so a failure
-  could not halt the rest: 28 suites and 135 cases, 133 passing, with failure 3
-  above the only failing suite;
-- the 36 still-unrun suites from that set: 260 cases, 258 passing, with failures
-  4 and 5 above the only failing suites. After the assertion repairs those two
-  suites pass 6/6, leaving that pass at 260/260;
-- the 22 `outreach-preparation-*` and `phase7-preparation-*` suites as the
-  245/245 aggregate recorded above.
-
-`tests/drift-replacement.test.mjs` (failure 1, 6 cases) completes the 119.
-Across all passes: 796 cases, 788 passing, and all 8 failures confined to the
-five pre-existing suites above. With all five defects repaired, 796 pass and no
-canonical suite is left failing on this branch. No failure in any pass was
-attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
-test file outside its own focused suite, and the static composition guard
-enforces that. This is local preparation evidence only.
+The new module is imported by no runtime, domain, adapter, worker, or test file
+outside its own focused suite, and the static composition guard enforces that.
+This is local preparation evidence only.
 
 ## Deferred adapters and exact external decision
 
