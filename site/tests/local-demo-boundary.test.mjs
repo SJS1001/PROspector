@@ -46,6 +46,15 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(styles, /\.local-demo-screen \{ min-height:100vh; display:grid; place-items:center;/);
   const routes = await Promise.all(["contacts","discovery","interview","knowledge","prospecting"].map((name) => readFile(resolve(root, `app/api/${name}/route.ts`), "utf8")));
   for (const route of routes) assert.match(route, /runtimeIdentity/);
+
+  // The local-demo admission in app/page.tsx must await admitPilotOwner. It is
+  // async and rejects for a denied identity; unawaited, the rejection escapes
+  // the surrounding try/catch as an unhandled rejection and the next statement
+  // sets initialAccess = "authorized" anyway -- admitting the visitor precisely
+  // when admission was refused, which defeats the loopback check for the page
+  // paths, where runtimeIdentity resolves the host from the Host header.
+  const home = await readFile(resolve(root, "app/page.tsx"), "utf8");
+  assert.match(home, /await admitPilotOwner\(await runtimeIdentity\(undefined, bindings\)/);
 });
 
 test("LOCAL_DEMO recognizes only canonical loopback hostnames, including bracketed IPv6", async () => {
