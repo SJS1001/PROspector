@@ -207,6 +207,55 @@ test("capability routes pass their request into the runtime dependencies", async
   assert.match(runtime, /request\?: Request/);
 });
 
+test("local-demo capability flows issue and consume the loopback CSRF cookie", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const {
+      handleCapabilitiesGet,
+      handleCapabilityProbePost,
+    } = await vite.ssrLoadModule(
+      new URL("../domain/capability-handler.ts", import.meta.url).pathname,
+    );
+
+    const owner = dependencies(
+      { email: "owner@example.com", displayName: "Owner" },
+      { csrfCookieMode: "local-demo", proofStatus: "proven" },
+    );
+
+    // Over http://localhost a `Secure` cookie fails closed in browsers that do
+    // not grant localhost secure-context treatment, so local-demo issues the
+    // unprefixed name instead.
+    const getResponse = await handleCapabilitiesGet(owner);
+    assert.equal(getResponse.status, 200);
+    const cookie = getResponse.headers.get("set-cookie");
+    assert.match(cookie, /^prospector-local-csrf=[A-Za-z0-9_-]+;/);
+    assert.match(cookie, /Path=\/; Max-Age=900; HttpOnly; SameSite=Strict$/);
+    assert.doesNotMatch(cookie, /Secure/);
+
+    // The same cookie name is consumed end to end.
+    const accepted = await handleCapabilityProbePost(
+      probeRequest({ csrf: cookie }),
+      owner,
+    );
+    assert.equal(accepted.status, 200);
+    assert.match(accepted.headers.get("set-cookie"), /^prospector-local-csrf=/);
+
+    // A `__Host-` cookie is not read while the handler is in local-demo mode.
+    assert.equal(
+      (await handleCapabilityProbePost(
+        probeRequest({ csrf: `__Host-prospector-csrf=${"a".repeat(43)}` }),
+        dependencies(
+          { email: "owner@example.com", displayName: "Owner" },
+          { csrfCookieMode: "local-demo", proofStatus: "proven" },
+        ),
+      )).status,
+      403,
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
 function loopbackProbe({ origin = LOOPBACK } = {}) {
   return new Request(`${LOOPBACK}/api/capability-probe`, {
     method: "POST",
@@ -236,6 +285,7 @@ function dependencies(identity, options = {}) {
       objectStorage: options.objectStorage ?? true,
       secrets: true,
     },
+    ...(options.csrfCookieMode ? { csrfCookieMode: options.csrfCookieMode } : {}),
     issueCsrfToken: async () => "a".repeat(43),
     consumeCsrfToken: async (_subject, token) => {
       if (!token || consumedTokens.has(token)) throw Object.assign(new Error("invalid"), {

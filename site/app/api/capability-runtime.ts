@@ -9,6 +9,7 @@ import type { CapabilityHandlerDependencies } from "../../domain/capability-hand
 import { consumeCsrfToken, issueCsrfToken } from "../../domain/csrf";
 import type { InterviewPrincipal } from "../../domain/interview";
 import {
+  isLocalDemoRequest,
   runtimeIdentity,
   type RuntimeIdentityBindings,
 } from "../runtime-identity";
@@ -31,6 +32,9 @@ export function capabilityDependencies(
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },
+    csrfCookieMode: request && isLocalDemoRequest(request, bindings)
+      ? "local-demo"
+      : "secure",
     getWorkspace: (principal) => workspaceFor(bindings.DB, principal),
     readEvidence: (workspaceId) => readEvidence(bindings.DB, workspaceId),
     prerequisites: {
