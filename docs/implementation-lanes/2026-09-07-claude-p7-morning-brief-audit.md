@@ -118,6 +118,8 @@ From `site/` on Node.js `v22.22.2` after a clean `npm ci`:
 | `node --test --test-concurrency=1 tests/morning-brief.test.mjs tests/weekly-outcome.test.mjs tests/crm-csv-codec.test.mjs tests/outreach-preparation-boundary.test.mjs tests/phase7-preparation-weekly-outcome.test.mjs` | PASS 41/41 |
 | `npx eslint domain/morning-brief.ts tests/morning-brief.test.mjs` | PASS |
 | `npx tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --module ESNext --moduleResolution Bundler --skipLibCheck domain/morning-brief.ts` | PASS |
+| `npm run build` (production build) | PASS |
+| `npm run lint` (whole project) | PASS |
 | `npm audit --omit=dev` | 0 vulnerabilities |
 | `git diff --check` | clean |
 
@@ -135,15 +137,47 @@ committed module is byte-identical to the pre-mutation file:
 | disable the raw-identity fence | 8 pass, 1 fail |
 | drop the weekly `asOf` binding | 8 pass, 1 fail |
 
-### Canonical gate status
+### Canonical gate status: two pre-existing suite failures
 
-The canonical `npm test` (production build plus the full suite) was started on
-this exact source and had not finished when this record was written; it was
-green across the first 19 suite files with zero failures. `npm run lint` across
-the whole project was likewise not run to completion. Both remain pending for
-the coordinator and neither is claimed as passed here. The focused, touched-lint,
-strict-typecheck, production-audit, and diff results above are the evidence this
-lane actually holds.
+**The canonical `npm test` does not pass on this branch, and it does not pass on
+the base commit either.** It exited `1`. The suite runner stops at the first
+failing file, so the run halted before reaching most suites, including this
+lane's own.
+
+Two suite files fail. Each was re-run alone on a detached checkout of the
+untouched base `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c`, with this lane's
+three files absent from the worktree, and each reproduced identically:
+
+| Suite | Failure | On this branch | On untouched base `5c3440e` |
+| --- | --- | --- | --- |
+| `tests/drift-replacement.test.mjs` | 3 of 6 tests fail with `Commercial workspace is unavailable` / `knowledge_conflict`, thrown from `domain/knowledge.ts:435` (`workspaceForKnowledge`) through a Miniflare D1 fixture | 3 pass, 3 fail | 3 pass, 3 fail |
+| `tests/fixture-safety.test.mjs` | its single test fails: `Approve disabled must render with the native disabled attribute` | 0 pass, 1 fail | 0 pass, 1 fail |
+
+Both are therefore pre-existing conditions of this checkpoint or this
+environment. Neither involves `domain/morning-brief.ts`, which no other module
+imports. This lane does not fix them and makes no claim about their cause; they
+are recorded here so the next account does not mistake them for regressions
+introduced by this branch, and so no reader mistakes this lane for a green
+canonical gate.
+
+Because the runner halts on first failure, the suite was re-run excluding those
+two files so that `tests/morning-brief.test.mjs` is exercised through the
+canonical runner rather than only standalone. Progressive results on this exact
+source:
+
+| Run | Result |
+| --- | --- |
+| `npm test` (build + all suites) | build PASS; 104 tests pass across 23 files, then exit 1 at `drift-replacement` |
+| build + all suites except `drift-replacement` | build PASS; 149 tests pass across 32 files, then exit 1 at `fixture-safety` |
+| all suites except `drift-replacement` and `fixture-safety` | recorded in the row below |
+
+> **Residual run:** at the time of this revision the third run was still in
+> progress — 19 suite files complete with zero failures — and its outcome is
+> therefore not yet claimed. It is finalized in a follow-up revision of this
+> document. Until that revision lands, the evidence this lane actually holds is
+> the focused suite, the combined 41/41 focused lane, the production build, the
+> whole-project lint, the strict typecheck, the production audit, the diff
+> check, and the mutation results above.
 
 ## Status
 
