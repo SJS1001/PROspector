@@ -21,6 +21,19 @@ export const MIGRATION_FILENAMES = [
   "0009_gorgeous_captain_universe.sql",
 ];
 
+export const PERSON_DISCOVERY_FORWARD_MIGRATION_FILENAMES = [
+  "0010_governed_outreach.sql",
+  "0011_enrichment_candidate_lineage.sql",
+  "0012_governed_outreach_outbox.sql",
+  "0013_governed_outreach_lease.sql",
+  "0014_governed-outreach-authority.sql",
+  "0015_governed-outreach-pre-call.sql",
+  "0016_governed-outreach-attempt-preparation.sql",
+  "0017_governed-outreach-preparation-recovery.sql",
+  "0018_massive_blizzard.sql",
+  "0019_person_discovery.sql",
+];
+
 const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, 4);
 const appliedMigrations = new WeakMap();
 
@@ -88,6 +101,11 @@ export async function applyControlledEnrichmentUpgrade(database) {
 
 export async function applyPhase4Migrations(database) {
   await applyMigrationFiles(database, MIGRATION_FILENAMES.slice(0, 8));
+}
+
+export async function applyPersonDiscoveryMigrations(database) {
+  await applyMigrations(database);
+  await applyMigrationFiles(database, PERSON_DISCOVERY_FORWARD_MIGRATION_FILENAMES);
 }
 
 async function applyLegacyMigrations(database) {

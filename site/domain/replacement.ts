@@ -1,7 +1,6 @@
 import { v7 } from "uuid";
 
 import { buildDriftImpact, type DependencyEdge } from "./drift";
-import { initializeCommercialModel } from "./commercial-model";
 import type { InterviewPrincipal } from "./interview";
 
 export const REPLACEMENT_CANDIDATE_STATUS = "candidate_not_active";
@@ -147,9 +146,7 @@ export async function readReplacementState(database: D1Database, principal: Inte
 }
 
 async function ownedWorkspace(database: D1Database, principal: InterviewPrincipal) {
-  const key = (await sha256(`replacement-bootstrap:${principal.subject}`)).slice(0, 32);
-  await initializeCommercialModel(database, principal, { idempotencyKey: key });
-  const row = await database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id WHERE w.owner_subject IN (?, ?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; company_id: string }>();
+  const row = await database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN workspace_companies wc ON wc.workspace_id=w.id JOIN companies c ON c.id=wc.company_id AND c.workspace_id=w.id WHERE w.owner_subject IN (?, ?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<{ id: string; company_id: string }>();
   if (!row) throw new ReplacementConflictError("Commercial workspace is unavailable");
   return { id: row.id, companyId: row.company_id };
 }

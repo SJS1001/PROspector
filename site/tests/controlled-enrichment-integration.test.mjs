@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { applyMigrations, countRows, createD1Fixture } from "./helpers/d1.mjs";
 import {
   NOW,
@@ -9,6 +10,8 @@ import {
   seedSyntheticReservationInputs,
   snapshotLaterPhaseEffects,
 } from "./helpers/phase5-integration.mjs";
+
+async function applyContactsPaginationMigration(database) { const sql = await readFile(new URL("../drizzle/0018_massive_blizzard.sql", import.meta.url), "utf8"); for (const statement of sql.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) await database.prepare(statement).run(); }
 
 test("forward candidate repairs real Approved Prospect issuance and reservation without rewriting prior authority", async () => {
   const fixture = await createD1Fixture("phase5-controlled-enrichment-lifecycle");
@@ -60,6 +63,7 @@ test("forward candidate repairs real Approved Prospect issuance and reservation 
     await fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id=?").bind(lifecycle.configurationId).run();
     assert.equal(await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]),null,"deactivated configuration still denies authority");
 
+    await applyContactsPaginationMigration(fixture.database);
     const contacts = await fixture.vite.ssrLoadModule(new URL("../domain/contacts-handler.ts", import.meta.url).pathname);
     const identity = { email:"phase5-integration-owner@example.invalid", displayName:"Phase 5 integration owner" };
     const subjectPepper = "phase5-integration-owner-pepper-at-least-thirty-two-bytes";
@@ -241,6 +245,13 @@ test("actual services settle one synthetic provider result into current ContactR
       lifecycle.workspaceId,
       reserved.reservation.id,
     ),true);
+    const verifiedPageSettlements = await settlementPersistence.verifyPersistedContactSettlements(
+      fixture.database,
+      restartedAttestor,
+      lifecycle.workspaceId,
+      [reserved.reservation.id],
+    );
+    assert.equal(verifiedPageSettlements.get(reserved.reservation.id),true,"the fixed-query page verifier preserves complete valid attestation semantics");
     const persistedPoints = await settlementPersistence.readVerifiedContactEligibilityEvidence(
       fixture.database,
       restartedAttestor,

@@ -8,12 +8,13 @@ export async function GET(request: Request) { return handleContactsGet(request, 
 export async function POST(request: Request) { return handleContactsPost(request, await dependencies(request)); }
 
 async function dependencies(request: Request): Promise<ContactsHandlerDependencies> {
-  const bindings = env as unknown as { DB?: D1Database; OWNER_SUBJECT_PEPPER?: string; PILOT_OWNER_EMAIL?: string; CONTACT_SETTLEMENT_ATTESTATION_KEYS_JSON?: string; TRUSTED_IDENTITY_PROVIDER?: string; LOCAL_DEMO?: string; CLOUDFLARE_ACCESS_ISSUER?: string; CLOUDFLARE_ACCESS_AUDIENCE?: string };
+  const bindings = env as unknown as { DB?: D1Database; OWNER_SUBJECT_PEPPER?: string; PILOT_OWNER_EMAIL?: string; CONTACT_SETTLEMENT_ATTESTATION_KEYS_JSON?: string; CONTACTS_CAPABILITY_BUILD_EPOCH?: string; TRUSTED_IDENTITY_PROVIDER?: string; LOCAL_DEMO?: string; CLOUDFLARE_ACCESS_ISSUER?: string; CLOUDFLARE_ACCESS_AUDIENCE?: string };
   if (!bindings.DB || !bindings.OWNER_SUBJECT_PEPPER || !bindings.PILOT_OWNER_EMAIL) throw new Error("Secure contacts bindings are unavailable");
   return {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
+    capabilityBuildEpoch: bindings.CONTACTS_CAPABILITY_BUILD_EPOCH,
     csrfCookieMode: isLocalDemoRequest(request, bindings) ? "local-demo" : "secure",
     contactSettlementAttestor: await bindRuntimeContactSettlementAttestor(
       bindings.CONTACT_SETTLEMENT_ATTESTATION_KEYS_JSON,

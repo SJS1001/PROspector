@@ -61,6 +61,7 @@ export type ContactSettlementAttestation = Readonly<{
 export type ContactSettlementAttestor = Readonly<{
   kind: "contact_settlement_attestor";
   activeKeyId: string;
+  verificationKeyIds: readonly string[];
   sign(material: unknown): Promise<ContactSettlementAttestation | null>;
   verify(material: unknown, attestation: unknown): Promise<boolean>;
 }>;
@@ -105,6 +106,7 @@ export function bindContactSettlementAttestor(
   const attestor: ContactSettlementAttestor = Object.freeze({
     kind: "contact_settlement_attestor" as const,
     activeKeyId: active.keyId,
+    verificationKeyIds: Object.freeze([...keyIds].sort()),
     async sign(materialValue: unknown): Promise<ContactSettlementAttestation | null> {
       const material = normalizeContactSettlementAttestationMaterial(materialValue);
       if (!material) return null;
@@ -158,6 +160,13 @@ export function isBoundContactSettlementAttestor(value: unknown): value is Conta
     && (value as ContactSettlementAttestor).kind === "contact_settlement_attestor"
     && typeof (value as ContactSettlementAttestor).sign === "function"
     && typeof (value as ContactSettlementAttestor).verify === "function";
+}
+
+/** Non-secret identity of the complete accepted key set. It deliberately exposes
+ * identifiers only; nonextractable key material remains closure-bound. */
+export function contactSettlementAttestorIdentity(value: unknown) {
+  if (!isBoundContactSettlementAttestor(value)) return null;
+  return Object.freeze({ activeKeyId: value.activeKeyId, verificationKeyIds: Object.freeze([...value.verificationKeyIds]) });
 }
 
 /**

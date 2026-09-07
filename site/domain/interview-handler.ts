@@ -17,16 +17,20 @@ import {
   submitInterviewAnswer,
   submitRecommendationAnswer,
   type InterviewPrincipal,
+  type InterviewSelection,
   type InterviewState,
 } from "./interview";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
+import { advanceLocalInterview, attachLocalInterviewProgression } from "./interview-question-composer";
 
 export type InterviewHandlerDependencies = {
   database: D1Database;
   subjectPepper: string;
   pilotOwnerEmail: string;
   csrfCookieMode?: CsrfCookieMode;
+  enableLocalDemoProgression?: boolean;
+  interviewSelection?: InterviewSelection;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -35,7 +39,7 @@ export async function handleInterviewGet(
 ): Promise<Response> {
   try {
     const principal = await authenticatedPrincipal(dependencies);
-    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal));
+    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal, dependencies.interviewSelection));
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "server_error" }, 500);
@@ -65,7 +69,10 @@ export async function handleInterviewPost(
     if (typeof action !== "string" || !INTERVIEW_ACTIONS.includes(action as InterviewAction))
       return json({ error: "unsupported_action" }, 400);
     assertClosedCommand(body, action as InterviewAction);
-
+    if (dependencies.interviewSelection && (action === "submit_recommendation_answer" || action === "confirm_submitted_answer"))
+      throw new InterviewConflictError("The selected Explore interview requires the exact generalized answer and confirmation commands");
+    if (action === "advance_local_interview" && !dependencies.enableLocalDemoProgression)
+      return privateWorkspaceUnavailable();
     let state: InterviewState;
     if (action === "bootstrap") {
       state = await bootstrapInterview(dependencies.database, principal);
@@ -90,7 +97,7 @@ export async function handleInterviewPost(
         ...optionalExcerpt(body, "value"),
         ...optionalString(body, "reason", 2000),
         ...optionalDestination(body),
-      });
+      }, dependencies.interviewSelection);
     } else if (action === "record_interview_decision") {
       state = await recordInterviewDecision(dependencies.database, principal, {
         answerId: requiredString(body, "answerId", 160),
@@ -102,12 +109,18 @@ export async function handleInterviewPost(
         ...optionalString(body, "reason", 2000),
         ...optionalDestination(body),
         ...optionalString(body, "predecessorVersionId", 160),
-      });
+      }, dependencies.interviewSelection);
     } else if (action === "restart_unbound_review") {
       state = await restartUnboundReview(dependencies.database, principal, {
         idempotencyKey: requiredString(body, "idempotencyKey", 80),
       });
+    } else if (action === "advance_local_interview") {
+      state = await advanceLocalInterview(dependencies.database, principal, {
+        idempotencyKey: requiredString(body, "idempotencyKey", 80),
+        expectedQueueDigest: requiredDigest(body, "expectedQueueDigest"),
+      }, dependencies.interviewSelection);
     }
+    if (dependencies.interviewSelection) state = await readInterviewState(dependencies.database, principal, dependencies.interviewSelection);
     return stateResponse(dependencies, principal, state);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
@@ -115,6 +128,8 @@ export async function handleInterviewPost(
       return json({ error: error.code }, 403);
     if (error instanceof InterviewConflictError)
       return json({ error: error.code, message: error.message }, 409);
+    if (error instanceof SyntaxError)
+      return json({ error: "unsupported_action" }, 400);
     const status =
       error instanceof Error && "status" in error && error.status === 413 ? 413 : 500;
     return json({ error: status === 413 ? "payload_too_large" : "server_error" }, status);
@@ -135,7 +150,10 @@ async function stateResponse(
   principal: InterviewPrincipal,
   state: InterviewState,
 ) {
-  const response = json(state);
+  const projected = dependencies.enableLocalDemoProgression
+    ? await attachLocalInterviewProgression(dependencies.database, principal, state, dependencies.interviewSelection)
+    : state;
+  const response = json(projected);
   return withCsrfCookie(
     response,
     await issueCsrfToken(dependencies.database, principal.subject),
@@ -161,6 +179,7 @@ const INTERVIEW_ACTIONS = [
   "restart_unbound_review",
   "submit_interview_answer",
   "record_interview_decision",
+  "advance_local_interview",
 ] as const;
 type InterviewAction = (typeof INTERVIEW_ACTIONS)[number];
 
@@ -172,6 +191,7 @@ function assertClosedCommand(body: Record<string, unknown>, action: InterviewAct
     restart_unbound_review: ["action", "idempotencyKey"],
     submit_interview_answer: ["action", "questionId", "expectedRevision", "idempotencyKey", "answer", "value", "reason", "destination"],
     record_interview_decision: ["action", "answerId", "expectedSessionRevision", "expectedQuestionRevision", "idempotencyKey", "decision", "value", "reason", "destination", "predecessorVersionId"],
+    advance_local_interview: ["action", "idempotencyKey", "expectedQueueDigest"],
   };
   if (Object.keys(body).some((key) => !allowed[action].includes(key)))
     throw new InterviewConflictError("Invalid command");
@@ -207,6 +227,13 @@ function requiredString(body: Record<string, unknown>, key: string, max: number)
 function requiredRevision(body: Record<string, unknown>, key: string) {
   const value = body[key];
   if (!Number.isInteger(value) || value < 1) throw new InterviewConflictError("Invalid command");
+  return value;
+}
+
+function requiredDigest(body: Record<string, unknown>, key: string) {
+  const value = body[key];
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
+    throw new InterviewConflictError("Invalid command");
   return value;
 }
 

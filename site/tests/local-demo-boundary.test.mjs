@@ -27,6 +27,8 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(demoPage, /credentials: "same-origin"/);
   assert.match(demoPage, /data-local-demo-visible="true"/);
   assert.match(demoPage, /Local demo interview/);
+  assert.match(demoPage, /Start company setup/);
+  assert.doesNotMatch(demoPage, /action:\s*"bootstrap"|Initialize local interview/);
   assert.match(demoPage, /Local demo setup steps/);
   assert.match(demoPage, /demoState === "active"/);
   assert.match(demoPage, /Open Consensus Knowledge/);
@@ -100,11 +102,19 @@ test("local demo routes only interview authority commands through the dedicated 
         returnsKnowledgeProjection: false,
       });
       assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/interview");
+      assert.equal(knowledgeMutationTransport("advance_local_interview", hostname).endpoint, "/api/interview");
       assert.equal(knowledgeMutationTransport("propose_owner_edit", hostname).endpoint, "/api/knowledge");
     }
+    const selection = "?view=knowledge&interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003";
+    assert.equal(
+      knowledgeMutationTransport("advance_local_interview", "localhost", selection).endpoint,
+      "/api/interview?interviewSessionId=0198b5c0-0000-7000-8000-000000000001&marketPlayId=0198b5c0-0000-7000-8000-000000000002&sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000003",
+      "the exact selection survives the local mutation transport without unrelated view state",
+    );
     for (const hostname of ["", "localhost.", "127.0.0.2", "0.0.0.0", "example.test"]) {
       assert.equal(knowledgeMutationTransport("submit_interview_answer", hostname).endpoint, "/api/knowledge");
       assert.equal(knowledgeMutationTransport("record_interview_decision", hostname).endpoint, "/api/knowledge");
+      assert.equal(knowledgeMutationTransport("advance_local_interview", hostname).endpoint, "/api/knowledge");
     }
   } finally {
     await vite.close();

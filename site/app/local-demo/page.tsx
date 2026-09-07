@@ -6,7 +6,7 @@ type DemoState = "checking" | "uninitialized" | "active" | "unavailable" | "reje
 
 const statusCopy: Record<DemoState, string> = {
   checking: "Checking the disposable local interview…",
-  uninitialized: "Local demo is ready to initialize.",
+  uninitialized: "Local demo is ready for your company setup.",
   active: "Interview is ready with disposable local data.",
   unavailable: "Local demo unavailable. Check that the local development server is running, then retry.",
   rejected: "Initialization was rejected. Refresh the local server and retry.",
@@ -25,7 +25,6 @@ async function readInterview() {
 
 export default function LocalDemo() {
   const [demoState, setDemoState] = useState<DemoState>("checking");
-  const [busy, setBusy] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -41,42 +40,10 @@ export default function LocalDemo() {
       .catch(() => {
         if (mounted) setDemoState("unavailable");
       })
-      .finally(() => {
-        if (mounted) setBusy(false);
-      });
     return () => {
       mounted = false;
     };
   }, []);
-
-  async function bootstrap() {
-    setBusy(true);
-    try {
-      const { response, body } = await readInterview();
-      if (!response.ok) {
-        setDemoState("unavailable");
-        return;
-      }
-      if (body?.status === "active") {
-        setDemoState("active");
-        return;
-      }
-      const mutation = await fetch("/api/interview", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          "x-prospector-intent": "interview-mutation",
-        },
-        body: JSON.stringify({ action: "bootstrap" }),
-      });
-      setDemoState(mutation.ok ? "active" : "rejected");
-    } catch {
-      setDemoState("unavailable");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <main className="local-demo-screen" data-local-demo-visible="true" data-demo-state={demoState}>
@@ -86,8 +53,8 @@ export default function LocalDemo() {
         <p>Development-only, disposable, and unable to activate providers, prospecting, outreach, or external effects.</p>
         <ol className="local-demo-steps" aria-label="Local demo setup steps">
           <li className={demoState === "active" ? "complete" : "current"}>
-            <b>Initialize disposable interview</b>
-            <small>Creates local-only working data.</small>
+            <b>Enter your Company and first Product</b>
+            <small>Creates only the private commercial model you provide.</small>
           </li>
           <li className={demoState === "active" ? "current" : "pending"}>
             <b>Open Consensus Knowledge</b>
@@ -98,9 +65,7 @@ export default function LocalDemo() {
           {demoState === "active" ? (
             <Link className="local-demo-primary" href="/?view=knowledge">Open Consensus Knowledge <span aria-hidden="true">→</span></Link>
           ) : (
-            <button type="button" disabled={busy} onClick={() => void bootstrap()}>
-              {busy ? "Checking local interview…" : demoState === "uninitialized" ? "Initialize local interview" : "Retry local setup"}
-            </button>
+            <Link className="local-demo-primary" href="/?view=knowledge">Start company setup <span aria-hidden="true">→</span></Link>
           )}
         </div>
         <p className="local-demo-status" role="status" aria-live="polite">{statusCopy[demoState]}</p>

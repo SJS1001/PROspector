@@ -272,6 +272,20 @@ test("D-07 proposal rendering is capped, escaped, evidence-rich, and Draft-only"
     assert.doesNotMatch(html, /<img(?:\s|>)/i);
     assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.doesNotMatch(html, /Ready Profile|Find prospects|Create prospect|Run profile/);
+
+    const explored = structuredClone(proposals[0]);
+    explored.status = "explored";
+    explored.decisions = [{
+      id: "0198b5c0-0000-7000-8000-000000002001", decision: "explore", status: "explored",
+      immutable: true, digest: "e".repeat(64), proposalId: explored.id, proposalVersionId: explored.versionId,
+      interview: { id: "0198b5c0-0000-7000-8000-000000002002", marketPlayId: "0198b5c0-0000-7000-8000-000000002003", scopeType: "market_play", lifecycle: "draft", sourceProposalVersionId: explored.versionId },
+    }];
+    const exploredHtml = renderToStaticMarkup(React.createElement(proposalModule.ProposalCards, {
+      authority: "known", proposals: [explored], triggerLabel: "manual", pendingProposalId: null, onDecision() {},
+    }));
+    assert.match(exploredHtml, /href="\/\?view=knowledge&amp;interviewSessionId=0198b5c0-0000-7000-8000-000000002002&amp;marketPlayId=0198b5c0-0000-7000-8000-000000002003&amp;sourceProposalVersionId=0198b5c0-0000-7000-8000-000000000101"/);
+    assert.match(exploredHtml, /Open Draft Market Play interview/);
+    assert.match(exploredHtml, /grants no authority; answer and confirmation remain separate/);
   } finally {
     await vite.close();
   }

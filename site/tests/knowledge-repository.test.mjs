@@ -30,6 +30,8 @@ test("every intake origin records immutable Proposed knowledge with complete pro
   try {
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009201" });
     const before = await snapshotForbiddenOperationalRows(fixture.database);
     for (const [index, origin] of origins.entries()) {
       const proposed = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput(origin, `0198a4b0-0000-7000-8000-0000000002${String(index).padStart(2, "0")}`));
@@ -58,6 +60,8 @@ test("quarantined or unscanned upload proposals never become parseable, renderab
   try {
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009202" });
     const before = await snapshotForbiddenOperationalRows(fixture.database);
     const upload = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("quarantined_upload", "0198a4b0-0000-7000-8000-000000000220"));
     assert.equal(upload.quarantine.status, "unscanned");
@@ -79,6 +83,8 @@ test("duplicate hierarchy names fail closed while exact projected destination ID
   try {
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009203" });
     const initialized = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000270"));
     const workspace = await fixture.database.prepare("SELECT w.id, c.id AS company_id FROM workspaces w JOIN companies c ON c.workspace_id = w.id WHERE w.owner_subject = ?").bind(principal.subject).first();
     const originalProduct = await fixture.database.prepare("SELECT id FROM products WHERE workspace_id = ? AND name = 'ONE'").bind(workspace.id).first();
@@ -95,7 +101,7 @@ test("duplicate hierarchy names fail closed while exact projected destination ID
     const exact = await knowledge.createKnowledgeProposal(fixture.database, principal, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000273"), destination: { scopeType: "customer_profile", id: originalProfile.id, locator: "Operating" } });
     assert.equal(exact.destination.id, originalProfile.id);
     await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, principal, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000274"), destination: { scopeType: "customer_profile", id: "profile-duplicate", locator: "Greenfield" } }), /outside|hierarchy/i);
-    await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, { subject: "foreign-owner", legacySubject: "foreign-legacy", displayName: "Foreign" }, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000275"), destination: { scopeType: "customer_profile", id: originalProfile.id } }), /outside|hierarchy/i);
+    await assert.rejects(knowledge.createKnowledgeProposal(fixture.database, { subject: "foreign-owner", legacySubject: "foreign-legacy", displayName: "Foreign" }, { ...proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000275"), destination: { scopeType: "customer_profile", id: originalProfile.id } }), /outside|hierarchy|workspace/i);
     assert.equal(initialized.destination.scopeType, "product");
   } finally { await fixture.dispose(); }
 });
@@ -105,6 +111,8 @@ test("knowledge review appends immutable versions, converges retries, and enforc
   try {
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009204" });
     const before = await snapshotForbiddenOperationalRows(fixture.database);
     const accepted = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000230"));
     const accept = { proposalId: accepted.id, decision: "accept", expectedRevision: accepted.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000231" };
@@ -148,6 +156,8 @@ test("concurrent knowledge reviewers commit exactly one decision and one version
   try {
     await applyMigrations(fixture.database);
     const knowledge = await fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009205" });
     const proposed = await knowledge.createKnowledgeProposal(fixture.database, principal, proposalInput("owner_edit", "0198a4b0-0000-7000-8000-000000000250"));
     const raced = await runRace([
       () => knowledge.reviewKnowledgeProposal(fixture.database, principal, { proposalId: proposed.id, decision: "accept", expectedRevision: proposed.revision, idempotencyKey: "0198a4b0-0000-7000-8000-000000000251" }),
@@ -168,6 +178,8 @@ test("generalized interview decision is atomic across proposal, version, confirm
     const interview = await fixture.vite.ssrLoadModule(new URL("../domain/interview.ts", import.meta.url).pathname);
     const atomicPrincipal = await interview.principalFromIdentity("atomic@example.com", "Atomic Owner", "test-only-subject-pepper-with-at-least-32-bytes");
     const active = await interview.bootstrapInterview(fixture.database, atomicPrincipal);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, atomicPrincipal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009206" });
     const awaiting = await interview.submitInterviewAnswer(fixture.database, atomicPrincipal, {
       questionId: active.question.id,
       expectedRevision: active.question.revision,
@@ -206,6 +218,8 @@ test("generalized interview projects the exact commercial destination through co
     const pepper = "test-only-destination-pepper-with-at-least-32-bytes";
     const exactPrincipal = await interview.principalFromIdentity("destination@example.com", "Destination Owner", pepper);
     await interview.bootstrapInterview(fixture.database, exactPrincipal);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    await commercial.initializeCommercialModel(fixture.database, exactPrincipal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000009207" });
     const projectionResponse = await handler.handleKnowledgeGet({
       database: fixture.database,
       subjectPepper: pepper,
