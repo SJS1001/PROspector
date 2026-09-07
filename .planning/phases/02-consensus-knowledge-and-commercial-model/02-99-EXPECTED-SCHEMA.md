@@ -1,4 +1,14 @@
-# Plan 02-99 expected post-migration schema
+# Plan 02-99 expected post-migration schema (chain `0000`-`0009`)
+
+**Status:** superseded for current-chain verification by
+`02-99-EXPECTED-SCHEMA-0019.md` on 2026-09-07. The checked chain has grown to
+twenty migrations, so the counts and digests below no longer describe a fresh
+local database built from `site/drizzle/`.
+
+This document is retained, unchanged below this notice, because it remains the
+exact expected shape of the `0009` boundary that Stage 2 actually applied
+remotely. The remote target is still at that boundary, so this — not the
+`0019` document — is what current remote reads must match.
 
 **Captured:** 2026-09-02
 

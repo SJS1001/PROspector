@@ -15,7 +15,12 @@ function releaseChain() {
     resolve(repositoryRoot, ".planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md"),
     "utf8",
   );
-  return manifest.split("\n")
+  // Only the rows under the pinned release heading. The manifest also carries a
+  // "Checked ahead of the release chain" table, and counting those as released
+  // would assert exactly the widening the release pin exists to prevent.
+  const section = manifest.split(/^## /mu).find((part) => part.startsWith("Ordered release chain"));
+  if (section === undefined) throw new Error("release chain section missing");
+  return section.split("\n")
     .filter((line) => /^\| \d{4} \|/u.test(line))
     .map((line) => line.split("|")[2].trim().replaceAll("`", ""));
 }

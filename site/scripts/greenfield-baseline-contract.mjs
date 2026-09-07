@@ -24,4 +24,13 @@ export const GREENFIELD_REQUIRED_EMPTY_TABLES = Object.freeze([
   "person_discovery_owner_decisions",
   "prospect_contact_role_relevance",
   "contact_verification_intents",
+  // Outreach tables the pre-merge main-side attestation required empty. Kept so
+  // the union of both greenfield lists is proved, not the narrower of the two.
+  "outreach_outbox_items",
+  "outreach_packages",
+  "outreach_messages",
+  "outreach_recipient_dispatch_authorities",
+  "outreach_pre_call_recheck_receipts",
+  "outreach_dispatch_attempt_preparations",
+  "outreach_dispatch_attempt_preparation_events",
 ]);

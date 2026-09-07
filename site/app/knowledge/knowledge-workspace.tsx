@@ -9,6 +9,7 @@ import { interviewSelectionSearch, knowledgeMutationTransport } from "./mutation
 import { DriftReplacementsView, type DriftProjection, type DriftReviewCommand, type ReplacementActivationCommand, type ReplacementCandidateCommand, type ReplacementProjection } from "./drift-replacements";
 import { KnowledgeLibraryView, type KnowledgeIntakeCommand, type KnowledgeItemProjection, type KnowledgeReviewCommand } from "./knowledge-library";
 import type { OnboardingProjection } from "../../domain/onboarding";
+import type { OperatorContextPath } from "../operator-context";
 
 export const KNOWLEDGE_LOCAL_VIEWS = ["Commercial Model", "Interview", "Knowledge Library", "Drift & Replacements"] as const;
 export const CONTROLLED_PILOT_BOUNDARY_COPY = "Commercial knowledge is live. Discovery, prospecting, contacts, schedules, exports, credentials, paid work, and outbound effects remain disabled.";
@@ -20,7 +21,7 @@ type Projection = ActiveProjection | { onboarding: Exclude<OnboardingProjection,
 type WorkspaceState = { kind: "loading" } | { kind: "ready"; value: Projection } | { kind: "unavailable"; message: string } | { kind: "unauthorized" } | { kind: "unknown"; message: string };
 type MutationNotice = { message: string; actionLabel: "Load current version" | "Check current version" };
 
-export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUnauthorized: () => void; onCompanyResolved?: (name:string)=>void }) {
+export function KnowledgeWorkspace({ onUnauthorized, onCommercialPathResolved }: { onUnauthorized: () => void; onCommercialPathResolved?: (path: OperatorContextPath | null) => void }) {
   const [state, setState] = useState<WorkspaceState>({ kind: "loading" });
   const [view, setView] = useState<LocalView>("Interview");
   const [pending, setPending] = useState<string | null>(null);
@@ -43,12 +44,12 @@ export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUn
         return;
       }
       setState({ kind: "ready", value });
-      if(value.onboarding.status!=="company_product_required")onCompanyResolved?.(value.onboarding.company.name);
+      onCommercialPathResolved?.(commercialPathFromOnboarding(value.onboarding));
       setNotice(null);
     } catch {
       setState({ kind: "unavailable", message: "Authoritative knowledge could not be loaded. No authority has changed. Retry the knowledge load." });
     }
-  }, [onCompanyResolved,onUnauthorized]);
+  }, [onCommercialPathResolved,onUnauthorized]);
 
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
 
@@ -88,13 +89,13 @@ export function KnowledgeWorkspace({ onUnauthorized, onCompanyResolved }: { onUn
         return;
       }
       const value = normalizeProjection(await response.json());
-      if(value.onboarding.status!=="company_product_required")onCompanyResolved?.(value.onboarding.company.name);
+      onCommercialPathResolved?.(commercialPathFromOnboarding(value.onboarding));
       operationKeys.current.delete(logicalKey);
       setState({ kind: "ready", value });
     } catch {
       setNotice({ message: "The outcome could not be verified. Nothing will be retried automatically. Check the current version.", actionLabel: "Check current version" });
     } finally { mutationLock.current=false; setPending(null); }
-  }, [keyFor, load, onCompanyResolved,onUnauthorized, state.kind]);
+  }, [keyFor, load, onCommercialPathResolved,onUnauthorized, state.kind]);
 
   if (state.kind === "loading") return <section className="panel loading-state" role="status">Loading authoritative knowledge…</section>;
   if (state.kind === "unauthorized") return null;
@@ -161,6 +162,18 @@ function OnboardingView({projection,pending,notice,dispatch,reload}:{projection:
     projection.status==="market_play_required"||projection.status==="customer_profile_required"?<form className="panel" onSubmit={e=>{e.preventDefault();const market=projection.status==="market_play_required";const parent=market?projection.product:projection.marketPlay;void dispatch("create_onboarding_draft",`onboarding-draft:${market?"market_play":"customer_profile"}:${parent.id}:${name}`,{type:market?"market_play":"customer_profile",parentId:parent.id,name,expectedRevision:parent.revision});}}><p><b>{projection.company.name}</b> / {projection.product.name}{projection.status==="customer_profile_required"?` / ${projection.marketPlay.name}`:""}</p><label>{projection.status==="market_play_required"?"Market Play name":"Customer Profile name"}<input required maxLength={160} value={name} onChange={e=>setName(e.target.value)}/></label><button className="primary" disabled={busy} type="submit">Continue setup</button></form>:
     <section className="panel"><p><b>{projection.company.name}</b> / {projection.product.name} / {projection.marketPlay.name} / {projection.customerProfile.name}</p><p>The interview will ask for owner-confirmed knowledge. The profile becomes usable only after an exact confirmed <b>fit</b> answer exists for this Customer Profile.</p><button className="primary" disabled={busy||!projection.interviewQueueDigest} type="button" onClick={()=>{if(projection.interviewQueueDigest)void dispatch("start_onboarding_interview",`onboarding-interview:${projection.interviewQueueDigest}`,{expectedQueueDigest:projection.interviewQueueDigest});}}>Begin interview</button></section>}
   </section>;
+}
+
+/** The whole server-projected commercial path, so the shell can repeat the
+ * current scope without deriving or widening any authority. */
+export function commercialPathFromOnboarding(onboarding: OnboardingProjection): OperatorContextPath | null {
+  if (onboarding.status === "company_product_required") return null;
+  return {
+    company: { id: onboarding.company.id, name: onboarding.company.name },
+    product: { id: onboarding.product.id, name: onboarding.product.name },
+    marketPlay: "marketPlay" in onboarding ? { id: onboarding.marketPlay.id, name: onboarding.marketPlay.name } : null,
+    customerProfile: "customerProfile" in onboarding ? { id: onboarding.customerProfile.id, name: onboarding.customerProfile.name } : null,
+  };
 }
 
 export function normalizeProjection(value: unknown): Projection {

@@ -8,45 +8,36 @@ import {
   ProspectorApp,
   type CapabilityApiState,
 } from "./prospector-app";
-import { workspaceViewFromParam } from "./workspace-view";
-import { runtimeIdentity } from "./runtime-identity";
-import { admitPilotOwner } from "../domain/pilot-access";
+import { shellTaskFromParam } from "./workspace-view";
+import { admitOperatorSession, type OperatorAdmissionBindings } from "./owner-admission";
 
 type HomeProps = {
   searchParams?: Promise<{ view?: string | string[] }>;
 };
 
 export default async function Home({ searchParams }: HomeProps = {}) {
-  const bindings = env as unknown as CapabilityBindings;
+  const bindings = env as unknown as CapabilityBindings & OperatorAdmissionBindings;
   const requestedView = searchParams ? (await searchParams).view : undefined;
-  const initialView = workspaceViewFromParam(requestedView);
-  let initialAccess: "authorized" | "unauthorized" = "unauthorized";
+  const initialView = shellTaskFromParam(requestedView);
+  const session = await admitOperatorSession(bindings);
   let initialCapabilityState: CapabilityApiState | null = null;
-  let blankLocalOnboarding = false;
-  try {
-    const response = await handleCapabilitiesGet(
-      capabilityDependencies(bindings),
-    );
-    if (response.ok) {
-      initialAccess = "authorized";
-      initialCapabilityState =
-        (await response.json()) as CapabilityApiState;
-    }
-  } catch {
-    initialAccess = "unauthorized";
-  }
-  if (initialAccess === "unauthorized" && import.meta.env.DEV && bindings.TRUSTED_IDENTITY_PROVIDER === "local-demo" && bindings.LOCAL_DEMO === "1") {
+  if (session.admitted) {
     try {
-      admitPilotOwner(await runtimeIdentity(undefined, bindings), bindings.PILOT_OWNER_EMAIL, bindings.OWNER_SUBJECT_PEPPER);
-      initialAccess = "authorized";
-      blankLocalOnboarding = true;
-    } catch { /* fail closed */ }
+      const response = await handleCapabilitiesGet(capabilityDependencies(bindings));
+      if (response.ok) initialCapabilityState = (await response.json()) as CapabilityApiState;
+    } catch {
+      initialCapabilityState = null;
+    }
   }
+  // A blank workspace has no accepted capability evidence yet, so setup is the
+  // only task the operator can act on.
+  const blankWorkspace = session.admitted && initialCapabilityState === null;
   return (
     <ProspectorApp
-      initialAccess={initialAccess}
+      initialAccess={session.admitted ? "authorized" : "unauthorized"}
+      identityKey={session.identityKey ?? ""}
       initialCapabilityState={initialCapabilityState}
-      initialView={blankLocalOnboarding && initialView === "Pilot Status" ? "Knowledge" : initialView}
+      initialView={blankWorkspace && initialView === "status" ? "knowledge" : initialView}
     />
   );
 }

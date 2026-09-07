@@ -43,6 +43,13 @@ test("greenfield attestation covers the whole checked chain and claims nothing a
         person_discovery_owner_decisions: 0,
         prospect_contact_role_relevance: 0,
         contact_verification_intents: 0,
+        outreach_outbox_items: 0,
+        outreach_packages: 0,
+        outreach_messages: 0,
+        outreach_recipient_dispatch_authorities: 0,
+        outreach_pre_call_recheck_receipts: 0,
+        outreach_dispatch_attempt_preparations: 0,
+        outreach_dispatch_attempt_preparation_events: 0,
       },
     });
     // The attestation must actually prove the Contacts/Person Discovery schema,

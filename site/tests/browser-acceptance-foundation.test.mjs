@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { basename, resolve } from "node:path";
 import test from "node:test";
@@ -13,11 +13,6 @@ import {
   createBrowserAcceptanceRuntimeRoot,
   scrubbedBrowserEnvironment,
 } from "../scripts/browser-acceptance-boundary.mjs";
-import {
-  CANONICAL_MIGRATION_COUNT,
-  CANONICAL_MIGRATION_FILENAMES,
-  CANONICAL_MIGRATION_HEAD,
-} from "../scripts/migration-chain.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -172,24 +167,38 @@ test("bootstrap, Miniflare, and verifier share one absolute per-run state path",
   }
 });
 
-test("browser bootstrap applies the canonical chain and hardcodes no migration list", async () => {
+test("browser bootstrap remains the exact authoritative checked chain", async () => {
   const bootstrap = await readFile(resolve(root, "scripts/local-bootstrap.mjs"), "utf8");
+  // The chain is the checked Drizzle journal's, so browser acceptance runs
+  // against the real current schema. A second hard-coded list here is what let
+  // the applied chain silently stop at 0009 while the repository moved on.
+  //
+  // The bootstrap reaches the journal through scripts/migration-chain.mjs
+  // rather than re-reading it inline, so assert the whole path: the bootstrap
+  // takes its chain from that module, and that module reads the journal.
+  assert.match(bootstrap, /import \{[^}]*CANONICAL_MIGRATION_FILENAMES[^}]*\} from "\.\/migration-chain\.mjs"/u);
+  const chainModule = await readFile(resolve(root, "scripts/migration-chain.mjs"), "utf8");
+  assert.match(chainModule, /"meta\/_journal\.json"/u);
   assert.deepEqual(
-    [...bootstrap.matchAll(/"(\d{4}_[A-Za-z0-9._-]+\.sql)"/g)].map((match) => match[1]),
+    [...chainModule.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/gu)].map((match) => match[1]),
     [],
-    "a hardcoded copy of the chain is exactly how the bootstrap fell behind the journal",
+    "the shared chain module must name no migration literally either",
   );
-  assert.match(bootstrap, /from "\.\/migration-chain\.mjs"/, "the bootstrap must read the canonical source of truth");
-  assert.match(bootstrap, /const MIGRATIONS = CANONICAL_MIGRATION_FILENAMES;/);
-  assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].slice(0, 5), [
-    "0000_jittery_meteorite.sql",
-    "0001_true_spencer_smythe.sql",
-    "0002_eager_supreme_intelligence.sql",
-    "0003_acoustic_magik.sql",
-    "0004_consensus_knowledge.sql",
-  ], "the reviewed Phase 2 head of the chain is fixed");
-  assert.equal(CANONICAL_MIGRATION_HEAD, CANONICAL_MIGRATION_FILENAMES.at(-1));
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 20, "the browser lane must reach the integrated person-discovery head");
+  assert.deepEqual(
+    [...bootstrap.matchAll(/"(\d{4}_[a-z0-9_-]+\.sql)"/g)].map((match) => match[1]),
+    [],
+    "the bootstrap must name no migration literally",
+  );
+
+  const journal = JSON.parse(await readFile(resolve(root, "drizzle/meta/_journal.json"), "utf8"));
+  const chain = journal.entries
+    .slice()
+    .sort((left, right) => left.idx - right.idx)
+    .map((entry) => `${entry.tag}.sql`);
+  const onDisk = (await readdir(resolve(root, "drizzle")))
+    .filter((name) => name.endsWith(".sql"))
+    .sort((left, right) => left.localeCompare(right));
+  assert.deepEqual(chain, onDisk, "the journal and site/drizzle must describe the same chain");
 });
 
 test("zero-effect verifier accepts the exact synthetic fit and rejects a forbidden row", async () => {

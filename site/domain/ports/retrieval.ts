@@ -13,13 +13,18 @@
 
 export const ADMISSION_RULE = "prospector-retrieval-admission/v1" as const;
 
-export type RetrievalRejectionReason =
-  | "request_shape" | "request_url" | "request_mime_types" | "request_caps"
-  | "evidence_shape" | "evidence_clock" | "evidence_hops" | "evidence_hop_url"
-  | "evidence_address" | "evidence_pinning" | "evidence_status" | "evidence_redirects"
-  | "evidence_transfer" | "evidence_decompression"
-  | "document_shape" | "document_binding" | "document_mime" | "document_digest" | "document_text"
-  | "adapter_failure";
+/** Enumerable at runtime so the requirement-to-enforcement map below can be
+ * proven total: a reason added without a governing requirement fails its test. */
+export const RETRIEVAL_REJECTION_REASONS = Object.freeze([
+  "request_shape", "request_url", "request_mime_types", "request_caps",
+  "evidence_shape", "evidence_clock", "evidence_hops", "evidence_hop_url",
+  "evidence_address", "evidence_pinning", "evidence_status", "evidence_redirects",
+  "evidence_transfer", "evidence_decompression",
+  "document_shape", "document_binding", "document_mime", "document_digest", "document_text",
+  "adapter_failure",
+] as const);
+
+export type RetrievalRejectionReason = typeof RETRIEVAL_REJECTION_REASONS[number];
 
 export class RetrievalAdmissionError extends Error {
   readonly code = "retrieval_admission_rejected";
@@ -86,6 +91,13 @@ export const RETRIEVAL_ADMISSION_LIMITS = Object.freeze({
   maximumTimeoutMs: 120_000,
   maximumResolvedAddresses: 16,
   maximumExtractedTextLength: 65_536,
+  /**
+   * An absolute decompression cap alone does not bound expansion: a one-byte
+   * transfer budget paired with the absolute cap declares a 33,554,432:1 ratio
+   * and silently retires this contract's decompression-bomb protection. The
+   * effective ceiling is the lower of the absolute cap and this ratio.
+   */
+  maximumDecompressionRatio: 20,
 } as const);
 
 export const SAFE_RETRIEVAL_REQUIREMENTS = Object.freeze([
@@ -96,6 +108,26 @@ export const SAFE_RETRIEVAL_REQUIREMENTS = Object.freeze([
   "sandboxed_text_extraction", "escaped_text_only",
   "no_cookies_credentials_or_privileged_browser_authority",
 ] as const);
+
+/**
+ * Bind each named requirement to the rejection reasons that actually enforce
+ * it.  The requirement list is otherwise prose: nothing failed when a label was
+ * added without an enforcing check, or when a check was removed while its label
+ * stayed.  This map is proven total in both directions by its test, so the
+ * labels can no longer drift away from the implementation.
+ */
+export const RETRIEVAL_ADMISSION_RULES: Readonly<Record<typeof SAFE_RETRIEVAL_REQUIREMENTS[number], readonly RetrievalRejectionReason[]>> = Object.freeze({
+  https_only: Object.freeze(["request_url", "evidence_hop_url", "document_binding"] as const),
+  public_address_and_redirect_validation: Object.freeze(["evidence_address", "evidence_status", "evidence_redirects"] as const),
+  dns_connection_pinning: Object.freeze(["evidence_pinning"] as const),
+  documentation_and_reserved_address_rejection: Object.freeze(["evidence_address", "evidence_pinning"] as const),
+  mime_byte_decompression_and_timeout_caps: Object.freeze(["request_mime_types", "request_caps", "evidence_transfer", "evidence_decompression", "document_mime"] as const),
+  bounded_redirects_and_wall_clock_timeout: Object.freeze(["request_caps", "evidence_redirects", "evidence_clock"] as const),
+  mandatory_pinning_redirect_transfer_and_clock_evidence: Object.freeze(["evidence_shape", "evidence_hops", "evidence_pinning", "evidence_transfer", "evidence_clock"] as const),
+  sandboxed_text_extraction: Object.freeze(["document_shape", "document_digest", "document_text"] as const),
+  escaped_text_only: Object.freeze(["document_text"] as const),
+  no_cookies_credentials_or_privileged_browser_authority: Object.freeze(["request_shape", "request_url", "adapter_failure"] as const),
+});
 
 const REQUEST_KEYS = ["url", "expectedMimeTypes", "maximumBytes", "maximumDecompressedBytes", "maximumRedirects", "timeoutMs"] as const;
 const HOP_KEYS = ["url", "resolvedAddresses", "pinnedAddress", "status", "observedAt"] as const;
@@ -114,7 +146,8 @@ export function admitRetrievalRequest(request: unknown): AdmittedRetrievalReques
   const url = canonicalHttpsUrl(value.url, "request_url");
   const expectedMimeTypes = admitMimeTypes(value.expectedMimeTypes);
   const maximumBytes = boundedInteger(value.maximumBytes, 1, RETRIEVAL_ADMISSION_LIMITS.maximumTransferBytes, "request_caps");
-  const maximumDecompressedBytes = boundedInteger(value.maximumDecompressedBytes, maximumBytes, RETRIEVAL_ADMISSION_LIMITS.maximumDecompressedBytes, "request_caps");
+  const maximumDecompressedBytes = boundedInteger(value.maximumDecompressedBytes, maximumBytes,
+    Math.min(RETRIEVAL_ADMISSION_LIMITS.maximumDecompressedBytes, maximumBytes * RETRIEVAL_ADMISSION_LIMITS.maximumDecompressionRatio), "request_caps");
   const maximumRedirects = boundedInteger(value.maximumRedirects, 0, RETRIEVAL_ADMISSION_LIMITS.maximumRedirects, "request_caps");
   const timeoutMs = boundedInteger(value.timeoutMs, 1, RETRIEVAL_ADMISSION_LIMITS.maximumTimeoutMs, "request_caps");
   return Object.freeze({ admissionRule: ADMISSION_RULE, url, expectedMimeTypes, maximumBytes, maximumDecompressedBytes, maximumRedirects, timeoutMs });

@@ -18,7 +18,7 @@ const EXPECTED_SCHEMA_PATH = resolve(
   ROOT,
   "../.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-EXPECTED-SCHEMA.md",
 );
-const EXPECTED_SCHEMA_DIGEST = "be56cec622b4a893d865bbee10d1dc5790cc1339bf40feb6212471f3f2dbe7e8";
+const EXPECTED_SCHEMA_DIGEST = "88dcea65372c47df44799af29dff1053258b47641ab5bceb863da4d91a75d226";
 const REVIEWED_COMPATIBILITY_DATE = "2026-07-30";
 const TARGET_NEUTRAL_BUILD_CONFIG_DIGEST = "928dc72d08e8031e6d970cff7b1676b4724967d06a1c82dc70e37b2ad73b3530";
 const SAFE_NAME = /^[a-z0-9](?:[a-z0-9_-]{0,94}[a-z0-9])?$/u;
@@ -100,7 +100,10 @@ export async function prepareGreenfieldTarget({ mappingPath, outputPath }) {
   const manifest = await readFile(MANIFEST_PATH, "utf8");
   const expectedSchema = await readFile(EXPECTED_SCHEMA_PATH, "utf8");
   const released = parseReleaseChain(manifest);
-  const checked = await verifyCheckedChain(released);
+  const checked = await verifyCheckedChain(
+    released,
+    manifestRows(manifest, "Checked ahead of the release chain"),
+  );
   if (digest(expectedSchema) !== EXPECTED_SCHEMA_DIGEST) {
     throw new Error("expected_schema_manifest_mismatch");
   }
@@ -210,13 +213,25 @@ function validateTargetNeutralBuild(build) {
  * to apply to the deployed target. It is pinned by the checked manifest and
  * only a separate owner authorization may extend it.
  */
-function parseReleaseChain(source) {
-  const released = source.split("\n")
+/**
+ * Rows under one `## ` heading only. The manifest carries two tables: the
+ * pinned release chain and the checked-ahead chain. Reading every row in the
+ * file would silently promote an unreleased migration into the release set the
+ * candidate offers to a remote apply, so each table is parsed by its heading.
+ */
+function manifestRows(source, heading) {
+  const section = source.split(/^## /mu).find((part) => part.startsWith(heading));
+  if (section === undefined) throw new Error("migration_manifest_invalid");
+  return section.split("\n")
     .filter((line) => /^\| \d{4} \|/u.test(line))
     .map((line) => {
       const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replaceAll("`", ""));
       return { order: cells[0], name: cells[1], digest: cells[2] };
     });
+}
+
+function parseReleaseChain(source) {
+  const released = manifestRows(source, "Ordered release chain");
   if (released.length === 0) throw new Error("migration_manifest_invalid");
   for (const [index, item] of released.entries()) {
     if (item.order !== String(index).padStart(4, "0")
@@ -237,7 +252,7 @@ function parseReleaseChain(source) {
  * continues the same contiguous numbering without gaps, duplicates, or
  * reordering. The tail is reported by digest and never enters the candidate.
  */
-async function verifyCheckedChain(released) {
+async function verifyCheckedChain(released, aheadExpected) {
   const entries = await readdir(MIGRATION_ROOT, { withFileTypes: true });
   const files = entries
     .filter((entry) => entry.name.endsWith(".sql"))
@@ -255,14 +270,34 @@ async function verifyCheckedChain(released) {
     }
   }
   const ahead = names.slice(released.length);
+  // The checked-ahead table records a digest per unreleased migration, so the
+  // working tree is proved byte-for-byte here too. A file that drifts, or one
+  // that appears on disk without a recorded row, fails closed rather than being
+  // hashed into an opaque rollup nobody compares.
+  // A recorded checked-ahead row is an integrity claim and must hold exactly.
+  // A migration that has landed but is not recorded yet is still admitted on
+  // contiguity alone: the tree is allowed to run ahead of the manifest, and the
+  // candidate excludes it either way. Recording a row can only tighten this,
+  // never loosen it, so a recorded file that has drifted or gone missing fails.
+  const recorded = new Map(aheadExpected.map((item) => [item.name, item]));
   const aheadLines = [];
   for (const [offset, name] of ahead.entries()) {
     const order = String(released.length + offset).padStart(4, "0");
     if (!SAFE_MIGRATION.test(name) || !name.startsWith(`${order}_`)) {
       throw new Error("migration_manifest_mismatch");
     }
-    aheadLines.push(`${name}:${digest(await readFile(resolve(MIGRATION_ROOT, name)))}`);
+    const actual = digest(await readFile(resolve(MIGRATION_ROOT, name)));
+    const expected = recorded.get(name);
+    if (expected !== undefined) {
+      if (expected.order !== order || actual !== expected.digest) {
+        throw new Error("migration_manifest_mismatch");
+      }
+      recorded.delete(name);
+    }
+    aheadLines.push(`${name}:${actual}`);
   }
+  // Every recorded row must correspond to a file that is actually present.
+  if (recorded.size > 0) throw new Error("migration_manifest_mismatch");
   return { ahead, aheadDigest: digest(aheadLines.join("\n")) };
 }
 

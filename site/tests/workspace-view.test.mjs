@@ -10,20 +10,18 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
   try {
     const routing = await vite.ssrLoadModule(new URL("../app/workspace-view.ts", import.meta.url).pathname);
     const expected = new Map([
-      [null, "Pilot Status"],
-      ["morning-brief", "Morning Brief"],
-      ["knowledge", "Knowledge"],
-      ["market-discovery", "Market Discovery"],
-      ["review-queue", "Review Queue"],
-      ["prospects", "Prospects"],
-      ["exports-history", "Exports & History"],
+      [null, "status"],
+      ["knowledge", "knowledge"],
+      ["market-discovery", "market-discovery"],
+      ["review-queue", "review-queue"],
+      ["prospects", "prospects"],
     ]);
-    for (const [parameter, view] of expected) {
-      assert.equal(routing.workspaceViewFromParam(parameter), view);
-      assert.equal(routing.workspaceViewParam(view), parameter);
+    for (const [parameter, task] of expected) {
+      assert.equal(routing.shellTaskFromParam(parameter), task);
+      assert.equal(routing.shellTaskParam(task), parameter);
     }
-    for (const value of [undefined, "", "Knowledge", "../knowledge", ["knowledge"], { view: "knowledge" }]) {
-      assert.equal(routing.workspaceViewFromParam(value), "Pilot Status");
+    for (const value of [undefined, "", "contacts", "morning-brief", "exports-history", "Knowledge", "../knowledge", ["knowledge"], { view: "knowledge" }]) {
+      assert.equal(routing.shellTaskFromParam(value), "status");
     }
   } finally {
     await vite.close();
@@ -33,16 +31,21 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
 test("workspace navigation is server-seeded, history-aware, and demo-directed to Knowledge", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
   const app = await readFile(new URL("app/prospector-app.tsx", root), "utf8");
+  // The demo screen moved out of the route module in be6a8c2 so no LOCAL_DEMO
+  // markup can reach the production bundle; the route now only guards it. The
+  // navigation contract still belongs to the screen, so assert it there.
   const demo = await readFile(new URL("app/local-demo/_screen.tsx", root), "utf8");
+  const demoRoute = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
 
-  assert.match(page, /workspaceViewFromParam\(requestedView\)/);
-  // The server seeds the view from the URL, then redirects a blank local-demo
-  // workspace to Knowledge instead of the default Pilot Status landing.
-  assert.match(page, /initialView=\{[^}]*\binitialView\b[^}]*\}/);
-  assert.match(page, /blankLocalOnboarding && initialView === "Pilot Status" \? "Knowledge" : initialView/);
+  assert.match(page, /shellTaskFromParam\(requestedView\)/);
+  assert.match(page, /initialView=\{blankWorkspace && initialView === "status" \? "knowledge" : initialView\}/);
   assert.match(app, /window\.history\.pushState/);
   assert.match(app, /addEventListener\("popstate", restoreView\)/);
-  assert.match(app, /aria-current=\{view === item\.label \? "page" : undefined\}/);
+  assert.match(app, /aria-current=\{current \? "page" : undefined\}/);
   assert.match(demo, /href="\/\?view=knowledge"/);
   assert.match(demo, /Open Consensus Knowledge/);
+  // The route itself must stay a development-only boundary that renders nothing
+  // in production, so the screen is reachable only behind the folded branch.
+  assert.match(demoRoute, /import\.meta\.env\.DEV/u);
+  assert.match(demoRoute, /notFound\(\)/u);
 });

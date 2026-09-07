@@ -8,6 +8,8 @@ import {
 import { ProspectWorkspace } from "./prospect-workspace";
 import { ReviewQueue } from "./review-queue";
 import { prospectingUrl } from "./prospecting-transport";
+import { disambiguateOperatorLabels } from "../operator-context";
+import { TaskState } from "../task-state";
 
 export type ProspectingProjection = {
   authority?: "owner" | "blocked" | "malformed";
@@ -291,6 +293,13 @@ function ProfileSelector({
   busy: boolean;
   onSelect: (profileId: string) => void;
 }) {
+  // Profiles may legitimately share a name, so identical entries are separated by
+  // a plain ordinal; the exact identifier stays in the closed technical record.
+  const options = disambiguateOperatorLabels(
+    profiles.map((profile) => ({ id: profile.id, name: profile.name })),
+  );
+  const selected = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
+  const selectedLabel = options.find((option) => option.id === selectedProfileId)?.label ?? "";
   return (
     <section className="prospecting-panel profile-selector">
       <label htmlFor="prospecting-profile">
@@ -308,16 +317,27 @@ function ProfileSelector({
         onChange={(event) => onSelect(event.target.value)}
       >
         {!selectedProfileId && <option value="">Select a Profile</option>}
-        {profiles.map((profile) => (
+        {profiles.map((profile, index) => (
           <option key={profile.id} value={profile.id}>
-            {profile.name} · {profile.lifecycle}
+            {options[index]?.label ?? profile.name} · {profile.lifecycle}
           </option>
         ))}
       </select>
       {selectedProfileId ? (
-        <p>
-          Selected Profile <code>{selectedProfileId}</code>
-        </p>
+        <TaskState
+          state={selected?.lifecycle === "ready" ? "ready" : "needs-you"}
+          summary={`Selected Profile ${selectedLabel}. Its exact server-projected authority is shown below.`}
+          technical={[
+            { term: "Profile reference", value: selectedProfileId },
+            ...(selected?.revision === undefined
+              ? []
+              : [{ term: "Profile revision", value: String(selected.revision) }]),
+            ...(selected?.lifecycle === undefined
+              ? []
+              : [{ term: "Lifecycle", value: selected.lifecycle }]),
+          ]}
+          technicalLabel="Profile technical details"
+        />
       ) : (
         <p role="status">No Profile is selected.</p>
       )}
