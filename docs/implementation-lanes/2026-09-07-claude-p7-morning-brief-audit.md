@@ -168,7 +168,7 @@ three files absent from the worktree, and each reproduced identically:
 | --- | --- | --- | --- |
 | `tests/drift-replacement.test.mjs` | 3 of 6 tests fail with `Commercial workspace is unavailable` / `knowledge_conflict`, thrown from `domain/knowledge.ts:435` (`workspaceForKnowledge`) through a Miniflare D1 fixture | 3 pass, 3 fail | 3 pass, 3 fail |
 | `tests/fixture-safety.test.mjs` | its single test fails: `Approve disabled must render with the native disabled attribute` | 0 pass, 1 fail | 0 pass, 1 fail |
-| `tests/greenfield-target-config.test.mjs` | 2 of 6 tests fail with `migration_manifest_mismatch`; the overwrite case reports that code instead of the expected `output_exists` | 4 pass, 2 fail | 4 pass, 2 fail |
+| `tests/greenfield-target-config.test.mjs` | 2 of 6 tests fail with `migration_manifest_mismatch`, diagnosed below; the overwrite case reports that code instead of the expected `output_exists` only because manifest verification runs first | 4 pass, 2 fail | 4 pass, 2 fail |
 | `tests/rendered-html.test.mjs` | its build/source smoke fails: the rendered source no longer matches `/Good morning, Steven/` | 3 pass, 1 fail | 3 pass, 1 fail |
 | `tests/workspace-view.test.mjs` | navigation smoke fails: the worker source no longer matches `/initialView=\{initialView\}/` | 1 pass, 1 fail | 1 pass, 1 fail |
 
@@ -179,19 +179,48 @@ are recorded here so the next account does not mistake them for regressions
 introduced by this branch, and so no reader mistakes this lane for a green
 canonical gate.
 
-Two of these deserve the next account's attention on their own merits, and
-neither is a Phase 7 concern:
+`tests/rendered-html.test.mjs` and `tests/workspace-view.test.mjs` are
+source-text smoke assertions whose regexes no longer match the source they scan.
+Whether the fixtures or the source are the stale side is a question for the
+owning lanes; this lane did not touch any of them.
 
-- `tests/greenfield-target-config.test.mjs` is the Cloudflare
-  target-configuration seam. A `migration_manifest_mismatch` there means the
-  checked migration manifest no longer matches the migration bytes it is bound
-  to. That is Plan 02-99 territory.
-- `tests/rendered-html.test.mjs` and `tests/workspace-view.test.mjs` are
-  source-text smoke assertions that no longer match the source they scan. Taken
-  together with the manifest mismatch, this checkpoint has drifted away from
-  several of its own fixtures in more than one place. Whether the fixtures or
-  the source are stale is a question for the owning lanes; this lane did not
-  touch any of them.
+#### Correction: the `migration_manifest_mismatch` is not byte drift
+
+An earlier revision of this document stated that this failure means "the checked
+migration manifest no longer matches the migration bytes it is bound to." **That
+was wrong**, and it is corrected here because it would send the next account
+hunting for tampering that did not occur.
+
+Every one of the ten manifest digests still matches its file byte-for-byte. All
+ten were recomputed from `site/drizzle/` against
+`02-99-MIGRATION-MANIFEST.md`: zero digest mismatches.
+
+The actual cause is a set-equality check, not an integrity check. The manifest's
+own verification contract requires the tree to hold "exactly these ten SQL files
+in this lexical order and no other migration", and
+`verifyMigrationManifest` in `site/scripts/greenfield-target-config.mjs`
+compares the full sorted `.sql` filename list against those ten names before
+computing any digest. `site/drizzle/` now holds twenty files: the pinned
+`0000`-`0009` chain plus `0010` through `0019`, added by the later Phase 4, 5,
+6 outreach and person-discovery lanes. The name lists differ, so the function
+throws at the list comparison and never reaches the digest loop.
+
+This is therefore the guard behaving exactly as designed: a fail-closed Stage 2
+release gate correctly refusing to prepare a target candidate from a tree that
+has grown past its pinned release chain. The manifest is bound to source
+`46d082e962c4acc1771e92ad300d61913d50ead4` and was captured on 2026-09-02, when
+the chain ended at `0009`; ten migrations have landed since.
+
+The second failing test in that file, "the CLI never overwrites an existing
+target candidate", is a knock-on: `verifyMigrationManifest` runs early in
+`prepareGreenfieldTarget`, long before the `EEXIST` to `output_exists` mapping,
+so the manifest code surfaces instead of the expected one.
+
+Resolving this is a genuine Plan 02-99 decision for the schema owner — re-pin
+the manifest to the current chain, or scope the verifier to the released prefix
+— and it is explicitly not this lane's call. Nothing in `02-99` territory, the
+manifest, the verifier, or `site/drizzle/` was modified. This diagnosis is
+read-only: no Cloudflare, hosted, or remote action was involved in producing it.
 
 ### Progressive suite results on this exact source
 
@@ -255,10 +284,12 @@ Every suite file has been run on this branch, so no further validation of this
 lane is outstanding. What remains is not this lane's work:
 
 Diagnose the five pre-existing failures against the base commit rather than
-against this branch, starting with `tests/greenfield-target-config.test.mjs`.
-Decide in each case whether the fixture or the source is the stale side. Until
-that is settled, the canonical `npm test` cannot pass on this checkpoint for
-reasons that have nothing to do with Phase 7.
+against this branch. `tests/greenfield-target-config.test.mjs` is already
+diagnosed above and needs a Plan 02-99 decision rather than further
+investigation. For the remaining four, decide in each case whether the fixture
+or the source is the stale side. Until that is settled, the canonical `npm test`
+cannot pass on this checkpoint for reasons that have nothing to do with
+Phase 7.
 
 ## Status
 
