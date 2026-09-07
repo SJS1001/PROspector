@@ -16,7 +16,7 @@ import { PHASE2_FORBIDDEN_TABLE_NAMES } from "./phase2-hosted-contract.mjs";
 // the hosted-activation gate. None of them may hold a row in a zero-effect run.
 export const CANONICAL_EFFECT_TABLES = Object.freeze([
   "contact_eligibility_snapshots", "contact_evidence_assignments", "contact_point_observations", "contact_relevance",
-  "contact_verification_intents", "contact_verification_receipts", "contacts", "contacts_projection_generations",
+  "contact_verification_intents", "contact_verification_receipts", "contacts",
   "enrichment_budget_accounts", "enrichment_grant_issuance_events", "enrichment_grant_prospects", "enrichment_grants",
   "enrichment_reservation_budget_entries", "enrichment_reservation_events", "enrichment_reservations",
   "identity_decisions", "identity_lineage", "identity_suggestion_candidates", "identity_suggestion_impacts",
@@ -45,7 +45,14 @@ export const CANONICAL_EFFECT_TABLES = Object.freeze([
 // Local synthetic onboarding, interview, knowledge, and configuration state. These may
 // hold the demo rows the browser journey writes, bounded by LOCAL_STATE_ROW_CEILING.
 export const CANONICAL_LOCAL_STATE_TABLES = Object.freeze([
+  // `contacts_projection_generations` holds trigger-maintained counters, not an
+  // effect. Now that the local bootstrap applies the whole checked chain, 0018's
+  // guards write a row here whenever the synthetic onboarding journey touches
+  // `typed_configurations`, `workspaces`, or a gate. Classifying it as an effect
+  // table would fail every full-chain run on a counter no operator can reach; the
+  // C4 verifier already treats it the same way.
   "accounts", "artifact_configuration_dependencies", "audit_events", "authority_commands", "companies",
+  "contacts_projection_generations",
   "configuration_activations", "configuration_knowledge_dependencies", "csrf_tokens", "customer_profiles",
   "drift_impact_snapshots", "import_batches", "import_items", "interview_answers", "interview_authority_bindings",
   "interview_authority_review", "interview_confirmations", "interview_questions", "interview_sessions",

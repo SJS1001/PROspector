@@ -42,16 +42,27 @@ npm run baseline:greenfield
 ```
 
 The command resets only ignored state below `site/.local`, applies the checked
-`0000`-`0009` prefix of the repository migration chain to that disposable
-database, checks foreign keys, and proves selected authority and operational
-tables are empty. Its safe JSON result explicitly records
-`originalProjectMigrationClaim: "none"`, and reports `appliedMigrations`
-against `checkedChainMigrations` with `coversCheckedChain` so the attested
-scope is never read as the whole chain.
+repository migration chain to that disposable database, checks foreign keys,
+and proves selected authority and operational tables are present and empty —
+including the Contacts and Person Discovery tables at the head of the chain.
+Its safe JSON result explicitly records `originalProjectMigrationClaim: "none"`
+and reports `appliedMigrations` against `checkedChainMigrations` with
+`coversCheckedChain` and `migrationHead`, so the attested scope is stated rather
+than assumed and can never drift from what actually ran.
 
-Later migrations are outside this attestation. The tables they create are
-absent from the resulting database, so a clean result proves nothing about
-them.
+The chain has exactly one source of truth: `site/scripts/migration-chain.mjs`
+derives it from the checked drizzle-kit journal at
+`site/drizzle/meta/_journal.json` and cross-checks it against the `.sql` files
+in `site/drizzle/`. A gap, duplicate index, mismatched tag, orphaned SQL file,
+or missing file fails closed rather than yielding a truncated chain. The local
+bootstrap, this attestation, and the browser acceptance lanes derive their chain
+from that module and must never restate it, so no consumer can silently stay
+pinned to an older head while the repository chain grows.
+
+This local chain is distinct from the authorized release chain pinned by
+`02-99-MIGRATION-MANIFEST.md`. The disposable local database covers everything
+the working tree holds; extending what a hosted target may apply remains a
+separate owner decision.
 
 This attestation proves reproducible local bootstrap only. It makes no claim
 about the inaccessible original project or any future hosted target.

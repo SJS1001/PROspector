@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
+import { GREENFIELD_REQUIRED_EMPTY_TABLES } from "./greenfield-baseline-contract.mjs";
+import { CANONICAL_MIGRATION_COUNT, CANONICAL_MIGRATION_HEAD } from "./migration-chain.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const stateIndex = process.argv.indexOf("--state");
@@ -19,16 +21,24 @@ rejectSymlink(localRoot);
 rejectSymlink(statePath);
 
 const bootstrap = JSON.parse(run(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", requestedState]).stdout.trim());
-/* The bootstrap deliberately applies a prefix of the checked chain, so the
- * report states both counts: a reader must never take `ready` for proof that
- * every checked migration ran. */
-const checkedChainMigrations = JSON.parse(readFileSync(resolve(ROOT, "drizzle", "meta", "_journal.json"), "utf8")).entries.length;
+/* The report states both counts rather than asserting coverage: a reader must
+ * never take `ready` for proof that every checked migration ran. The bootstrap
+ * now applies the whole canonical chain, so these agree, but they are still
+ * reported separately so the claim can never drift from what actually ran. The
+ * checked count comes from the validated canonical chain, not a second raw read
+ * of the journal. */
+const checkedChainMigrations = CANONICAL_MIGRATION_COUNT;
 const appliedMigrations = bootstrap.migrationCount;
 if (!Number.isSafeInteger(appliedMigrations) || appliedMigrations < 1 || appliedMigrations > checkedChainMigrations) {
   throw new Error("greenfield_migration_count_invalid");
 }
 const coversCheckedChain = appliedMigrations === checkedChainMigrations;
 const counts = queryCounts(statePath);
+assert.deepEqual(
+  Object.keys(counts),
+  [...GREENFIELD_REQUIRED_EMPTY_TABLES],
+  "greenfield_required_table_set_mismatch",
+);
 for (const [table, count] of Object.entries(counts)) {
   assert.equal(count, 0, `greenfield_nonempty:${table}`);
 }
@@ -40,6 +50,7 @@ process.stdout.write(`${JSON.stringify({
   appliedMigrations,
   checkedChainMigrations,
   coversCheckedChain,
+  migrationHead: CANONICAL_MIGRATION_HEAD,
   originalProjectEvidence: "waived-unavailable",
   originalProjectMigrationClaim: "none",
   hostedEvidence: false,
@@ -48,16 +59,11 @@ process.stdout.write(`${JSON.stringify({
 })}\n`);
 
 function queryCounts(state) {
-  const sql = [
-    "SELECT",
-    "(SELECT COUNT(*) FROM workspaces) AS workspaces,",
-    "(SELECT COUNT(*) FROM phase_activation_gates) AS phase_activation_gates,",
-    "(SELECT COUNT(*) FROM product_discovery_runs) AS product_discovery_runs,",
-    "(SELECT COUNT(*) FROM prospects) AS prospects,",
-    "(SELECT COUNT(*) FROM enrichment_grants) AS enrichment_grants,",
-    "(SELECT COUNT(*) FROM contact_point_observations) AS contact_point_observations,",
-    "(SELECT COUNT(*) FROM suppressions) AS suppressions;",
-  ].join(" ");
+  const projections = GREENFIELD_REQUIRED_EMPTY_TABLES.map((table) => {
+    assert.match(table, /^[a-z][a-z0-9_]*$/, `greenfield_table_name_invalid:${table}`);
+    return `(SELECT COUNT(*) FROM ${table}) AS ${table}`;
+  });
+  const sql = `SELECT ${projections.join(", ")};`;
   const result = run(resolve(ROOT, "node_modules/.bin/wrangler"), [
     "d1", "execute", "DB", "--local", "--persist-to", state,
     "--config", "wrangler.local.jsonc", "--command", sql,
