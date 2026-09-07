@@ -8,6 +8,6 @@ import {
 export async function POST(request: Request) {
   return handleCapabilityProbePost(
     request,
-    capabilityDependencies(env as unknown as CapabilityBindings),
+    capabilityDependencies(env as unknown as CapabilityBindings, request),
   );
 }

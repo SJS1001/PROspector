@@ -22,13 +22,14 @@ export type CapabilityBindings = RuntimeIdentityBindings & {
 
 export function capabilityDependencies(
   bindings: CapabilityBindings,
+  request?: Request,
 ): CapabilityHandlerDependencies {
   return {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     getIdentity: async () => {
-      return runtimeIdentity(undefined, bindings);
+      return runtimeIdentity(request, bindings);
     },
     getWorkspace: (principal) => workspaceFor(bindings.DB, principal),
     readEvidence: (workspaceId) => readEvidence(bindings.DB, workspaceId),
