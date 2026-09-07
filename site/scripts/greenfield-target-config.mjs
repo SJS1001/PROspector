@@ -208,9 +208,23 @@ async function verifyMigrationManifest(source) {
   const actualSqlEntries = actualEntries
     .filter((entry) => entry.name.endsWith(".sql"))
     .sort((left, right) => left.name.localeCompare(right.name));
-  if (actualSqlEntries.some((entry) => !entry.isFile())
-      || JSON.stringify(actualSqlEntries.map((entry) => entry.name)) !== JSON.stringify(expectedNames)) {
+  if (actualSqlEntries.some((entry) => !entry.isFile())) throw new Error("migration_manifest_mismatch");
+  const actualNames = actualSqlEntries.map((entry) => entry.name);
+  // The manifest pins the reviewed 0000-0009 chain and is Stage 2 acceptance
+  // evidence bound to the exact bytes applied remotely, so it is never rewritten
+  // to match a longer chain. Later reviewed migrations may be appended, but the
+  // pinned prefix must remain intact, byte-for-byte, and in order.
+  if (actualNames.length < expectedNames.length
+      || JSON.stringify(actualNames.slice(0, expectedNames.length)) !== JSON.stringify(expectedNames)) {
     throw new Error("migration_manifest_mismatch");
+  }
+  // Anything beyond the pinned prefix must continue the sequence contiguously,
+  // so a stray, misnumbered, duplicated, or gapped migration still fails closed.
+  for (const [offset, name] of actualNames.slice(expectedNames.length).entries()) {
+    const order = String(expectedNames.length + offset).padStart(4, "0");
+    if (!new RegExp(`^${order}_[A-Za-z0-9._-]+\\.sql$`, "u").test(name)) {
+      throw new Error("migration_manifest_mismatch");
+    }
   }
   for (let index = 0; index < expected.length; index += 1) {
     const item = expected[index];

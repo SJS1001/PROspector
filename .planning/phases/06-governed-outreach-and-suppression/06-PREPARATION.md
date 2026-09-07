@@ -575,14 +575,15 @@ disk:
    prospect row renders and `SignalRow` is unreachable through the workbench.
    Both controls are still `disabled` in the component itself. **Fixed on this
    branch** (see below).
-3. `tests/greenfield-target-config.test.mjs` fails 2/6, both cases with
+3. `tests/greenfield-target-config.test.mjs` failed 2/6, both cases with
    `migration_manifest_mismatch`. `02-99-MIGRATION-MANIFEST.md` pins the ordered
    SHA-256 manifest of the `0000`-`0009` chain to migration source
    `46d082e962c4acc1771e92ad300d61913d50ead4`, but `site/drizzle/` on this
-   branch holds twenty migrations through `0019_person_discovery.sql`, so the
-   target-config CLI's manifest check mismatches by construction. Case 3 was
-   verified in a detached base worktree, where a third case additionally fails
-   as a downstream artifact of the same mismatch.
+   branch holds twenty migrations through `0019_person_discovery.sql`, and
+   `verifyMigrationManifest` required the directory to equal the manifest
+   exactly, so it mismatched by construction. Verified in a detached base
+   worktree, where a third case additionally fails as a downstream artifact of
+   the same mismatch. **Fixed on this branch** (see below).
 4. `tests/rendered-html.test.mjs` failed 1/4 on "build/source smoke identifies
    the controlled workbench and removes the starter". It asserted the literals
    `Good morning, Steven` and `Sample export-ready` in a page source that this
@@ -594,8 +595,25 @@ disk:
    now a computed expression carrying the blank-local-onboarding redirect to
    Knowledge. **Fixed on this branch** (see below).
 
-Defect 3 belongs to another lane and was deliberately left untouched. This slice
-touches no file under `site/drizzle/` and adds no migration.
+This slice touches no file under `site/drizzle/` and adds no migration.
+
+Defect 3 was separately authorized and repaired here **without rewriting any
+governed evidence**. `02-99-MIGRATION-MANIFEST.md` is Stage 2 acceptance
+evidence bound to the exact bytes Wrangler applied remotely, so re-pinning it to
+the current chain was rejected as a fix. Instead `verifyMigrationManifest` in
+`site/scripts/greenfield-target-config.mjs` was corrected: the pinned ten must
+still be present, in order, and byte-identical by SHA-256, but they are now
+verified as an intact *prefix* rather than as the whole directory, and every
+migration beyond them must continue the sequence contiguously. The manifest file
+is byte-identical and was never modified.
+
+The real safety properties are preserved and the shape is tightened rather than
+relaxed. Four injected regressions were each confirmed to fail the suite before
+the source was restored: a gapped extra migration (`0021` with no `0020`), a
+tampered byte in pinned `0000`, a renamed pinned `0005`, and a duplicate `0010`
+name. The pre-existing case that rejects a stray out-of-sequence
+`9999_unchecked_*.sql` migration still passes unchanged. The suite passes 6/6
+and the greenfield and migration suites pass 61/61.
 
 Defect 1 was separately authorized and repaired here by adding the explicit
 `initializeCommercialModel` seed to the three affected cases, exactly as
@@ -656,9 +674,9 @@ files exactly once:
 
 `tests/drift-replacement.test.mjs` (failure 1, 6 cases) completes the 119.
 Across all passes: 796 cases, 788 passing, and all 8 failures confined to the
-five pre-existing suites above. With defects 1, 2, 4 and 5 repaired, 794 pass
-and the only remaining failure is defect 3, which stays open for its own lane.
-No failure in any pass is attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
+five pre-existing suites above. With all five defects repaired, 796 pass and no
+canonical suite is left failing on this branch. No failure in any pass was
+attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
 test file outside its own focused suite, and the static composition guard
 enforces that. This is local preparation evidence only.
 
