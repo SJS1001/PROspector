@@ -16,32 +16,19 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   ]);
   assert.match(page, /ProspectorApp/);
   assert.match(layout, /PROspector — Human-governed GTM/);
-  // The generic onboarding rework (3320f26) removed the hardcoded personal
-  // greeting along with the default path into the legacy Mining fixture.
-  // Assert the generic heading that replaced it and pin the old one out;
-  // knowledge-ui.test.mjs enforces the same absence.
-  assert.match(app, /title="Morning brief"/);
-  assert.doesNotMatch(app, /Good morning, Steven/);
   assert.match(app, /Consensus Interview/);
-  // The same rework removed the seeded sample prospects. Assert the generic
-  // zero state that replaced them and pin the fixture copy out.
-  assert.match(app, /EXPORT-READY/);
-  assert.match(app, /No eligible records/);
-  assert.doesNotMatch(app, /Sample export-ready/i);
   assert.match(app, /Controlled capability pilot/);
-  assert.match(app, /Prospecting disabled/);
-  assert.match(app, /0 live prospects/);
   assert.match(app, /Submit answer for confirmation/);
   assert.match(app, /Confirm submitted answer/);
   assert.match(app, /Start corrected review/);
   assert.match(app, /Applying this policy to scoring and prospecting remains disabled/);
   assert.match(app, /ProspectingWorkspace/);
-  assert.doesNotMatch(app, /function ReviewQueue\(|function Prospects\(/);
+  assert.doesNotMatch(app, /function ReviewQueue\(|function Prospects\(|function MorningBrief\(|function Exports\(/);
   assert.doesNotMatch(app, /Connected · advisory|Last run 06:00|Eligible now<\/dt><dd>3 prospects/);
   assert.doesNotMatch(`${page}${app}${layout}${packageJson}`, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
-test("Prospects and Review Queue compose distinct owner-scoped workflows", async () => {
+test("Prospects and Review prospects compose distinct owner-scoped workflows", async () => {
   const server = await createServer({
     configFile: false,
     logLevel: "silent",
@@ -114,13 +101,13 @@ test("Prospects and Review Queue compose distinct owner-scoped workflows", async
     };
     const prospects = renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Prospects",
+        initialView: "prospects",
         initialProspectingProjection: projection,
       }),
     );
     const review = renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Review Queue",
+        initialView: "review-queue",
         initialProspectingProjection: projection,
       }),
     );
@@ -129,7 +116,12 @@ test("Prospects and Review Queue compose distinct owner-scoped workflows", async
     for (const html of [prospects, review]) {
       assert.match(html, /Customer Profile/);
       assert.match(html, /Operating sites · ready/);
-      assert.match(html, /Selected Profile <code>profile-shell/);
+      assert.match(html, /Selected Profile Operating sites\./);
+      assert.match(
+        html,
+        /<details class="task-state-technical"><summary>Profile technical details<\/summary>[\s\S]*?profile-shell/,
+        "the exact Profile reference stays inside the closed technical record",
+      );
       assert.match(html, /Persisted bounded publisher/);
       assert.match(html, /https:\/\/bounded\.example\/evidence\/shell/);
       assert.doesNotMatch(
@@ -146,7 +138,7 @@ test("Prospects and Review Queue compose distinct owner-scoped workflows", async
     assert.match(review, /Persisted Target/);
     assert.ok(
       review.indexOf("Review Queue") < review.indexOf("Validated evidence"),
-      "the review workflow must be primary in Review Queue mode",
+      "the review workflow must be primary in Review prospects mode",
     );
     assert.ok(
       review.indexOf("Validated evidence") < review.indexOf("Profile Readiness"),
@@ -186,7 +178,7 @@ test("Pilot Status renders the evidence hierarchy and a neutral denial", async (
     };
     const ownerHtml = renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Pilot Status",
+        initialView: "status",
         initialCapabilityState: capabilityState,
       }),
     );
@@ -236,7 +228,7 @@ test("workspace hydration text is stable across server and Safari locale formatt
     };
     const renderWorkspace = () => renderToStaticMarkup(
       createElement(ProspectorApp, {
-        initialView: "Pilot Status",
+        initialView: "status",
         initialCapabilityState: capabilityState,
       }),
     );

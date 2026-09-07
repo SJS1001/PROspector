@@ -194,3 +194,31 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .person-candidate-list { display:grid; gap:12px; margin:0; padding:0; list-style:none; }.person-candidate-list>li { display:grid; gap:8px; padding:14px; border:1px solid var(--line); border-left:4px solid #d9a441; border-radius:7px; background:#fffdf7; }.person-candidate-list p { margin:0; color:var(--muted); }.person-candidate-list dl { display:grid; gap:6px; margin:0; }.person-candidate-list dl>div { display:grid; grid-template-columns:100px minmax(0,1fr); gap:12px; }.person-candidate-list dt { color:var(--muted); }.person-candidate-list dd { margin:0; overflow-wrap:anywhere; }
 .person-page-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }.person-page-controls span { margin-right:auto; color:var(--muted); }.person-discovery-workspace :focus-visible { outline:2px solid var(--green); outline-offset:2px; }
 @media (max-width:760px) { .person-discovery-workspace .panel { padding:16px; }.person-candidate-list dl>div { grid-template-columns:1fr; gap:2px; }.person-discovery-workspace button { width:100%; }.person-page-controls span { width:100%; } }
+
+/* Work Unit D operator shell: six real tasks, plain state, closed technical records. */
+.skip-link { position:absolute; left:-9999px; top:0; z-index:20; }
+.skip-link:focus-visible { left:16px; top:16px; min-height:44px; display:inline-flex; align-items:center; padding:10px 15px; border:1px solid var(--green); border-radius:7px; background:var(--white); color:var(--green); font-size:12px; font-weight:760; text-decoration:none; }
+.rail nav a { position:relative; display:flex; align-items:center; gap:12px; width:100%; padding:10px; border-radius:6px; color:#a9bbb4; text-decoration:none; font-size:12px; }
+.rail nav a.active { color:#f6fbf8; background:#29443a; }
+.rail nav a:focus-visible,.rail nav button:focus-visible,.workspace-picker a:focus-visible { outline:2px solid var(--lime); outline-offset:2px; }
+.workspace-picker a { display:block; width:100%; border:1px solid #355249; background:#1c322a; color:white; border-radius:7px; padding:10px 11px; text-align:left; margin-top:8px; text-decoration:none; }
+.operator-context { display:flex; flex-wrap:wrap; gap:8px 24px; margin:16px 4.2vw 0; padding:12px 16px; border:1px solid var(--line); border-radius:9px; background:var(--white); font-size:12px; line-height:1.55; }
+.operator-context p { margin:0; color:var(--muted); }
+.operator-context>div { display:grid; gap:2px; min-width:0; }
+.operator-context span { color:var(--muted); font-size:9px; font-weight:760; letter-spacing:1.15px; text-transform:uppercase; }
+.operator-context b { font-weight:760; overflow-wrap:anywhere; }
+.content:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
+.task-state { display:grid; gap:8px; font-size:12px; line-height:1.55; }
+.task-state-summary { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0; }
+.task-state-badge { display:inline-flex; width:max-content; padding:4px 8px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--muted); font-size:10px; font-weight:760; line-height:1.2; }
+.task-state[data-task-state="ready"] .task-state-badge { color:var(--teal); border-color:#cbe0d2; background:#e8f5ee; }
+.task-state[data-task-state="needs-you"] .task-state-badge,.task-state[data-task-state="waiting"] .task-state-badge { color:#735c25; border-color:#d9a441; background:#fff8df; }
+.task-state-technical { border-top:1px solid var(--line); padding-top:8px; }
+.task-state-technical summary { min-height:44px; display:flex; align-items:center; color:var(--green); font-weight:760; cursor:pointer; }
+.task-state-technical summary:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.task-state-technical dl { display:grid; gap:8px; margin:8px 0 0; }
+.task-state-technical dl div { display:grid; grid-template-columns:170px minmax(0,1fr); gap:12px; }
+.task-state-technical dt { color:var(--muted); }
+.task-state-technical dd { margin:0; font-family:var(--font-geist-mono); overflow-wrap:anywhere; }
+@media (max-width:760px) { .operator-context { margin:14px 16px 0; gap:8px 16px; }.rail nav a { min-width:max-content; } }
+@media (max-width:480px) { .operator-context { flex-direction:column; }.task-state-technical dl div { grid-template-columns:1fr; gap:4px; } }

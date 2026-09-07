@@ -162,8 +162,8 @@ test("D-07/D-13 discovery workspace source preserves Product scope and fails clo
     productionSource("../app/discovery/discovery-workspace.tsx", "the authoritative discovery workspace does not exist"),
     productionSource("../app/prospector-app.tsx", "the primary application shell does not exist"),
   ]);
-  assert.match(app, /Knowledge[\s\S]*Market Discovery[\s\S]*Review Queue/);
-  assert.match(app, /Pilot Status/);
+  assert.match(app, /"knowledge"[\s\S]*"market-discovery"[\s\S]*"review-queue"/);
+  assert.match(app, /task === "status"/);
   assert.match(workspace, /\/api\/discovery/);
   assert.match(workspace, /credentials:\s*["']same-origin["']/);
   assert.match(workspace, /cache:\s*["']no-store["']/);

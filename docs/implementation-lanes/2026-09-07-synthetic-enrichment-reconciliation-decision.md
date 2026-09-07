@@ -172,23 +172,26 @@ gate does not pass end-to-end on this base independently of this work.
   unconditional `initialView` pass-through. **Repaired in this branch** (see
   below); `site/app` itself was not changed.
 
-### Repaired stale assertions
+### Repaired stale assertions — superseded upstream
 
-Three assertions asserted removed legacy-fixture copy. Each was replaced with
-the generic behaviour that superseded it plus a negative guard, so coverage is
-preserved rather than deleted:
+Three assertions in `site/tests/rendered-html.test.mjs` and
+`site/tests/workspace-view.test.mjs`, plus the `site/tests/fixture-safety.test.mjs`
+control guard, still expected legacy-fixture copy that the generic onboarding
+rework `3320f26` had removed. This lane repaired all of them.
 
-- `Good morning, Steven` → `title="Morning brief"`, and the old greeting pinned
-  absent. `site/tests/knowledge-ui.test.mjs` already asserted this string must
-  *not* appear, so the two suites had directly contradicted each other.
-- `Sample export-ready` → the generic `EXPORT-READY` / `No eligible records`
-  zero state, with the fixture copy pinned absent.
-- `initialView={initialView}` → the prop is still asserted server-seeded, plus a
-  new assertion for the blank-local-onboarding redirect from Pilot Status to
-  Knowledge that replaced the unconditional pass-through.
+`main` then landed `4ec377d` (Work Unit D, the coherent operator interface),
+which rewrote the same three files against the reconstructed UI. Merging `main`
+into this branch conflicted on exactly those files and **`main`'s versions were
+taken in full**; all three are now byte-identical to `main`. This lane's repairs
+are therefore superseded and carry no remaining diff.
 
-Both suites now pass (6/6 across them), `site/tests/knowledge-ui.test.mjs` and
-`site/tests/local-demo-boundary.test.mjs` still pass 15/15, and lint is clean.
+The diagnosis was independently confirmed rather than discarded. Work Unit D
+reached the same conclusions: the fixture-era labels must be asserted *absent*
+rather than disabled, and the property they stood for must be stated directly as
+a no-enabled-consequential-control guard. Its guard keys on consequential verbs
+(`Approve`, `Defer`, `Reject`, `CSV`, `Export`, `Send`, `Call`, `Dispatch`, …)
+with its own anti-vacuity floor, which is more maintainable than this lane's
+allowlist of inert labels, so nothing was carried forward.
 
 ### Corrected release-gate expectations
 
