@@ -26,6 +26,19 @@ for (const migration of MIGRATIONS) {
   const result = spawnSync(resolve(ROOT, "node_modules", ".bin", "wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", STATE, "--config", "wrangler.local.jsonc", "--file", resolve(ROOT, "drizzle", migration)], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`local_migration_failed:${migration}:${result.stderr.trim()}`);
 }
-const check = spawnSync(resolve(ROOT, "node_modules", ".bin", "wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", STATE, "--config", "wrangler.local.jsonc", "--command", "PRAGMA foreign_key_check;"], { encoding: "utf8" });
-if (check.status !== 0 || /\"results\":\[\[[^\]]/.test(check.stdout)) throw new Error("local_foreign_key_check_failed");
+const check = spawnSync(resolve(ROOT, "node_modules", ".bin", "wrangler"), ["d1", "execute", "DB", "--local", "--persist-to", STATE, "--config", "wrangler.local.jsonc", "--json", "--command", "PRAGMA foreign_key_check;"], { encoding: "utf8" });
+if (check.status !== 0) throw new Error("local_foreign_key_check_failed");
+const violations = readViolations(check.stdout);
+if (violations.length > 0) throw new Error(`local_foreign_key_check_failed:${violations.length}`);
 console.log(JSON.stringify({ status: "ready", state: STATE, migrationCount: MIGRATIONS.length, disposable: true }));
+
+/* Read the rows wrangler actually returns.  An envelope this cannot parse is a
+ * failed check, never a pass: a violation must not be able to hide behind an
+ * output shape the caller does not recognise. */
+function readViolations(output) {
+  let payload;
+  try { payload = JSON.parse(output); } catch { throw new Error("local_foreign_key_check_unreadable"); }
+  const results = Array.isArray(payload) ? payload[0]?.results : undefined;
+  if (!Array.isArray(results)) throw new Error("local_foreign_key_check_unreadable");
+  return results;
+}
