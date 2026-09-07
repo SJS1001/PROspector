@@ -449,11 +449,19 @@ persisted event kind yet carries `state_transition`, `prospect_created`, or
 `contact_linked`. Actually persisting those transitions is Plan 07-04 work and
 is not authorized by this lane.
 
-Validation: the suite's four cases were not executed in the authoring
-environment, which has no installed dependencies; the file imports `vite` to
-read the Drizzle schema as a module, as it did before these additions. Syntax
-and both added source-parsing patterns were verified against the current
-sources. The suite must be run before this record is relied upon.
+Validation recorded on 2026-09-07: the extended conformance suite passed 4/4,
+the weekly-outcome pair (`weekly-outcome` and
+`phase7-preparation-weekly-outcome`) passed 21/21, `npx eslint` on the changed
+file passed clean, and `npm audit --omit=dev` reported zero production
+vulnerabilities on Node.js `v22.22.2`. Each of the three added cases was
+mutation-checked against a temporary edit that was reverted immediately:
+emptying the unmodelled allowlist fails the reverse-direction case, removing
+one state from the runtime `STATES` array fails the union-agreement case, and
+introducing a `state_transition` literal into `db/schema.ts` fails the
+event-kind case. No repository source was left modified. Canonical `npm test`,
+including the production build, was not run in this lane and the preflight lane
+was not used. This supersedes an earlier record in commit `9bf5a4a`, which
+correctly stated at the time that the suite had not been executed.
 
 ## Stop condition
 
