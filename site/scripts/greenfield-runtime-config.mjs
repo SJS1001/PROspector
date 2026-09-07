@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(import.meta.dirname, "..");
 const REPOSITORY_ROOT = resolve(ROOT, "..");
 const PRIVATE_ROOT = resolve(ROOT, ".wrangler");
+const SAFE_MIGRATION = /^[0-9]{4}_[A-Za-z0-9][A-Za-z0-9._-]*\.sql$/u;
 const SAFE_COMMIT = /^[a-f0-9]{40}$/u;
 const SAFE_DIGEST = /^[a-f0-9]{64}$/u;
 const SAFE_AUDIENCE = /^[A-Za-z0-9_-]{16,128}$/u;
@@ -169,7 +170,7 @@ function parseTarget(source, targetFile) {
       || !SAFE_NAME.test(database.database_name)
       || !SAFE_UUID.test(database.database_id)
       || !exactResolvedPath(base, database.migrations_dir, resolve(ROOT, "drizzle"))
-      || database.migrations_pattern !== `${database.migrations_dir}/*.sql`
+      || !boundedReleasePattern(database.migrations_pattern, database.migrations_dir)
       || !isRecord(bucket)
       || JSON.stringify(Object.keys(bucket).sort()) !== JSON.stringify(["binding", "bucket_name"])
       || bucket.binding !== "FILES"
@@ -189,6 +190,26 @@ function parseJson(source, code) {
   } catch {
     throw new Error(code);
   }
+}
+
+/**
+ * The target candidate must bound its migrations to an explicit release chain.
+ * An unbounded `*.sql` glob would let the operator's migration step discover a
+ * checked-but-unreleased migration, so only a literal name or an explicit
+ * contiguous brace list starting at 0000 is accepted here.
+ */
+function boundedReleasePattern(pattern, directory) {
+  if (typeof pattern !== "string" || typeof directory !== "string") return false;
+  const prefix = `${directory}/`;
+  if (!pattern.startsWith(prefix)) return false;
+  const body = pattern.slice(prefix.length);
+  const names = body.startsWith("{")
+    ? body.endsWith("}") ? body.slice(1, -1).split(",") : null
+    : [body];
+  if (!names || names.length === 0) return false;
+  return names.every((name, index) => (
+    SAFE_MIGRATION.test(name) && name.startsWith(`${String(index).padStart(4, "0")}_`)
+  ));
 }
 
 function isRecord(value) {

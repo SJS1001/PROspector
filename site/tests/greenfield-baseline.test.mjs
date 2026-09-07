@@ -9,7 +9,7 @@ const root = resolve(import.meta.dirname, "..");
 const state = ".local/test-greenfield-baseline-state";
 const statePath = resolve(root, state);
 
-test("greenfield attestation builds only a fresh empty local baseline and claims nothing about the original project", async () => {
+test("greenfield attestation covers the whole checked chain and claims nothing about the original project", async () => {
   await rm(statePath, { recursive: true, force: true });
   try {
     const output = execFileSync(process.execPath, ["scripts/greenfield-baseline.mjs", "--reset", "--state", state], { cwd: root, encoding: "utf8" });
@@ -18,7 +18,9 @@ test("greenfield attestation builds only a fresh empty local baseline and claims
       status: "ready",
       baselineKind: "greenfield-local",
       migrationSource: "checked-repository-chain",
-      migrationCount: CANONICAL_MIGRATION_COUNT,
+      appliedMigrations: CANONICAL_MIGRATION_COUNT,
+      checkedChainMigrations: CANONICAL_MIGRATION_COUNT,
+      coversCheckedChain: true,
       migrationHead: CANONICAL_MIGRATION_HEAD,
       originalProjectEvidence: "waived-unavailable",
       originalProjectMigrationClaim: "none",

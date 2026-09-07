@@ -33,10 +33,13 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
 test("workspace navigation is server-seeded, history-aware, and demo-directed to Knowledge", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
   const app = await readFile(new URL("app/prospector-app.tsx", root), "utf8");
-  const demo = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
+  const demo = await readFile(new URL("app/local-demo/_screen.tsx", root), "utf8");
 
   assert.match(page, /workspaceViewFromParam\(requestedView\)/);
-  assert.match(page, /initialView=\{initialView\}/);
+  // The server seeds the view from the URL, then redirects a blank local-demo
+  // workspace to Knowledge instead of the default Pilot Status landing.
+  assert.match(page, /initialView=\{[^}]*\binitialView\b[^}]*\}/);
+  assert.match(page, /blankLocalOnboarding && initialView === "Pilot Status" \? "Knowledge" : initialView/);
   assert.match(app, /window\.history\.pushState/);
   assert.match(app, /addEventListener\("popstate", restoreView\)/);
   assert.match(app, /aria-current=\{view === item\.label \? "page" : undefined\}/);

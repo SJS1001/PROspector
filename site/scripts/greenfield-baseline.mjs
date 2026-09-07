@@ -20,7 +20,19 @@ if (!stateRelative || stateRelative.startsWith("..") || stateRelative.includes(s
 rejectSymlink(localRoot);
 rejectSymlink(statePath);
 
-run(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", requestedState]);
+const bootstrap = JSON.parse(run(process.execPath, ["scripts/local-bootstrap.mjs", "--reset", "--state", requestedState]).stdout.trim());
+/* The report states both counts rather than asserting coverage: a reader must
+ * never take `ready` for proof that every checked migration ran. The bootstrap
+ * now applies the whole canonical chain, so these agree, but they are still
+ * reported separately so the claim can never drift from what actually ran. The
+ * checked count comes from the validated canonical chain, not a second raw read
+ * of the journal. */
+const checkedChainMigrations = CANONICAL_MIGRATION_COUNT;
+const appliedMigrations = bootstrap.migrationCount;
+if (!Number.isSafeInteger(appliedMigrations) || appliedMigrations < 1 || appliedMigrations > checkedChainMigrations) {
+  throw new Error("greenfield_migration_count_invalid");
+}
+const coversCheckedChain = appliedMigrations === checkedChainMigrations;
 const counts = queryCounts(statePath);
 assert.deepEqual(
   Object.keys(counts),
@@ -34,8 +46,10 @@ for (const [table, count] of Object.entries(counts)) {
 process.stdout.write(`${JSON.stringify({
   status: "ready",
   baselineKind: "greenfield-local",
-  migrationSource: "checked-repository-chain",
-  migrationCount: CANONICAL_MIGRATION_COUNT,
+  migrationSource: coversCheckedChain ? "checked-repository-chain" : "checked-repository-chain-prefix",
+  appliedMigrations,
+  checkedChainMigrations,
+  coversCheckedChain,
   migrationHead: CANONICAL_MIGRATION_HEAD,
   originalProjectEvidence: "waived-unavailable",
   originalProjectMigrationClaim: "none",

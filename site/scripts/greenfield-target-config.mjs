@@ -25,6 +25,8 @@ const SAFE_NAME = /^[a-z0-9](?:[a-z0-9_-]{0,94}[a-z0-9])?$/u;
 const SAFE_BUCKET = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/u;
 const SAFE_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u;
 const SAFE_COMMIT = /^[a-f0-9]{40}$/u;
+const SAFE_MIGRATION = /^[0-9]{4}_[A-Za-z0-9][A-Za-z0-9._-]*\.sql$/u;
+const GLOB_META = /[{},*?[\]!()+@]/u;
 const TARGET_NEUTRAL_DATABASE_ID = "00000000-0000-4000-8000-000000000000";
 const TARGET_NEUTRAL_BUILD_KEYS = [
   "agent_memory", "ai_search", "ai_search_namespaces", "analytics_engine_datasets",
@@ -97,7 +99,8 @@ export async function prepareGreenfieldTarget({ mappingPath, outputPath }) {
   validateTargetNeutralBuild(build);
   const manifest = await readFile(MANIFEST_PATH, "utf8");
   const expectedSchema = await readFile(EXPECTED_SCHEMA_PATH, "utf8");
-  await verifyMigrationManifest(manifest);
+  const released = parseReleaseChain(manifest);
+  const checked = await verifyCheckedChain(released);
   if (digest(expectedSchema) !== EXPECTED_SCHEMA_DIGEST) {
     throw new Error("expected_schema_manifest_mismatch");
   }
@@ -119,7 +122,11 @@ export async function prepareGreenfieldTarget({ mappingPath, outputPath }) {
       database_name: mapping.databaseName,
       database_id: mapping.databaseId,
       migrations_dir: relativePath(outputDirectory, MIGRATION_ROOT),
-      migrations_pattern: `${relativePath(outputDirectory, MIGRATION_ROOT)}/*.sql`,
+      migrations_pattern: releaseMigrationsPattern(
+        relativePath(outputDirectory, MIGRATION_ROOT),
+        released,
+        checked.ahead,
+      ),
     }],
     r2_buckets: [{ binding: "FILES", bucket_name: mapping.bucketName }],
   };
@@ -134,6 +141,9 @@ export async function prepareGreenfieldTarget({ mappingPath, outputPath }) {
     buildDigest,
     candidateDigest: digest(serialized),
     migrationManifestDigest: digest(manifest),
+    releaseMigrationCount: released.length,
+    checkedAheadCount: checked.ahead.length,
+    checkedAheadDigest: checked.aheadDigest,
     expectedSchemaDigest: digest(expectedSchema),
   };
 }
@@ -195,33 +205,95 @@ function validateTargetNeutralBuild(build) {
   }
 }
 
-async function verifyMigrationManifest(source) {
-  const expected = source.split("\n")
+/**
+ * The release chain is the ordered set of migrations this candidate is allowed
+ * to apply to the deployed target. It is pinned by the checked manifest and
+ * only a separate owner authorization may extend it.
+ */
+function parseReleaseChain(source) {
+  const released = source.split("\n")
     .filter((line) => /^\| \d{4} \|/u.test(line))
     .map((line) => {
       const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replaceAll("`", ""));
       return { order: cells[0], name: cells[1], digest: cells[2] };
     });
-  if (expected.length !== 10) throw new Error("migration_manifest_invalid");
-  const expectedNames = expected.map((item) => item.name);
-  const actualEntries = await readdir(MIGRATION_ROOT, { withFileTypes: true });
-  const actualSqlEntries = actualEntries
-    .filter((entry) => entry.name.endsWith(".sql"))
-    .sort((left, right) => left.name.localeCompare(right.name));
-  if (actualSqlEntries.some((entry) => !entry.isFile())
-      || JSON.stringify(actualSqlEntries.map((entry) => entry.name)) !== JSON.stringify(expectedNames)) {
-    throw new Error("migration_manifest_mismatch");
-  }
-  for (let index = 0; index < expected.length; index += 1) {
-    const item = expected[index];
+  if (released.length === 0) throw new Error("migration_manifest_invalid");
+  for (const [index, item] of released.entries()) {
     if (item.order !== String(index).padStart(4, "0")
-        || !item.name.startsWith(`${item.order}_`) || !item.name.endsWith(".sql")
+        || !item.name.startsWith(`${item.order}_`)
+        || !SAFE_MIGRATION.test(item.name)
         || !/^[a-f0-9]{64}$/u.test(item.digest)) {
       throw new Error("migration_manifest_invalid");
     }
-    const actual = digest(await readFile(resolve(MIGRATION_ROOT, item.name)));
-    if (actual !== item.digest) throw new Error("migration_manifest_mismatch");
   }
+  return released;
+}
+
+/**
+ * The checked chain is what the working tree holds. It may legitimately run
+ * ahead of the release chain while later migrations await their own
+ * authorization, so this verifies two separate things: every released
+ * migration is still byte-identical and in position, and the unreleased tail
+ * continues the same contiguous numbering without gaps, duplicates, or
+ * reordering. The tail is reported by digest and never enters the candidate.
+ */
+async function verifyCheckedChain(released) {
+  const entries = await readdir(MIGRATION_ROOT, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.name.endsWith(".sql"))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const names = files.map((entry) => entry.name);
+  if (files.some((entry) => !entry.isFile())
+      || names.length < released.length
+      || new Set(names).size !== names.length) {
+    throw new Error("migration_manifest_mismatch");
+  }
+  for (const [index, item] of released.entries()) {
+    if (names[index] !== item.name) throw new Error("migration_manifest_mismatch");
+    if (digest(await readFile(resolve(MIGRATION_ROOT, item.name))) !== item.digest) {
+      throw new Error("migration_manifest_mismatch");
+    }
+  }
+  const ahead = names.slice(released.length);
+  const aheadLines = [];
+  for (const [offset, name] of ahead.entries()) {
+    const order = String(released.length + offset).padStart(4, "0");
+    if (!SAFE_MIGRATION.test(name) || !name.startsWith(`${order}_`)) {
+      throw new Error("migration_manifest_mismatch");
+    }
+    aheadLines.push(`${name}:${digest(await readFile(resolve(MIGRATION_ROOT, name)))}`);
+  }
+  return { ahead, aheadDigest: digest(aheadLines.join("\n")) };
+}
+
+/**
+ * Bounds the emitted candidate to the release chain, so the operator's
+ * `wrangler d1 migrations apply` cannot discover an unreleased migration even
+ * though the working tree contains one. Wrangler matches this with minimatch
+ * under default options, so an explicit brace list selects exactly these files.
+ */
+function releaseMigrationsPattern(directory, released, ahead) {
+  const names = released.map((item) => item.name);
+  if (names.some((name) => GLOB_META.test(name))) throw new Error("migration_manifest_invalid");
+  const pattern = names.length === 1
+    ? `${directory}/${names[0]}`
+    : `${directory}/{${names.join(",")}}`;
+  const selected = new Set(expandReleasePattern(pattern, directory));
+  if (selected.size !== names.length
+      || names.some((name) => !selected.has(name))
+      || ahead.some((name) => selected.has(name))) {
+    throw new Error("migration_manifest_invalid");
+  }
+  return pattern;
+}
+
+function expandReleasePattern(pattern, directory) {
+  const prefix = `${directory}/`;
+  if (!pattern.startsWith(prefix)) throw new Error("migration_manifest_invalid");
+  const body = pattern.slice(prefix.length);
+  if (!body.startsWith("{")) return [body];
+  if (!body.endsWith("}")) throw new Error("migration_manifest_invalid");
+  return body.slice(1, -1).split(",");
 }
 
 function privateJsonPath(path, code) {

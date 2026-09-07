@@ -4,10 +4,22 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmod, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 const root = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(root, "..");
 const script = resolve(root, "scripts/greenfield-runtime-config.mjs");
+
+/** The release chain the target candidate is allowed to bind. */
+function releaseChain() {
+  const manifest = readFileSync(
+    resolve(root, "../.planning/phases/02-consensus-knowledge-and-commercial-model/02-99-MIGRATION-MANIFEST.md"),
+    "utf8",
+  );
+  return manifest.split("\n")
+    .filter((line) => /^\| \d{4} \|/u.test(line))
+    .map((line) => line.split("|")[2].trim().replaceAll("`", ""));
+}
 
 test("the runtime CLI prepares one private Access-mode candidate without secret values", async () => {
   const nonce = `${process.pid}-${Date.now()}`;
@@ -199,7 +211,7 @@ function targetCandidate(directory) {
       database_name: "prospector-greenfield-test-db",
       database_id: "11111111-2222-4333-8444-555555555555",
       migrations_dir: relativePath(directory, resolve(root, "drizzle")),
-      migrations_pattern: `${relativePath(directory, resolve(root, "drizzle"))}/*.sql`,
+      migrations_pattern: `${relativePath(directory, resolve(root, "drizzle"))}/{${releaseChain().join(",")}}`,
     }],
     r2_buckets: [{
       binding: "FILES",

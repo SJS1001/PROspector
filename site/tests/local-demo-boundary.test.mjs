@@ -23,7 +23,7 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   assert.match(source, /isLoopbackHostname/);
   assert.match(source, /new URL\(origin\)\.origin !== new URL\(request\.url\)\.origin/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);
-  const demoPage = await readFile(resolve(root, "app/local-demo/page.tsx"), "utf8");
+  const demoPage = await readFile(resolve(root, "app/local-demo/_screen.tsx"), "utf8");
   assert.match(demoPage, /credentials: "same-origin"/);
   assert.match(demoPage, /data-local-demo-visible="true"/);
   assert.match(demoPage, /Local demo interview/);
