@@ -558,10 +558,16 @@ five reasons that all predate this slice. Each was reproduced at checkout
 `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` with this slice's files absent from
 disk:
 
-1. `tests/drift-replacement.test.mjs` fails 3/6. It calls `applyMigrations`
-   without the `initializeCommercialModel` seed that every other
-   knowledge-dependent suite performs, so `createKnowledgeProposal` raises
-   `knowledge_conflict` ("Commercial workspace is unavailable").
+1. `tests/drift-replacement.test.mjs` failed 3/6 with `knowledge_conflict`
+   ("Commercial workspace is unavailable"). The suite passes 6/6 at `2e879dc`,
+   so this is a regression rather than a suite that never worked. The cause is a
+   deliberate governance improvement: `workspaceForKnowledge` in
+   `site/domain/knowledge.ts` used to call `initializeCommercialModel` itself,
+   so merely reading knowledge silently created a Digitalrain commercial
+   workspace as a side effect. That implicit bootstrap was removed and the
+   resolver now also requires the `workspace_companies` join. Every other
+   knowledge-dependent suite was updated to seed the hierarchy explicitly; this
+   one was missed. **Fixed on this branch** (see below).
 2. `tests/fixture-safety.test.mjs` failed 1/1 on "remaining fixture-governed
    consequential controls render natively disabled". The Approve and Defer
    controls were absent from the rendered workbench, not enabled in it: the
@@ -588,8 +594,16 @@ disk:
    now a computed expression carrying the blank-local-onboarding redirect to
    Knowledge. **Fixed on this branch** (see below).
 
-Defects 1 and 3 belong to other lanes and were deliberately left untouched. This
-slice touches no file under `site/drizzle/` and adds no migration.
+Defect 3 belongs to another lane and was deliberately left untouched. This slice
+touches no file under `site/drizzle/` and adds no migration.
+
+Defect 1 was separately authorized and repaired here by adding the explicit
+`initializeCommercialModel` seed to the three affected cases, exactly as
+`knowledge-repository.test.mjs` and its neighbours do. That is the same function
+the removed implicit bootstrap called, so the seeded hierarchy is identical and
+only the idempotency key differs; no assertion was changed or relaxed, and the
+source keeps the stricter no-implicit-effect resolver. The suite passes 6/6 and
+its knowledge/commercial neighbours pass 28/28.
 
 Defects 2, 4 and 5 were separately authorized and repaired here. In every case
 the source was correct and the assertion had gone stale against a deliberate
@@ -642,9 +656,9 @@ files exactly once:
 
 `tests/drift-replacement.test.mjs` (failure 1, 6 cases) completes the 119.
 Across all passes: 796 cases, 788 passing, and all 8 failures confined to the
-five pre-existing suites above. With defects 2, 4 and 5 repaired, 791 pass and
-the 5 remaining failures sit in defects 1 and 3, which stay open for their own
-lanes. No failure in any pass is attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
+five pre-existing suites above. With defects 1, 2, 4 and 5 repaired, 794 pass
+and the only remaining failure is defect 3, which stays open for its own lane.
+No failure in any pass is attributable to this slice. The new module is imported by no runtime, domain, adapter, worker, or
 test file outside its own focused suite, and the static composition guard
 enforces that. This is local preparation evidence only.
 
