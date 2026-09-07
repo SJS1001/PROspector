@@ -121,22 +121,54 @@ current checkpoint unchanged.
 - `node scripts/run-test-suite.mjs tests/contact-eligibility.test.mjs tests/identity-resolution.test.mjs tests/synthetic-enrichment-prerequisite-plan.test.mjs` — all green.
 - `npm run lint` — clean.
 
+### Full-suite sweep
+
+Every `site/tests/*.test.mjs` file was then run in its own process in one
+non-stopping sweep, so no single failure could hide the rest: **80 files, 602
+passing, 2 failing**. Both failures were pre-existing and are recorded below.
+The candidate's own suite passed 13/13 in that sweep.
+
 ### Pre-existing failures on the base branch
 
-Each was reproduced at base `5c3440e` in a detached checkout with the three
-candidate files absent, producing identical results. None is caused by this
-candidate, and the canonical `npm test` gate therefore does not pass
-end-to-end on this base independently of it.
+None is caused by this candidate. Each was attributed the same way: the
+candidate's commits change no file involved, and the failure reproduces at the
+base with the candidate files absent. Because of them the canonical `npm test`
+gate does not pass end-to-end on this base independently of this work.
 
 - `site/tests/drift-replacement.test.mjs` — 3/6 failed with
   `Commercial workspace is unavailable` / `knowledge_conflict` at
   `site/domain/knowledge.ts:435`. Repaired on the base branch by `0b7935c`.
-- `site/tests/fixture-safety.test.mjs` — 1/1 failed with
-  `Approve disabled must render with the native disabled attribute`.
-- `site/tests/greenfield-target-config.test.mjs` — 2/6 failed with
+- `site/tests/fixture-safety.test.mjs` — 1/1 fails with
+  `Approve disabled must render with the native disabled attribute`. Still
+  open; untouched by this lane.
+- `site/tests/greenfield-target-config.test.mjs` — 2/6 fail with
   `migration_manifest_mismatch`. The checked manifest is bound to migration
   source `46d082e962c4acc1771e92ad300d61913d50ead4` while `0010` through
   `0019` have since landed; this is stale-manifest drift, not a regression.
+  Still open; resolving it is migration-manifest work outside this lane.
+- `site/tests/rendered-html.test.mjs` and `site/tests/workspace-view.test.mjs`
+  — stale assertions left by the generic onboarding rework `3320f26`, which
+  removed the hardcoded personal greeting, the seeded sample prospects, and the
+  unconditional `initialView` pass-through. **Repaired in this branch** (see
+  below); `site/app` itself was not changed.
+
+### Repaired stale assertions
+
+Three assertions asserted removed legacy-fixture copy. Each was replaced with
+the generic behaviour that superseded it plus a negative guard, so coverage is
+preserved rather than deleted:
+
+- `Good morning, Steven` → `title="Morning brief"`, and the old greeting pinned
+  absent. `site/tests/knowledge-ui.test.mjs` already asserted this string must
+  *not* appear, so the two suites had directly contradicted each other.
+- `Sample export-ready` → the generic `EXPORT-READY` / `No eligible records`
+  zero state, with the fixture copy pinned absent.
+- `initialView={initialView}` → the prop is still asserted server-seeded, plus a
+  new assertion for the blank-local-onboarding redirect from Pilot Status to
+  Knowledge that replaced the unconditional pass-through.
+
+Both suites now pass (6/6 across them), `site/tests/knowledge-ui.test.mjs` and
+`site/tests/local-demo-boundary.test.mjs` still pass 15/15, and lint is clean.
 
 ## Boundary
 

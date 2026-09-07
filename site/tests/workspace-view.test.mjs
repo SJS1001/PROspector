@@ -36,7 +36,9 @@ test("workspace navigation is server-seeded, history-aware, and demo-directed to
   const demo = await readFile(new URL("app/local-demo/page.tsx", root), "utf8");
 
   assert.match(page, /workspaceViewFromParam\(requestedView\)/);
-  assert.match(page, /initialView=\{initialView\}/);
+  assert.match(page, /initialView=\{[^}]*\binitialView\b[^}]*\}/);
+  // Blank local onboarding is steered to Knowledge instead of Pilot Status.
+  assert.match(page, /blankLocalOnboarding && initialView === "Pilot Status" \? "Knowledge"/);
   assert.match(app, /window\.history\.pushState/);
   assert.match(app, /addEventListener\("popstate", restoreView\)/);
   assert.match(app, /aria-current=\{view === item\.label \? "page" : undefined\}/);

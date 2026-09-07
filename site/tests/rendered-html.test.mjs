@@ -16,9 +16,18 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   ]);
   assert.match(page, /ProspectorApp/);
   assert.match(layout, /PROspector — Human-governed GTM/);
-  assert.match(app, /Good morning, Steven/);
+  // The generic onboarding rework (3320f26) removed the hardcoded personal
+  // greeting along with the default path into the legacy Mining fixture.
+  // Assert the generic heading that replaced it and pin the old one out;
+  // knowledge-ui.test.mjs enforces the same absence.
+  assert.match(app, /title="Morning brief"/);
+  assert.doesNotMatch(app, /Good morning, Steven/);
   assert.match(app, /Consensus Interview/);
-  assert.match(app, /Sample export-ready/i);
+  // The same rework removed the seeded sample prospects. Assert the generic
+  // zero state that replaced them and pin the fixture copy out.
+  assert.match(app, /EXPORT-READY/);
+  assert.match(app, /No eligible records/);
+  assert.doesNotMatch(app, /Sample export-ready/i);
   assert.match(app, /Controlled capability pilot/);
   assert.match(app, /Prospecting disabled/);
   assert.match(app, /0 live prospects/);
