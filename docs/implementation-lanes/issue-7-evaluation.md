@@ -124,9 +124,13 @@ This lane found no other writer touching
 `docs/implementation-lanes/issue-7-evaluation.md` or a new issue-7-specific
 evaluation module, so no overlap exists to coordinate. Consistent with the
 already-scoped "focused validation, no redundant broad/heavy suite" boundary
-for this lane, and because no shared/runtime file was edited, this lane still
-ran only the focused `node --test tests/prospect-quality-evaluation.test.mjs`
-validation recorded above rather than the full canonical suite.
+in force at that point in this lane, and because no shared/runtime file had
+been edited yet, this lane initially ran only the focused
+`node --test tests/prospect-quality-evaluation.test.mjs` validation recorded
+above rather than the full canonical suite. **That was superseded by a later
+coordinator correction — see "Canonical validation record" below, which is
+the current validation status; the full canonical `npm test`/`npm run lint`
+suite has since been run and recorded there.**
 
 A second coordination correction identified that `codex/generic-onboarding-integration`
 is a historical/shared branch inherited by multiple concurrently launched
