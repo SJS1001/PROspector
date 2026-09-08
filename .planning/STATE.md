@@ -192,6 +192,19 @@ None yet.
 
 ### Blockers/Concerns
 
+- [Canonical gate, 2026-09-08]: The two failures recorded as blocking canonical
+  `npm test` are both already fixed on this branch; the record naming them was
+  written before their fixes landed and is superseded here.
+  `site/tests/production-bundle-boundary.test.mjs` passes 5/5 against a fresh
+  production build, including case 3, closed by the build-boundary lane.
+  `site/tests/contact-verifier-batch-integrity.test.mjs` passed 24 consecutive
+  isolated runs; its module-brand race was closed earlier and `27c8035` swept
+  the same defect from the two remaining suites that carried it. No new work
+  was required for either. A canonical `npm test` run to completion is in
+  progress against this checkpoint and its result will be recorded separately.
+  This is local test evidence only and grants no plan, phase, hosted, provider,
+  or effect authority.
+
 - The original schema/source incident remains historical evidence explaining abandonment. Its missing provenance is waived, not solved, and no migration occurrence may be claimed.
 - Plan 02-22, Stage 2, revised Stage 3A, and Stage 3B0 retain their recorded completion evidence. On 2026-09-04 the owner confirmed email entry and the dedicated reusable-policy save. The persisted policy has one exact-owner Emails Allow rule, required Cloudflare login, inherited duration, and zero application associations. Worker attachment with **All traffic** and **1 hour** is prepared but unapplied pending confirmation. Both URL switches were reread off with no route/custom domain; D1/R2 and Cron evidence was not recollected. The actual Access boundary, verified effective session duration, real-principal denial, repeated zero-row/integrity evidence, zero-effect proof, and owner acceptance remain incomplete. Secrets, runtime-candidate generation, and later-version work retain separate gates.
 - The current Wrangler OAuth profile cannot read or write Access applications/policies. Do not retry the Access API with it and do not broaden, extract, or replace its credential automatically. Continue only after the owner authorizes either dashboard-based Access setup or creation/use of a least-privilege Access Apps and Policies credential.

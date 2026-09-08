@@ -396,6 +396,39 @@ test("04-03 Profile schedule utility matrix retains namespace, offset, and succe
     assert.notEqual(schedule.profileSlotKey("profile-a", "2026-11-01", "06:00", -240), schedule.profileSlotKey("profile-a", "2026-11-01", "06:00", -300));
     assert.deepEqual(schedule.profileSourceWindow(null, NOW), { lowerExclusive:null, upperInclusive:NOW });
     assert.deepEqual(schedule.profileSourceWindow(NOW, NOW + 2 * 86_400_000), { lowerExclusive:NOW - 86_400_000, upperInclusive:NOW + 2 * 86_400_000 });
+
+    // The overlap window is the bound on what evidence a run may consider, so an
+    // unusable one must fail closed here rather than reach a durable run row.
+    // A watermark at or after the upper bound is reachable without corruption:
+    // a manual run completing at `now` advances the schedule watermark past a
+    // slot that is still due.
+    const policy = await fixture.vite.ssrLoadModule(new URL("../domain/source-policy.ts", import.meta.url).pathname);
+    const windowCases = [
+      ["watermark equal to the upper bound", NOW, NOW],
+      ["watermark after the upper bound", NOW + 1, NOW],
+      ["non-integer watermark", NOW + 0.5, NOW + 86_400_000],
+      ["NaN watermark", Number.NaN, NOW],
+      ["infinite watermark", Number.POSITIVE_INFINITY, NOW],
+      ["non-integer upper bound", null, NOW + 0.5],
+      ["zero upper bound", null, 0],
+      ["negative upper bound", null, -1],
+      ["NaN upper bound", null, Number.NaN],
+    ];
+    for (const [label, watermark, upperInclusive] of windowCases) {
+      assert.throws(() => schedule.profileSourceWindow(watermark, upperInclusive), /prospecting window/i, `${label} must fail closed`);
+      // Parity with the validation-time contract: the two implementations of the
+      // same window rule must not drift apart again.
+      assert.throws(() => policy.sourceWindow(watermark, upperInclusive), /source_policy_rejected/, `${label} is rejected at validation time too`);
+    }
+    // A NaN watermark must never degrade into the unbounded first-run window.
+    assert.notDeepEqual(
+      (() => { try { return schedule.profileSourceWindow(Number.NaN, NOW); } catch { return "rejected"; } })(),
+      { lowerExclusive:null, upperInclusive:NOW },
+      "an unusable watermark must not widen the window to first-run semantics",
+    );
+    for (const [watermark, upperInclusive] of [[null, NOW], [NOW - 1, NOW], [NOW, NOW + 2 * 86_400_000]]) {
+      assert.deepEqual(schedule.profileSourceWindow(watermark, upperInclusive), policy.sourceWindow(watermark, upperInclusive), "admissible windows agree across both implementations");
+    }
     assert.throws(() => schedule.profileSlotKey("", "bad", "6", 0), /schedule slot/i);
     const spring = schedule.nextProfileWeekdaySlot("profile-a", Date.parse("2026-03-06T18:00:00.000Z"), "06:00", "America/Los_Angeles");
     assert.deepEqual(spring, {
