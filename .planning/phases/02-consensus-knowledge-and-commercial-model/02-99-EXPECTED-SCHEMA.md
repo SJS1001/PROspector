@@ -1,14 +1,21 @@
 # Plan 02-99 expected post-migration schema (chain `0000`-`0009`)
 
-**Status:** superseded for current-chain verification by
-`02-99-EXPECTED-SCHEMA-0019.md` on 2026-09-07. The checked chain has grown to
-twenty migrations, so the counts and digests below no longer describe a fresh
-local database built from `site/drizzle/`.
+**Status:** active. This is the expected schema of the **release chain** —
+`0000` through `0009`, the migrations listed under "Ordered release chain" in
+`02-99-MIGRATION-MANIFEST.md` and the only ones Stage 2 applied remotely. It is
+the document `greenfield:target:prepare` pins, and it is what current remote
+reads must match.
 
-This document is retained, unchanged below this notice, because it remains the
-exact expected shape of the `0009` boundary that Stage 2 actually applied
-remotely. The remote target is still at that boundary, so this — not the
-`0019` document — is what current remote reads must match.
+It deliberately does **not** describe a fresh local database built from the
+whole of `site/drizzle/`. The working tree also carries migrations checked
+ahead of the release chain, and a local bootstrap applies all of them, so a
+fresh local database has a larger schema than the table below. That expected
+shape is recorded separately in `02-99-EXPECTED-SCHEMA-0019.md`, which is not
+pinned by any tool and confers no authority to apply anything.
+
+An earlier revision of this notice declared this document superseded by the
+`0019` one. That was wrong under the released/ahead split: the two describe
+different chains, and neither supersedes the other.
 
 **Captured:** 2026-09-02
 
