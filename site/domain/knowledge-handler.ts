@@ -47,7 +47,7 @@ export async function handleKnowledgeGet(dependencies: KnowledgeHandlerDependenc
   try {
     const principal = await authenticatedPrincipal(dependencies);
     if (!await phase2SchemaAvailable(dependencies.database)) return json({ error: OLD_SCHEMA_PROJECTION });
-    return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true, dependencies.interviewSelection);
+    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isKnownDomainError(error)) return json({ error: "knowledge_unavailable" }, 409);
@@ -73,7 +73,7 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
     const onboardingAction = body.action === "initialize_owner_workspace" || body.action === "create_onboarding_draft" || body.action === "start_onboarding_interview";
     if(localOnboardingSeam&&!onboardingAction&&!await writesActivated(dependencies.database,principal))return json({error:INACTIVE_WRITES_PROJECTION},503);
     await dispatch(body, dependencies.database, principal, dependencies.interviewSelection);
-    return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true, dependencies.interviewSelection);
+    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
@@ -149,17 +149,19 @@ function assertClosedCommand(body: Record<string, unknown>) {
   }
 }
 
-async function projectionResponse(database: D1Database, principal: InterviewPrincipal, enableLocalDemoProgression = false, selection?: InterviewSelection) {
+async function projectionResponse(database: D1Database, principal: InterviewPrincipal, selection?: InterviewSelection) {
   const onboarding = await readOnboardingProjection(database, principal);
   if (!selection && (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await interviewHasStarted(database, principal)))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject));
-  // Reads are projection-only; onboarding is the sole local-demo bootstrap authority.
+  // Reads are projection-only. The generalized queue composer is safe for
+  // any authenticated owner of their own workspace -- it is not demo-only;
+  // gating it behind enableLocalDemoProgression left ordinary secure
+  // identity with no supported way to see the queue digest needed to
+  // advance past the first confirmed decision (issue #9).
   const library = await readKnowledgeLibrary(database, principal);
   const [commercial, interviewState, drift, replacements] = await Promise.all([
     readCommercialModel(database, principal), readInterviewState(database, principal, selection), readDrift(database, principal), readReplacements(database, principal),
   ]);
-  const interview = enableLocalDemoProgression
-    ? await attachLocalInterviewProgression(database, principal, interviewState, selection)
-    : interviewState;
+  const interview = await attachLocalInterviewProgression(database, principal, interviewState, selection);
   const activeOnboarding = onboarding.status === "profile_fit_required"
     ? { ...onboarding, interviewQueueDigest: null }
     : onboarding;
