@@ -140,10 +140,18 @@ Run on this branch at base `d051fcc`. True exits only.
 The full Node suite (`npm test`, 133 suites, 917 pass, 0 fail, exit 0) was run
 on the immediately preceding head and is recorded in the E1 lane document.
 
-**The new assertions were executed, and one of them failed on a real defect.**
-The attributed executor installed the official Chromium 1243 in the retained
-isolated container `prospector-pr62-validation` and ran the lane at exact head
-`0ba6eaeb5f79f84bb92329e6268f2e50056ffbff`:
+### Historical — superseded, preserved deliberately
+
+**Revision `0ba6eaeb5f79f84bb92329e6268f2e50056ffbff`, 2026-09-08 (before PR #65
+landed the source fix).** This record is kept because the defect was real and
+the assertion that caught it must not be quietly re-litigated. It is **not**
+evidence about any current head; the current evidence is recorded separately
+below under *Official receipt*.
+
+At that revision the new assertions were executed and one failed on a real
+defect. The attributed executor installed the official Chromium 1243 in the
+retained isolated container `prospector-pr62-validation` and ran the lane at that
+exact head:
 
 ```
 tests/browser/operator-journey-e1.spec.ts:35
@@ -152,8 +160,8 @@ tests/browser/operator-journey-e1.spec.ts:35
             under .prospecting-panel.prospect-workspace
 ```
 
-`npm test` and lint were not reached: the lane fails fast. Screenshot and error
-context are retained at
+`npm test` and lint were not reached in **that** run, because the lane stops at
+its first failing assertion. Screenshot and error context are retained at
 `/tmp/prospector/site/.local/browser-acceptance-failures-e1-zGvjFH/operator-journey-e1-a-qual-9a184-hen-one-tab-wins-the-review/`.
 
 **This is a source defect, not a test defect, and the assertion stays as
@@ -253,14 +261,26 @@ Nothing merged after PR #62 disturbed the lane.
 
 ## The one official run
 
-Exact revision: **`main` at `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`**. From `site/`,
-in order, stopping at the first non-zero exit and reporting the true exit of each:
+Exact revision: **`main` at `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`**. From
+`site/`:
 
 ```
-npm run test:browser:operator-journey     # the complete journey, past line 35
+npm run test:browser:operator-journey     # the complete journey
 npm test                                  # canonical: build + all Node suites
 npm run lint
 ```
+
+**How the official runner actually executes these.** It runs each stage
+independently so that every stage reports its own exit code, rather than
+short-circuiting the sequence at the first non-zero exit. An earlier revision of
+this document described it as stop-at-first-failure; that was not an accurate
+description of the official run and is corrected here. A later stage's absence
+from the receipt therefore means *not yet reported*, not *skipped because an
+earlier stage failed*.
+
+Separately, and not the same thing: the browser lane itself stops at its first
+failing assertion, which is why the historical `0ba6eae` run reached nothing
+past `operator-journey-e1.spec.ts:35`.
 
 No duplicate run was performed here.
 
@@ -274,10 +294,14 @@ The single official run was executed on the coordinator runner against immutable
 | `npm run test:browser:operator-journey` | **1/1 passed, 25.1s**, `STAGE_EXIT browser=0` |
 | zero-effect verifier | `forbiddenRows=0`, `r2Objects=0`, `r2Multipart=0` |
 
-Because the lane runs to completion rather than failing fast, this receipt
-covers every assertion in that spec — the 320px reflow that previously failed,
-the 200% text resize, the visible-focus walk, the three live-region
-announcements, and journey steps 1–6.
+Because the lane ran to completion rather than stopping at a failing assertion,
+this receipt covers every assertion in **that one spec** — the 320px reflow that
+previously failed, the 200% text resize, the visible-focus walk, the three
+live-region announcements, and journey steps 1–6.
+
+**It covers one lane of three.** The base onboarding lane and the
+person-discovery C4 lane are queued and have *not* run at this revision; nothing
+here says or implies that all browser lanes passed.
 
 **This is not full acceptance.** Canonical is still live on the coordinator
 runner as `exec81223`; lint is pending; the base onboarding lane and the
