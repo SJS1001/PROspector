@@ -264,22 +264,42 @@ npm run lint
 
 No duplicate run was performed here.
 
-## Remaining acceptance coverage — precise, not blanket
+## Official receipt — operator journey PASSED at `f7d8fc0`
 
-Nothing below is claimed as passing at `f7d8fc0`.
+The single official run was executed on the coordinator runner against immutable
+`main` `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`:
+
+| Lane | Result |
+|---|---|
+| `npm run test:browser:operator-journey` | **1/1 passed, 25.1s**, `STAGE_EXIT browser=0` |
+| zero-effect verifier | `forbiddenRows=0`, `r2Objects=0`, `r2Multipart=0` |
+
+Because the lane runs to completion rather than failing fast, this receipt
+covers every assertion in that spec — the 320px reflow that previously failed,
+the 200% text resize, the visible-focus walk, the three live-region
+announcements, and journey steps 1–6.
+
+**This is not full acceptance.** Canonical is still live on the coordinator
+runner as `exec81223`; lint is pending; the base onboarding lane and the
+person-discovery C4 lane are queued sequentially after it. Nothing about those
+is claimed here.
+
+## Remaining acceptance coverage — precise, not blanket
 
 | Criterion | Coverage | Last actually proven |
 |---|---|---|
-| 320px reflow | asserted | never — the only run failed here, and the fix landed after |
-| 200% text resize | asserted | never reached (fail-fast at line 35) |
-| visible focus | asserted | never reached |
-| screen-reader announcements | asserted | never reached |
-| journey steps 1–6 (CSRF expiry, lost response, 200/409 race, durability) | asserted | `bff326f6`, before the 320px assertion existed |
-| onboarding reflow parity + seed absence | asserted | `bff326f6` |
-| person-discovery C4 lane | asserted | `bff326f6` |
-| keyboard navigation, labels, contrast, 760/480/360/1280 | asserted | `bff326f6` |
-| research run stage | **not written** | service not composed |
-| local handoff stage | **not written** | trigger not built — see below |
+| 320px reflow | asserted | **`f7d8fc0` — passed** |
+| 200% text resize | asserted | **`f7d8fc0` — passed** |
+| visible focus | asserted | **`f7d8fc0` — passed** |
+| screen-reader announcements | asserted | **`f7d8fc0` — passed** |
+| journey steps 1–6 (CSRF expiry, lost response, 200/409 race, durability) | asserted | **`f7d8fc0` — passed** |
+| onboarding reflow parity + seed absence | asserted | `bff326f6` — **re-run queued**, not yet proven at `f7d8fc0` |
+| person-discovery C4 lane | asserted | `bff326f6` — **re-run queued**, not yet proven at `f7d8fc0` |
+| keyboard navigation, labels, contrast, 760/480/360/1280 | asserted | E1 portion at `f7d8fc0`; onboarding and C4 portions queued |
+| canonical Node suite | — | **live as `exec81223`, no result yet** |
+| lint | — | **pending** |
+| research run stage | **not written** | service not composed; runtime held separately |
+| local handoff stage | **in progress** | dependencies now exist — see below |
 
 ## Next browser-owned slice: the guarded fictional CSV preview
 
