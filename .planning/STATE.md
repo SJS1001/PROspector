@@ -192,6 +192,15 @@ None yet.
 
 ### Blockers/Concerns
 
+- [CLAIMED 2026-09-08, session_018kurkZ3XYqiDrCxrbhCiX9] The two remaining
+  canonical-gate failures are being worked in this session. Do not start them
+  elsewhere. Scope is exactly `site/tests/production-bundle-boundary.test.mjs`
+  case 3 (the `LOCAL_DEMO` dead branch surviving into `dist/server/index.js`)
+  and the roughly one-in-six flake in
+  `site/tests/contact-verifier-batch-integrity.test.mjs`. No other file is
+  owned by this claim. It grants no plan, phase, hosted, provider, or effect
+  authority, and it releases when this entry is replaced by a result.
+
 - The original schema/source incident remains historical evidence explaining abandonment. Its missing provenance is waived, not solved, and no migration occurrence may be claimed.
 - Plan 02-22, Stage 2, revised Stage 3A, and Stage 3B0 retain their recorded completion evidence. On 2026-09-04 the owner confirmed email entry and the dedicated reusable-policy save. The persisted policy has one exact-owner Emails Allow rule, required Cloudflare login, inherited duration, and zero application associations. Worker attachment with **All traffic** and **1 hour** is prepared but unapplied pending confirmation. Both URL switches were reread off with no route/custom domain; D1/R2 and Cron evidence was not recollected. The actual Access boundary, verified effective session duration, real-principal denial, repeated zero-row/integrity evidence, zero-effect proof, and owner acceptance remain incomplete. Secrets, runtime-candidate generation, and later-version work retain separate gates.
 - The current Wrangler OAuth profile cannot read or write Access applications/policies. Do not retry the Access API with it and do not broaden, extract, or replace its credential automatically. Continue only after the owner authorizes either dashboard-based Access setup or creation/use of a least-privilege Access Apps and Policies credential.
