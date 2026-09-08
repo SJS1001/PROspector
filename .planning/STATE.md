@@ -192,6 +192,20 @@ None yet.
 
 ### Blockers/Concerns
 
+- [Canonical gate, 2026-09-08, RESULT]: Canonical `npm test` completed in one
+  pass for the first time on this branch. Against source
+  `0ce69b7bb5dda2aa4ab6d0962d30b330ab6f6cc4` on Node.js `v22.22.2` it ran the
+  production build and then all 132 test files to completion: 904 cases passed,
+  0 failed, exit status 0. The runner halts on the first non-zero exit, so 132
+  of 132 files completing is itself proof that no file failed and none was
+  skipped. The only change between that source and this checkpoint is this
+  `.planning/STATE.md` record; zero source files differ, so the result holds
+  for the current tree. This retires the standing note that the suite could not
+  complete in one pass. It remains local test evidence only: the Chromium
+  journeys are excluded from `npm test` and stay unproven against the full
+  twenty-migration chain pending a runner with the pinned browser revision, and
+  this grants no plan, phase, hosted, provider, or effect authority.
+
 - [Canonical gate, 2026-09-08]: The two failures recorded as blocking canonical
   `npm test` are both already fixed on this branch; the record naming them was
   written before their fixes landed and is superseded here.
