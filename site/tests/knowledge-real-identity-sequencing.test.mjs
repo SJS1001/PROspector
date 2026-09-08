@@ -95,10 +95,12 @@ test("real (non-demo) secure identity advances the generalized queue past one co
     const queueDigest = body.interview.localProgression.queueDigest;
 
     // Existing stale-digest fence still holds for real identity: a forged
-    // or outdated digest is rejected before any write.
+    // or outdated digest is rejected before any write. Uses the exact
+    // action name (advance_local_interview) that ConsensusInterviewView's
+    // Continue control actually dispatches after the first question.
     const beforeStale = await rowCounts(fixture.database);
     const stale = await knowledge.handleKnowledgePost(mutation({
-      action: "start_onboarding_interview", expectedQueueDigest: "f".repeat(64), idempotencyKey: k(8),
+      action: "advance_local_interview", expectedQueueDigest: "f".repeat(64), idempotencyKey: k(8),
     }, csrf), deps());
     assert.equal(stale.status, 409);
     assert.deepEqual(await rowCounts(fixture.database), beforeStale);
@@ -106,9 +108,12 @@ test("real (non-demo) secure identity advances the generalized queue past one co
     const refreshed = await knowledge.handleKnowledgeGet(deps());
     csrf = refreshed.headers.get("set-cookie").split(";", 1)[0];
 
-    // Advance to slot #2 using exactly what the projection gave real identity.
+    // Advance to slot #2 using the real UI's action name and exactly what
+    // the projection gave real identity -- proving the Continue control is
+    // actually reachable on a non-loopback host, not just the API in the
+    // abstract.
     res = await knowledge.handleKnowledgePost(mutation({
-      action: "start_onboarding_interview", expectedQueueDigest: queueDigest, idempotencyKey: k(9),
+      action: "advance_local_interview", expectedQueueDigest: queueDigest, idempotencyKey: k(9),
     }, csrf), deps());
     body = await res.json();
     assert.equal(res.status, 200);

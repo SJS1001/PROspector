@@ -7,6 +7,7 @@ const CLOSED_ACTIONS = [
   "initialize_owner_workspace",
   "create_onboarding_draft",
   "start_onboarding_interview",
+  "advance_local_interview",
   "create_hierarchy_draft",
   "propose_owner_edit",
   "propose_repository_research",

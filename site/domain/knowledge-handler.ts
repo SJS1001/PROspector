@@ -23,7 +23,7 @@ import { createOnboardingDraft, initializeOwnerCompanyProduct, OnboardingConflic
 
 export const KNOWLEDGE_ACTIONS = [
   "initialize_owner_workspace", "create_onboarding_draft", "start_onboarding_interview",
-  "create_hierarchy_draft", "propose_owner_edit",
+  "advance_local_interview", "create_hierarchy_draft", "propose_owner_edit",
   "propose_repository_research", "import_plain_text", "propose_reuse",
   "propose_allowlisted_package", "submit_interview_answer", "record_interview_decision",
   "review_knowledge_proposal", "create_replacement_candidate", "activate_replacement",
@@ -89,7 +89,9 @@ async function dispatch(body: Record<string, unknown>, database: D1Database, pri
   switch (body.action) {
     case "initialize_owner_workspace": return initializeOwnerCompanyProduct(database, principal, { companyName: requiredString(body,"companyName",160), productName: requiredString(body,"productName",160), idempotencyKey:key });
     case "create_onboarding_draft": return createOnboardingDraft(database, principal, { type: enumValue(body,"type",["market_play","customer_profile"]), parentId: requiredString(body,"parentId",160), name: requiredString(body,"name",160), expectedRevision: requiredRevision(body,"expectedRevision"), idempotencyKey:key });
-    case "start_onboarding_interview": return advanceLocalInterview(database, principal, { expectedQueueDigest: requiredString(body,"expectedQueueDigest",64), idempotencyKey:key }, selection);
+    case "start_onboarding_interview":
+    case "advance_local_interview":
+      return advanceLocalInterview(database, principal, { expectedQueueDigest: requiredString(body,"expectedQueueDigest",64), idempotencyKey:key }, selection);
     case "create_hierarchy_draft": return createHierarchyDraft(database, principal, {
       type: enumValue(body, "type", ["product", "market_play", "customer_profile"]), parentId: requiredString(body, "parentId", 160), name: requiredString(body, "name", 160), expectedRevision: requiredRevision(body, "expectedRevision"), idempotencyKey: key, productFundamentalsDiverge: optionalBoolean(body, "productFundamentalsDiverge"),
     });
@@ -128,6 +130,7 @@ function assertClosedCommand(body: Record<string, unknown>) {
     initialize_owner_workspace: [...common, "companyName", "productName"],
     create_onboarding_draft: [...common, "type", "parentId", "name", "expectedRevision"],
     start_onboarding_interview: [...common, "expectedQueueDigest"],
+    advance_local_interview: [...common, "expectedQueueDigest"],
     create_hierarchy_draft: [...common, "type", "parentId", "name", "expectedRevision", "productFundamentalsDiverge"],
     propose_owner_edit: proposal,
     propose_repository_research: proposal,
