@@ -218,6 +218,59 @@ test("create_new and link_existing atomically bind one same-workspace Contact wh
   }
 });
 
+test("two owners racing different candidates on the same run produce exactly one durable decision and one ambiguous-identity conflict", async () => {
+  const fixture = await createPersonDiscoveryFixture("person-discovery-ambiguous-race");
+  try {
+    const { discovery, testPort } = await loadPersonDiscoveryModules(fixture);
+    let calls = 0;
+    const port = testPort.bindPersonDiscoveryTestPort(async () => {
+      calls += 1;
+      return { kind: "completed", candidates: [candidate("ambiguous-a"), candidate("ambiguous-b")] };
+    });
+    const service = discovery.createPersonDiscoveryService({ database: fixture.database, port, now: () => PERSON_DISCOVERY_NOW + 100, idFactory: ids("ambiguous") });
+    const started = await service.start(fixture.scope, startCommand(fixture, "person-discovery-ambiguous-start", { maxCandidates: 2 }));
+    assert.equal(started.kind, "accepted");
+    assert.equal(started.run.candidates.length, 2, "two distinct candidates remain to be disambiguated by an explicit owner decision");
+    assert.equal(calls, 1);
+
+    const decisionFor = (candidateId, idempotencyKey) => ({
+      runId: started.run.id,
+      expectedResultDigest: started.run.resultDigest,
+      decision: "create_new",
+      candidateId,
+      idempotencyKey,
+    });
+    const [first, second] = await Promise.all([
+      service.decide(fixture.scope, decisionFor(started.run.candidates[0].id, "person-discovery-ambiguous-pick-a")),
+      service.decide(fixture.scope, decisionFor(started.run.candidates[1].id, "person-discovery-ambiguous-pick-b")),
+    ]);
+    const outcomes = [first, second];
+    const accepted = outcomes.filter((outcome) => outcome.kind === "accepted");
+    const conflicted = outcomes.filter((outcome) => outcome.kind === "conflict");
+    assert.equal(accepted.length, 1, "exactly one owner decision may resolve an ambiguous run");
+    assert.equal(conflicted.length, 1, "the losing owner decision is rejected rather than silently dropped or duplicated");
+    assert.equal(conflicted[0].reason, "ambiguous_identity_or_race");
+    assert.equal(await count(fixture, "person_discovery_owner_decisions"), 1);
+    assert.equal(await count(fixture, "contacts"), 1, "an ambiguous race never commits two identities for the same run");
+    assert.equal(await count(fixture, "prospect_contact_role_relevance"), 1);
+
+    // Repeating the losing owner's own exact command afterward must not create a
+    // second effect: it either replays nothing durable (still conflict) or, if
+    // retried with its own already-durable key, returns the same conflict again.
+    const repeat = await service.decide(fixture.scope, decisionFor(
+      accepted[0] === first ? started.run.candidates[1].id : started.run.candidates[0].id,
+      accepted[0] === first ? "person-discovery-ambiguous-pick-b" : "person-discovery-ambiguous-pick-a",
+    ));
+    assert.equal(repeat.kind, "conflict");
+    assert.equal(repeat.reason, "ambiguous_identity_or_race");
+    assert.equal(await count(fixture, "person_discovery_owner_decisions"), 1);
+    assert.equal(await count(fixture, "contacts"), 1);
+    assert.equal(await count(fixture, "prospect_contact_role_relevance"), 1);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("stale/foreign authority, malformed outcomes, timeouts, and races fail closed without automatic retry", async () => {
   const fixture = await createPersonDiscoveryFixture("person-discovery-adversarial");
   try {
