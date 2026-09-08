@@ -210,6 +210,47 @@ test("effective suppression defeats later approval while future suppression bloc
   }
 });
 
+test("a suppression effective after approval also removes package CRM eligibility", async () => {
+  const { vite, module } = await load();
+  try {
+    // Entirely honest times: approve first, then record a suppression that
+    // becomes effective afterwards, exactly as the documented ordering allows.
+    const approved = await module.applySyntheticOutreachCommand(
+      module.createSyntheticOutreachPreparation(fixture()),
+      packageApproval(),
+    );
+    assert.equal(
+      module.projectSyntheticOutreachPreparation(approved, NOW + 1).package.status,
+      "approved_for_future_crm_eligibility",
+    );
+
+    const suppressed = await module.applySyntheticOutreachCommand(
+      approved,
+      suppression("contact", "synthetic-contact", "all"),
+    );
+    const beforeBoundary = module.projectSyntheticOutreachPreparation(suppressed, NOW + 1);
+    assert.equal(beforeBoundary.package.approved, true);
+    assert.equal(beforeBoundary.package.status, "approved_for_future_crm_eligibility");
+
+    // The tombstone is effective at NOW + 2. Once it is, package CRM
+    // eligibility has to fall with it, not only email composition.
+    const afterBoundary = module.projectSyntheticOutreachPreparation(suppressed, NOW + 5);
+    assert.equal(afterBoundary.package.approved, false);
+    assert.equal(afterBoundary.package.status, "blocked_suppression");
+    assert.deepEqual(afterBoundary.suppression.matchedTombstoneIds, ["synthetic-contact-tombstone"]);
+    assert.deepEqual(afterBoundary.effects, {
+      providerCalls: 0,
+      outboxMutations: 0,
+      sendInvocations: 0,
+      callInvocations: 0,
+      exportMutations: 0,
+      durableMutations: 0,
+    });
+  } finally {
+    await vite.close();
+  }
+});
+
 test("stale, forged, cross-artifact, malformed, accessor, and non-synthetic inputs fail closed", async () => {
   const { vite, module } = await load();
   try {

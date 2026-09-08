@@ -221,6 +221,8 @@ export function projectSyntheticOutreachPreparation(state: SyntheticOutreachPrep
   const packageStatus = approvalStatus(state.packageApproval, state.packageArtifact, now, "package");
   const messageStatus = approvalStatus(state.messageApproval, state.messageArtifact, now, "message");
   const matched = state.tombstones.filter((tombstone) => tombstone.effectiveAt <= now && suppressionMatches(state, tombstone));
+  // Package approval is gated on any matching subject, so its projection is too.
+  const packageBlocked = matched.length > 0;
   const emailBlocked = matched.some((tombstone) => tombstone.channel === "all" || tombstone.channel === "email");
   const phoneBlocked = matched.some((tombstone) => tombstone.channel === "all" || tombstone.channel === "phone");
   let emailStatus: string;
@@ -232,8 +234,10 @@ export function projectSyntheticOutreachPreparation(state: SyntheticOutreachPrep
     kind: "synthetic_outreach_preparation_projection" as const,
     revision: state.revision,
     package: {
-      approved: packageStatus === "approved",
-      status: packageStatus === "approved" ? "approved_for_future_crm_eligibility" : `blocked_${packageStatus}_package_approval`,
+      approved: packageStatus === "approved" && !packageBlocked,
+      status: packageStatus !== "approved"
+        ? `blocked_${packageStatus}_package_approval`
+        : packageBlocked ? "blocked_suppression" : "approved_for_future_crm_eligibility",
     },
     message: { approved: messageStatus === "approved", status: messageStatus },
     email: { eligibleForFutureComposition: emailStatus === "ready_for_future_composition", status: emailStatus },
