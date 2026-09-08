@@ -1,10 +1,68 @@
 # Full-completion coverage ledger
 
-**Prepared:** 2026-09-08
+**Prepared:** 2026-09-08 (first pass at `f2fceb0`; corrected same day at `fcf5b9e`)
 **Repository:** `https://github.com/SJS1001/PROspector.git`
-**Base:** `main` at `f2fceb0` (includes merged PRs #50–#56)
-**Lane branch:** `claude/issue-full-completion-coverage`
+**Base:** `main` at `fcf5b9e` (includes merged PRs #50–#60)
+**Lane branch:** `claude/issue-full-completion-coverage-corrections`
 **Scope of this document:** documentation only. No source file was edited to produce it.
+
+## Corrections since first publication
+
+The coordinator reviewed the first pass (merged as PR #60, at `f2fceb0`) and identified five
+stale-checkpoint issues, all verified directly against GitHub before editing below:
+
+1. **PR #57 (merged)** fixed the exact `morning-brief-read.ts:198` cross-workspace
+   `authority_commands` join this ledger had flagged as an unresolved "active incumbent, do
+   not touch." An independent reviewer found the defect, wrote a failing regression first,
+   added the single `AND ac.workspace_id = ps.workspace_id` predicate, and audited every
+   other join in the file (all already correctly scoped). `tests/morning-brief-read.test.mjs`
+   is 13/13. This is now resolved, not incumbent-in-progress; the "do not touch" instruction
+   no longer applies to these two files, though no further action is taken on them by this
+   ledger.
+2. **PR #58 (merged)** fixed the `interview.ts`/`interview-handler.ts` `action:"bootstrap"`
+   escape hatch this ledger cited as "assigned to issue #9, not dispatched here." It is now
+   gated behind the same `enableLocalDemoProgression` fence as `advance_local_interview`,
+   fails closed (404 `private_workspace_unavailable`) outside local-demo. Resolved.
+3. **PR #59 (merged)** added the missing mode-0600 assertion for the greenfield-target-config
+   CLI candidate, one of several happy-path assertions issue #42 lists for restoration. A
+   fresh re-run of `tests/greenfield-target-config.test.mjs` on current `main` (`fcf5b9e`)
+   still shows **5 of 8 cases failing**, not the "2 failures" issue #42's title cites — every
+   failure surfaces the same generic `greenfield_target_prepare_failed` code where the test
+   expects a specific one (`output_exists`, `migration_manifest_mismatch`, etc.), which may
+   indicate an environment-specific failure mode in this sandbox rather than the exact defect
+   issue #42 describes. This is **not resolved**; PR #59 is incremental progress within issue
+   #42's existing scope, not closure. Corrected below to avoid overclaiming.
+4. **Browser E1 Chromium receipts exist and were missed.** The first pass stated the pinned
+   Chromium 1243 build was "unobtainable in this environment" as a blanket fact. That is true
+   only of *this* sandbox. The coordinator has since published two verified receipts: PR #50
+   comment [5588416480](https://github.com/SJS1001/PROspector/pull/50#issuecomment-5588416480)
+   (candidate `bff326f`, isolated Hetzner container, official Chromium 1243, no shim,
+   `npm run test:browser` 2/2, `test:browser:person-discovery` 1/1, `test:browser:operator-journey`
+   1/1, zero-effect verifiers clean) and PR #51 comment
+   [5588407370](https://github.com/SJS1001/PROspector/pull/51#issuecomment-5588407370)
+   (candidate `9bff835`, same setup, `test:browser:person-discovery` 1/1, full 20-migration
+   chain, zero-effect clean). Both commits are ancestors of current `main`. Both receipts are
+   explicit that they resolve only the browser-environment blocker for those exact candidates —
+   full canonical validation and independent review remain separately required, and neither
+   receipt is itself independent review or merge approval. Corrected below to scope the claim
+   accurately instead of stating a blanket block.
+5. **U2 cannot be presented as unconditionally dispatchable.** Issue #8's own body states:
+   "Full grant/identity/source disclosure remains subject to its existing explicit hold; do
+   not expose withheld information as part of a copy or layout change." A "Runner Assignment
+   inspection" view exposing provider/model/instructions/tools/sources/grants is exactly the
+   kind of disclosure that hold covers. U2 is reclassified below from an unblocked (a) coding
+   packet to a (c) owner-decision-gated one: the disclosure hold must be reconciled by the
+   owner before any such view is built, and no confidential capability field may be exposed
+   by inference in the meantime.
+
+A general principle, applied more consistently below per the coordinator's note: **missing
+runtime composition is not the same finding as a hosted/credential/owner-authorization
+gate.** Several "coded but not wired" items in this ledger (e.g., Contacts `commandService`
+composition in Phase 5) require no live provider or credential to compose and test — they are
+deliberately withheld pending a named plan/owner decision, which is a real gate, but a
+different kind than one requiring a hosted target or real credentials. Where that distinction
+matters, it is called out explicitly in the gate classification rather than collapsed into a
+single "blocked" bucket.
 
 ## Method
 
@@ -34,27 +92,35 @@ Three gaps have no owning issue or in-flight lane as of this checkpoint:
 | # | Gap | Phase | Size | Blocking type |
 |---|---|---|---|---|
 | U1 | `site/domain/product-readiness.ts`'s `evaluateProductReadiness` has no dedicated unit test file | 3 | small | none — pure local coding |
-| U2 | No owner-facing read-only "Runner Assignment inspection" view exists (provider/model/instructions/tools/config/sources/grants), though the backing rows and domain projection are schema-ready | 4 | small–medium | none — pure local coding, but touches UI surface; recommend routing through issue #8's coordinator to avoid a second concurrent UI writer |
+| U2 | No owner-facing read-only "Runner Assignment inspection" view exists (provider/model/instructions/tools/config/sources/grants), though the backing rows and domain projection are schema-ready | 4 | small–medium | **owner decision** — issue #8's explicit disclosure hold covers exactly this kind of grant/identity/source exposure; **not dispatchable as coding work until the owner reconciles that hold** |
 | U3 | Issue #7's narrow allowance for public-documentation research on a candidate contact-provider's data fields/freshness/reuse terms/rate limits/pricing was explicitly out of PR #54's scope and remains open | 5 | small | none — pure research/documentation, no owner authorization needed |
 
-Everything else identified below is either (a) already inside an open issue's stated scope
-— cited by number, not duplicated — or (b)/(c) blocked on hosted/provider/credential
-authority or an explicit owner decision, with the exact plan number or checkpoint named.
-Task packets for U1–U3 are at the end of this document, sized for independent, non-colliding
-dispatch.
+Everything else identified below is either (a) named as within an open issue's stated
+scope — cited by number, with landed commits distinguished from merely-claimed scope in the
+"Active incumbents" table below, not assumed to be actively worked just because the issue is
+open — or (b)/(c) blocked on hosted/provider/credential authority or an explicit owner
+decision, with the exact plan number or checkpoint named. Task packets for U1 and U3 are at
+the end of this document, sized for independent, non-colliding dispatch; U2 is documented
+there too but is **held**, not dispatchable, pending an owner decision on issue #8's
+disclosure hold (see the corrections section above).
 
 ## Active incumbents (do not dispatch a duplicate writer against these)
 
-| Owner | Scope | Files | Status at this checkpoint |
-|---|---|---|---|
-| Issue #9 | Multi-question interview progression through Offer/readiness | `site/domain/interview.ts`, `interview-handler.ts`, `interview-question-composer.ts` | Open; production path still terminates after one confirmed decision (see Phase 2 below) |
-| Issue #6 | First-person discovery for prospects with no known contact | `site/domain/person-discovery*.ts`, `app/api/contacts/person-discovery/*`, `app/prospects/person-discovery-workspace.tsx` | Open; C1–C4 lanes landed, production route still supplies no service |
-| Issue #8 | Task-focused, coherent, understandable interface | `site/app/**` (shell, discovery, knowledge, prospecting UI) | Open; PR #56 recently merged into this scope |
-| Issue #7 | Prospect quality, contact coverage, operating cost measurement | `docs/PROSPECT-QUALITY-EVALUATION.md`, `site/domain/prospect-quality-evaluation.ts` | Open; PR #54 (merged) reported the harness already exists and named remaining owner-only prerequisites |
-| Issue #11 | Complete browser journey and accessibility acceptance | `site/tests/browser/**`, `site/scripts/browser-acceptance-*`, `site/playwright.config.ts` | Open; pinned Chromium 1243 unobtainable in this environment per `docs/implementation-lanes/2026-09-08-work-unit-e1-operator-journey.md` — do not re-attempt the download |
-| Issue #42 | `greenfield-target-config` stale test assertions (2 failures on main) | `site/tests/greenfield-target-config.test.mjs`, the migration-manifest CLI seam | Open; CI-hygiene only, does not block Phase 2 domain acceptance |
-| PR #53 author (unpublished follow-up) | Morning Brief persisted read | `site/domain/morning-brief.ts`, `site/domain/morning-brief-read.ts` | **Live defect confirmed, fix in progress, not yet pushed**: `morning-brief-read.ts:198`'s `authority_commands` join has no `workspace_id` predicate, unlike every sibling query in the file and unlike `profile-readiness.ts`'s equivalent pattern. No commit fixing it exists on `main` past `f2fceb0`. **Do not touch these two files.** |
-| Independent reviewer | Auditing PR #53/#54 | — | In progress elsewhere; not duplicated here |
+An open GitHub issue names a claimed scope, not by itself an accepted or actively-executing
+assignment. The **Verified activity** column distinguishes issues with landed commits within
+this checkpoint window from issues that are open but show no verified recent activity beyond
+their own filing — do not treat the latter as "someone is already on it."
+
+| Owner | Scope | Files | Verified activity | Remaining within that scope |
+|---|---|---|---|---|
+| Issue #9 | Multi-question interview progression through Offer/readiness | `site/domain/interview.ts`, `interview-handler.ts`, `interview-question-composer.ts` | **Landed:** PR #58 fenced the `bootstrap` escape hatch | Not yet landed: the generalized interview queue still advances only under `enableLocalDemoProgression`; the secure/production path still terminates after one confirmed decision (see Phase 2 below) — open, no verified commit against this specific gap yet |
+| Issue #6 | First-person discovery for prospects with no known contact | `site/domain/person-discovery*.ts`, `app/api/contacts/person-discovery/*`, `app/prospects/person-discovery-workspace.tsx` | **Landed:** C1–C4 lanes (dated 2026-09-05/06) | Production route still supplies no service — open, no more recent verified commit found |
+| Issue #8 | Task-focused, coherent, understandable interface | `site/app/**` (shell, discovery, knowledge, prospecting UI) | **Landed:** PR #56 | Open; scope beyond PR #56 not independently re-verified in this pass |
+| Issue #7 | Prospect quality, contact coverage, operating cost measurement | `docs/PROSPECT-QUALITY-EVALUATION.md`, `site/domain/prospect-quality-evaluation.ts` | **Landed:** PR #54 (report-only — found the harness pre-existing, added no code) | Owner-only prerequisites named in that PR remain (see U3 below for the one non-owner-gated sliver) |
+| Issue #11 | Complete browser journey and accessibility acceptance | `site/tests/browser/**`, `site/scripts/browser-acceptance-*`, `site/playwright.config.ts` | **Landed:** the E1 lane doc, plus coordinator-published Hetzner receipts for exact commits `bff326f` (PR #50) and `9bff835` (PR #51) with real Chromium 1243, no shim | Full canonical validation and independent review remain separately required per those same receipts; this sandbox specifically still cannot obtain the pinned build — do not re-attempt the download here |
+| Issue #42 | `greenfield-target-config` stale test assertions | `site/tests/greenfield-target-config.test.mjs`, the migration-manifest CLI seam | **Landed:** PR #59 (mode-0600 assertion restored) | A fresh re-run on current `main` (`fcf5b9e`) shows 5/8 cases failing (not the 2 the issue title cites), all surfacing a generic `greenfield_target_prepare_failed` code masking the specific expected one — possibly an environment-specific failure mode in this sandbox rather than the exact defect described; not resolved, still issue #42's scope |
+| PR #57 author | Morning Brief persisted read | `site/domain/morning-brief.ts`, `site/domain/morning-brief-read.ts` | **Landed and resolved:** PR #57 fixed the `authority_commands` cross-workspace join at `morning-brief-read.ts:198` with a failing-first regression, audited every other join in the file | No longer an in-progress incumbent; this ledger still does not touch these files, since there is no remaining gap in them to report |
+| Independent reviewer | Auditing PR #53/#54 | — | Found the PR #57 defect | Ongoing elsewhere; not duplicated here |
 
 This ledger touches none of the files above.
 
@@ -85,12 +151,12 @@ ROADMAP: 13/14 active local plans done; `02-99` (hosted greenfield target) is th
 
 | Criterion | Evidence | Status | Gap | Dependency | Gate |
 |---|---|---|---|---|---|
-| Company→Product→Market Play→Customer Profile→Offer hierarchy; Org/Contact identity Company-wide; Account/Target scoped correctly | `commercial-model.ts:9-36` types; scope legend at lines 32-33 (`organization`/`contact` scoped `"company"`, `account` scoped `"market_play_profile"`) | coded, wired (via `knowledge-handler.ts`), validated (`commercial-model-repository.test.mjs` 4/4) | `interview.ts` still exports `PILOT_COMPANY_NAME="Digitalrain"` and `bootstrapInterview` (`interview.ts:418-437`) unconditionally seeds a `"Digitalrain"` workspace; `action:"bootstrap"` remains in `INTERVIEW_ACTIONS` and reachable via `/api/interview` (`interview-handler.ts:77-78,175-176`) for any admitted owner, with no test proving it's unreachable for a non-local-demo generic owner. This is the exact residual defect the issue #5 evidence doc (`docs/implementation-lanes/2026-09-08-issue5-generic-onboarding-evidence.md`) hands off. | **In scope for issue #9** — its own evidence already cites `interview.ts:703` | (a) pure local coding — **assigned to issue #9, not dispatched here** |
+| Company→Product→Market Play→Customer Profile→Offer hierarchy; Org/Contact identity Company-wide; Account/Target scoped correctly | `commercial-model.ts:9-36` types; scope legend at lines 32-33 (`organization`/`contact` scoped `"company"`, `account` scoped `"market_play_profile"`) | coded, wired (via `knowledge-handler.ts`), validated (`commercial-model-repository.test.mjs` 4/4) | **Resolved by PR #58** (merged): `action:"bootstrap"` is now gated behind the same `enableLocalDemoProgression` fence as `advance_local_interview` and fails closed (404) outside local-demo. This was the residual defect the issue #5 evidence doc handed off to issue #9; it is no longer open. | — | (a) done |
 | Consensus Interview: one question at a time, evidence/inference/recommendation, explicit Accept/Reject/Correct/Rescope | `interview.ts:611` `submitInterviewAnswer`, `:797` `recordInterviewDecision`, snapshot at `:710-721` | coded, validated at unit level | The **generalized multi-question queue** (`interview-question-composer.ts:270-323`, Company→Product(9)→Play(6)→Profile(11)→Offer) only advances when `enableLocalDemoProgression` is true (`interview-handler.ts:74-75`), which requires `import.meta.env.DEV && TRUSTED_IDENTITY_PROVIDER==="local-demo" && LOCAL_DEMO==="1"` plus a loopback host (`runtime-identity.ts:80-84`) — **never true in a real deployment**. Outside local-demo, `readInterviewState` returns terminal `"confirmed"` after one decision with no live follow-up session (`interview.ts:217-229,243-253`) — this is exactly Audit A2/issue #9's "completes the session after one decision." | Same generalized queue composer needs to be reachable from the secure/production path, not just local-demo | **In scope for issue #9** | (a) pure local coding — **assigned to issue #9, not dispatched here** |
 | Reloads/retries/stale tabs/concurrent answers converge on one authoritative question | `interview.ts:185-191` explicit `liveSession` precedence; idempotency-keyed writes at `:724-757` | coded, validated (`interview-repository.test.mjs`, `interview-handler.test.mjs`) | Only sequential/synthetic race proof exists; no browser-level concurrent-tab proof (`tests/browser/interview*.spec.ts` does not exist) | Browser acceptance | (a) domain-level met; browser proof is issue #11 territory, not newly blocking |
 | Uploads/imports/research/edits enter as Proposed Knowledge with provenance; owner review/promote without unauthorized Runs/Accounts/Contacts/Prospects | `knowledge-handler.ts:96-100` dispatch (`propose_owner_edit`, `propose_repository_research`, `import_plain_text`, `propose_reuse`, `propose_allowlisted_package`); `reviewKnowledgeProposal` | coded, wired, validated (`knowledge-handler.test.mjs`, `knowledge-repository.test.mjs`) | none found | — | (a) met |
 | Drift impact inspection, immutable replacement activation, snapshots, invalidated approvals, dependency-graph-scoped high-risk pause | `drift.ts` — `classifyDriftRisk` (line 51), `HIGH_RISK_DRIFT_KINDS` (4-10), `reachedArtifacts` BFS (60), `buildDriftImpact` (103) | coded, wired (`knowledge-handler.ts:112-115,193,235`), validated (`drift-replacement.test.mjs`) | UI exists (`app/knowledge/drift-replacements.tsx`) but no browser test proves it end to end | Browser acceptance | (a) domain met; browser proof is issue #8/#11 territory |
-| Migration-manifest CLI test hygiene | — | — | `greenfield-target-config.test.mjs` asserts a stale manifest block, 2 failures on `main` | Named CI-hygiene fix, does not gate Phase 2 domain acceptance | **Issue #42 already owns this** |
+| Migration-manifest CLI test hygiene | — | — | PR #59 restored one missing happy-path assertion (mode 0600); a fresh re-run on current `main` (`fcf5b9e`) still shows **5/8 cases failing** (not the 2 the issue title cites), each surfacing a generic `greenfield_target_prepare_failed` code masking the specific one expected — possibly an environment-specific failure mode in this sandbox, not independently confirmed either way | Named CI-hygiene fix, does not gate Phase 2 domain acceptance | **Issue #42 already owns this; not resolved, PR #59 is incremental progress within it** |
 
 ---
 
@@ -173,7 +239,7 @@ ROADMAP: 0/10 plans; "Planned; dependency-gated."
 
 | Criterion | Evidence | Status | Gap | Dependency | Gate |
 |---|---|---|---|---|---|
-| Seeded hierarchy + Phase 4 schedule state shown, not activated | `morning-brief-read.ts:140-209` — **active incumbent lane, do not touch** (see table above) | coded, unit-validated, zero runtime importers besides its own test | UI composition owned by the Work Unit D operator-interface lane (issue #8 adjacent), not duplicated here | — | (a) once the incumbent's fix lands and it's composed — not this ledger's action |
+| Seeded hierarchy + Phase 4 schedule state shown, not activated | `morning-brief-read.ts:140-209` — cross-workspace join defect **resolved by PR #57** (see table above) | coded, unit-validated (13/13), zero runtime importers besides its own test | Module itself has no remaining gap; UI composition is owned by the Work Unit D operator-interface lane (issue #8 adjacent), not duplicated here | Composition into a route/UI | (a) module done; composition is (a) pure local coding once that lane picks it up — not this ledger's action |
 | Weekly Export-ready cohort (7/week target), 10 funnel-loss categories | `weekly-outcome.ts` (674 lines, pure reducer, zero runtime importers) | coded, unit-validated | `ExportReady` exists nowhere in schema; `profile_prospects.state` admits only `qualified/approved/rejected/deferred/cooled_down`; no transition-history table exists — pinned by `weekly-outcome-persisted-state-conformance.test.mjs`'s `UNBACKED_PROSPECT_STATES` | Plan `07-04`'s migration index is unallocated; `07-04` depends on `07-01/02/03`, which depend on Plan `06-10`'s Gmail-authorization gate | (c) — transitively blocked on the same `06-10` owner gate as Phase 6 |
 | CRM CSV — one row per eligible Enriched Contact, stable Prospect ID | `crm-csv-codec.ts` (261 lines); `preparation/phase7-csv-policy-definition.ts` and 3 sibling files model schema/version-intent/precondition | coded, unit-validated, zero runtime importers | Same handoff/manifest chain, ultimately `06-10`-gated | (c) then (a) |
 | Passphrase-encrypted, content-addressed, versioned workspace archive | No `archive.ts`/`restore.ts` domain module found | not started | Plans `07-05`–`07-08`, all unstarted | (c) |
@@ -190,13 +256,21 @@ Plan 06-10 and every Phase 7 dependency remain incomplete").
 ## Cross-cutting
 
 ### Browser/accessibility acceptance — issue #11
-Confirmed still blocked in this environment: pinned Chromium build 1243 is unobtainable
-(`cdn.playwright.dev` and `playwright.azureedge.net` both unreachable per
-`docs/implementation-lanes/2026-09-08-work-unit-e1-operator-journey.md`); this ledger did not
-re-attempt the download, per that doc's own instruction not to. E2 (approval/CRM-handoff
-browser acceptance) is separately blocked because its underlying seams (`preparation/`,
-`crm-csv-codec.ts`) are hard-gated from runtime composition (same Phase 6/7 gates above).
-Gate: (b) hosted/environment for E1 continuation; (b)/(c) mixed for E2.
+**Corrected from the first pass.** The pinned Chromium 1243 build is unobtainable specifically
+in *this* sandbox (`cdn.playwright.dev` and `playwright.azureedge.net` both unreachable here
+per `docs/implementation-lanes/2026-09-08-work-unit-e1-operator-journey.md`) — this ledger did
+not re-attempt the download in this environment. It is not a blanket "unobtainable" claim: the
+coordinator has published verified receipts of the real pinned build actually running, with no
+shim, against exact commits `bff326f` (PR #50 comment 5588416480) and `9bff835` (PR #51
+comment 5588407370), both ancestors of current `main`, on isolated Hetzner containers — 2/2,
+1/1, and 1/1 across the three lanes, zero-effect verifiers clean. Both receipts are explicit
+that they resolve only the browser-environment blocker for those exact candidates; full
+canonical validation and independent review remain separately required and are not claimed
+here. E2 (approval/CRM-handoff browser acceptance) is separately blocked because its
+underlying seams (`preparation/`, `crm-csv-codec.ts`) are hard-gated from runtime composition
+(same Phase 6/7 gates above) — this part of the original finding stands. Gate: (b)
+hosted/environment for any further E1 work in this sandbox specifically (already satisfied
+elsewhere per the receipts above); (b)/(c) mixed for E2.
 
 ### Security review posture
 No repository-wide `docs/SECURITY*.md` exists; only Phase-2-scoped `02-SECURITY.md`. The
@@ -241,25 +315,31 @@ above, and does not overlap another packet's files.
 - **Gate:** (a) pure local coding, unblocked.
 - **Priority:** low — a coverage gap, not a product-facing gap.
 
-### Packet U2 — Runner Assignment read-only inspection view
-- **Candidate new files:** a read-only projection function in `site/domain/runner-assignment.ts`
-  (additive export, does not touch existing exports/logic) plus a new UI view under
-  `site/app/prospecting/` or wherever issue #8's lane places new prospecting-adjacent
-  surfaces.
-- **Recommend coordinating with issue #8's owner before dispatch** — this is a new capability
-  surface, not a coherence fix to existing UI, so it may or may not fit that lane's current
-  scope; flagged here rather than assumed.
-- **Work:** expose already-schema-ready (currently empty) `runner_assignments`/audit rows as
-  a read-only owner view of provider/model/instructions/tools/configuration/sources/grants,
-  explicitly never exposing `token_hash`/`nonce_hash`/raw capability values.
-- **Verification:** a test asserting the projection surfaces the intended fields and none of
-  the excluded secret-adjacent fields.
-- **Gate:** (a) pure local coding, unblocked by hosted/owner authority — the only open
-  question is which lane should own it.
-- **Priority:** medium — real product-facing value (owner visibility into what a runner would
-  do) independent of the hosted issuance gate.
+### Packet U2 — Runner Assignment read-only inspection view — **HELD, not dispatchable**
+- **Status corrected from the first pass: this is not a safe, unconditionally dispatchable
+  packet.** Issue #8's body states explicitly: "Full grant/identity/source disclosure remains
+  subject to its existing explicit hold; do not expose withheld information as part of a copy
+  or layout change." A view surfacing provider/model/instructions/tools/sources/grants is
+  exactly the disclosure that hold covers, regardless of which fields a first draft chooses to
+  include — the hold is about the disclosure decision itself, not about any one field list.
+- **What would need to happen first:** the owner reconciles the disclosure hold (confirms it
+  still applies, narrows it, or lifts it for this specific projection) before any code is
+  written against it. No confidential capability field may be exposed by inference — i.e., a
+  narrower view that only implies the existence/shape of held-back fields does not sidestep
+  the hold either.
+- **What remains true and unchanged:** the backing `runner_assignments`/audit rows are
+  schema-ready (currently empty) and reading them requires no hosted/credential authority —
+  once the disclosure hold is reconciled, building the view is (a) pure local coding, not
+  (b) hosted-gated. That is a different kind of gate than the ones blocking Phase 6/7, and
+  should not be conflated with them.
+- **Action for this ledger:** do not dispatch. Report the held status to the coordinator;
+  await an explicit owner decision on the disclosure hold before this packet becomes
+  actionable.
 
 ### Packet U3 — Candidate contact-provider public documentation research
+- **Routes through issue #7's existing owner**, not a freestanding independent dispatch — it
+  extends the same evaluation-gap inventory PR #54 already produced there, so should land as
+  that lane's follow-up rather than a separately assigned writer.
 - **New file only:** an addition to `docs/implementation-lanes/issue-7-evaluation.md` or a new
   sibling doc, at the discretion of whoever picks this up — documentation only, no code.
 - **Work:** research and record, from public documentation only (no account, no API call, no
