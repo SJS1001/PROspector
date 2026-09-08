@@ -8,10 +8,24 @@ Issue: [SJS1001/PROspector#7](https://github.com/SJS1001/PROspector/issues/7) �
 
 Before any change in this lane, `codex/generic-onboarding-integration` was at
 `bfdb58c` (26 commits behind `origin/main`'s `e0c93d2`), diverging only by a
-single `.planning/STATE.md` addition. This lane first merged `origin/main`
-into the branch (merge commit `61bc40c`, no conflicts) so new work sits on the
-current baseline; it did not edit `.planning/STATE.md` or any other shared
-file.
+single `.planning/STATE.md` addition. This lane initially merged `origin/main`
+into that branch (merge commit `61bc40c`, no conflicts) and pushed the lane
+doc there as `ad5122c`, opening PR #52 against it.
+
+**Branch correction.** `codex/generic-onboarding-integration` is a historical
+branch shared with other in-flight work, not a per-issue branch, and other
+concurrently launched issues inherited the same branch — so PR #52 would have
+swept in `bfdb58c`'s unrelated, not-yet-merged `.planning/STATE.md` commit as
+part of its diff against `main`. Per an owner-coordinator correction, this
+lane did **not** force-push or undo anything on that shared branch (its old
+tip `bfdb58c` and new tip `ad5122c`, both still present on
+`origin/codex/generic-onboarding-integration`, are reported here for
+reconciliation) and instead cut a fresh single-commit branch,
+`claude/issue-7-evaluation`, directly from current `origin/main`
+(`e0c93d2`), cherry-picked only the lane-doc commit onto it (`12f0695`), and
+opened PR #54 against `main` from that branch. **PR #54 is this lane's
+actual, current deliverable; PR #52 is closed without merging and superseded
+by #54.**
 
 Searching history on that baseline for issue-7 material found no open pull
 request, no branch, and no `docs/implementation-lanes` file referencing issue
@@ -68,15 +82,20 @@ actions):
 3. **No manual-process comparator has been measured.** The harness computes
    `pairedDelta` and manual-non-inferiority checks once both arms exist, but
    no real "manual" arm data (time, cost, outcomes) has been recorded.
-4. **No named candidate provider has been selected or researched.**
-   `05-RESEARCH.md` intentionally makes no provider selection under Phase 5's
-   own gate ("No selection. Implement the port + fake contract first; a real
-   provider needs separate explicit authority..."). Naming and vetting actual
-   providers (evidence/freshness mapping, reuse terms, account/API limits,
-   pricing) requires owner authorization to engage an external service and is
-   out of this lane's boundary — it is not something a local documentation
-   pass can respons­ibly originate without becoming premature provider
-   selection.
+4. **No named candidate provider has been selected or researched yet in this
+   lane.** `05-RESEARCH.md` intentionally makes no provider *selection* under
+   Phase 5's own gate ("No selection. Implement the port + fake contract
+   first; a real provider needs separate explicit authority..."). That gate
+   blocks selecting, connecting to, creating an account with, or spending
+   against a provider — it does not block reading a candidate provider's own
+   published documentation (data fields offered, stated freshness/refresh
+   policy, published reuse/redistribution terms, public rate limits and
+   pricing tiers) and writing that down for later comparison. This lane did
+   not do that public-documentation research — it is simply out of this
+   pass's bounded scope, not something this document treats as prohibited —
+   and it remains open for a future pass (this one or another) to add without
+   requiring owner authorization, provided it stays read-only against public
+   pages and creates no account, credential, connection, or spend.
 5. **No provider trial, real contact lookup, or paid benchmark run has
    occurred or is authorized here.** Per the issue's own execution boundary
    and `AGENTS.md`, this remains blocked pending a separate owner
@@ -108,6 +127,18 @@ already-scoped "focused validation, no redundant broad/heavy suite" boundary
 for this lane, and because no shared/runtime file was edited, this lane still
 ran only the focused `node --test tests/prospect-quality-evaluation.test.mjs`
 validation recorded above rather than the full canonical suite.
+
+A second coordination correction identified that `codex/generic-onboarding-integration`
+is a historical/shared branch inherited by multiple concurrently launched
+issues, not this issue's own branch, and confirmed the branch-isolation fix
+already in progress: preserve that shared branch exactly as pushed (old tip
+`bfdb58c`, new tip `ad5122c`; both remain present, nothing force-pushed or
+undone), cut a fresh single-commit `claude/issue-7-evaluation` branch from
+current `origin/main` containing only this lane's own commit, and publish the
+replacement scoped PR. It also corrected an overly broad reading of the
+provider-research boundary: the Phase 5 gate blocks provider *selection*,
+*connection*, *account creation*, and *spend*, not read-only research of a
+candidate provider's own public documentation — see the revised item 4 above.
 
 ## What this lane did and did not change
 
