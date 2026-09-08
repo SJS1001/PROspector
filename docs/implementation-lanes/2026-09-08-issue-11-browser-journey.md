@@ -202,6 +202,38 @@ publishes the exact combined SHA for one official browser and canonical
 validation. No duplicate suite is run in the meantime.
 
 
+## Combined revision — one official validation is now due
+
+Both halves are on `main`, and this is the exact revision the single official
+browser and canonical validation should run against:
+
+| Merged | PR | Merge commit |
+|---|---|---|
+| 2026-09-08T17:24:47Z | #65 — the source fix (`448531b`) | `060d7169e3cc88727044c4fa05da3a1536544982` |
+| 2026-09-08T17:25:12Z | #62 — this lane's assertions (`7e81b46`) | `fe11d6d0d5ea290a43336753e07b10963ef048ab` |
+
+**Exact combined SHA: `main` at `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`.**
+
+Verified present at that SHA: `site/app/globals.css:27` carries
+`.assessment>p { overflow-wrap:anywhere; }`, and
+`site/tests/browser/operator-journey-e1.spec.ts` carries the 320px width in the
+reflow loop plus `assertTextResizeHolds`, `assertVisibleFocus` and the three
+`assertAnnounced` calls.
+
+What that validation still has to establish, none of which any run has reached:
+
+- `npm run test:browser:operator-journey` past line 35 — the 200% text-resize
+  assertion, the visible-focus walk, the three announcement assertions, and
+  journey steps 1–6 (CSRF expiry, lost response, the 200/409 two-tab race,
+  restart durability).
+- `npm run test:browser` and `npm run test:browser:person-discovery`, whose
+  onboarding reflow parity and seed-absence assertions were last proven at
+  `bff326f6`, several merges ago.
+- `npm test` and lint, which fail-fast prevented on the failing head.
+
+No claim is made here that `f7d8fc0` passes. This lane ran no duplicate suite.
+
+
 ## Boundary
 
 No hosted, Cloudflare, Access, provider, credential, real-data, export delivery,
