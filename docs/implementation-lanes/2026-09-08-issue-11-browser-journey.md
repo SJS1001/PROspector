@@ -114,6 +114,17 @@ and inserting the resulting state directly is what criterion 2 forbids. **Issue
 seams from whoever owns the runtime, after which this lane can extend the
 journey to cover them.
 
+Both have since been dispatched: the CSV owner now holds a narrow, explicit
+fictional in-memory preview authority for the handoff stage, and the research
+route remains a separate dependency-injection-only ruling that is still pending.
+Neither is composed at the base recorded above.
+
+**Issue #11 stays open regardless of this PR.** Closure requires genuinely
+composed journeys through those services. A seeded starting state is a legitimate
+fixture for the stages that *are* composed — every governed transition in them is
+driven through the real screens — but it is not a substitute for a stage whose
+service does not exist, and this lane will not present one as though it were.
+
 ## Validation
 
 Run on this branch at base `d051fcc`. True exits only.
@@ -171,10 +182,24 @@ list to `.assessment>*` and give the assessment paragraph the same
 `overflow-wrap:anywhere` the rest of the task already uses — no new breakpoint
 required.
 
-That file is outside this lane's ownership. The source-only fix is assigned to
-the incumbent issue-8 UI owner on a separate branch; this lane makes no
-competing edit and awaits the fixed combined revision for an exact-head rerun.
-**No claim is made that the current head passes.**
+That file is outside this lane's ownership. The source-only fix is
+`claude/issue-8-320px-overflow-fix` at `448531b2eec166cb796f4f05f1a015956a911db4`
+(PR #65), owned by the incumbent issue-8 UI owner. This lane made no competing
+edit and inspected it read-only: `.assessment>p{overflow-wrap:anywhere}` is the
+load-bearing change and is correct. The separate `min-width:0` repair is not
+needed, because `overflow-wrap:anywhere` — unlike `break-word` — reduces
+intrinsic min-content size, so the grid item's `min-width:auto` resolves small on
+its own. Two clauses in that fix are inert or redundant; both are reported on
+PR #65 and neither is blocking.
+
+**No claim is made that any head passes.** The lane fails fast: it stopped at the
+third width of the reflow loop, so the 200% text-resize assertion, the
+visible-focus walk, the three announcement assertions, journey steps 1–6, and
+`npm test`/lint have never been evaluated on any head. A green 320px does not
+imply a green lane, and focused source tests are not evidence for any of it. Once
+PR #65 is reviewed and merged, this lane merges `main` forward normally and
+publishes the exact combined SHA for one official browser and canonical
+validation. No duplicate suite is run in the meantime.
 
 
 ## Boundary
