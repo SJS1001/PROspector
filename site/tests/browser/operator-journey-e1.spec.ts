@@ -26,16 +26,17 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   await assertNoOverlay(page);
   await assertAxe(page);
 
-  // Reflow parity with the other lanes, on the task this lane owns.
-  for (const width of [760, 480]) {
+  // Reflow parity with the other lanes, on the task this lane owns. 320px is
+  // WCAG 1.4.10: a 1280x1024 window at 400% zoom is 320 CSS pixels wide.
+  for (const width of [760, 480, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("heading", { name: "Review Queue", exact: true })).toBeVisible();
     const reflow = await measureReflow(page);
     expect(reflow.scrollWidth, `${width}px: ${JSON.stringify(reflow)}`).toBeLessThanOrEqual(reflow.clientWidth + 1);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.keyboard.press("Tab");
-  expect(await page.evaluate(() => document.activeElement?.tagName !== "BODY")).toBe(true);
+  await assertTextResizeHolds(page);
+  await assertVisibleFocus(page);
 
   // 1. CSRF expiry. The token the page holds is dropped before the mutation, so
   // the server rejects it. The owner must be told the outcome is unverified and
@@ -44,7 +45,7 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   const expired = await submitApproval(page, "csrf expiry probe");
   expect(expired.posts).toBe(1);
   expect(expired.statuses).toEqual([403]);
-  await expect(page.getByText(UNKNOWN)).toBeVisible();
+  await assertAnnounced(page, UNKNOWN);
 
   // 2. Lost response. The request leaves the browser and never comes back; the
   // same fail-closed notice must appear, still with exactly one attempt.
@@ -59,7 +60,7 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   const lost = await submitApproval(page, "lost response probe", { expectResponses: false });
   expect(aborted).toBe(1);
   expect(lost.posts).toBe(1);
-  await expect(page.getByText(UNKNOWN)).toBeVisible();
+  await assertAnnounced(page, UNKNOWN);
   await page.unroute("**/api/prospecting**");
 
   // 3. Two tabs, one decision. Both load the same authoritative revision; the
@@ -88,7 +89,7 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   expect([postsOne, postsTwo]).toEqual([1, 1]);
   // The loser is told its action was not applied; neither tab retries.
   const loser = statusOne === 409 ? page : second;
-  await expect(loser.getByText(STALE)).toBeVisible();
+  await assertAnnounced(loser, STALE);
   await loser.waitForTimeout(500);
   expect([postsOne, postsTwo]).toEqual([1, 1]);
   await secondContext.close();
@@ -147,6 +148,64 @@ async function submitApproval(target: Page, reason: string, options: { expectRes
     target.off("response", onResponse);
   }
   return { posts, statuses };
+}
+
+/** Issue #11 asks for screen-reader announcements, not merely visible text. A
+ * fail-closed notice must reach assistive technology, so it has to sit inside a
+ * live region that also carries the assertive role the runtime assigns to
+ * unknown and stale outcomes. */
+async function assertAnnounced(target: Page, message: string) {
+  const announced = target.locator('[aria-live="polite"][role="alert"]').filter({ hasText: message });
+  await expect(announced).toHaveCount(1);
+  await expect(announced).toBeVisible();
+}
+
+/** Issue #11 asks for visible focus. Every tab stop must paint an indicator:
+ * a rule that removes the outline without replacing it fails here. */
+async function assertVisibleFocus(page: Page) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  let stops = 0;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() => {
+      const element = document.activeElement as HTMLElement | null;
+      if (!element || element === document.body) return null;
+      const style = getComputedStyle(element);
+      return {
+        tag: element.tagName,
+        label: (element.textContent ?? "").trim().slice(0, 40),
+        focusVisible: element.matches(":focus-visible"),
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth,
+        boxShadow: style.boxShadow,
+      };
+    });
+    if (!focused) continue;
+    stops += 1;
+    const described = JSON.stringify(focused);
+    expect(focused.focusVisible, `keyboard focus is not :focus-visible: ${described}`).toBe(true);
+    const indicated = focused.outlineStyle !== "none" || focused.boxShadow !== "none";
+    expect(indicated, `focused control paints no indicator: ${described}`).toBe(true);
+  }
+  // Keyboard navigation must actually reach the task's controls.
+  expect(stops, "no control was reachable by keyboard").toBeGreaterThan(2);
+}
+
+/** Issue #11 asks for zoom. WCAG 1.4.4 is text scaled to 200% with no
+ * horizontal scrolling; 1.4.10 is covered by the 320px pass above. */
+async function assertTextResizeHolds(page: Page) {
+  await page.addStyleTag({ content: "html{font-size:200%}" });
+  try {
+    await expect(page.getByRole("heading", { name: "Review Queue", exact: true })).toBeVisible();
+    const reflow = await measureReflow(page);
+    expect(reflow.scrollWidth, `200% text: ${JSON.stringify(reflow)}`).toBeLessThanOrEqual(reflow.clientWidth + 1);
+  } finally {
+    await page.evaluate(() => {
+      for (const style of [...document.querySelectorAll("style")]) {
+        if (style.textContent === "html{font-size:200%}") style.remove();
+      }
+    });
+  }
 }
 
 async function denyExternal(target: BrowserContext, external: string[]) {

@@ -3,6 +3,9 @@
 **Prepared:** 2026-09-08
 **Repository:** `https://github.com/SJS1001/PROspector.git`
 **Base:** `main` at `f490555da8df5d1c91ba5b59e755990d9e31e6f8`
+**Merged:** PR #50 merged to `main` on 2026-09-08T16:33:18Z as
+`e0c93d2cb8f253382b2a242e0ce62f3f0d92944a`, carrying lane head
+`bff326f67443b42c148dc898cebc3e3e99cc67e0`
 **Lane branch:** `claude/task-e1-operator-journey`
 **Reconciled from:** `claude/task-e1-browser-acceptance` at
 `cc4c7f960f9da8eaa2606af61d4f28454d3afbd7`, which remains on the remote; the
@@ -119,10 +122,13 @@ other two lanes.
 
 ## Validation
 
-Run at head `362d023` on base `f490555`. Every command's true exit is recorded.
+Run at head `bff326f6`, and re-run after merging `main` `9746320f` forward
+into the lane (local head `49cadf65`) to prove the merge result. Every
+command's true exit is recorded.
 
 | Command | Result |
 |---|---|
+| `npm test` (full Node suite: build + all 133 suites) | 917 pass / 0 fail, exit 0 |
 | `npm run build` | exit 0 |
 | `npx eslint . --ignore-pattern dist --ignore-pattern .next` | exit 0 |
 | `node --test tests/production-bundle-boundary.test.mjs` | 6 pass / 0 fail, exit 0 |
@@ -135,12 +141,9 @@ Run at head `362d023` on base `f490555`. Every command's true exit is recorded.
 | `node --test tests/local-demo-boundary.test.mjs` | 5 pass / 0 fail, exit 0 |
 | `node --test tests/operator-interface-ui.test.mjs` | 10 pass / 0 fail, exit 0 |
 
-**The Chromium journeys in this lane are NOT proven at this head.** See the
-environment blocker below. The three browser specs — the E1 operator journey,
-the onboarding reflow parity, and the onboarding seed-absence assertions — are
-authored and lint-clean but unexecuted here, and no claim is made that they
-pass. The production-bundle fence, the seed module, the boundary allowlist, and
-the reflow CSS fix are all covered by the executed suites above.
+The Chromium journeys are **not** executed by this container; they are proven
+by the external attributed executor receipt recorded below. Nothing in this
+table is a browser result, and no browser claim rests on this container.
 
 ## Withdrawn evidence
 
@@ -155,10 +158,41 @@ repository file was changed to accommodate it, and `playwright.config.ts`
 carries no `executablePath` — so nothing needs reverting; only the claim is
 retracted.
 
-## Environment blocker — pinned browser unobtainable
+## Browser evidence — external attributed executor
 
-The supported install cannot supply the pinned browser in this environment, and
-this was verified here rather than taken from the record:
+The Chromium journeys could not be executed in this container (see the
+environment note below), so they were run by an external attributed executor
+and the receipt is recorded here rather than claimed as this container's work.
+
+**Validated head:** `bff326f67443b42c148dc898cebc3e3e99cc67e0` — before and
+after are the same SHA; the run changed nothing (`git status` clean at the end).
+**Environment:** isolated Hetzner container `prospector-e1-validation-2`
+(`b0312fafdac00d960184d043852664b530e4790f0c9e2c50e53a3df0dfd959f5`, exit 0,
+`oom=false`), Node 24.18.1, **officially downloaded Chromium 1243 — no shim and
+no `executablePath` override**, i.e. the supported install matching the pinned
+`@playwright/test` 1.63.0.
+
+| Lane | Result |
+|---|---|
+| `npm run test:browser` (onboarding) | exit 0, 2 passed, 54.4s |
+| `npm run test:browser:person-discovery` | exit 0, 1 passed, 21.8s |
+| `npm run test:browser:operator-journey` (E1) | exit 0, 1 passed, 25.3s |
+
+All three zero-effect verifiers passed: `forbiddenRows` 0 and zero R2 effects.
+Raw logs are retained by the coordinator with the container.
+
+This receipt therefore covers the E1 operator journey, the onboarding reflow
+parity, and the onboarding seed-absence assertions at `bff326f6`. The only
+commit added after it is the merge of `main` (PR #49: assertions inside
+`tests/fixture-safety.test.mjs` and `tests/rendered-html.test.mjs`, plus one
+lane document). That merge touches no browser spec, no application module, and
+no fixture the lanes drive, so it does not disturb the evidence; the full Node
+suite was re-run on the merged head and is recorded above.
+
+## Environment note — this container cannot run the pinned browser
+
+The receipt above exists because the supported install cannot supply the pinned
+browser *here*. Verified in this container:
 
 ```
 curl https://cdn.playwright.dev/.../chromium/1243/chromium-linux.zip
@@ -171,14 +205,10 @@ The image ships `chromium-1194` and `chromium_headless_shell-1194`;
 `playwright-core/browsers.json` requires `chromium-1243` and
 `chromium-headless-shell-1243`. The lanes deliberately scrub
 `PLAYWRIGHT_BROWSERS_PATH` to their own cache, so an inherited build cannot be
-used either. `.planning/STATE.md` on `main` already records this same
-restriction independently.
+used either. No lane, pin, or fence was weakened to work around this: the fix
+was to execute on an environment that carries the pinned revision, which is what
+the receipt above records.
 
-Three routes are therefore all closed: the normal supported install is blocked
-by network policy, an arbitrary downgrade or `executablePath` workaround is
-forbidden, and the old shim is withdrawn above. **The Chromium journeys need an
-environment carrying the pinned revision.** No lane, pin, or fence was weakened
-to work around it.
 
 ## Coverage already owned elsewhere — not duplicated
 
