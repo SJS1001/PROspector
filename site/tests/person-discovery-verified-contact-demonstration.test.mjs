@@ -7,31 +7,41 @@ import {
 } from "./helpers/person-discovery-fixture.mjs";
 
 /**
- * Closes the checkbox-5 evidence gap: person-discovery only ever records a
- * verification *intent* (`providerCallAuthorized: false`,
+ * Closes part of the checkbox-5 evidence gap: person-discovery only ever
+ * records a verification *intent* (`providerCallAuthorized: false`,
  * `contactEvidenceCreated: false` — see domain/person-discovery.ts) and
  * deliberately never calls a provider or writes eligible evidence. That is
  * the correct, reviewed C1-C4 boundary and this test changes none of it.
  *
- * What was unproven is whether the discovered -> explicit Contact ->
- * verification-intent chain this issue owns can, once handed off, actually
- * reach a genuinely eligible/verified contact point through the existing,
- * unmodified, already-reviewed contact-evidence/contact-eligibility
- * machinery (domain/contact-evidence.ts, domain/contact-eligibility.ts) --
- * the "current enrichment foundations" the issue names as prior art for an
- * already-known Contact. This test proves that reachability end-to-end with
- * a synthetic, in-memory-only, test-injected verifier: no new domain/service
- * export, no new route or transport action, and no persisted row anywhere.
+ * IMPORTANT — what this test does NOT prove: no production route or service
+ * anywhere in this repository reads `contact_verification_intents` to
+ * construct an enrichment assignment/verification envelope. That composition
+ * (domain/enrichment-repository.ts into a route) does not exist, so this
+ * test cannot exercise a real intent consumer -- there isn't one. It is
+ * a component-reachability check only: it independently proves that IF
+ * something (a future route/service) supplied a verified observation for
+ * the exact Contact person-discovery's decision produced, the existing,
+ * unmodified contact-evidence/contact-eligibility machinery
+ * (domain/contact-evidence.ts, domain/contact-eligibility.ts -- the
+ * "current enrichment foundations" the issue names as prior art for an
+ * already-known Contact) can carry it to genuine ContactReady/eligible
+ * state. The assignment/envelope below are independently synthetic
+ * fixtures tied only to the decided Contact's identity (`authority.*`),
+ * not derived from or consuming the recorded intent, except for the
+ * channel, which is read from the intent record to keep the two
+ * consistent. No new domain/service export, no new route or transport
+ * action, and no persisted row anywhere.
  *
- * Reaching this same outcome through the real browser/UI additionally
+ * Reaching a real end-to-end outcome through the browser/UI additionally
  * requires composing the enrichment reservation/grant/settlement pipeline
- * (domain/enrichment-repository.ts) into a route -- that pipeline is
- * currently composed nowhere in app/ and doing so is a materially bigger,
- * separately-owned change outside person-discovery's scope. See the
- * handoff note in the person-discovery lane report for exactly what a
- * browser-acceptance extension would still need.
+ * (domain/enrichment-repository.ts) into a route that actually consumes
+ * `contact_verification_intents` -- that pipeline is currently composed
+ * nowhere in app/ and doing so is a materially bigger, separately-owned
+ * change outside person-discovery's scope. See the handoff note in the
+ * person-discovery lane report for exactly what a browser-acceptance
+ * extension would still need.
  */
-test("a decided Contact can reach genuine ContactReady eligibility through the existing evidence/eligibility modules, with zero persistence", async () => {
+test("the existing evidence/eligibility modules can independently reach genuine ContactReady for the Contact a discovery decision produced, with zero persistence (no production intent consumer exists yet)", async () => {
   const fixture = await createPersonDiscoveryFixture("person-discovery-verified-contact");
   try {
     const { discovery, testPort, repository } = await loadPersonDiscoveryModules(fixture);
@@ -84,11 +94,16 @@ test("a decided Contact can reach genuine ContactReady eligibility through the e
     assert.equal(intent.kind, "accepted");
     assert.equal(intent.providerCallAuthorized, false, "person-discovery itself never authorizes a provider call");
     assert.equal(intent.contactEvidenceCreated, false, "person-discovery itself never creates contact evidence");
+    assert.equal(intent.intent.channel, "email", "the recorded intent durably carries the requested channel");
 
-    // From here on, nothing more is asked of person-discovery: the exact
-    // current relevance authority it already produced is handed to the
-    // existing, unmodified evidence/eligibility modules exactly as any
-    // already-known-Contact caller would.
+    // No production code reads this intent record: there is no route or
+    // service in this repository that consumes `contact_verification_intents`
+    // to build an enrichment assignment/verification envelope. The
+    // assignment/envelope below are therefore independently synthetic
+    // fixtures, tied to the decided Contact's identity via `authority.*`
+    // (which person-discovery genuinely produced) and to the intent's own
+    // channel (`intent.intent.channel`) so the two stay consistent -- not
+    // proof that anything actually consumes the intent.
     const authority = await repository.loadRelevanceAuthority(fixture.database, fixture.scope, decided.decision.relevanceId);
     assert.ok(authority, "the decided Contact carries current relevance authority");
 
@@ -106,7 +121,7 @@ test("a decided Contact can reach genuine ContactReady eligibility through the e
     const envelope = Object.freeze({
       id: "verified-demo-observation", workspaceId: assignment.workspaceId, contactId: assignment.contactId,
       profileConfigurationId: assignment.profileConfigurationId, profileConfigurationDigest: assignment.profileConfigurationDigest,
-      kind: "email", value: "  VERIFIED@EXAMPLE.TEST ", confidence: 0.01,
+      kind: intent.intent.channel, value: "  VERIFIED@EXAMPLE.TEST ", confidence: 0.01,
       provenance: { sourceReference: "synthetic-demo-source", excerpt: "synthetic mailbox verification record", objectReference: "synthetic-demo-object", contentHash: "b".repeat(64), retrievedAt: PERSON_DISCOVERY_NOW - 2_000 },
       observedAt: PERSON_DISCOVERY_NOW - 1_000, lineage: { parentObservationId: null },
     });
@@ -116,7 +131,7 @@ test("a decided Contact can reach genuine ContactReady eligibility through the e
       return {
         observationId: envelope.id, workspaceId: assignment.workspaceId, contactId: assignment.contactId,
         profileConfigurationId: assignment.profileConfigurationId, profileConfigurationDigest: assignment.profileConfigurationDigest,
-        kind: "email", normalizedValue: "verified@example.test", contentHash: envelope.provenance.contentHash,
+        kind: intent.intent.channel, normalizedValue: "verified@example.test", contentHash: envelope.provenance.contentHash,
         verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: PERSON_DISCOVERY_NOW - 1_500,
         providerId: "synthetic-demo-provider", providerVersion: "v1", catalogRef: "synthetic-demo-catalog",
         verdictReference: "verified-demo-verdict", verdictDigest: "d".repeat(64),
