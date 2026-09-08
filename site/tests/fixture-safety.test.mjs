@@ -88,6 +88,25 @@ test("every remaining consequential control renders natively disabled with a sta
     assert.equal(button.disabled, true, `${button.label} must render with the native disabled attribute`);
   }
 
+  // CONSEQUENTIAL is a verb list, so it cannot cover a control whose verb is not
+  // on it. "Buy credits disabled" is the live example: a spend-authority control
+  // matched by no word above and named by no assertion below, so rendering it
+  // enabled passes this file today. Close that by holding every control to its
+  // own label: one that tells the operator it is disabled must actually be
+  // disabled. This needs no maintenance as controls are added.
+  const claimsDisabled = rendered.filter((button) => /\bdisabled$/iu.test(button.label));
+  assert.ok(
+    claimsDisabled.length >= 2,
+    `expected controls labelled disabled to remain under test, saw ${JSON.stringify(rendered.map((item) => item.label))}`,
+  );
+  for (const button of claimsDisabled) {
+    assert.equal(
+      button.disabled,
+      true,
+      `${button.label} claims to be disabled but carries no native disabled attribute`,
+    );
+  }
+
   // Controls whose reason is specific to the control itself keep their own
   // programmatic explanation.
   for (const label of ["Run granted operation", "Find suitable people"]) {

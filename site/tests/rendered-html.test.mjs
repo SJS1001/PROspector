@@ -16,6 +16,12 @@ test("build/source smoke identifies the controlled workbench and removes the sta
   ]);
   assert.match(page, /ProspectorApp/);
   assert.match(layout, /PROspector — Human-governed GTM/);
+  // The shell stays generic: no hardcoded owner name, seed Company, or seed
+  // Market Play. Ported from PR #38, whose runtime UI has already landed here;
+  // main satisfies this today but asserts it nowhere, so nothing stops the
+  // commercial scope being baked back into the shell.
+  assert.doesNotMatch(app, /Good morning, [A-Z]|Digitalrain|ONE for Mining/);
+  assert.match(app, /No commercial scope has been read yet/);
   assert.match(app, /Consensus Interview/);
   assert.match(app, /Controlled capability pilot/);
   assert.match(app, /Submit answer for confirmation/);
