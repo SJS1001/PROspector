@@ -24,14 +24,20 @@ stale-checkpoint issues, all verified directly against GitHub before editing bel
    gated behind the same `enableLocalDemoProgression` fence as `advance_local_interview`,
    fails closed (404 `private_workspace_unavailable`) outside local-demo. Resolved.
 3. **PR #59 (merged)** added the missing mode-0600 assertion for the greenfield-target-config
-   CLI candidate, one of several happy-path assertions issue #42 lists for restoration. A
-   fresh re-run of `tests/greenfield-target-config.test.mjs` on current `main` (`fcf5b9e`)
-   still shows **5 of 8 cases failing**, not the "2 failures" issue #42's title cites — every
-   failure surfaces the same generic `greenfield_target_prepare_failed` code where the test
-   expects a specific one (`output_exists`, `migration_manifest_mismatch`, etc.), which may
-   indicate an environment-specific failure mode in this sandbox rather than the exact defect
-   issue #42 describes. This is **not resolved**; PR #59 is incremental progress within issue
-   #42's existing scope, not closure. Corrected below to avoid overclaiming.
+   CLI candidate. A first re-run of `tests/greenfield-target-config.test.mjs` in this sandbox
+   showed 5 of 8 cases failing on the generic `greenfield_target_prepare_failed` code — **this
+   was wrongly reported here as a possible source regression.** Root-caused and retracted: the
+   CLI's `digestBuild()` reads `dist/server`/`dist/client`, which did not exist in this
+   checkout because no production build had been run yet; that missing prerequisite throws an
+   `ENOENT` that doesn't match the CLI's own `/^[a-z_]+$/` error-code pattern, so `main()`
+   collapses it to the generic code for every case, regardless of which specific scenario each
+   test drives. After `npm run build`, the same suite is **8/8 passing** in this sandbox. This
+   is the same class of mistake the coordinator flagged independently (an independent reviewer
+   hit an equivalent git-less-checkout prerequisite failure elsewhere and correctly
+   distinguished it from a source regression) — verified directly here, not taken on faith.
+   Corrected below: issue #42's own scope is unaffected by this retraction, and this ledger
+   makes no claim either way about the exact "2 failures" the issue's title cites beyond what
+   is now shown.
 4. **Browser E1 Chromium receipts exist and were missed.** The first pass stated the pinned
    Chromium 1243 build was "unobtainable in this environment" as a blanket fact. That is true
    only of *this* sandbox. The coordinator has since published two verified receipts: PR #50
@@ -63,6 +69,32 @@ stale-checkpoint issues, all verified directly against GitHub before editing bel
    inspection work conflated a genuinely held disclosure decision (U2a: a dedicated
    grant/identity/source view) with an already-shipped field category's missing coverage
    (U2b: transformations). Split below; U2b is dispatchable now.
+7. **A real, official-Chromium-verified accessibility defect landed on PR #62** (issue #11's
+   own lane): at exact head `0ba6eae` (docs head `7e81b464`), the 320px zoom acceptance case
+   failed for real — `.assessment.outcome-passed` overflows to `scrollWidth 469` against an
+   expected `<= 321`. Root-caused to source, not the test: `prospecting-workspace.tsx` applies
+   `min-width:0` to several panel selectors but not `.assessment>*`, and
+   `overflow-wrap:anywhere` to `code`/`small`/`dd`/`blockquote` but not the assessment card's
+   paragraph, which renders a bare 64-character configuration digest with no break
+   opportunity. The fix is assigned to issue #8's UI owner (outside PR #62's own file
+   ownership); PR #62 does not touch `prospecting-workspace.tsx`. This is corrected below from
+   "browser environment blocker only" to a real, reported defect with a named owner and root
+   cause — the environment blocker itself is separately confirmed resolved (the pinned browser
+   was obtained and the journey actually ran).
+8. **U1 and U3 both now have active incumbent work — reclassified from "unassigned."** U1 has
+   a pushed branch (`claude/product-readiness-unit-coverage-fw7k9v` at `ceea468`, focused suite
+   6/6 passing and lint-clean per the coordinator, full suite pending, no PR opened yet). U3 is
+   PR #61 (open, `claude/issue-7-provider-public-research`), already comparing five candidate
+   providers' public documentation with an explicit "unknown — requires owner follow-up"
+   section rather than guessing. Neither is dispatchable as a fresh packet now; both are moved
+   to the Active Incumbents table below. Only U2b remains a genuinely unassigned, dispatchable
+   packet.
+9. **Research and CSV incumbents reported as having ACKed new bounded scopes**, per the
+   coordinator; CSV runtime exposure (Phase 7's `crm-csv-codec.ts` composition) remains
+   explicitly held pending a named plan amendment. No new commit changes `crm-csv-codec.ts` or
+   its composition state on `main` past `fcf5b9e` as of this pass (verified directly), so this
+   ledger's existing Phase 7 CSV gate classification is unchanged — recorded here as reported
+   status, not independently re-derived beyond that check.
 
 A general principle, applied more consistently below per the coordinator's note: **missing
 runtime composition is not the same finding as a hosted/credential/owner-authorization
@@ -96,23 +128,25 @@ runtime-wired without being accepted.
 
 **Is every remaining deliverable currently assigned to an active lane? No.**
 
-Four gaps have no owning issue or in-flight lane as of this checkpoint:
+One gap has no owning issue or in-flight lane as of this checkpoint. Two more (U1, U3) were
+unassigned at first publication but now have active incumbent branches/PRs — moved to Active
+Incumbents below, not re-listed here. One (U2a) is real but owner-decision-gated, not a
+dispatchable coding gap:
 
 | # | Gap | Phase | Size | Blocking type |
 |---|---|---|---|---|
-| U1 | `site/domain/product-readiness.ts`'s `evaluateProductReadiness` has no dedicated unit test file | 3 | small | none — pure local coding |
+| U2b | `runner_submissions.provenance_json` ("transformations" per ROADMAP Phase 4 criterion 2) is persisted but silently dropped by `readProspectingProjection`, even though that same function already surfaces provider/model/allowedTools live today | 4 | small | none — pure local coding, distinct field category from U2a's hold — **the sole unassigned, dispatchable packet as of this pass** |
 | U2a | No dedicated owner-facing "Runner Assignment inspection" view exists exposing provider/model/instructions/tools/sources/grants together | 4 | small–medium | **owner decision** — issue #8's explicit disclosure hold covers exactly this kind of grant/identity/source exposure; **not dispatchable as coding work until the owner reconciles that hold** |
-| U2b | `runner_submissions.provenance_json` ("transformations" per ROADMAP Phase 4 criterion 2) is persisted but silently dropped by `readProspectingProjection`, even though that same function already surfaces provider/model/allowedTools live today | 4 | small | none — pure local coding, distinct field category from U2a's hold |
-| U3 | Issue #7's narrow allowance for public-documentation research on a candidate contact-provider's data fields/freshness/reuse terms/rate limits/pricing was explicitly out of PR #54's scope and remains open | 5 | small | none — pure research/documentation, no owner authorization needed |
 
 Everything else identified below is either (a) named as within an open issue's stated
 scope — cited by number, with landed commits distinguished from merely-claimed scope in the
 "Active incumbents" table below, not assumed to be actively worked just because the issue is
 open — or (b)/(c) blocked on hosted/provider/credential authority or an explicit owner
-decision, with the exact plan number or checkpoint named. Task packets for U1, U2b, and U3 are
-at the end of this document, sized for independent, non-colliding dispatch; U2a is documented
-there too but is **held**, not dispatchable, pending an owner decision on issue #8's
-disclosure hold (see the corrections section above).
+decision, with the exact plan number or checkpoint named. A task packet for U2b is at the end
+of this document; U2a is documented there too but is **held**, not dispatchable, pending an
+owner decision on issue #8's disclosure hold (see the corrections section above). U1 and U3
+also have packet write-ups retained at the end for reference, marked superseded by their
+incumbent activity below.
 
 ## Active incumbents (do not dispatch a duplicate writer against these)
 
@@ -126,9 +160,11 @@ their own filing — do not treat the latter as "someone is already on it."
 | Issue #9 | Multi-question interview progression through Offer/readiness | `site/domain/interview.ts`, `interview-handler.ts`, `interview-question-composer.ts` | **Landed:** PR #58 fenced the `bootstrap` escape hatch | Not yet landed: the generalized interview queue still advances only under `enableLocalDemoProgression`; the secure/production path still terminates after one confirmed decision (see Phase 2 below) — open, no verified commit against this specific gap yet |
 | Issue #6 | First-person discovery for prospects with no known contact | `site/domain/person-discovery*.ts`, `app/api/contacts/person-discovery/*`, `app/prospects/person-discovery-workspace.tsx` | **Landed:** C1–C4 lanes (dated 2026-09-05/06) | Production route still supplies no service — open, no more recent verified commit found |
 | Issue #8 | Task-focused, coherent, understandable interface | `site/app/**` (shell, discovery, knowledge, prospecting UI) | **Landed:** PR #56 | Open; scope beyond PR #56 not independently re-verified in this pass |
-| Issue #7 | Prospect quality, contact coverage, operating cost measurement | `docs/PROSPECT-QUALITY-EVALUATION.md`, `site/domain/prospect-quality-evaluation.ts` | **Landed:** PR #54 (report-only — found the harness pre-existing, added no code) | Owner-only prerequisites named in that PR remain (see U3 below for the one non-owner-gated sliver) |
-| Issue #11 | Complete browser journey and accessibility acceptance | `site/tests/browser/**`, `site/scripts/browser-acceptance-*`, `site/playwright.config.ts` | **Landed:** the E1 lane doc, plus coordinator-published Hetzner receipts for exact commits `bff326f` (PR #50) and `9bff835` (PR #51) with real Chromium 1243, no shim | Full canonical validation and independent review remain separately required per those same receipts; this sandbox specifically still cannot obtain the pinned build — do not re-attempt the download here |
-| Issue #42 | `greenfield-target-config` stale test assertions | `site/tests/greenfield-target-config.test.mjs`, the migration-manifest CLI seam | **Landed:** PR #59 (mode-0600 assertion restored) | A fresh re-run on current `main` (`fcf5b9e`) shows 5/8 cases failing (not the 2 the issue title cites), all surfacing a generic `greenfield_target_prepare_failed` code masking the specific expected one — possibly an environment-specific failure mode in this sandbox rather than the exact defect described; not resolved, still issue #42's scope |
+| Issue #7 | Prospect quality, contact coverage, operating cost measurement | `docs/PROSPECT-QUALITY-EVALUATION.md`, `site/domain/prospect-quality-evaluation.ts` | **Landed:** PR #54 (report-only — found the harness pre-existing, added no code) | Owner-only prerequisites named in that PR remain; PR #61 (below) covers the one non-owner-gated sliver |
+| Issue #7 (U3) | Public-documentation-only research on candidate contact-enrichment providers | `docs/implementation-lanes/2026-09-08-contact-provider-public-research.md` (new) | **Open PR #61** (`claude/issue-7-provider-public-research`, `a90c732`): compares five providers on published evidence/freshness, reuse terms, rate limits, pricing; no provider selected/connected; unresolved terms explicitly marked `unknown — requires owner follow-up` rather than guessed | Under review; do not open a competing packet against this file |
+| Issue #11 | Complete browser journey and accessibility acceptance | `site/tests/browser/**`, `site/scripts/browser-acceptance-*`, `site/playwright.config.ts` | **Landed:** the E1 lane doc, coordinator-published Hetzner receipts for `bff326f`/`9bff835` (PR #50/#51), and **open PR #62** (`claude/issue-11-browser-journey`, `7e81b464`) adding visible-focus/screen-reader/zoom acceptance | **PR #62 found a real, official-Chromium-verified defect** at exact head `0ba6eae`: a 320px overflow in `.assessment.outcome-passed` (`scrollWidth 469` vs expected `<=321`), root-caused to `prospecting-workspace.tsx` missing `min-width:0`/`overflow-wrap:anywhere` on the assessment card — fix assigned to issue #8's UI owner, outside PR #62's file ownership. This sandbox specifically still cannot obtain the pinned build — do not re-attempt the download here; the environment blocker itself is otherwise resolved elsewhere |
+| Issue #42 | `greenfield-target-config` stale test assertions | `site/tests/greenfield-target-config.test.mjs`, the migration-manifest CLI seam | **Landed:** PR #59 (mode-0600 assertion restored) | This ledger's own first-pass "5/8 failing" claim was **retracted** (see corrections section) — the failures were this sandbox missing a `dist/` build, not a source regression; 8/8 pass here once built. No independent claim is made either way about the exact "2 failures" the issue title cites |
+| — | Product readiness unit coverage (U1) | `site/tests/product-readiness.test.mjs` (new) | **Pushed branch** `claude/product-readiness-unit-coverage-fw7k9v` (`ceea468`), no PR opened yet; reported focused suite 6/6 passing and lint-clean, full suite pending | Not yet mergeable; do not dispatch a competing packet against this file |
 | PR #57 author | Morning Brief persisted read | `site/domain/morning-brief.ts`, `site/domain/morning-brief-read.ts` | **Landed and resolved:** PR #57 fixed the `authority_commands` cross-workspace join at `morning-brief-read.ts:198` with a failing-first regression, audited every other join in the file | No longer an in-progress incumbent; this ledger still does not touch these files, since there is no remaining gap in them to report |
 | Independent reviewer | Auditing PR #53/#54 | — | Found the PR #57 defect | Ongoing elsewhere; not duplicated here |
 
@@ -166,7 +202,7 @@ ROADMAP: 13/14 active local plans done; `02-99` (hosted greenfield target) is th
 | Reloads/retries/stale tabs/concurrent answers converge on one authoritative question | `interview.ts:185-191` explicit `liveSession` precedence; idempotency-keyed writes at `:724-757` | coded, validated (`interview-repository.test.mjs`, `interview-handler.test.mjs`) | Only sequential/synthetic race proof exists; no browser-level concurrent-tab proof (`tests/browser/interview*.spec.ts` does not exist) | Browser acceptance | (a) domain-level met; browser proof is issue #11 territory, not newly blocking |
 | Uploads/imports/research/edits enter as Proposed Knowledge with provenance; owner review/promote without unauthorized Runs/Accounts/Contacts/Prospects | `knowledge-handler.ts:96-100` dispatch (`propose_owner_edit`, `propose_repository_research`, `import_plain_text`, `propose_reuse`, `propose_allowlisted_package`); `reviewKnowledgeProposal` | coded, wired, validated (`knowledge-handler.test.mjs`, `knowledge-repository.test.mjs`) | none found | — | (a) met |
 | Drift impact inspection, immutable replacement activation, snapshots, invalidated approvals, dependency-graph-scoped high-risk pause | `drift.ts` — `classifyDriftRisk` (line 51), `HIGH_RISK_DRIFT_KINDS` (4-10), `reachedArtifacts` BFS (60), `buildDriftImpact` (103) | coded, wired (`knowledge-handler.ts:112-115,193,235`), validated (`drift-replacement.test.mjs`) | UI exists (`app/knowledge/drift-replacements.tsx`) but no browser test proves it end to end | Browser acceptance | (a) domain met; browser proof is issue #8/#11 territory |
-| Migration-manifest CLI test hygiene | — | — | PR #59 restored one missing happy-path assertion (mode 0600); a fresh re-run on current `main` (`fcf5b9e`) still shows **5/8 cases failing** (not the 2 the issue title cites), each surfacing a generic `greenfield_target_prepare_failed` code masking the specific one expected — possibly an environment-specific failure mode in this sandbox, not independently confirmed either way | Named CI-hygiene fix, does not gate Phase 2 domain acceptance | **Issue #42 already owns this; not resolved, PR #59 is incremental progress within it** |
+| Migration-manifest CLI test hygiene | — | — | PR #59 restored one missing happy-path assertion (mode 0600). This ledger's own first-pass re-run reported 5/8 failing and speculated it might be a source regression — **retracted**: root-caused to this sandbox missing a `dist/` build (see corrections section), 8/8 pass once built. No independent claim is made either way about the exact "2 failures" the issue title cites | Named CI-hygiene fix, does not gate Phase 2 domain acceptance | **Issue #42 already owns this** |
 
 ---
 
@@ -276,11 +312,17 @@ comment 5588407370), both ancestors of current `main`, on isolated Hetzner conta
 1/1, and 1/1 across the three lanes, zero-effect verifiers clean. Both receipts are explicit
 that they resolve only the browser-environment blocker for those exact candidates; full
 canonical validation and independent review remain separately required and are not claimed
-here. E2 (approval/CRM-handoff browser acceptance) is separately blocked because its
-underlying seams (`preparation/`, `crm-csv-codec.ts`) are hard-gated from runtime composition
-(same Phase 6/7 gates above) — this part of the original finding stands. Gate: (b)
-hosted/environment for any further E1 work in this sandbox specifically (already satisfied
-elsewhere per the receipts above); (b)/(c) mixed for E2.
+here. **Second correction, same pass:** open PR #62 (issue #11's own lane, see Active
+Incumbents above) went further and actually ran the E1 journey against the real pinned build —
+this is no longer merely an environment-resolved blocker. It found one **real** defect: a
+320px overflow in `.assessment.outcome-passed`, root-caused to a missing `min-width:0`/
+`overflow-wrap:anywhere` pair on the assessment card in `prospecting-workspace.tsx`, fixed by
+issue #8's UI owner rather than PR #62 itself (outside that lane's file ownership). E2
+(approval/CRM-handoff browser acceptance) is separately blocked because its underlying seams
+(`preparation/`, `crm-csv-codec.ts`) are hard-gated from runtime composition (same Phase 6/7
+gates above) — this part of the original finding stands. Gate: (b) hosted/environment for any
+further E1 work in this sandbox specifically (already satisfied elsewhere); (a) pure local
+coding for the found CSS defect, assigned to issue #8; (b)/(c) mixed for E2.
 
 ### Security review posture
 No repository-wide `docs/SECURITY*.md` exists; only Phase-2-scoped `02-SECURITY.md`. The
@@ -314,7 +356,11 @@ That is task packet U3 below.
 Each packet is independently dispatchable, touches no file claimed by an active incumbent
 above, and does not overlap another packet's files.
 
-### Packet U1 — Product readiness unit coverage
+### Packet U1 — Product readiness unit coverage — **SUPERSEDED, do not dispatch**
+- **Status:** an incumbent branch already exists — `claude/product-readiness-unit-coverage-fw7k9v`
+  (`ceea468`), reported focused suite 6/6 passing, lint-clean, full suite pending, no PR yet.
+  See Active Incumbents above. Retained below only as the original scoping reference in case
+  that branch stalls or needs a second reviewer's write-up to compare against.
 - **New file only:** `site/tests/product-readiness.test.mjs`
 - **Touches no existing file.**
 - **Work:** table-driven unit test against `site/domain/product-readiness.ts`'s
@@ -376,7 +422,11 @@ above, and does not overlap another packet's files.
 - **Priority:** medium — closes a concrete, named ROADMAP criterion gap (Phase 4 "inspect
   transformations") that U2a's hold does not actually cover.
 
-### Packet U3 — Candidate contact-provider public documentation research
+### Packet U3 — Candidate contact-provider public documentation research — **SUPERSEDED, do not dispatch**
+- **Status:** open as PR #61 (`claude/issue-7-provider-public-research`, `a90c732`) —
+  `docs/implementation-lanes/2026-09-08-contact-provider-public-research.md`, comparing five
+  providers, unresolved terms explicitly marked rather than guessed. See Active Incumbents
+  above. Retained below only as the original scoping reference.
 - **Routes through issue #7's existing owner**, not a freestanding independent dispatch — it
   extends the same evaluation-gap inventory PR #54 already produced there, so should land as
   that lane's follow-up rather than a separately assigned writer.
