@@ -67,7 +67,8 @@ function scope(patch = {}) {
     productId: "product-main",
     marketPlayId: "play-main",
     profileId: "profile-operating",
-    profileLifecycle: "Operating",
+    profileName: "Operating",
+    profileLifecycle: "ready",
     activeConfigurationDigest: CONFIG_DIGEST,
     ...patch,
   };
@@ -134,6 +135,10 @@ function defaultHistories() {
 function weeklyScope(patch = {}) {
   const value = scope(patch);
   delete value.activeConfigurationDigest;
+  delete value.profileName;
+  // The reducer models Operating/Draft; the brief carries the persisted
+  // draft/ready/paused/archived enum. They are separate vocabularies.
+  value.profileLifecycle = patch.weeklyLifecycle ?? "Operating";
   return value;
 }
 
@@ -202,7 +207,8 @@ function input(patch = {}) {
     handoffReadiness: "handoffReadiness" in patch
       ? patch.handoffReadiness
       : handoffReadiness(),
-    workspaceOrigin: patch.workspaceOrigin ?? { kind: "original" },
+    reviewFunnel: "reviewFunnel" in patch ? patch.reviewFunnel : null,
+    workspaceOrigin: "workspaceOrigin" in patch ? patch.workspaceOrigin : { kind: "original" },
     greenfieldProfiles: patch.greenfieldProfiles ?? [
       { profileId: "profile-greenfield", label: "Greenfield — Draft / nurture" },
     ],
@@ -216,6 +222,7 @@ test("composes the weekly cohort, separate handoff counts, and a current upstrea
   assert.equal(result.generatedAt, AS_OF);
   assert.equal(result.pilotNotice, brief.MORNING_BRIEF_PILOT_NOTICE);
 
+  assert.equal(result.weekly.status, "current");
   assert.equal(result.weekly.target, 7);
   assert.equal(result.weekly.timeZone, "America/Toronto");
   assert.equal(result.weekly.week.start.localDate, "2026-03-09");
@@ -270,11 +277,17 @@ test("composes the weekly cohort, separate handoff counts, and a current upstrea
   assert.equal(result.handoff.materializableFromThisSurface, false);
 
   assert.deepEqual(result.workspace, {
+    status: "current",
     origin: "original",
     restoreRef: null,
     restoredEffectsFenced: false,
     freshUpstreamActivationRef: null,
+    reasonCodes: [],
   });
+  // Review funnel is absent by default and must never imply a zero cohort.
+  assert.equal(result.funnel.status, "unavailable");
+  assert.deepEqual(result.funnel.reasonCodes, ["funnel_review_history_absent"]);
+  assert.equal(result.funnel.countsExportReadyOutcomes, false);
   assert.equal(result.greenfield.notice, brief.MORNING_BRIEF_GREENFIELD_NOTICE);
   assert.deepEqual(result.greenfield.profiles, [{
     profileId: "profile-greenfield",
@@ -331,10 +344,12 @@ test("a restored workspace reports the schedule disabled pending a fresh upstrea
     "workspace_restored_pending_fresh_upstream_activation",
   ]);
   assert.deepEqual(pending.result.workspace, {
+    status: "current",
     origin: "restored",
     restoreRef: { id: "restore-1", digest: DIGEST },
     restoredEffectsFenced: true,
     freshUpstreamActivationRef: null,
+    reasonCodes: [],
   });
   assert.equal(pending.result.authority.applyRestore, false);
   assert.equal(pending.result.authority.verifyRecovery, false);
@@ -471,6 +486,7 @@ test("absent, stale, future, drifted, or self-inconsistent handoff readiness wit
     assert.equal(result.handoff.dependencies, null, reason);
     assert.deepEqual(result.handoff.reasonCodes, [reason], reason);
     // A blocked handoff panel still leaves the weekly outcome readable.
+    assert.equal(result.weekly.status, "current", reason);
     assert.equal(result.weekly.newlyExportReadyProspectCount, 2, reason);
   }
 
@@ -488,81 +504,129 @@ test("absent, stale, future, drifted, or self-inconsistent handoff readiness wit
   assert.equal(empty.result.handoff.exclusions.suppressed, 4);
 });
 
-test("weekly history that is unavailable, out of scope, out of time, or a forged projection blocks the brief", async () => {
-  const truncated = await compose({}, {
-    transform: (value) => ({
+test("unavailable, out-of-scope, out-of-time, absent, or forged weekly history disables only that section", async () => {
+  const cases = [
+    ["truncated coverage", (value) => ({
       ...value,
       weeklyHistory: {
         ...value.weeklyHistory,
         coverage: { ...value.weeklyHistory.coverage, prospectIds: ["prospect-one"] },
       },
-    }),
-  });
-  assert.equal(truncated.result.status, "unavailable");
-  assert.deepEqual(truncated.result.reasonCodes, ["weekly_outcome_unavailable"]);
-  assert.deepEqual(truncated.result.weeklyReasonCodes, ["history_coverage_incomplete"]);
-  assert.equal(truncated.result.weekly, null);
-  assert.equal(truncated.result.losses, null);
-  assert.equal(truncated.result.schedule, null);
-  assert.equal(truncated.result.handoff, null);
-  assert.equal(truncated.result.scope, null);
-  assert.ok(Object.values(truncated.result.authority).every((value) => value === false));
-  assert.ok(Object.values(truncated.result.effects).every((value) => value === 0));
-
-  const foreign = await compose({}, {
-    transform: (value) => ({
+    }), ["weekly_outcome_unavailable"], ["history_coverage_incomplete"]],
+    ["foreign scope", (value) => ({
       ...value,
       weeklyHistory: {
         ...value.weeklyHistory,
         scope: { ...value.weeklyHistory.scope, workspaceId: "workspace-other" },
       },
-    }),
-  });
-  assert.equal(foreign.result.status, "unavailable");
-  assert.deepEqual(foreign.result.reasonCodes, ["weekly_history_scope_mismatch"]);
-  assert.deepEqual(foreign.result.weeklyReasonCodes, []);
-
-  const skewed = await compose({}, {
-    transform: (value) => ({
+    }), ["weekly_history_scope_mismatch"], []],
+    ["clock skew", (value) => ({
       ...value,
       weeklyHistory: { ...value.weeklyHistory, asOf: "2026-03-16T03:59:59.998Z" },
-    }),
-  });
-  assert.equal(skewed.result.status, "unavailable");
-  assert.deepEqual(skewed.result.reasonCodes, ["weekly_history_as_of_mismatch"]);
-
-  // A caller may not hand the brief a ready-made "available" projection.
-  const forged = await compose({}, {
-    transform: (value) => ({
+    }), ["weekly_history_as_of_mismatch"], []],
+    // A caller may not hand the brief a ready-made "available" projection.
+    ["forged projection", (value) => ({
       ...value,
       weeklyHistory: {
-        status: "available",
-        scope: value.weeklyHistory.scope,
-        asOf: AS_OF,
-        week: null,
-        profileIncluded: true,
-        exclusions: [],
-        target: 7,
+        status: "available", scope: value.weeklyHistory.scope, asOf: AS_OF, week: null,
+        profileIncluded: true, exclusions: [], target: 7,
         counts: {
-          distinctStableProspectCount: 7,
-          distinctStableContactCount: 7,
-          newlyExportReadyProspectCount: 7,
-          remainingProspectsToTarget: 0,
+          distinctStableProspectCount: 7, distinctStableContactCount: 7,
+          newlyExportReadyProspectCount: 7, remainingProspectsToTarget: 0,
         },
-        cohort: [],
-        losses: {},
+        cohort: [], losses: {},
       },
-    }),
+    }), ["weekly_outcome_unavailable"], ["history_input_malformed"]],
+    // The persisted-read case: no Export-ready transition history exists.
+    ["absent history", (value) => ({ ...value, weeklyHistory: null }),
+      ["weekly_history_absent"], []],
+  ];
+
+  for (const [name, transform, reasonCodes, weeklyReasonCodes] of cases) {
+    const { result } = await compose({}, { transform });
+    // The brief still renders: only the weekly section is withheld.
+    assert.equal(result.status, "available", name);
+    assert.equal(result.weekly.status, "unavailable", name);
+    assert.deepEqual(result.weekly.reasonCodes, reasonCodes, name);
+    assert.deepEqual(result.weekly.weeklyReasonCodes, weeklyReasonCodes, name);
+    assert.equal(result.weekly.newlyExportReadyProspectCount, null, name);
+    assert.deepEqual(result.weekly.cohort, [], name);
+    assert.equal(result.losses, null, name);
+    // Everything else stays readable.
+    assert.equal(result.scope.profileName, "Operating", name);
+    assert.equal(result.schedule.status, "current", name);
+    assert.equal(result.handoff.status, "current", name);
+    assert.ok(Object.values(result.authority).every((value) => value === false), name);
+    assert.ok(Object.values(result.effects).every((value) => value === 0), name);
+  }
+});
+
+test("a supplied review funnel is reported beside the weekly section and never as an Export-ready outcome", async () => {
+  const { result, brief } = await compose({
+    weeklyHistory: undefined,
+    reviewFunnel: {
+      windowStart: "2026-03-09T05:00:00.000Z",
+      windowEndExclusive: "2026-03-16T04:00:00.000Z",
+      decisions: { approve: 5, reject: 2, defer: 1 },
+      distinctReviewedProspectCount: 6,
+      cooldownsStarted: 1,
+      reentryEvents: { review_due: 2, material_signal: 1, hard_gate_disproved: 0 },
+    },
+  }, { transform: (value) => ({ ...value, weeklyHistory: null }) });
+
+  assert.equal(result.status, "available");
+  assert.equal(result.funnel.status, "current");
+  assert.equal(result.funnel.note, brief.MORNING_BRIEF_FUNNEL_NOTE);
+  assert.deepEqual(result.funnel.decisions, { approve: 5, reject: 2, defer: 1 });
+  assert.equal(result.funnel.distinctReviewedProspectCount, 6);
+  assert.equal(result.funnel.countsExportReadyOutcomes, false);
+
+  // Five approvals must not become five Export-ready Prospects.
+  assert.equal(result.weekly.status, "unavailable");
+  assert.equal(result.weekly.newlyExportReadyProspectCount, null);
+  assert.equal(result.weekly.remainingProspectsToTarget, null);
+  assert.notEqual(result.funnel.decisions.approve, result.weekly.newlyExportReadyProspectCount);
+
+  // More distinct Prospects than decisions is incoherent and rejects.
+  const incoherent = await compose({
+    reviewFunnel: {
+      windowStart: "2026-03-09T05:00:00.000Z",
+      windowEndExclusive: "2026-03-16T04:00:00.000Z",
+      decisions: { approve: 1, reject: 0, defer: 0 },
+      distinctReviewedProspectCount: 4,
+      cooldownsStarted: 0,
+      reentryEvents: { review_due: 0, material_signal: 0, hard_gate_disproved: 0 },
+    },
   });
-  assert.equal(forged.result.status, "unavailable");
-  assert.deepEqual(forged.result.reasonCodes, ["weekly_outcome_unavailable"]);
-  assert.deepEqual(forged.result.weeklyReasonCodes, ["history_input_malformed"]);
+  assert.equal(incoherent.result.status, "unavailable");
+  assert.deepEqual(incoherent.result.reasonCodes, ["morning_brief_input_malformed"]);
+});
+
+test("an absent workspace origin reports the restore section unavailable with the effect fence closed", async () => {
+  const { result } = await compose({ workspaceOrigin: null });
+  assert.equal(result.status, "available");
+  assert.equal(result.workspace.status, "unavailable");
+  assert.deepEqual(result.workspace.reasonCodes, ["workspace_origin_not_persisted"]);
+  assert.equal(result.workspace.origin, null);
+  // Unknown origin is fenced, never assumed to be an original workspace.
+  assert.equal(result.workspace.restoredEffectsFenced, true);
+  assert.equal(result.authority.applyRestore, false);
+  assert.equal(result.effects.restoresApplied, 0);
 });
 
 test("a Draft profile scope contributes no cohort, contacts, or losses", async () => {
-  const { result } = await compose({ scope: { profileLifecycle: "Draft" } });
+  const { result } = await compose({}, {
+    transform: (value) => ({
+      ...value,
+      weeklyHistory: {
+        ...value.weeklyHistory,
+        scope: { ...value.weeklyHistory.scope, profileLifecycle: "Draft" },
+      },
+    }),
+  });
 
   assert.equal(result.status, "available");
+  assert.equal(result.weekly.status, "current");
   assert.equal(result.weekly.profileIncluded, false);
   assert.deepEqual(result.weekly.exclusions, ["profile_not_operating"]);
   assert.equal(result.weekly.newlyExportReadyProspectCount, 0);
