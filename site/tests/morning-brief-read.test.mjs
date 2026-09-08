@@ -458,3 +458,52 @@ test("a sibling profile's review decisions never appear in this profile's funnel
     await fixture.dispose();
   }
 });
+
+test("a schedule whose authority command belongs to another workspace never surfaces that workspace's value", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-foreign-command");
+  const FOREIGN_DIGEST = "f".repeat(64);
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const victim = await seedWorkspace(fixture.database, "victim");
+    await seedWorkspace(fixture.database, "attacker");
+
+    // The schema's FK on prospecting_schedules.authority_command_id references
+    // authority_commands(id) alone, and no trigger fences it to the same
+    // workspace, so a malformed row can point across workspaces.
+    await run(fixture.database, "INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) VALUES ('command-foreign', 'workspace-attacker', ?, ?, 1, 'prospecting_schedule', 'key-foreign', ?, 1, 'profile', 'profile-attacker', 'accepted')", victim.now, victim.now, FOREIGN_DIGEST);
+    await run(
+      fixture.database,
+      `INSERT INTO prospecting_schedules
+        (id, workspace_id, created_at, updated_at, revision, profile_id, configuration_id,
+         configuration_digest, schedule_key, timezone, intended_local_time, utc_offset_minutes,
+         cadence, next_run_at, last_successful_watermark, active, execution_state,
+         authority_command_id, operation_digest, idempotency_key)
+       VALUES ('schedule-victim', 'workspace-victim', ?, ?, 1, 'profile-victim', 'config-victim',
+               ?, 'sk-victim', 'America/Toronto', '06:00', -240, 'weekdays', ?, NULL, 1, 'active',
+               'command-foreign', ?, 'idem-victim')`,
+      victim.now, Date.UTC(2026, 2, 16, 3, 0, 0), DIGEST_A,
+      Date.UTC(2026, 2, 17, 10, 0, 0), DIGEST_B,
+    );
+
+    const result = await read.readMorningBrief(
+      fixture.database, { subject: "owner-victim" },
+      { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
+    );
+
+    assert.equal(result.status, "available");
+    assert.equal(result.brief.scope.workspaceId, "workspace-victim");
+    // The foreign digest must not reach the brief through any field.
+    assert.ok(
+      !JSON.stringify(result.brief).includes(FOREIGN_DIGEST),
+      "another workspace's authority-command digest must never appear in the brief",
+    );
+    // A cross-workspace reference is not a usable observation: it is withheld.
+    assert.equal(result.brief.schedule.status, "unknown");
+    assert.equal(result.brief.schedule.reportedState, null);
+    assert.equal(result.brief.schedule.readinessRef, null);
+    assert.deepEqual(result.brief.schedule.reasonCodes, ["schedule_observation_absent"]);
+  } finally {
+    await fixture.dispose();
+  }
+});
