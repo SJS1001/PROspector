@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -124,6 +124,17 @@ test("the approved CLI seam prepares one private fail-closed target candidate", 
     ]) {
       assert.equal(Object.hasOwn(candidate, forbidden), false, forbidden);
     }
+
+    // The candidate carries the private target identity, so the file the CLI
+    // creates must be owner-only. Assert the permission bits the CLI actually
+    // produced: a mode widened to group- or other-readable is a custody
+    // regression that no other assertion here would notice.
+    const candidateMode = (await stat(outputPath)).mode & 0o777;
+    assert.equal(
+      candidateMode,
+      0o600,
+      `generated candidate must be mode 0600, found 0${candidateMode.toString(8)}`,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
