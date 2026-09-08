@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { getChatGPTUser } from "./chatgpt-auth";
 import {
   cloudflareAccessMode,
   verifyCloudflareAccessIdentity,
@@ -40,13 +39,6 @@ export async function resolveRuntimeIdentity(
   if (bindings.TRUSTED_IDENTITY_PROVIDER === "cloudflare-access") {
     if (accessMode !== "enabled" || bindings.LOCAL_DEMO !== undefined) return null;
     return verifyCloudflareAccessIdentity(requestHeaders, cloudflareConfig, dependencies);
-  }
-  if (bindings.TRUSTED_IDENTITY_PROVIDER === "sites") {
-    if (accessMode !== "disabled" || bindings.LOCAL_DEMO !== undefined) return null;
-    const platform = await getChatGPTUser(requestHeaders);
-    return platform
-      ? { email: platform.email, displayName: platform.displayName }
-      : null;
   }
   // Positive-form gate. `if (import.meta.env.DEV && ...)` folds to `if (false)`
   // and the whole block -- including the dynamic import of the demo identity --

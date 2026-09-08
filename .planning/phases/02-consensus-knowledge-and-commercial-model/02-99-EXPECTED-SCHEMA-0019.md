@@ -8,9 +8,21 @@
 against fresh disposable state, plus an independent `node:sqlite` inventory
 cross-check
 
-**Supersedes:** `02-99-EXPECTED-SCHEMA.md`, which records the `0000`-`0009`
-chain only. That document is retained unchanged as the expected shape of the
-ten-migration boundary that Stage 2 actually applied remotely.
+**Status:** reference only. This describes the **whole checked chain** — the
+release chain `0000`-`0009` plus the migrations listed under "Checked ahead of
+the release chain" in `02-99-MIGRATION-MANIFEST.md`. It is the shape a fresh
+local bootstrap produces, because the local lanes apply the entire chain.
+
+**Supersedes nothing.** `02-99-EXPECTED-SCHEMA.md` remains active and describes
+the release chain, which is what Stage 2 applied remotely and what
+`greenfield:target:prepare` pins. The two documents describe different chains;
+neither replaces the other. An earlier revision of this header claimed
+otherwise and was wrong.
+
+No tool pins this document. It is not remote evidence, it does not move any
+migration into the release chain, and it grants no authority to apply one.
+It states what a target would be expected to look like *if* a separately
+authorized apply ever carried the chain past `0009`.
 
 ## Construction
 
@@ -95,12 +107,17 @@ rather than relying on this local substitution.
 
 ## Remote verification contract
 
-After separately authorized remote migration, collect the same read-only
-inventories and recompute all four digests. Also enumerate every application
-table count, verify the exact twenty journal names from the migration manifest,
-run both integrity pragmas, and prove R2 remains empty/private. Any count,
-name, ordering, digest, journal, integrity, or row-state mismatch stops the
-release before a Worker version or application request exists.
+This contract applies only once a separate owner authorization has moved every
+migration below `0019` into the manifest's release chain, and an authorized
+apply has carried the target to that head. Until then the release chain ends at
+`0009` and `02-99-EXPECTED-SCHEMA.md` is the contract remote reads must meet.
+
+After such an apply, collect the same read-only inventories and recompute all
+four digests. Also enumerate every application table count, verify the journal
+names against the manifest's release chain as it then stands, run both
+integrity pragmas, and prove R2 remains empty/private. Any count, name,
+ordering, digest, journal, integrity, or row-state mismatch stops the release
+before a Worker version or application request exists.
 
 This document is an expected-local-result manifest. It does not prove a remote
 migration, target binding, hosted schema, provider identity, principal, Worker,

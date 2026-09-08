@@ -5,8 +5,8 @@ import {
   type CapabilityBindings,
 } from "../capability-runtime";
 
-export async function GET() {
+export async function GET(request: Request) {
   return handleCapabilitiesGet(
-    capabilityDependencies(env as unknown as CapabilityBindings),
+    capabilityDependencies(env as unknown as CapabilityBindings, request),
   );
 }

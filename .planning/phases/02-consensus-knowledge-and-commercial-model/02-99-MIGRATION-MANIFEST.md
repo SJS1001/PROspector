@@ -30,6 +30,12 @@ may offer these to a remote apply until a separate owner authorization
 moves them into the release chain above. Their digests are recorded here so
 the working tree is still proved byte-for-byte, not merely counted.
 
+The local lanes do apply these, so a fresh local database is larger than the
+release chain's expected schema. `02-99-EXPECTED-SCHEMA.md` records the
+release chain's shape and is the document `greenfield:target:prepare` pins;
+`02-99-EXPECTED-SCHEMA-0019.md` records the whole checked chain's shape and is
+pinned by nothing. Neither supersedes the other.
+
 | Order | Migration | SHA-256 |
 |---:|---|---|
 | 0010 | `0010_governed_outreach.sql` | `0c0c50f6faf6827da1e43398192a7260552e0f857b60c1123dd9e970e6f1ea27` |

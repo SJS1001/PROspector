@@ -123,18 +123,18 @@ current checkpoint unchanged.
 
 ### Full-suite sweep
 
-**Status: re-run in progress — the numbers in this section are pre-repair and
-will be replaced.**
+Measured on `main` at `b11df33b44094126cfde94d22d3f93de1906b6c6`, after this
+candidate and its follow-up were merged. The production build passed, then every
+`site/tests/*.test.mjs` file ran in its own process in one non-stopping sweep so
+no failure could hide another: **125 files, 125 producing a result, 840 passing,
+3 failing.**
 
-An initial sweep ran the 80 `site/tests/*.test.mjs` files following
-`greenfield-target-config.test.mjs`, each in its own process and non-stopping so
-no single failure could hide the rest: **80 files, 602 passing, 2 failing**.
-Both failures were pre-existing. The candidate's own suite passed 13/13.
+The candidate's own suite passed **13/13**.
 
-That sweep predates the four repairs recorded below. A complete sweep over all
-119 test files is running against the current head; this section will be
-replaced with its exact tally. Until then, treat the counts above as describing
-the pre-repair tree only, and do not cite them as the current result.
+All three failures are in one file, `site/tests/production-bundle-boundary.test.mjs`,
+and none belongs to this candidate: the sweep ran on a worktree byte-identical to
+`origin/main` with no local commits, so it measures `main` alone. That file is a
+separate pre-existing finding, recorded below.
 
 ### Pre-existing failures on the base branch
 
@@ -161,6 +161,18 @@ gate does not pass end-to-end on this base independently of this work.
   fail-closed behaviour rather than extend the manifest. `main` has since
   extended it in `5cafe71` under an explicit no-hosted-evidence disclaimer, so
   the pins were removed and the original expectations restored. **Resolved.**
+- `site/tests/production-bundle-boundary.test.mjs` — 2/5 pass, **3 fail on
+  `main` and remain open.** The build-mode gate folds correctly, but the dead
+  branch is not eliminated, so `dist/server/index.js` still carries the
+  `app/runtime-identity.ts` DEMO identity constant, the local-demo routes, and
+  the C4 synthetic acceptance fixtures. This is a genuine deployment-boundary
+  finding rather than a stale assertion, and its own comment explains why
+  nothing else catches it: `rendered-html.test.mjs` only `access()`es the
+  bundle and `greenfield-target-config.mjs` only SHA-256s the tree, which
+  digests a leaking bundle as happily as a clean one. Fixing it is a build
+  configuration or source-reachability change, not a test edit, so this lane
+  did not touch it. No artifact is exposed today: Stage 3A left the Worker with
+  no route, `workers_dev=false`, and `preview_urls=false`.
 - `site/tests/rendered-html.test.mjs` and `site/tests/workspace-view.test.mjs`
   — stale assertions left by the generic onboarding rework `3320f26`, which
   removed the hardcoded personal greeting, the seeded sample prospects, and the

@@ -2,9 +2,10 @@
 
 **Prepared:** 2026-09-07
 **Repository:** `https://github.com/SJS1001/PROspector.git`
-**Base:** `codex/generic-onboarding-integration` at
+**Implemented on:** `codex/generic-onboarding-integration` at
 `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c`
-**Lane branch:** `claude/task-d-ui`
+**Merged:** PR #21 (`6f4540b`), carrying commit `4ec377d`
+**Lane branch:** `claude/task-d-ui` (merged; superseded — see the post-merge record)
 **Predecessor record:** [`2026-09-06-claude-cloud-transfer.md`](2026-09-06-claude-cloud-transfer.md)
 
 This reconstructs the Work Unit D operator-interface unit that was lost with a
@@ -81,6 +82,9 @@ The focused regression in `tests/operator-interface-ui.test.mjs` proves
 non-owner identity, and asserts that every call site in `app/owner-admission.ts`,
 `app/page.tsx`, and `app/contacts/page.tsx` is awaited. Run against the base
 commit's `app/page.tsx`, that check reports one unawaited call; it passes here.
+The same unawaited call was still present at `e087b2c` and at `92fbe93`, so the
+fix stayed necessary throughout. Canonical closed the merged home route's copy
+separately in `21a7350` and `6cd0277`.
 
 ## Operator context
 
@@ -197,25 +201,80 @@ outside this unit's contract.
 
 ## Validation
 
+Recorded across the three bases this unit was validated against.
+
+**At `5c3440e` (implementation, merged by PR #21)**
+
 - `cd site && node --test tests/operator-interface-ui.test.mjs` — 10/10.
-- Focused re-runs, all green: `fixture-safety`, `rendered-html`,
-  `workspace-view`, `contacts-ui` (22/22), `person-discovery-ui` (9/9),
-  `knowledge-ui` (10/10), `knowledge-handler`, `discovery-handler-ui` (9/9),
-  `profile-prospecting-ui` (9/9), `cloudflare-access-identity` (6/6),
-  `local-demo-boundary`, `greenfield-deployment-independence`,
-  `hosted-boundary-proof`.
-- `npm run lint` — clean.
-- `npm run build` — succeeds; all routes classify as before.
-- `npm test` — the production build passes and 104 cases pass. Three cases in
-  `tests/drift-replacement.test.mjs` fail with
-  `knowledge_conflict: Commercial workspace is unavailable`. **These fail
-  identically at the untouched base commit `5c3440e`** (verified by stashing this
-  work and re-running the file: 3/6 pass there too). They are a pre-existing
-  Miniflare/D1 fixture failure in a Phase 2 domain suite, outside this unit's
-  files, and are not addressed here.
-- The Chromium browser lanes (`test:browser`, `test:browser:person-discovery`)
-  were not run; they belong to Work Unit E. The `?view=` values they navigate
-  are unchanged.
+- Focused re-runs green: `fixture-safety`, `rendered-html`, `workspace-view`,
+  `contacts-ui` (22/22), `person-discovery-ui` (9/9), `knowledge-ui` (10/10),
+  `knowledge-handler`, `discovery-handler-ui` (9/9), `profile-prospecting-ui`
+  (9/9), `cloudflare-access-identity` (6/6), `local-demo-boundary`,
+  `greenfield-deployment-independence`, `hosted-boundary-proof`.
+- `npm run lint` and `npm run build` clean.
+- `npm test` — 104 pass; three `tests/drift-replacement.test.mjs` cases failed
+  with `knowledge_conflict: Commercial workspace is unavailable`, proven
+  identical at the untouched base by stashing this work (3/6 there too).
+
+**At `e087b2c` (first replay)**
+
+- 830 pass, 1 fail. `drift-replacement` was 6/6 — canonical `0b7935c` closed it.
+- `tests/greenfield-target-config.test.mjs` failed 2/6 with
+  `migration_manifest_mismatch`, proven identical at the untouched base by
+  detaching to it (4/6 there too). Reported as a separate blocker.
+
+**At `92fbe93` (second replay)**
+
+- 830 pass across the suite plus 135/135 in the 21 files the runner never
+  reached; `npm run lint` and `npm run build` clean; the focused UI gate 10/10.
+- `greenfield-target-config` was 8/8 — canonical `7acb4b9`, `7ff23ef`,
+  `0122d0f`, `1d46f47`, and `934bb0a` closed the manifest blocker.
+- `tests/production-bundle-boundary.test.mjs` case 3 failed: the
+  `local-owner@prospector.invalid` DEMO constant survived in
+  `dist/server/index.js`. Proven identical at the untouched base by detaching
+  and rebuilding (4/5 there too). Reported as a separate blocker. The emitted
+  gate itself was intact — `resolveRuntimeIdentity` folded to
+  `… || true) return null` — so the leak was an unreachable string, not a
+  reachable local-demo bypass.
+
+**At `22c6457` (post-merge confirmation)**
+
+- `operator-interface-ui` 10/10, `fixture-safety` 2/2,
+  `greenfield-target-config` 8/8, `production-bundle-boundary` 5/5 after a clean
+  `npm run build`.
+- Both reported blockers are closed. `dd0727f` fixed the bundle leak by moving
+  the constant into `site/app/_local-demo-identity.ts`, reached only through a
+  dynamic import inside an `import.meta.env.DEV` branch so Rollup drops the
+  chunk.
+
+The Chromium browser lanes (`test:browser`, `test:browser:person-discovery`)
+were never run here; they belong to Work Unit E. The `?view=` values they
+navigate are unchanged.
+
+## Post-merge record
+
+PR #21 merged commit `4ec377d`, the implementation as written on `5c3440e`.
+While that review was in flight the integration branch advanced twice, and the
+lane branch was replayed onto each new tip:
+
+- **`5c3440e` → `e087b2c`** — conflict-free. Canonical `0b7935c` and `e087b2c`
+  touched no file this unit touches; the replayed tree was byte-identical.
+- **`e087b2c` → `92fbe93`** — conflicts in `fixture-safety.test.mjs`,
+  `rendered-html.test.mjs`, and `workspace-view.test.mjs`, resolved preserving
+  all newer canonical behaviour: canonical's "must never render enabled" guard,
+  its label-driven "any control claiming to be disabled must be disabled" rule,
+  its `Connected · advisory` / `Last run 06:00` guard, its generic-shell guard
+  `doesNotMatch(/Good morning, [A-Z]|Digitalrain|ONE for Mining/)`, and its move
+  of the demo screen to `app/local-demo/_screen.tsx` were each kept verbatim or
+  retargeted rather than dropped.
+
+Neither replay reached canonical. PR #21 merged first, and `d9c9611` then
+reconciled the UI tests on the canonical side, so commits `5755389` and
+`f018a70` are superseded and the lane branch has nothing left to deliver. Every
+D source file on it is byte-identical to canonical. Canonical's own
+`fixture-safety.test.mjs` (`1d71f99`, `0183bfd`) supersedes the resolution
+described under "Fixture-safety contract after the removals" above; that section
+records the reasoning, not the current file.
 
 ## Boundary
 
