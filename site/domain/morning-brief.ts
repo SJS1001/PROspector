@@ -98,13 +98,28 @@ export type MorningBriefExclusionReason =
 
 export type SafeReference = Readonly<{ id: string; digest: string }>;
 
+/**
+ * `profileName` and `profileLifecycle` are two distinct persisted facts and
+ * must not be conflated. `customer_profiles.name` carries the seeded profile
+ * identity ("Operating", "Greenfield"); `customer_profiles.lifecycle` carries
+ * the separate state machine. No domain evidence maps one onto the other, so
+ * this module records both verbatim and equates neither.
+ */
+export const MORNING_BRIEF_PROFILE_LIFECYCLES = Object.freeze([
+  "draft", "ready", "paused", "archived",
+] as const);
+
+export type MorningBriefProfileLifecycle =
+  (typeof MORNING_BRIEF_PROFILE_LIFECYCLES)[number];
+
 export type MorningBriefScope = Readonly<{
   workspaceId: string;
   companyId: string;
   productId: string;
   marketPlayId: string;
   profileId: string;
-  profileLifecycle: "Operating" | "Draft";
+  profileName: string;
+  profileLifecycle: MorningBriefProfileLifecycle;
   activeConfigurationDigest: string;
 }>;
 
@@ -161,22 +176,64 @@ export type GreenfieldProfileNote = Readonly<{
   label: string;
 }>;
 
+export const MORNING_BRIEF_REVIEW_DECISIONS = Object.freeze([
+  "approve", "reject", "defer",
+] as const);
+
+export const MORNING_BRIEF_REENTRY_KINDS = Object.freeze([
+  "review_due", "material_signal", "hard_gate_disproved",
+] as const);
+
+export type MorningBriefReviewDecision =
+  (typeof MORNING_BRIEF_REVIEW_DECISIONS)[number];
+export type MorningBriefReentryKind =
+  (typeof MORNING_BRIEF_REENTRY_KINDS)[number];
+
+/**
+ * Counts drawn from the persisted, database-immutable Phase 4 review record.
+ * These are qualification review outcomes. They are NOT Export-ready
+ * transitions, they never contribute to the weekly cohort, and no arithmetic
+ * in this module converts one into the other.
+ */
+export type ReviewFunnelObservation = Readonly<{
+  windowStart: string;
+  windowEndExclusive: string;
+  decisions: Readonly<Record<MorningBriefReviewDecision, number>>;
+  distinctReviewedProspectCount: number;
+  cooldownsStarted: number;
+  reentryEvents: Readonly<Record<MorningBriefReentryKind, number>>;
+}>;
+
 export type MorningBriefInput = Readonly<{
   scope: MorningBriefScope;
   asOf: string;
   weeklyHistory: unknown;
   scheduleObservation: UpstreamScheduleObservation | null;
   handoffReadiness: HandoffReadinessPreview | null;
-  workspaceOrigin: WorkspaceOrigin;
+  reviewFunnel: ReviewFunnelObservation | null;
+  workspaceOrigin: WorkspaceOrigin | null;
   greenfieldProfiles: readonly GreenfieldProfileNote[];
 }>;
 
+/** Reasons the whole brief cannot render. Scope and clock failures only. */
 export type MorningBriefUnavailableReason =
   | "morning_brief_input_malformed"
-  | "morning_brief_raw_identity_value_present"
+  | "morning_brief_raw_identity_value_present";
+
+/**
+ * Reasons the weekly cohort section alone is unavailable. `weekly_history_absent`
+ * is the persisted-read case: no Export-ready transition history exists in the
+ * schema, so no cohort can be computed. It is never reported as a zero result.
+ */
+export type WeeklySectionUnavailableReason =
+  | "weekly_history_absent"
   | "weekly_history_scope_mismatch"
   | "weekly_history_as_of_mismatch"
   | "weekly_outcome_unavailable";
+
+export type FunnelSectionUnavailableReason = "funnel_review_history_absent";
+
+export type RestoreSectionUnavailableReason = "workspace_origin_not_persisted";
 
 export type ScheduleBlockReason =
   | "schedule_observation_absent"
@@ -222,7 +279,7 @@ export type MorningBriefHandoffPanel = Readonly<{
   materializableFromThisSurface: false;
 }>;
 
-export type MorningBriefWeeklyPanel = Readonly<{
+type MorningBriefWeeklyPanel = Readonly<{
   target: typeof WEEKLY_OUTCOME_TARGET;
   timeZone: typeof WEEKLY_OUTCOME_TIME_ZONE;
   week: WeeklyOutcomeWeek;
@@ -236,6 +293,51 @@ export type MorningBriefWeeklyPanel = Readonly<{
   explanation: typeof MORNING_BRIEF_WEEKLY_EXPLANATION;
 }>;
 
+export const MORNING_BRIEF_FUNNEL_NOTE = "Phase 4 qualification review outcomes. These are not Export-ready transitions and do not contribute to the weekly target." as const;
+
+export type MorningBriefFunnelPanel =
+  | Readonly<{
+    status: "current";
+    note: typeof MORNING_BRIEF_FUNNEL_NOTE;
+    windowStart: string;
+    windowEndExclusive: string;
+    decisions: Readonly<Record<MorningBriefReviewDecision, number>>;
+    distinctReviewedProspectCount: number;
+    cooldownsStarted: number;
+    reentryEvents: Readonly<Record<MorningBriefReentryKind, number>>;
+    countsExportReadyOutcomes: false;
+  }>
+  | Readonly<{
+    status: "unavailable";
+    note: typeof MORNING_BRIEF_FUNNEL_NOTE;
+    reasonCodes: readonly FunnelSectionUnavailableReason[];
+    windowStart: null;
+    windowEndExclusive: null;
+    decisions: null;
+    distinctReviewedProspectCount: null;
+    cooldownsStarted: null;
+    reentryEvents: null;
+    countsExportReadyOutcomes: false;
+  }>;
+
+export type MorningBriefRestorePanel =
+  | Readonly<{
+    status: "current";
+    origin: "original" | "restored";
+    restoreRef: SafeReference | null;
+    restoredEffectsFenced: boolean;
+    freshUpstreamActivationRef: SafeReference | null;
+    reasonCodes: readonly [];
+  }>
+  | Readonly<{
+    status: "unavailable";
+    origin: null;
+    restoreRef: null;
+    restoredEffectsFenced: true;
+    freshUpstreamActivationRef: null;
+    reasonCodes: readonly RestoreSectionUnavailableReason[];
+  }>;
+
 export type MorningBriefLossPanel = Readonly<Record<
   WeeklyOutcomeLossCategory,
   Readonly<{
@@ -245,21 +347,36 @@ export type MorningBriefLossPanel = Readonly<Record<
   }>
 >>;
 
+export type MorningBriefWeeklySection =
+  | (MorningBriefWeeklyPanel & Readonly<{ status: "current" }>)
+  | Readonly<{
+    status: "unavailable";
+    target: typeof WEEKLY_OUTCOME_TARGET;
+    timeZone: typeof WEEKLY_OUTCOME_TIME_ZONE;
+    explanation: typeof MORNING_BRIEF_WEEKLY_EXPLANATION;
+    reasonCodes: readonly WeeklySectionUnavailableReason[];
+    weeklyReasonCodes: readonly WeeklyOutcomeUnavailableReason[];
+    week: null;
+    profileIncluded: null;
+    exclusions: null;
+    newlyExportReadyProspectCount: null;
+    remainingProspectsToTarget: null;
+    distinctStableProspectCount: null;
+    distinctStableContactCount: null;
+    cohort: readonly [];
+  }>;
+
 export type MorningBriefAvailable = Readonly<{
   status: "available";
   generatedAt: string;
   scope: MorningBriefScope;
   pilotNotice: typeof MORNING_BRIEF_PILOT_NOTICE;
-  weekly: MorningBriefWeeklyPanel;
-  losses: MorningBriefLossPanel;
+  weekly: MorningBriefWeeklySection;
+  losses: MorningBriefLossPanel | null;
   schedule: MorningBriefSchedulePanel;
   handoff: MorningBriefHandoffPanel;
-  workspace: Readonly<{
-    origin: "original" | "restored";
-    restoreRef: SafeReference | null;
-    restoredEffectsFenced: boolean;
-    freshUpstreamActivationRef: SafeReference | null;
-  }>;
+  funnel: MorningBriefFunnelPanel;
+  workspace: MorningBriefRestorePanel;
   greenfield: Readonly<{
     notice: typeof MORNING_BRIEF_GREENFIELD_NOTICE;
     profiles: readonly Readonly<{
@@ -284,6 +401,7 @@ export type MorningBriefUnavailable = Readonly<{
   losses: null;
   schedule: null;
   handoff: null;
+  funnel: null;
   workspace: null;
   greenfield: null;
   authority: typeof MORNING_BRIEF_AUTHORITY;
@@ -300,11 +418,17 @@ const LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9 .,'–—/()-]{0,126}[A-Za-z0-9.)])?$/u
 // an address separator or a phone-length digit run.
 const RAW_IDENTITY = /@|\d{7}/u;
 
-class BriefUnavailable extends Error {
+class WeeklySectionUnavailable extends Error {
   constructor(
-    readonly reason: MorningBriefUnavailableReason,
+    readonly reason: WeeklySectionUnavailableReason,
     readonly weeklyReasonCodes: readonly WeeklyOutcomeUnavailableReason[] = [],
   ) {
+    super(reason);
+  }
+}
+
+class BriefUnavailable extends Error {
+  constructor(readonly reason: MorningBriefUnavailableReason) {
     super(reason);
   }
 }
@@ -317,38 +441,50 @@ export function composeMorningBrief(input: MorningBriefInput): MorningBriefResul
   try {
     return project(normalizeInput(input));
   } catch (error) {
-    if (error instanceof BriefUnavailable) {
-      return unavailable(error.reason, error.weeklyReasonCodes);
-    }
+    if (error instanceof BriefUnavailable) return unavailable(error.reason);
     return unavailable("morning_brief_input_malformed");
   }
 }
 
+type WeeklySlot =
+  | Readonly<{ ok: true; value: WeeklyOutcomeAvailable }>
+  | Readonly<{
+    ok: false;
+    reason: WeeklySectionUnavailableReason;
+    weeklyReasonCodes: readonly WeeklyOutcomeUnavailableReason[];
+  }>;
+
 type NormalizedInput = Readonly<{
   scope: MorningBriefScope;
   asOf: string;
-  weekly: WeeklyOutcomeAvailable;
+  weekly: WeeklySlot;
   scheduleObservation: UpstreamScheduleObservation | null;
   handoffReadiness: HandoffReadinessPreview | null;
-  workspaceOrigin: WorkspaceOrigin;
+  reviewFunnel: ReviewFunnelObservation | null;
+  workspaceOrigin: WorkspaceOrigin | null;
   greenfieldProfiles: readonly GreenfieldProfileNote[];
 }>;
 
 function normalizeInput(value: unknown): NormalizedInput {
   const input = exactRecord(value, [
     "scope", "asOf", "weeklyHistory", "scheduleObservation", "handoffReadiness",
-    "workspaceOrigin", "greenfieldProfiles",
+    "reviewFunnel", "workspaceOrigin", "greenfieldProfiles",
   ]);
   const scope = normalizeScope(input.scope);
   const asOf = instant(input.asOf);
-  const weekly = reduceScopedWeeklyOutcome(input.weeklyHistory, scope, asOf);
+  const weekly = weeklySlot(input.weeklyHistory, scope, asOf);
   const scheduleObservation = input.scheduleObservation === null
     ? null
     : normalizeScheduleObservation(input.scheduleObservation);
   const handoffReadiness = input.handoffReadiness === null
     ? null
     : normalizeHandoffReadiness(input.handoffReadiness);
-  const workspaceOrigin = normalizeWorkspaceOrigin(input.workspaceOrigin, asOf);
+  const reviewFunnel = input.reviewFunnel === null
+    ? null
+    : normalizeReviewFunnel(input.reviewFunnel, asOf);
+  const workspaceOrigin = input.workspaceOrigin === null
+    ? null
+    : normalizeWorkspaceOrigin(input.workspaceOrigin, asOf);
   const greenfieldProfiles = denseArray(
     input.greenfieldProfiles,
     MORNING_BRIEF_MAX_GREENFIELD_PROFILES,
@@ -360,17 +496,72 @@ function normalizeInput(value: unknown): NormalizedInput {
     weekly,
     scheduleObservation,
     handoffReadiness,
+    reviewFunnel,
     workspaceOrigin,
     greenfieldProfiles,
+  });
+}
+
+/**
+ * A weekly cohort is only ever reported from a reduced history. Absent or
+ * unreducible history makes this one section unavailable; it never becomes a
+ * zero cohort and never blocks the rest of the brief.
+ */
+function weeklySlot(value: unknown, scope: MorningBriefScope, asOf: string): WeeklySlot {
+  if (value === null) {
+    return deepFreeze({ ok: false, reason: "weekly_history_absent", weeklyReasonCodes: [] });
+  }
+  try {
+    return deepFreeze({ ok: true, value: reduceScopedWeeklyOutcome(value, scope, asOf) });
+  } catch (error) {
+    if (error instanceof WeeklySectionUnavailable) {
+      return deepFreeze({
+        ok: false, reason: error.reason, weeklyReasonCodes: error.weeklyReasonCodes,
+      });
+    }
+    throw error;
+  }
+}
+
+function normalizeReviewFunnel(value: unknown, asOf: string): ReviewFunnelObservation {
+  const input = exactRecord(value, [
+    "windowStart", "windowEndExclusive", "decisions", "distinctReviewedProspectCount",
+    "cooldownsStarted", "reentryEvents",
+  ]);
+  const windowStart = instant(input.windowStart);
+  const windowEndExclusive = instant(input.windowEndExclusive);
+  if (Date.parse(windowEndExclusive) <= Date.parse(windowStart)) malformed();
+  if (Date.parse(windowStart) > Date.parse(asOf)) malformed();
+  const decisionInput = exactRecord(input.decisions, MORNING_BRIEF_REVIEW_DECISIONS);
+  const decisions = {} as Record<MorningBriefReviewDecision, number>;
+  for (const key of MORNING_BRIEF_REVIEW_DECISIONS) decisions[key] = boundedCount(decisionInput[key]);
+  const reentryInput = exactRecord(input.reentryEvents, MORNING_BRIEF_REENTRY_KINDS);
+  const reentryEvents = {} as Record<MorningBriefReentryKind, number>;
+  for (const key of MORNING_BRIEF_REENTRY_KINDS) reentryEvents[key] = boundedCount(reentryInput[key]);
+  const distinctReviewedProspectCount = boundedCount(input.distinctReviewedProspectCount);
+  const totalDecisions = MORNING_BRIEF_REVIEW_DECISIONS
+    .reduce((sum, key) => sum + decisions[key], 0);
+  // One Prospect may carry several decisions, but a decision always belongs to
+  // a Prospect: more distinct Prospects than decisions is incoherent input.
+  if (distinctReviewedProspectCount > totalDecisions) malformed();
+  return deepFreeze({
+    windowStart,
+    windowEndExclusive,
+    decisions,
+    distinctReviewedProspectCount,
+    cooldownsStarted: boundedCount(input.cooldownsStarted),
+    reentryEvents,
   });
 }
 
 function normalizeScope(value: unknown): MorningBriefScope {
   const input = exactRecord(value, [
     "workspaceId", "companyId", "productId", "marketPlayId", "profileId",
-    "profileLifecycle", "activeConfigurationDigest",
+    "profileName", "profileLifecycle", "activeConfigurationDigest",
   ]);
-  if (input.profileLifecycle !== "Operating" && input.profileLifecycle !== "Draft") {
+  if (typeof input.profileLifecycle !== "string"
+    || !MORNING_BRIEF_PROFILE_LIFECYCLES
+      .includes(input.profileLifecycle as MorningBriefProfileLifecycle)) {
     malformed();
   }
   return deepFreeze({
@@ -379,7 +570,8 @@ function normalizeScope(value: unknown): MorningBriefScope {
     productId: stableId(input.productId),
     marketPlayId: stableId(input.marketPlayId),
     profileId: stableId(input.profileId),
-    profileLifecycle: input.profileLifecycle,
+    profileName: label(input.profileName),
+    profileLifecycle: input.profileLifecycle as MorningBriefProfileLifecycle,
     activeConfigurationDigest: digest(input.activeConfigurationDigest),
   });
 }
@@ -397,20 +589,25 @@ function reduceScopedWeeklyOutcome(
   const history = exactRecordAtLeast(value, ["scope", "asOf"]);
   const historyScope = exactRecordAtLeast(history.scope, [
     "workspaceId", "companyId", "productId", "marketPlayId", "profileId",
-    "profileLifecycle",
   ]);
+  // Only the five stable identifiers are cross-checked. The reducer's
+  // `profileLifecycle` is a modelled Operating/Draft vocabulary while this
+  // brief carries the persisted draft/ready/paused/archived enum. No domain
+  // evidence maps them, so comparing them would assert a fact this module
+  // cannot establish.
   for (const key of [
     "workspaceId", "companyId", "productId", "marketPlayId", "profileId",
-    "profileLifecycle",
   ] as const) {
     if (historyScope[key] !== scope[key]) {
-      throw new BriefUnavailable("weekly_history_scope_mismatch");
+      throw new WeeklySectionUnavailable("weekly_history_scope_mismatch");
     }
   }
-  if (history.asOf !== asOf) throw new BriefUnavailable("weekly_history_as_of_mismatch");
+  if (history.asOf !== asOf) {
+    throw new WeeklySectionUnavailable("weekly_history_as_of_mismatch");
+  }
   const result = reduceWeeklyOutcome(value as never);
   if (result.status !== "available") {
-    throw new BriefUnavailable("weekly_outcome_unavailable", result.reasonCodes);
+    throw new WeeklySectionUnavailable("weekly_outcome_unavailable", result.reasonCodes);
   }
   return result;
 }
@@ -509,28 +706,20 @@ function normalizeGreenfieldProfile(
 }
 
 function project(input: NormalizedInput): MorningBriefAvailable {
-  const restorePending = input.workspaceOrigin.kind === "restored"
-    && !hasFreshUpstreamActivation(input.workspaceOrigin, input.asOf);
+  const origin = input.workspaceOrigin;
+  const restorePending = origin !== null && origin.kind === "restored"
+    && !hasFreshUpstreamActivation(origin, input.asOf);
   return deepFreeze({
     status: "available",
     generatedAt: input.asOf,
     scope: input.scope,
     pilotNotice: MORNING_BRIEF_PILOT_NOTICE,
     weekly: projectWeekly(input.weekly),
-    losses: projectLosses(input.weekly),
+    losses: input.weekly.ok ? projectLosses(input.weekly.value) : null,
     schedule: projectSchedule(input, restorePending),
     handoff: projectHandoff(input),
-    workspace: {
-      origin: input.workspaceOrigin.kind,
-      restoreRef: input.workspaceOrigin.kind === "restored"
-        ? input.workspaceOrigin.restoreRef
-        : null,
-      restoredEffectsFenced: input.workspaceOrigin.kind === "restored",
-      freshUpstreamActivationRef: input.workspaceOrigin.kind === "restored"
-        && !restorePending
-        ? input.workspaceOrigin.freshUpstreamActivation?.activationRef ?? null
-        : null,
-    },
+    funnel: projectFunnel(input.reviewFunnel),
+    workspace: projectRestore(origin, restorePending),
     greenfield: {
       notice: MORNING_BRIEF_GREENFIELD_NOTICE,
       profiles: input.greenfieldProfiles.map((entry) => deepFreeze({
@@ -546,6 +735,65 @@ function project(input: NormalizedInput): MorningBriefAvailable {
   });
 }
 
+function projectFunnel(observation: ReviewFunnelObservation | null): MorningBriefFunnelPanel {
+  if (observation === null) {
+    return deepFreeze({
+      status: "unavailable",
+      note: MORNING_BRIEF_FUNNEL_NOTE,
+      reasonCodes: ["funnel_review_history_absent"],
+      windowStart: null,
+      windowEndExclusive: null,
+      decisions: null,
+      distinctReviewedProspectCount: null,
+      cooldownsStarted: null,
+      reentryEvents: null,
+      countsExportReadyOutcomes: false,
+    });
+  }
+  return deepFreeze({
+    status: "current",
+    note: MORNING_BRIEF_FUNNEL_NOTE,
+    windowStart: observation.windowStart,
+    windowEndExclusive: observation.windowEndExclusive,
+    decisions: observation.decisions,
+    distinctReviewedProspectCount: observation.distinctReviewedProspectCount,
+    cooldownsStarted: observation.cooldownsStarted,
+    reentryEvents: observation.reentryEvents,
+    countsExportReadyOutcomes: false,
+  });
+}
+
+/**
+ * Workspace origin is not persisted anywhere in the checked schema. Absent
+ * input reports unavailable and keeps the restored-effects fence closed rather
+ * than assuming an original workspace.
+ */
+function projectRestore(
+  origin: WorkspaceOrigin | null,
+  restorePending: boolean,
+): MorningBriefRestorePanel {
+  if (origin === null) {
+    return deepFreeze({
+      status: "unavailable",
+      origin: null,
+      restoreRef: null,
+      restoredEffectsFenced: true,
+      freshUpstreamActivationRef: null,
+      reasonCodes: ["workspace_origin_not_persisted"],
+    });
+  }
+  return deepFreeze({
+    status: "current",
+    origin: origin.kind,
+    restoreRef: origin.kind === "restored" ? origin.restoreRef : null,
+    restoredEffectsFenced: origin.kind === "restored",
+    freshUpstreamActivationRef: origin.kind === "restored" && !restorePending
+      ? origin.freshUpstreamActivation?.activationRef ?? null
+      : null,
+    reasonCodes: [],
+  });
+}
+
 function hasFreshUpstreamActivation(
   origin: Extract<WorkspaceOrigin, { kind: "restored" }>,
   asOf: string,
@@ -556,8 +804,28 @@ function hasFreshUpstreamActivation(
   return activatedAt > Date.parse(origin.restoredAt) && activatedAt <= Date.parse(asOf);
 }
 
-function projectWeekly(weekly: WeeklyOutcomeAvailable): MorningBriefWeeklyPanel {
+function projectWeekly(slot: WeeklySlot): MorningBriefWeeklySection {
+  if (!slot.ok) {
+    return deepFreeze({
+      status: "unavailable",
+      target: WEEKLY_OUTCOME_TARGET,
+      timeZone: WEEKLY_OUTCOME_TIME_ZONE,
+      explanation: MORNING_BRIEF_WEEKLY_EXPLANATION,
+      reasonCodes: [slot.reason],
+      weeklyReasonCodes: slot.weeklyReasonCodes,
+      week: null,
+      profileIncluded: null,
+      exclusions: null,
+      newlyExportReadyProspectCount: null,
+      remainingProspectsToTarget: null,
+      distinctStableProspectCount: null,
+      distinctStableContactCount: null,
+      cohort: [],
+    });
+  }
+  const weekly = slot.value;
   return deepFreeze({
+    status: "current",
     target: WEEKLY_OUTCOME_TARGET,
     timeZone: WEEKLY_OUTCOME_TIME_ZONE,
     week: weekly.week,
@@ -725,20 +993,18 @@ function handoffPanel(
   });
 }
 
-function unavailable(
-  reason: MorningBriefUnavailableReason,
-  weeklyReasonCodes: readonly WeeklyOutcomeUnavailableReason[] = [],
-): MorningBriefUnavailable {
+function unavailable(reason: MorningBriefUnavailableReason): MorningBriefUnavailable {
   return deepFreeze({
     status: "unavailable",
     generatedAt: null,
     reasonCodes: [reason],
-    weeklyReasonCodes,
+    weeklyReasonCodes: [],
     scope: null,
     weekly: null,
     losses: null,
     schedule: null,
     handoff: null,
+    funnel: null,
     workspace: null,
     greenfield: null,
     authority: MORNING_BRIEF_AUTHORITY,
