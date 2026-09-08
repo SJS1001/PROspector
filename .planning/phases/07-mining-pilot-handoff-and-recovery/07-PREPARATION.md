@@ -463,6 +463,37 @@ including the production build, was not run in this lane and the preflight lane
 was not used. This supersedes an earlier record in commit `9bf5a4a`, which
 correctly stated at the time that the suite had not been executed.
 
+## Local-demo CRM handoff preview exception (owner-authorized 2026-09-08)
+
+The stop condition below otherwise forbids runtime composition and CSV
+materialization. The owner explicitly authorized one narrow exception on
+2026-09-08, through root `01a076dc-f024-7693-afd7-cc9ecfd73a67`, answering
+"Sure" to an in-memory, fictional-data-only CSV preview.
+
+Permitted, and only this:
+
+- one development-only preview seam that serializes **fictional** rows in
+  memory, behind all of: `import.meta.env.DEV`, the exact local-demo identity
+  (`TRUSTED_IDENTITY_PROVIDER === "local-demo"` with `LOCAL_DEMO === "1"` and
+  Cloudflare Access disabled), a loopback host, and same-origin for any
+  non-GET request;
+- a pure domain handoff decision and row projection composed over the existing
+  eligibility, approval, suppression and recheck contracts.
+
+Still forbidden, unchanged: writing a file, setting `Content-Disposition`,
+offering a download, persisting anything, any D1 or R2 write, reaching a
+provider, and reading a real row. The preview may demonstrate fictional
+serialization; it may not claim export authority.
+
+`recheckForCrmExport` keeps returning `blocked: true` in every ordinary path.
+The preview does not loosen production rejection, and no admitted row may be
+produced by routing around that boundary. Production composition remains
+reject-only.
+
+This grant is bounded to the preview seam. It is not production runtime
+authority, not general Phase 7 execution, and it earns no plan or phase
+completion credit. Plans 07-01 through 07-10 remain unexecuted.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
