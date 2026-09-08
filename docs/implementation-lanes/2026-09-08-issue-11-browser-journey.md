@@ -234,6 +234,80 @@ What that validation still has to establish, none of which any run has reached:
 No claim is made here that `f7d8fc0` passes. This lane ran no duplicate suite.
 
 
+## Exact-tree reconciliation at `f7d8fc0`
+
+Read-only, against the tree rather than against intent:
+
+| Checked | Result |
+|---|---|
+| `tests/browser/operator-journey-e1.spec.ts` | byte-identical to the merged PR #62 head — no post-merge drift, all assertions intact |
+| three lanes present | `onboarding`, `operator-journey-e1`, `person-discovery-c4` |
+| lane wiring | `playwright.config.ts` still derives `testMatch` from the lane name; all three `test:browser*` scripts present |
+| binding allowlist | still closed: `PROSPECTOR_PERSON_DISCOVERY_C4` and `PROSPECTOR_OPERATOR_JOURNEY_E1` only |
+| every selector the E1 spec drives | present in `site/app/` — the two headings, `Customer Profile`, `Selected Profile`, `Owner reason`, `Approve prospect`, `No qualified prospects to review` |
+| both notice strings | present verbatim at `prospecting-workspace.tsx:32` and `:34` (the unknown notice is asserted by prefix, which substring matching satisfies) |
+| the live region the announcement assertions require | `prospecting-workspace.tsx:168-171` — `aria-live="polite"` with `role="alert"` for `stale` and `unknown` |
+| the source fix | `globals.css:27` carries `.assessment>p { overflow-wrap:anywhere; }` |
+
+Nothing merged after PR #62 disturbed the lane.
+
+## The one official run
+
+Exact revision: **`main` at `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`**. From `site/`,
+in order, stopping at the first non-zero exit and reporting the true exit of each:
+
+```
+npm run test:browser:operator-journey     # the complete journey, past line 35
+npm test                                  # canonical: build + all Node suites
+npm run lint
+```
+
+No duplicate run was performed here.
+
+## Remaining acceptance coverage — precise, not blanket
+
+Nothing below is claimed as passing at `f7d8fc0`.
+
+| Criterion | Coverage | Last actually proven |
+|---|---|---|
+| 320px reflow | asserted | never — the only run failed here, and the fix landed after |
+| 200% text resize | asserted | never reached (fail-fast at line 35) |
+| visible focus | asserted | never reached |
+| screen-reader announcements | asserted | never reached |
+| journey steps 1–6 (CSRF expiry, lost response, 200/409 race, durability) | asserted | `bff326f6`, before the 320px assertion existed |
+| onboarding reflow parity + seed absence | asserted | `bff326f6` |
+| person-discovery C4 lane | asserted | `bff326f6` |
+| keyboard navigation, labels, contrast, 760/480/360/1280 | asserted | `bff326f6` |
+| research run stage | **not written** | service not composed |
+| local handoff stage | **not written** | trigger not built — see below |
+
+## Next browser-owned slice: the guarded fictional CSV preview
+
+Read from `claude/issue11-csv-handoff-contract` at `de93e93` (PR #67), read-only.
+The contract a browser journey must pin, once the UI trigger exists:
+
+- `POST /api/local-demo/crm-handoff-preview`, no request body, no
+  caller-supplied rows; 404 unless local-demo, same-origin, and owner-admitted.
+- `decision.admitted` is `[]` and `admittedRowCount` is 0. This is the real
+  seam: `projectCrmHandoff` consults `recheckForCrmExport`, which never returns
+  an unblocked recheck, so every candidate is refused. A journey must assert the
+  empty admission, not merely that a preview rendered.
+- `preview.previewRowsAreFictionalAndUnadmitted` is `true`, and the preview is
+  visibly separated from the decision in the UI — the rows shown were refused.
+- `exportAuthorized`, `deliveryAuthorized`, `downloadAuthorized`,
+  `persistenceAuthorized` and `providerInvocationAuthorized` are all `false`.
+- No download is offered: no `Content-Disposition`, no `blob:`/`data:` anchor,
+  no `download` attribute anywhere on the screen, and `cache-control: no-store`.
+- Nothing persists: a runtime restart leaves no artifact and no row.
+
+**This slice is not startable yet.** The trigger belongs to the issue-8 UI owner
+and does not exist at `de93e93`; a browser journey needs a supported screen to
+drive, and seeding past a missing control is what criterion 2 forbids. When the
+trigger lands, the work goes on a fresh isolated branch, touches browser specs
+and fixtures only, and changes no source. The research runtime stays held
+separately and is not part of this slice.
+
+
 ## Boundary
 
 No hosted, Cloudflare, Access, provider, credential, real-data, export delivery,
