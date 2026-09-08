@@ -23,7 +23,7 @@ import { createOnboardingDraft, initializeOwnerCompanyProduct, OnboardingConflic
 
 export const KNOWLEDGE_ACTIONS = [
   "initialize_owner_workspace", "create_onboarding_draft", "start_onboarding_interview",
-  "create_hierarchy_draft", "propose_owner_edit",
+  "advance_local_interview", "create_hierarchy_draft", "propose_owner_edit",
   "propose_repository_research", "import_plain_text", "propose_reuse",
   "propose_allowlisted_package", "submit_interview_answer", "record_interview_decision",
   "review_knowledge_proposal", "create_replacement_candidate", "activate_replacement",
@@ -47,7 +47,7 @@ export async function handleKnowledgeGet(dependencies: KnowledgeHandlerDependenc
   try {
     const principal = await authenticatedPrincipal(dependencies);
     if (!await phase2SchemaAvailable(dependencies.database)) return json({ error: OLD_SCHEMA_PROJECTION });
-    return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true, dependencies.interviewSelection);
+    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isKnownDomainError(error)) return json({ error: "knowledge_unavailable" }, 409);
@@ -73,7 +73,7 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
     const onboardingAction = body.action === "initialize_owner_workspace" || body.action === "create_onboarding_draft" || body.action === "start_onboarding_interview";
     if(localOnboardingSeam&&!onboardingAction&&!await writesActivated(dependencies.database,principal))return json({error:INACTIVE_WRITES_PROJECTION},503);
     await dispatch(body, dependencies.database, principal, dependencies.interviewSelection);
-    return projectionResponse(dependencies.database, principal, dependencies.enableLocalDemoProgression === true, dependencies.interviewSelection);
+    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
@@ -89,7 +89,9 @@ async function dispatch(body: Record<string, unknown>, database: D1Database, pri
   switch (body.action) {
     case "initialize_owner_workspace": return initializeOwnerCompanyProduct(database, principal, { companyName: requiredString(body,"companyName",160), productName: requiredString(body,"productName",160), idempotencyKey:key });
     case "create_onboarding_draft": return createOnboardingDraft(database, principal, { type: enumValue(body,"type",["market_play","customer_profile"]), parentId: requiredString(body,"parentId",160), name: requiredString(body,"name",160), expectedRevision: requiredRevision(body,"expectedRevision"), idempotencyKey:key });
-    case "start_onboarding_interview": return advanceLocalInterview(database, principal, { expectedQueueDigest: requiredString(body,"expectedQueueDigest",64), idempotencyKey:key }, selection);
+    case "start_onboarding_interview":
+    case "advance_local_interview":
+      return advanceLocalInterview(database, principal, { expectedQueueDigest: requiredString(body,"expectedQueueDigest",64), idempotencyKey:key }, selection);
     case "create_hierarchy_draft": return createHierarchyDraft(database, principal, {
       type: enumValue(body, "type", ["product", "market_play", "customer_profile"]), parentId: requiredString(body, "parentId", 160), name: requiredString(body, "name", 160), expectedRevision: requiredRevision(body, "expectedRevision"), idempotencyKey: key, productFundamentalsDiverge: optionalBoolean(body, "productFundamentalsDiverge"),
     });
@@ -128,6 +130,7 @@ function assertClosedCommand(body: Record<string, unknown>) {
     initialize_owner_workspace: [...common, "companyName", "productName"],
     create_onboarding_draft: [...common, "type", "parentId", "name", "expectedRevision"],
     start_onboarding_interview: [...common, "expectedQueueDigest"],
+    advance_local_interview: [...common, "expectedQueueDigest"],
     create_hierarchy_draft: [...common, "type", "parentId", "name", "expectedRevision", "productFundamentalsDiverge"],
     propose_owner_edit: proposal,
     propose_repository_research: proposal,
@@ -149,17 +152,19 @@ function assertClosedCommand(body: Record<string, unknown>) {
   }
 }
 
-async function projectionResponse(database: D1Database, principal: InterviewPrincipal, enableLocalDemoProgression = false, selection?: InterviewSelection) {
+async function projectionResponse(database: D1Database, principal: InterviewPrincipal, selection?: InterviewSelection) {
   const onboarding = await readOnboardingProjection(database, principal);
   if (!selection && (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await interviewHasStarted(database, principal)))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject));
-  // Reads are projection-only; onboarding is the sole local-demo bootstrap authority.
+  // Reads are projection-only. The generalized queue composer is safe for
+  // any authenticated owner of their own workspace -- it is not demo-only;
+  // gating it behind enableLocalDemoProgression left ordinary secure
+  // identity with no supported way to see the queue digest needed to
+  // advance past the first confirmed decision (issue #9).
   const library = await readKnowledgeLibrary(database, principal);
   const [commercial, interviewState, drift, replacements] = await Promise.all([
     readCommercialModel(database, principal), readInterviewState(database, principal, selection), readDrift(database, principal), readReplacements(database, principal),
   ]);
-  const interview = enableLocalDemoProgression
-    ? await attachLocalInterviewProgression(database, principal, interviewState, selection)
-    : interviewState;
+  const interview = await attachLocalInterviewProgression(database, principal, interviewState, selection);
   const activeOnboarding = onboarding.status === "profile_fit_required"
     ? { ...onboarding, interviewQueueDigest: null }
     : onboarding;
