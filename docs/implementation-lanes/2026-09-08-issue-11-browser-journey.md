@@ -114,6 +114,17 @@ and inserting the resulting state directly is what criterion 2 forbids. **Issue
 seams from whoever owns the runtime, after which this lane can extend the
 journey to cover them.
 
+Both have since been dispatched: the CSV owner now holds a narrow, explicit
+fictional in-memory preview authority for the handoff stage, and the research
+route remains a separate dependency-injection-only ruling that is still pending.
+Neither is composed at the base recorded above.
+
+**Issue #11 stays open regardless of this PR.** Closure requires genuinely
+composed journeys through those services. A seeded starting state is a legitimate
+fixture for the stages that *are* composed — every governed transition in them is
+driven through the real screens — but it is not a substitute for a stage whose
+service does not exist, and this lane will not present one as though it were.
+
 ## Validation
 
 Run on this branch at base `d051fcc`. True exits only.
@@ -129,10 +140,18 @@ Run on this branch at base `d051fcc`. True exits only.
 The full Node suite (`npm test`, 133 suites, 917 pass, 0 fail, exit 0) was run
 on the immediately preceding head and is recorded in the E1 lane document.
 
-**The new assertions were executed, and one of them failed on a real defect.**
-The attributed executor installed the official Chromium 1243 in the retained
-isolated container `prospector-pr62-validation` and ran the lane at exact head
-`0ba6eaeb5f79f84bb92329e6268f2e50056ffbff`:
+### Historical — superseded, preserved deliberately
+
+**Revision `0ba6eaeb5f79f84bb92329e6268f2e50056ffbff`, 2026-09-08 (before PR #65
+landed the source fix).** This record is kept because the defect was real and
+the assertion that caught it must not be quietly re-litigated. It is **not**
+evidence about any current head; the current evidence is recorded separately
+below under *Official receipt*.
+
+At that revision the new assertions were executed and one failed on a real
+defect. The attributed executor installed the official Chromium 1243 in the
+retained isolated container `prospector-pr62-validation` and ran the lane at that
+exact head:
 
 ```
 tests/browser/operator-journey-e1.spec.ts:35
@@ -141,8 +160,8 @@ tests/browser/operator-journey-e1.spec.ts:35
             under .prospecting-panel.prospect-workspace
 ```
 
-`npm test` and lint were not reached: the lane fails fast. Screenshot and error
-context are retained at
+`npm test` and lint were not reached in **that** run, because the lane stops at
+its first failing assertion. Screenshot and error context are retained at
 `/tmp/prospector/site/.local/browser-acceptance-failures-e1-zGvjFH/operator-journey-e1-a-qual-9a184-hen-one-tab-wins-the-review/`.
 
 **This is a source defect, not a test defect, and the assertion stays as
@@ -171,10 +190,166 @@ list to `.assessment>*` and give the assessment paragraph the same
 `overflow-wrap:anywhere` the rest of the task already uses — no new breakpoint
 required.
 
-That file is outside this lane's ownership. The source-only fix is assigned to
-the incumbent issue-8 UI owner on a separate branch; this lane makes no
-competing edit and awaits the fixed combined revision for an exact-head rerun.
-**No claim is made that the current head passes.**
+That file is outside this lane's ownership. The source-only fix is
+`claude/issue-8-320px-overflow-fix` at `448531b2eec166cb796f4f05f1a015956a911db4`
+(PR #65), owned by the incumbent issue-8 UI owner. This lane made no competing
+edit and inspected it read-only: `.assessment>p{overflow-wrap:anywhere}` is the
+load-bearing change and is correct. The separate `min-width:0` repair is not
+needed, because `overflow-wrap:anywhere` — unlike `break-word` — reduces
+intrinsic min-content size, so the grid item's `min-width:auto` resolves small on
+its own. Two clauses in that fix are inert or redundant; both are reported on
+PR #65 and neither is blocking.
+
+**No claim is made that any head passes.** The lane fails fast: it stopped at the
+third width of the reflow loop, so the 200% text-resize assertion, the
+visible-focus walk, the three announcement assertions, journey steps 1–6, and
+`npm test`/lint have never been evaluated on any head. A green 320px does not
+imply a green lane, and focused source tests are not evidence for any of it. Once
+PR #65 is reviewed and merged, this lane merges `main` forward normally and
+publishes the exact combined SHA for one official browser and canonical
+validation. No duplicate suite is run in the meantime.
+
+
+## Combined revision — one official validation is now due
+
+Both halves are on `main`, and this is the exact revision the single official
+browser and canonical validation should run against:
+
+| Merged | PR | Merge commit |
+|---|---|---|
+| 2026-09-08T17:24:47Z | #65 — the source fix (`448531b`) | `060d7169e3cc88727044c4fa05da3a1536544982` |
+| 2026-09-08T17:25:12Z | #62 — this lane's assertions (`7e81b46`) | `fe11d6d0d5ea290a43336753e07b10963ef048ab` |
+
+**Exact combined SHA: `main` at `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`.**
+
+Verified present at that SHA: `site/app/globals.css:27` carries
+`.assessment>p { overflow-wrap:anywhere; }`, and
+`site/tests/browser/operator-journey-e1.spec.ts` carries the 320px width in the
+reflow loop plus `assertTextResizeHolds`, `assertVisibleFocus` and the three
+`assertAnnounced` calls.
+
+What that validation still has to establish, none of which any run has reached:
+
+- `npm run test:browser:operator-journey` past line 35 — the 200% text-resize
+  assertion, the visible-focus walk, the three announcement assertions, and
+  journey steps 1–6 (CSRF expiry, lost response, the 200/409 two-tab race,
+  restart durability).
+- `npm run test:browser` and `npm run test:browser:person-discovery`, whose
+  onboarding reflow parity and seed-absence assertions were last proven at
+  `bff326f6`, several merges ago.
+- `npm test` and lint, which fail-fast prevented on the failing head.
+
+No claim is made here that `f7d8fc0` passes. This lane ran no duplicate suite.
+
+
+## Exact-tree reconciliation at `f7d8fc0`
+
+Read-only, against the tree rather than against intent:
+
+| Checked | Result |
+|---|---|
+| `tests/browser/operator-journey-e1.spec.ts` | byte-identical to the merged PR #62 head — no post-merge drift, all assertions intact |
+| three lanes present | `onboarding`, `operator-journey-e1`, `person-discovery-c4` |
+| lane wiring | `playwright.config.ts` still derives `testMatch` from the lane name; all three `test:browser*` scripts present |
+| binding allowlist | still closed: `PROSPECTOR_PERSON_DISCOVERY_C4` and `PROSPECTOR_OPERATOR_JOURNEY_E1` only |
+| every selector the E1 spec drives | present in `site/app/` — the two headings, `Customer Profile`, `Selected Profile`, `Owner reason`, `Approve prospect`, `No qualified prospects to review` |
+| both notice strings | present verbatim at `prospecting-workspace.tsx:32` and `:34` (the unknown notice is asserted by prefix, which substring matching satisfies) |
+| the live region the announcement assertions require | `prospecting-workspace.tsx:168-171` — `aria-live="polite"` with `role="alert"` for `stale` and `unknown` |
+| the source fix | `globals.css:27` carries `.assessment>p { overflow-wrap:anywhere; }` |
+
+Nothing merged after PR #62 disturbed the lane.
+
+## The one official run
+
+Exact revision: **`main` at `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`**. From
+`site/`:
+
+```
+npm run test:browser:operator-journey     # the complete journey
+npm test                                  # canonical: build + all Node suites
+npm run lint
+```
+
+**How the official runner actually executes these.** It runs each stage
+independently so that every stage reports its own exit code, rather than
+short-circuiting the sequence at the first non-zero exit. An earlier revision of
+this document described it as stop-at-first-failure; that was not an accurate
+description of the official run and is corrected here. A later stage's absence
+from the receipt therefore means *not yet reported*, not *skipped because an
+earlier stage failed*.
+
+Separately, and not the same thing: the browser lane itself stops at its first
+failing assertion, which is why the historical `0ba6eae` run reached nothing
+past `operator-journey-e1.spec.ts:35`.
+
+No duplicate run was performed here.
+
+## Official receipt — operator journey PASSED at `f7d8fc0`
+
+The single official run was executed on the coordinator runner against immutable
+`main` `f7d8fc058dc4516b4cbf852c7bb74da65fc3e734`:
+
+| Lane | Result |
+|---|---|
+| `npm run test:browser:operator-journey` | **1/1 passed, 25.1s**, `STAGE_EXIT browser=0` |
+| zero-effect verifier | `forbiddenRows=0`, `r2Objects=0`, `r2Multipart=0` |
+
+Because the lane ran to completion rather than stopping at a failing assertion,
+this receipt covers every assertion in **that one spec** — the 320px reflow that
+previously failed, the 200% text resize, the visible-focus walk, the three
+live-region announcements, and journey steps 1–6.
+
+**It covers one lane of three.** The base onboarding lane and the
+person-discovery C4 lane are queued and have *not* run at this revision; nothing
+here says or implies that all browser lanes passed.
+
+**This is not full acceptance.** Canonical is still live on the coordinator
+runner as `exec81223`; lint is pending; the base onboarding lane and the
+person-discovery C4 lane are queued sequentially after it. Nothing about those
+is claimed here.
+
+## Remaining acceptance coverage — precise, not blanket
+
+| Criterion | Coverage | Last actually proven |
+|---|---|---|
+| 320px reflow | asserted | **`f7d8fc0` — passed** |
+| 200% text resize | asserted | **`f7d8fc0` — passed** |
+| visible focus | asserted | **`f7d8fc0` — passed** |
+| screen-reader announcements | asserted | **`f7d8fc0` — passed** |
+| journey steps 1–6 (CSRF expiry, lost response, 200/409 race, durability) | asserted | **`f7d8fc0` — passed** |
+| onboarding reflow parity + seed absence | asserted | `bff326f6` — **re-run queued**, not yet proven at `f7d8fc0` |
+| person-discovery C4 lane | asserted | `bff326f6` — **re-run queued**, not yet proven at `f7d8fc0` |
+| keyboard navigation, labels, contrast, 760/480/360/1280 | asserted | E1 portion at `f7d8fc0`; onboarding and C4 portions queued |
+| canonical Node suite | — | **live as `exec81223`, no result yet** |
+| lint | — | **pending** |
+| research run stage | **not written** | service not composed; runtime held separately |
+| local handoff stage | **in progress** | dependencies now exist — see below |
+
+## Next browser-owned slice: the guarded fictional CSV preview
+
+Read from `claude/issue11-csv-handoff-contract` at `de93e93` (PR #67), read-only.
+The contract a browser journey must pin, once the UI trigger exists:
+
+- `POST /api/local-demo/crm-handoff-preview`, no request body, no
+  caller-supplied rows; 404 unless local-demo, same-origin, and owner-admitted.
+- `decision.admitted` is `[]` and `admittedRowCount` is 0. This is the real
+  seam: `projectCrmHandoff` consults `recheckForCrmExport`, which never returns
+  an unblocked recheck, so every candidate is refused. A journey must assert the
+  empty admission, not merely that a preview rendered.
+- `preview.previewRowsAreFictionalAndUnadmitted` is `true`, and the preview is
+  visibly separated from the decision in the UI — the rows shown were refused.
+- `exportAuthorized`, `deliveryAuthorized`, `downloadAuthorized`,
+  `persistenceAuthorized` and `providerInvocationAuthorized` are all `false`.
+- No download is offered: no `Content-Disposition`, no `blob:`/`data:` anchor,
+  no `download` attribute anywhere on the screen, and `cache-control: no-store`.
+- Nothing persists: a runtime restart leaves no artifact and no row.
+
+**This slice is not startable yet.** The trigger belongs to the issue-8 UI owner
+and does not exist at `de93e93`; a browser journey needs a supported screen to
+drive, and seeding past a missing control is what criterion 2 forbids. When the
+trigger lands, the work goes on a fresh isolated branch, touches browser specs
+and fixtures only, and changes no source. The research runtime stays held
+separately and is not part of this slice.
 
 
 ## Boundary
