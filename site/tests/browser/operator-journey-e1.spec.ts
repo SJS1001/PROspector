@@ -106,6 +106,80 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   expect(external).toEqual([]);
 });
 
+/** Issue #11's local-handoff stage, driven through the supported screen rather
+ * than the endpoint. The seam under test is the refusal: `projectCrmHandoff`
+ * consults `recheckForCrmExport`, which never returns an unblocked recheck, so
+ * no row is ever admitted. A preview that merely rendered would prove nothing —
+ * this asserts the empty admission, the unadmitted framing, and the absence of
+ * every export affordance. */
+test("the fictional CRM handoff preview admits nothing, offers no download, and persists nothing", async ({ page, context }) => {
+  const external: string[] = [];
+  await denyExternal(context, external);
+
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
+  });
+
+  await page.goto("/local-demo");
+  const section = page.getByRole("region", { name: "CRM handoff CSV preview" });
+  await expect(section).toBeVisible();
+  // The screen must say what this is before it is run, not only afterwards.
+  await expect(section.getByText("FICTIONAL · NOT APPROVED FOR EXPORT")).toBeVisible();
+
+  const response = page.waitForResponse((entry) =>
+    entry.request().method() === "POST" && entry.url().includes("/api/local-demo/crm-handoff-preview"));
+  await section.getByRole("button", { name: "Preview fictional CSV rows" }).click();
+  const preview = await response;
+
+  expect(preview.status()).toBe(200);
+  const headers = preview.headers();
+  expect(headers["cache-control"]).toBe("no-store");
+  // A handoff that offered a file would be an export. It must not even be shaped
+  // like one.
+  expect(headers["content-disposition"]).toBeUndefined();
+
+  // The real decision. Zero rows are admitted, and the refused count accounts
+  // for every demo row — asserted from the screen, not from the payload.
+  const summary = section.getByText(/demo rows would be admitted for a real export/);
+  await expect(summary).toBeVisible();
+  const counts = (await summary.innerText()).replace(/\s+/gu, " ");
+  const parsed = counts.match(/(\d+) of (\d+) demo rows would be admitted for a real export; (\d+) are refused/u);
+  expect(parsed, `unexpected admission summary: ${counts}`).not.toBeNull();
+  const [, admitted, total, refused] = parsed!;
+  expect(admitted, counts).toBe("0");
+  expect(refused, counts).toBe(total);
+  expect(Number(total)).toBeGreaterThan(0);
+  await expect(section.getByText("Fictional and unapproved.")).toBeVisible();
+
+  // The bytes shown are the fictional rows, and they are visibly the preview
+  // rather than an approved export.
+  await expect(section.getByLabel("Fictional CSV preview bytes")).toContainText("fictional.buyer@example.test");
+
+  // No export affordance anywhere on the screen: nothing to save, nothing to
+  // open, nothing that would leave the browser.
+  await expect(page.locator('a[download], [download], a[href^="blob:"], a[href^="data:"]')).toHaveCount(0);
+  expect(posts).toEqual(["/api/local-demo/crm-handoff-preview"]);
+
+  await assertNoOverlay(page);
+  await assertAxe(page);
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect(section).toBeVisible();
+  const reflow = await measureReflow(page);
+  expect(reflow.scrollWidth, `320px: ${JSON.stringify(reflow)}`).toBeLessThanOrEqual(reflow.clientWidth + 1);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // Nothing was persisted: after a runtime restart the screen is back to its
+  // pre-run state and no preview survives. The lane's zero-effect verifier
+  // proves the same at the database and object-store level.
+  await stopServer(server); server = await startServer();
+  await page.goto("/local-demo");
+  await expect(page.getByRole("region", { name: "CRM handoff CSV preview" })).toBeVisible();
+  await expect(page.getByText("Fictional and unapproved.")).toHaveCount(0);
+  await expect(page.getByLabel("Fictional CSV preview bytes")).toHaveCount(0);
+  expect(external).toEqual([]);
+});
+
 /** The queue is Profile-scoped, so the journey selects the ready Profile the
  * way an operator would before any prospect is listed. */
 async function selectProfile(target: Page) {
