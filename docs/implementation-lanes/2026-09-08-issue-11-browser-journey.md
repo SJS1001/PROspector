@@ -129,17 +129,53 @@ Run on this branch at base `d051fcc`. True exits only.
 The full Node suite (`npm test`, 133 suites, 917 pass, 0 fail, exit 0) was run
 on the immediately preceding head and is recorded in the E1 lane document.
 
-**The new assertions are not executed here.** This container cannot obtain the
-pinned Chromium 1243 — the supported install is refused by network policy, and a
-downgrade, an `executablePath` override, or a shim are all forbidden — so the
-lane must be run by the attributed executor before this branch merges. No
-browser claim is made from this container, and no browser download was retried
-or provisioned.
+**The new assertions were executed, and one of them failed on a real defect.**
+The attributed executor installed the official Chromium 1243 in the retained
+isolated container `prospector-pr62-validation` and ran the lane at exact head
+`0ba6eaeb5f79f84bb92329e6268f2e50056ffbff`:
 
-If the 320px or 200%-text assertion fails, the defect is in
-`site/app/prospecting/prospecting-workspace.tsx`, whose narrowest breakpoint is
-480px. That file is outside this lane's ownership: the failure would be reported
-to the coordinator rather than fixed here.
+```
+tests/browser/operator-journey-e1.spec.ts:35
+  clientWidth 320, scrollWidth 469, expected <= 321
+  offender: .assessment.outcome-passed > HEADER / P / DL, right 469.125,
+            under .prospecting-panel.prospect-workspace
+```
+
+`npm test` and lint were not reached: the lane fails fast. Screenshot and error
+context are retained at
+`/tmp/prospector/site/.local/browser-acceptance-failures-e1-zGvjFH/operator-journey-e1-a-qual-9a184-hen-one-tab-wins-the-review/`.
+
+**This is a source defect, not a test defect, and the assertion stays as
+written.** The browser-environment blocker recorded earlier is resolved and
+withdrawn: the pinned browser was obtained and the journey did run.
+
+### Root cause, for the source owner
+
+Two facts in `site/app/prospecting/prospecting-workspace.tsx` combine:
+
+1. Its `min-width:0` rule lists `.prospecting>*`, `.prospecting-panel>*` and
+   `.review-queue article>*` — but **not** `.assessment>*`. `.assessment` is a
+   grid container, so its children keep `min-width:auto` and can push it past
+   the viewport.
+2. `overflow-wrap:anywhere` is applied to `.prospecting code`, `small`, `dd`,
+   `blockquote` and `.scope-path` — but **not** to the assessment card's
+   paragraph. `prospect-workspace.tsx:351` renders
+   `Candidate {value(item.candidate_id)} · configuration {value(item.configuration_digest)}`,
+   and `value()` returns a bare string, not a `<code>`. A 64-character
+   configuration digest therefore has no break opportunity, giving that grid a
+   min-content width of ~469px.
+
+Both real and synthetic digests are 64 hex characters, so this reproduces
+outside the fixture. The minimal repair is to extend the existing `min-width:0`
+list to `.assessment>*` and give the assessment paragraph the same
+`overflow-wrap:anywhere` the rest of the task already uses — no new breakpoint
+required.
+
+That file is outside this lane's ownership. The source-only fix is assigned to
+the incumbent issue-8 UI owner on a separate branch; this lane makes no
+competing edit and awaits the fixed combined revision for an exact-head rerun.
+**No claim is made that the current head passes.**
+
 
 ## Boundary
 
