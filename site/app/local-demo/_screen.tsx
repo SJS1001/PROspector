@@ -34,7 +34,16 @@ type CrmPreviewResult = {
   text: string;
 };
 
-function normalizeCrmPreview(value: unknown): CrmPreviewResult | null {
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** This UI is authorized only for a zero-admission fictional preview: the
+ * live eligibility check must refuse every demo row. A response claiming any
+ * admission -- a nonzero count or a nonempty `admitted` array, even if the
+ * other agrees -- is rejected rather than rendered, so a malformed or
+ * unexpectedly permissive response can never display a real-export claim. */
+export function normalizeCrmPreview(value: unknown): CrmPreviewResult | null {
   if (!value || typeof value !== "object") return null;
   const body = value as Record<string, unknown>;
   if (body.kind !== "crm_handoff_local_demo_preview" || body.fictional !== true) return null;
@@ -46,8 +55,10 @@ function normalizeCrmPreview(value: unknown): CrmPreviewResult | null {
   const p = preview as Record<string, unknown>;
   if (p.previewRowsAreFictionalAndUnadmitted !== true) return null;
   if (
-    typeof d.admittedRowCount !== "number" ||
-    typeof d.refusedCount !== "number" ||
+    d.admittedRowCount !== 0 ||
+    !Array.isArray(d.admitted) ||
+    d.admitted.length !== 0 ||
+    !nonNegativeSafeInteger(d.refusedCount) ||
     typeof p.schemaVersion !== "string" ||
     typeof p.encoding !== "string" ||
     typeof p.byteLength !== "number" ||
