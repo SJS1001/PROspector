@@ -83,6 +83,38 @@ export async function applyMigrations(database, filenames = MIGRATION_FILENAMES)
   await applyMigrationFiles(database, filenames);
 }
 
+/**
+ * Re-runs the chain's backfill statements against an already-migrated database,
+ * bypassing the applied-file memo so the re-execution is real. Schema
+ * statements are forward-only and journal tracked -- replaying those destroys a
+ * live database -- but the backfills carry their own guards, so their
+ * idempotency is an invariant worth proving. A statement whose target table no
+ * longer exists (a rebuild's staging table) is skipped rather than replayed.
+ * A refusal is reported, not swallowed: a later immutability trigger rejecting
+ * a replayed write is itself part of the contract.
+ */
+export async function reapplyMigrationBackfills(database, filenames = PHASE2_MIGRATION_FILENAMES) {
+  let reapplied = 0;
+  const refused = [];
+  for (const filename of filenames) {
+    const sql = await readFile(new URL(`../../drizzle/${filename}`, import.meta.url), "utf8");
+    for (const raw of sql.split("--> statement-breakpoint")) {
+      const statement = raw.trim();
+      const target = /^(?:INSERT\s+INTO|UPDATE)\s+`([A-Za-z0-9_]+)`/iu.exec(statement);
+      if (!target) continue;
+      const exists = await database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").bind(target[1]).first();
+      if (!exists) continue;
+      try {
+        await database.prepare(statement).run();
+        reapplied += 1;
+      } catch (error) {
+        refused.push({ table: target[1], message: String(error.message) });
+      }
+    }
+  }
+  return { reapplied, refused };
+}
+
 export async function applyPhase2Migrations(database, filenames = PHASE2_MIGRATION_FILENAMES) {
   assert.deepEqual(filenames, PHASE2_MIGRATION_FILENAMES, "Phase 2 fixtures require the exact 0000-0004 migration chain");
   await applyMigrationFiles(database, filenames);
