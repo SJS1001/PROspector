@@ -5,7 +5,13 @@ import {
   type CapabilityId,
   type ObjectStorageProof,
 } from "./capabilities";
-import { csrfTokenFromRequest, CsrfTokenError, withCsrfCookie } from "./csrf";
+import {
+  csrfCookieName,
+  csrfTokenFromRequest,
+  CsrfTokenError,
+  withCsrfCookie,
+  type CsrfCookieMode,
+} from "./csrf";
 import type { InterviewPrincipal } from "./interview";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
@@ -29,6 +35,7 @@ export type CapabilityHandlerDependencies = {
     objectStorage: boolean;
     secrets: boolean;
   };
+  csrfCookieMode?: CsrfCookieMode;
   issueCsrfToken(principalSubject: string): Promise<string>;
   consumeCsrfToken(principalSubject: string, token: string): Promise<void>;
   runStorageProof(
@@ -73,6 +80,7 @@ export async function handleCapabilitiesGet(
     return withCsrfCookie(
       response,
       await dependencies.issueCsrfToken(principal.subject),
+      dependencies.csrfCookieMode,
     );
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
@@ -95,7 +103,7 @@ export async function handleCapabilityProbePost(
 
     await dependencies.consumeCsrfToken(
       principal.subject,
-      csrfTokenFromRequest(request),
+      csrfTokenFromRequest(request, csrfCookieName(dependencies.csrfCookieMode)),
     );
     const body = await readBoundedJson(request, 256);
     if (Object.keys(body).length !== 0) {
@@ -123,6 +131,7 @@ export async function handleCapabilityProbePost(
     return withCsrfCookie(
       response,
       await dependencies.issueCsrfToken(principal.subject),
+      dependencies.csrfCookieMode,
     );
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
