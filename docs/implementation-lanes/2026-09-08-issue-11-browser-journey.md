@@ -46,7 +46,7 @@ not against intent.
 | prospect review | `tests/browser/operator-journey-e1.spec.ts` | met |
 | fictional person/contact verification | `tests/browser/person-discovery-c4.spec.ts` | met |
 | exact approvals | `tests/browser/operator-journey-e1.spec.ts` | met |
-| local handoff | — | **blocked, see Unmet prerequisites** |
+| local handoff | `tests/browser/operator-journey-e1.spec.ts` | written and merged (PR #71), **never executed** |
 
 ### 2. Supported screens/services, no direct authority insertion
 
@@ -105,8 +105,15 @@ screens because the services are not composed into any route. Verified at
 
 | Stage | Module | Runtime importers in `app/`, `domain/`, `worker/`, `adapters/` |
 |---|---|---|
-| fake research run | `site/domain/ports/retrieval.ts` | none |
-| local handoff | `site/domain/crm-csv-codec.ts` | none |
+| fake research run | `site/domain/ports/retrieval.ts` | **still none** |
+| local handoff | `site/domain/crm-csv-codec.ts` | ~~none~~ → now imported by `domain/crm-handoff-projection.ts` and the dev-gated `app/api/local-demo/crm-handoff-preview/_handler.ts` (PR #67) |
+
+**Update, verified at `main` `8d5f453`:** the handoff half of this table is
+resolved and the research half is not. `crm-csv-codec.ts` now has runtime
+importers — note they are a domain module and a *dev-gated* local-demo handler,
+not a production route, so real admission stays zero. `ports/retrieval.ts` still
+has no importer anywhere in `app/`, `domain/`, `worker/` or `adapters/`, so the
+research stage still has no seam to drive.
 
 Composing either would be a runtime change outside this lane's file ownership,
 and inserting the resulting state directly is what criterion 2 forbids. **Issue
