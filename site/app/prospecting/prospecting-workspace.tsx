@@ -347,6 +347,9 @@ function ProfileSelector({
 
 const CSS = `
 .prospecting{display:grid;gap:16px;font-size:12px;line-height:1.55}
+/* Grid items default to min-width:auto, so one wide descendant would otherwise
+   stretch the whole task past a narrow viewport. */
+.prospecting>*,.prospecting-panel>*,.review-queue article>*{min-width:0}
 .prospecting-panel,.workspace-notice{display:grid;gap:12px;padding:24px;border:1px solid var(--line);border-radius:9px;background:var(--white)}
 .prospecting button,.prospecting a,.prospecting summary,.prospecting input,.prospecting select{min-height:44px}
 .prospecting button,.prospecting input,.prospecting select{font:inherit}
@@ -388,5 +391,11 @@ const CSS = `
  .evidence-cards article,.readiness li,.prospecting dl{grid-template-columns:1fr}
  .prospecting dd{margin-bottom:8px}
  .manual-run-confirmation label{grid-template-columns:44px 1fr}
+}
+@media(max-width:480px){
+ .prospecting-panel,.workspace-notice{padding:12px}
+ .readiness li,.authority-card,.active-configuration,.manual-run-confirmation,.run-ledger>li,.evidence-cards article,.assessment,.review-queue article,.frozen-authority{padding:12px}
+ .readiness li span,.run-ledger header,.evidence-cards header,.assessment header,.review-queue article>header{display:grid;gap:4px}
+ .prospecting dl{gap:2px}
 }
 `;

@@ -87,6 +87,20 @@ test("the production build does not emit the local-demo routes", async () => {
   ], "a local-demo route module reached the deployed artifact");
 });
 
+test("the production build does not emit the E1 operator-journey fixture", async () => {
+  const files = await deployedTextFiles();
+  // domain/operator-journey-e1-acceptance.ts is reachable only from the
+  // dev-gated seed route, and its `operatorJourneyE1Enabled` guard is a
+  // cross-function check the bundler does not constant-propagate, so the
+  // fixture literals would survive if the route ever reached the artifact.
+  assertAbsent(files, [
+    { pattern: "synthetic-zero-network-e1-v1", label: "OPERATOR_JOURNEY_E1_BINDING_VALUE" },
+    { pattern: "e1-qualified-prospect", label: "OPERATOR_JOURNEY_E1_PROSPECT_ID" },
+    { pattern: "Synthetic Terminal Operator", label: "domain/operator-journey-e1-acceptance.ts synthetic organization" },
+    { pattern: "Synthetic Operations Site", label: "domain/operator-journey-e1-acceptance.ts synthetic target" },
+  ], "an E1 operator-journey fixture reached the deployed artifact");
+});
+
 test("the production build does not emit the C4 synthetic acceptance fixtures", async () => {
   const files = await deployedTextFiles();
   // domain/person-discovery-c4-acceptance.ts is reachable from the local-demo

@@ -72,6 +72,10 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
   await page.reload();
   await expect(page.getByRole("heading", { name: "Set up your company and first product" })).toBeVisible();
 
+  // A blank workspace must carry no seeded tenant. The legacy Mining fixture
+  // named a specific Company and Market Play, so their absence here is what
+  // proves this operator started from nothing rather than from that seed.
+  await expect(page.getByText(/Digitalrain|ONE for Mining/)).toHaveCount(0);
   await page.getByLabel("Company name").fill("Northstar");
   await page.getByLabel("First product name").fill("Harbor Pulse");
   await page.getByRole("button", { name: "Create private workspace" }).click();
@@ -131,9 +135,40 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
   await page.getByRole("button", { name: /^Confirmed \(/ }).click();
   await expect(page.getByRole("heading", { name: "fit" })).toBeVisible();
   await expect(page.getByText("Confirmed fit for synthetic bulk terminal operators")).toBeVisible();
+  // The owner-entered names survived the restart and no seeded tenant appeared
+  // alongside them at any point in the journey.
+  await expect(page.getByText(/Digitalrain|ONE for Mining/)).toHaveCount(0);
   await assertAxe(page);
   expect(deniedRequests).toEqual([]);
+
+  // Reflow parity with the person-discovery lane: the operator shell and the
+  // Knowledge workspace must both survive the two breakpoints the stylesheet
+  // declares without a horizontal scrollbar, and keyboard focus must still be
+  // reachable at the narrowest one.
+  for (const width of [760, 480]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("heading", { name: "Consensus knowledge" })).toBeVisible();
+    const reflow = await measureReflow(page);
+    expect(reflow.scrollWidth, `${width}px: ${JSON.stringify(reflow)}`).toBeLessThanOrEqual(reflow.clientWidth + 1);
+    await assertAxe(page);
+  }
+  await page.keyboard.press("Tab");
+  expect(await page.evaluate(() => document.activeElement?.tagName !== "BODY")).toBe(true);
+  expect(deniedRequests).toEqual([]);
 });
+
+/** The widest right edge in the document, so an overflowing control is named
+ * rather than reported only as a scrollbar. */
+async function measureReflow(page: Page) {
+  return page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    offenders: [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((element) => element.getBoundingClientRect().right > document.documentElement.clientWidth + 1)
+      .slice(0, 8)
+      .map((element) => ({ tag: element.tagName, className: element.className, right: element.getBoundingClientRect().right })),
+  }));
+}
 
 async function assertAxe(page: Page) {
   const results = await new AxeBuilder({ page }).analyze();

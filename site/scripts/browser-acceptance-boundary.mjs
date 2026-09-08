@@ -55,7 +55,12 @@ export function browserAcceptanceCloudflareOptions({ projectRoot, runtimeRoot, s
 }
 
 export function browserAcceptanceWorkerConfig({ d1, r2 }, additionalBindings = {}) {
-  const permittedAdditionalBindings = { PROSPECTOR_PERSON_DISCOVERY_C4: "synthetic-zero-network-c4-v1" };
+  // A closed allowlist: a lane may only add a binding named here, with exactly
+  // this value. Anything else fails the run rather than reaching the runtime.
+  const permittedAdditionalBindings = {
+    PROSPECTOR_PERSON_DISCOVERY_C4: "synthetic-zero-network-c4-v1",
+    PROSPECTOR_OPERATOR_JOURNEY_E1: "synthetic-zero-network-e1-v1",
+  };
   for (const [name, value] of Object.entries(additionalBindings)) {
     if (permittedAdditionalBindings[name] !== value) {
       throw new Error("invalid additional browser acceptance binding");
