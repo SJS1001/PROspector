@@ -73,10 +73,19 @@ test("generic onboarding is fenced to a resolver-proven local demo and exact loo
   const admission=await readFile(new URL("../app/owner-admission.ts",import.meta.url),"utf8");
   assert.match(admission,/admitPilotOwner\(\s*await runtimeIdentity/);
   const identity=await readFile(new URL("../app/runtime-identity.ts",import.meta.url),"utf8");
-  assert.match(identity,/TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
-  assert.match(identity,/bindings\.LOCAL_DEMO !== "1"/);
+  // The gate is written in positive form so the whole demo branch, and the demo
+  // identity constant with it, folds out of a production build. Assert each
+  // conjunct that must hold for the demo identity to be issued, plus the default
+  // deny that makes a positive gate safe: without the trailing `return null` an
+  // unmatched request would fall through instead of being refused.
+  assert.match(identity,/bindings\.TRUSTED_IDENTITY_PROVIDER === "local-demo"/);
+  assert.match(identity,/bindings\.LOCAL_DEMO === "1"/);
+  assert.match(identity,/accessMode === "disabled"/);
   assert.match(identity,/import\.meta\.env\.DEV/);
   assert.match(identity,/isLoopbackHostname\(host\)/);
+  assert.match(identity,/return LOCAL_DEMO_IDENTITY;\s*\}\s*return null;/);
+  assert.doesNotMatch(identity,/TRUSTED_IDENTITY_PROVIDER !== "local-demo"/,
+    "the negative form left the demo identity in the production bundle; it must not come back");
 });
 
 test("knowledge mutation routing cannot drop an exact Explore selection before answer or confirmation", async () => {
