@@ -4,8 +4,12 @@
 **Repository:** `https://github.com/SJS1001/PROspector.git`
 **Issue:** [#11](https://github.com/SJS1001/PROspector/issues/11), the local-handoff stage
 **Lane branch:** `claude/issue-11-crm-preview-journey`
-**Status:** **draft — not for merge until both dependencies land and the combined
-tree is validated at its exact head.**
+**Status:** **merged to `main` as PR #71 (`eebf1d1`) on 2026-09-08 at 17:41Z, and
+the journey has still never been executed anywhere.** The draft banner this
+document carried — "not for merge until both dependencies land and the combined
+tree is validated" — was overtaken by events: both dependencies did land (PR #67
+and PR #69, merged minutes later), but the exact-head validation it asked for has
+not happened. Nothing here is a pass claim.
 
 ## Isolated combined dependency checkout
 
