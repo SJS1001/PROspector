@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Miniflare } from "miniflare";
 import { createServer } from "vite";
+import { MIGRATION_FILENAMES } from "./helpers/d1.mjs";
 
 const SUBJECT_PEPPER = "test-only-handler-pepper-with-at-least-32-bytes";
 const ORIGIN = "https://prospector.example";
@@ -37,18 +38,31 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
       email: "owner@example.com",
       displayName: "Owner",
     });
+    // The explicit local-demo example path: bootstrap only runs with this flag
+    // set, matching the runtime's isLocalDemoRequest gate on advance_local_interview.
+    const ownerLocalDemo = dependencies(database, {
+      email: "owner@example.com",
+      displayName: "Owner",
+    }, { enableLocalDemoProgression: true });
     let result = await stateResult(await handleInterviewGet(owner));
     let state = result.state;
     let csrfCookie = result.csrfCookie;
     assert.equal(state.status, "uninitialized");
     assert.equal("csrfToken" in state, false);
 
-    assert.equal((await handleInterviewPost(mutation("bootstrap", ""), owner)).status, 403);
+    assert.equal((await handleInterviewPost(mutation("bootstrap", ""), ownerLocalDemo)).status, 403);
     const foreign = mutation("bootstrap", csrfCookie, { origin: "https://attacker.example" });
-    assert.equal((await handleInterviewPost(foreign, owner)).status, 403);
+    assert.equal((await handleInterviewPost(foreign, ownerLocalDemo)).status, 403);
+    assert.equal(
+      (await handleInterviewPost(mutation("bootstrap", csrfCookie), owner)).status,
+      404,
+      "bootstrap must fail closed outside the explicit local-demo path even for the real owner",
+    );
+    // The prior call consumed the single-use CSRF token; mint a fresh one.
+    csrfCookie = (await stateResult(await handleInterviewGet(owner))).csrfCookie;
 
     const bootstrapToken = csrfCookie;
-    result = await stateResult(await handleInterviewPost(mutation("bootstrap", bootstrapToken), owner));
+    result = await stateResult(await handleInterviewPost(mutation("bootstrap", bootstrapToken), ownerLocalDemo));
     state = result.state;
     csrfCookie = result.csrfCookie;
     assert.equal(state.status, "active");
@@ -107,12 +121,13 @@ test("interview handler trusts injected identity and enforces one-time owner-bou
   }
 });
 
-function dependencies(database, identity) {
+function dependencies(database, identity, overrides = {}) {
   return {
     database,
     subjectPepper: SUBJECT_PEPPER,
     pilotOwnerEmail: "owner@example.com",
     getIdentity: async () => identity,
+    ...overrides,
   };
 }
 
@@ -181,12 +196,7 @@ async function rowCounts(database) {
 }
 
 async function applyMigrations(database) {
-  for (const filename of [
-    "0000_jittery_meteorite.sql",
-    "0001_true_spencer_smythe.sql",
-    "0002_eager_supreme_intelligence.sql",
-    "0003_acoustic_magik.sql",
-  ]) {
+  for (const filename of MIGRATION_FILENAMES) {
     const sql = await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
       const trimmed = statement.trim();
@@ -194,6 +204,70 @@ async function applyMigrations(database) {
     }
   }
 }
+
+test("bootstrap fails closed for a real authenticated owner outside the explicit local-demo path", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  const miniflare = new Miniflare({
+    modules: true,
+    script: "export default { fetch() { return new Response('ok') } }",
+    d1Databases: { DB: "prospector-handler-bootstrap-fence-test" },
+  });
+
+  try {
+    const database = await miniflare.getD1Database("DB");
+    await applyMigrations(database);
+    const { handleInterviewGet, handleInterviewPost } = await vite.ssrLoadModule(
+      new URL("../domain/interview-handler.ts", import.meta.url).pathname,
+    );
+    const owner = dependencies(database, {
+      email: "owner@example.com",
+      displayName: "Owner",
+    }, { enableLocalDemoProgression: false });
+
+    assert.equal(
+      (await handleInterviewGet(owner)).status,
+      200,
+      "GET must still resolve for the owner outside the local-demo path",
+    );
+    const uninitialized = await stateResult(await handleInterviewGet(owner));
+    assert.equal(uninitialized.state.status, "uninitialized");
+
+    const before = await rowCounts(database);
+    assert.deepEqual(
+      await denied(
+        await handleInterviewPost(
+          mutation("bootstrap", uninitialized.csrfCookie),
+          owner,
+        ),
+      ),
+      { error: "private_workspace_unavailable" },
+    );
+    assert.deepEqual(
+      await rowCounts(database),
+      before,
+      "a denied bootstrap outside the local-demo path must seed no Digitalrain workspace row",
+    );
+
+    const stillUninitialized = await stateResult(await handleInterviewGet(owner));
+    assert.equal(stillUninitialized.state.status, "uninitialized");
+
+    const demoOwner = dependencies(database, {
+      email: "owner@example.com",
+      displayName: "Owner",
+    }, { enableLocalDemoProgression: true });
+    const enabled = await stateResult(
+      await handleInterviewPost(mutation("bootstrap", stillUninitialized.csrfCookie), demoOwner),
+    );
+    assert.equal(
+      enabled.state.status,
+      "active",
+      "the explicit local-demo example path must still be able to bootstrap",
+    );
+  } finally {
+    await vite.close();
+    await miniflare.dispose();
+  }
+});
 
 test("interview handler retains owner-first neutral denials while exposing the generalized actions", async () => {
   const source = await readFile(
