@@ -19,7 +19,12 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   const source = await readFile(resolve(root, "app/runtime-identity.ts"), "utf8");
   assert.match(source, /import\.meta\.env\.DEV/);
   assert.match(source, /TRUSTED_IDENTITY_PROVIDER !== "local-demo"/);
-  assert.match(source, /local-owner@prospector\.invalid/);
+  // The demo address lives in its own module so a production build can replace
+  // it outright; runtime-identity must reach it only through that seam.
+  assert.match(source, /return LOCAL_DEMO_IDENTITY;/);
+  assert.doesNotMatch(source, /local-owner@prospector\.invalid/);
+  const demoIdentity = await readFile(resolve(root, "app/local-demo-identity.ts"), "utf8");
+  assert.match(demoIdentity, /local-owner@prospector\.invalid/);
   assert.match(source, /isLoopbackHostname/);
   assert.match(source, /new URL\(origin\)\.origin !== new URL\(request\.url\)\.origin/);
   assert.doesNotMatch(source, /process\.env\.LOCAL_DEMO/);

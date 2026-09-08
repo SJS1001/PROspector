@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
+import { excludeLocalDemoFromProduction } from "./build/local-demo-exclusion-vite-plugin";
 import { sites } from "./build/sites-vite-plugin";
 import { browserAcceptanceCloudflareOptions } from "./scripts/browser-acceptance-boundary.mjs";
 
@@ -80,6 +81,7 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       sites(),
+      excludeLocalDemoFromProduction(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         ...(browserAcceptance

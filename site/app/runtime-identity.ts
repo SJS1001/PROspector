@@ -1,12 +1,12 @@
 import { headers } from "next/headers";
 import { getChatGPTUser } from "./chatgpt-auth";
+import { LOCAL_DEMO_IDENTITY } from "./local-demo-identity";
 import {
   cloudflareAccessMode,
   verifyCloudflareAccessIdentity,
   type CloudflareAccessConfig,
 } from "./cloudflare-access";
 
-const DEMO = { email: "local-owner@prospector.invalid", displayName: "Local Demo Owner" } as const;
 
 export type RuntimeIdentityBindings = {
   TRUSTED_IDENTITY_PROVIDER?: unknown;
@@ -68,7 +68,7 @@ export async function resolveRuntimeIdentity(
       return null;
     }
   }
-  return DEMO;
+  return LOCAL_DEMO_IDENTITY;
 }
 
 export function isLocalDemoRequest(
