@@ -156,11 +156,52 @@ candidate provider's own public documentation — see the revised item 4 above.
   requested synthetic-harness deliverable already exists, is already merged
   to `main`, and re-implementing it would duplicate an existing writer's
   work rather than extend it.
-- Ran focused validation only: `npm ci` and
-  `node --test tests/prospect-quality-evaluation.test.mjs` (15/15 pass). Did
-  not run the full canonical `npm test`/`npm run lint` suite or any browser
-  acceptance suite, per this lane's "focused validation, no redundant
-  broad/heavy suite" boundary.
+- Initially ran focused validation only: `npm ci` and
+  `node --test tests/prospect-quality-evaluation.test.mjs` (15/15 pass),
+  deliberately skipping the full canonical `npm test`/`npm run lint` suite
+  per this lane's original "focused validation, no redundant broad/heavy
+  suite" boundary. A later coordinator correction (below) established that
+  the corrected capacity authority for this isolated cloud container makes
+  that skip unjustified for a durable completion record, so the canonical
+  suite was run afterward — see "Canonical validation record" below.
 - No external provider, account, credential, real identity, real data,
   outbound call, export, or hosted action was used, enabled, or requested.
   The retired Sites project was not accessed.
+
+## Canonical validation record — 2026-09-08
+
+A post-merge coordinator follow-up on PR #54 correctly identified that the
+"focused validation only" language above was stale once the corrected
+capacity authority for this isolated cloud container made the full canonical
+suite available, and required it be run and the exact tested revision
+recorded rather than continuing to cite the earlier focused-only run.
+
+**First attempt was contaminated and is not cited as evidence.** An `npm
+test` run was started in this session's primary working tree on branch
+`claude/issue-7-canonical-validation` (pinned at `ee55566`). While it was
+still executing, an unrelated task in the same session checked that same
+working tree out to a different branch (`claude/issue-7-provider-public-
+research`, landing at `fcf5b9e`), which changed 7 tracked `site/` files —
+including `domain/interview-handler.ts` and `domain/morning-brief-read.ts` —
+mid-run. That run finished with exit code 0 and 927 passing subtests logged,
+but the tree it ran against was not a single fixed revision throughout, so
+those numbers are **not cited as canonical evidence for any revision**.
+
+**Citable canonical run.** To avoid repeating that failure mode, canonical
+validation was re-run in a dedicated `git worktree`
+(`/tmp/PROspector-worktrees/canonical-validation`) checked out **detached**
+— with no branch to switch under it — at one fixed revision:
+
+- **Tested revision:** `a5f508771c1a02f5a5a63a782260f2d04f7d5493` (`origin/main` at the time this worktree was created; a merge of PR #69)
+- `npm ci` — clean install, 514 packages
+- `npm test` (canonical script: `npm run build && node scripts/run-test-suite.mjs`) — **exit code 0; 952 passing subtests logged across the full suite; 0 failing (`not ok`) subtests**
+- `npm run lint` (`eslint . --ignore-pattern dist --ignore-pattern .next`) — **exit code 0; no output, no findings**
+- The worktree was confirmed still on the same detached commit and clean (`git status` → nothing to commit) after both runs completed, so nothing outside the intended files touched this result while it ran.
+
+This canonical run supersedes the earlier focused-only run as this lane's
+validation evidence. It re-confirms `site/domain/prospect-quality-evaluation.ts`
+and its test suite pass as part of the full canonical suite, alongside every
+other test and lint check in the repository at that revision — it does not
+change any conclusion in this document about issue #7's remaining
+owner-labelled/live-trial prerequisites, which are unaffected by test/lint
+results and remain open.
