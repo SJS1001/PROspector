@@ -53,8 +53,23 @@ export function nextProfileWeekdaySlot(profileId: string, after: number, localTi
   };
 }
 
+/**
+ * The 24-hour overlap window every run's evidence is bounded by.  This is the
+ * same contract `source-policy.ts` enforces at validation time, so it validates
+ * identically here: an unusable window must fail closed at intent creation
+ * rather than reach a durable run row.
+ *
+ * A watermark at or after the upper bound inverts the window.  That is
+ * reachable without any corruption — a manual run completing at `now` advances
+ * the schedule watermark past a slot that is still due, so the next
+ * reconciliation would otherwise persist a run whose evidence can never
+ * validate.  A non-integer watermark is worse than useless: it silently
+ * degrades to an unbounded lower bound, widening the window to the
+ * first-run-with-no-watermark semantics instead of failing.
+ */
 export function profileSourceWindow(watermark: number | null, upperInclusive: number) {
-  if (!Number.isSafeInteger(upperInclusive)) throw new ProspectingScheduleConflictError("Invalid prospecting window");
+  if (!Number.isSafeInteger(upperInclusive) || upperInclusive <= 0) throw new ProspectingScheduleConflictError("Invalid prospecting window");
+  if (watermark !== null && (!Number.isSafeInteger(watermark) || watermark >= upperInclusive)) throw new ProspectingScheduleConflictError("Invalid prospecting window watermark");
   return { lowerExclusive: watermark === null ? null : watermark - DAY, upperInclusive };
 }
 
