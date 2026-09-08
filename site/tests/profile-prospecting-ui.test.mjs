@@ -237,6 +237,57 @@ test("Profile selector renders server-projected lifecycle and encodes exact GET 
   });
 });
 
+test("Profile scope path shows plain names inline and keeps opaque identifiers inside a closed technical record", async () => {
+  await withView("prospecting-workspace.tsx", async (view) => {
+    const html = renderToStaticMarkup(
+      React.createElement(view.ProspectingWorkspace, {
+        projection: {
+          authority: "owner",
+          profiles: [
+            { id: "profile-operating", name: "Operating sites", lifecycle: "ready" },
+          ],
+          readiness: {
+            profile: {
+              id: "profile-operating",
+              revision: 4,
+              lifecycle: "ready",
+              path: {
+                company: { id: "company-1", name: "Digitalrain" },
+                product: { id: "product-1", name: "ONE" },
+                marketPlay: { id: "play-1", name: "ONE for Mining" },
+                profile: { id: "profile-operating", name: "Operating sites" },
+              },
+            },
+            complete: false,
+            items: [],
+          },
+          runs: [],
+          evidence: [],
+          assessments: [],
+          queue: [],
+        },
+      }),
+    );
+    const scopePathMatch = html.match(
+      /<p class="scope-path"[^>]*>([\s\S]*?)<\/p>/,
+    );
+    assert.ok(scopePathMatch, "the scope path renders");
+    const [, scopePathMarkup] = scopePathMatch;
+    const beforeDetails = scopePathMarkup.split("<details>")[0];
+    assert.match(beforeDetails, /Digitalrain[\s\S]*ONE[\s\S]*ONE for Mining[\s\S]*Operating sites/);
+    assert.doesNotMatch(
+      beforeDetails,
+      /company-1|product-1|play-1|profile-operating/,
+      "no opaque identifier appears in the visible breadcrumb outside the closed record",
+    );
+    assert.match(
+      scopePathMarkup,
+      /<details><summary>Technical identifiers<\/summary>[\s\S]*company-1[\s\S]*product-1[\s\S]*play-1[\s\S]*profile-operating[\s\S]*<\/details>/,
+      "the exact identifiers stay available inside the closed technical record",
+    );
+  });
+});
+
 test("Prospect Workspace keeps evidence ahead of score, exposes the complete ledger, and escapes hostile excerpts", async () => {
   await withView("prospect-workspace.tsx", async (view) => {
     const hostile = '<img src=x onerror="steal()"> & hostile';

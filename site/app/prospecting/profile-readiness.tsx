@@ -315,18 +315,33 @@ function ScopePath({
   path: ProfilePath;
   offerId?: string;
 }) {
+  const steps: Array<{ label: string; name: string; id: string }> = [
+    { label: "Company", name: path.company.name, id: path.company.id },
+    { label: "Product", name: path.product.name, id: path.product.id },
+    { label: "Market play", name: path.marketPlay.name, id: path.marketPlay.id },
+    { label: "Profile", name: path.profile.name, id: path.profile.id },
+    ...(offerId ? [{ label: "Offer", name: "Offer", id: offerId }] : []),
+  ];
   return (
     <p className="scope-path" aria-label="Profile scope path">
-      {path.company.name} <code>{path.company.id}</code> → {path.product.name}{" "}
-      <code>{path.product.id}</code> → {path.marketPlay.name}{" "}
-      <code>{path.marketPlay.id}</code> → {path.profile.name}{" "}
-      <code>{path.profile.id}</code>
-      {offerId ? (
-        <>
-          {" "}
-          → Offer <code>{offerId}</code>
-        </>
-      ) : null}
+      {steps.map((step, index) => (
+        <React.Fragment key={step.label}>
+          {index > 0 ? " → " : ""}
+          {step.label === "Offer" ? "Offer " : ""}
+          {step.name}
+        </React.Fragment>
+      ))}
+      <details>
+        <summary>Technical identifiers</summary>
+        <dl>
+          {steps.map((step) => (
+            <React.Fragment key={step.label}>
+              <dt>{step.label}</dt>
+              <dd>{step.id}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      </details>
     </p>
   );
 }
