@@ -49,6 +49,10 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .local-demo-primary span { color:var(--lime); font-size:15px; letter-spacing:0; }
 .local-demo-screen button:focus-visible,.local-demo-primary:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .local-demo-screen .local-demo-status { min-height:19px; }
+.local-demo-crm-preview { margin-top:20px; padding-top:20px; border-top:1px solid var(--line); }
+.local-demo-crm-preview-bytes { margin:12px 0 0; max-width:100%; overflow-x:auto; padding:12px; background:#f8faf8; border:1px solid var(--line); border-radius:7px; font-size:10px; line-height:1.5; }
+.local-demo-crm-preview dl { display:grid; gap:6px; margin:8px 0 0; }
+.local-demo-crm-preview dl div,.local-demo-crm-preview dt,.local-demo-crm-preview dd { margin:0; }
 .pilot-status { --proven-fg:#2a725b; --proven-bg:#e8f5ee; --proven-border:#cbe0d2; --blocked-fg:#735c25; --blocked-bg:#fff8df; --blocked-border:#d9a441; --unproven-fg:#66736d; --unproven-bg:#f4f6f2; --unproven-border:#dfe5df; display:grid; gap:24px; font-size:12px; font-weight:400; line-height:1.55; }
 .pilot-status .page-heading { margin-bottom:8px; }
 .pilot-status .page-heading h1 { font-size:28px; font-weight:760; line-height:1.05; }
