@@ -54,6 +54,15 @@ stale-checkpoint issues, all verified directly against GitHub before editing bel
    packet to a (c) owner-decision-gated one: the disclosure hold must be reconciled by the
    owner before any such view is built, and no confidential capability field may be exposed
    by inference in the meantime.
+6. **U2 was too blunt an instrument — split into U2a/U2b after a second reviewer pass.** A
+   Codex review on this PR pointed out, and independent verification confirmed, that
+   `runner_submissions.provenance_json` (the "transformations" ROADMAP Phase 4 criterion 2
+   names) is real, persisted, and silently dropped by `readProspectingProjection`
+   (`prospect-review.ts:96` never joins `runner_submissions`) — even though that same function
+   already surfaces provider/model/allowedTools live today. Blanket-holding *all* runner
+   inspection work conflated a genuinely held disclosure decision (U2a: a dedicated
+   grant/identity/source view) with an already-shipped field category's missing coverage
+   (U2b: transformations). Split below; U2b is dispatchable now.
 
 A general principle, applied more consistently below per the coordinator's note: **missing
 runtime composition is not the same finding as a hosted/credential/owner-authorization
@@ -87,20 +96,21 @@ runtime-wired without being accepted.
 
 **Is every remaining deliverable currently assigned to an active lane? No.**
 
-Three gaps have no owning issue or in-flight lane as of this checkpoint:
+Four gaps have no owning issue or in-flight lane as of this checkpoint:
 
 | # | Gap | Phase | Size | Blocking type |
 |---|---|---|---|---|
 | U1 | `site/domain/product-readiness.ts`'s `evaluateProductReadiness` has no dedicated unit test file | 3 | small | none — pure local coding |
-| U2 | No owner-facing read-only "Runner Assignment inspection" view exists (provider/model/instructions/tools/config/sources/grants), though the backing rows and domain projection are schema-ready | 4 | small–medium | **owner decision** — issue #8's explicit disclosure hold covers exactly this kind of grant/identity/source exposure; **not dispatchable as coding work until the owner reconciles that hold** |
+| U2a | No dedicated owner-facing "Runner Assignment inspection" view exists exposing provider/model/instructions/tools/sources/grants together | 4 | small–medium | **owner decision** — issue #8's explicit disclosure hold covers exactly this kind of grant/identity/source exposure; **not dispatchable as coding work until the owner reconciles that hold** |
+| U2b | `runner_submissions.provenance_json` ("transformations" per ROADMAP Phase 4 criterion 2) is persisted but silently dropped by `readProspectingProjection`, even though that same function already surfaces provider/model/allowedTools live today | 4 | small | none — pure local coding, distinct field category from U2a's hold |
 | U3 | Issue #7's narrow allowance for public-documentation research on a candidate contact-provider's data fields/freshness/reuse terms/rate limits/pricing was explicitly out of PR #54's scope and remains open | 5 | small | none — pure research/documentation, no owner authorization needed |
 
 Everything else identified below is either (a) named as within an open issue's stated
 scope — cited by number, with landed commits distinguished from merely-claimed scope in the
 "Active incumbents" table below, not assumed to be actively worked just because the issue is
 open — or (b)/(c) blocked on hosted/provider/credential authority or an explicit owner
-decision, with the exact plan number or checkpoint named. Task packets for U1 and U3 are at
-the end of this document, sized for independent, non-colliding dispatch; U2 is documented
+decision, with the exact plan number or checkpoint named. Task packets for U1, U2b, and U3 are
+at the end of this document, sized for independent, non-colliding dispatch; U2a is documented
 there too but is **held**, not dispatchable, pending an owner decision on issue #8's
 disclosure hold (see the corrections section above).
 
@@ -187,7 +197,7 @@ an explicit comment that the callback awaits "a later hosted capability checkpoi
 | Criterion | Evidence | Status | Gap | Dependency | Gate |
 |---|---|---|---|---|---|
 | Readiness → atomic candidate/activation → initial run + recurring schedule | `profile-readiness.ts:37-55,113-137,139-178`; DST-safe weekday slotting `prospecting-schedule.ts:40-54,182-185` | coded, wired (`prospecting-handler.ts:23-24`), validated (`profile-prospecting-contract.test.mjs`, `-integration.test.mjs`, `-ui.test.mjs`) | Every created run/schedule persists as `execution_state='blocked_missing_capability'` (`profile-readiness.ts:155,165-166`); no code path advances a run via a real transport | Hosted runner-transport capability checkpoint | (b) hosted |
-| Minimized, revocable, quota-limited runner scope; owner inspection | `runner-assignment.ts:14-38` HMAC-signed ≤5-min TTL capability, DB stores hash only (line 34); `revokeRunnerAssignment` (40-52); `submitRunnerObservations` (55-72) | coded, validated (`runner-assignment.test.mjs` + 4 sibling suites) | `prospecting-handler.ts:26` unconditionally rejects `issue_assignment` ("Runner capability is unavailable") regardless of state; **no owner-facing inspection UI exists at all** for provider/model/instructions/tools/config/sources/grants — confirmed via grep, zero `app/` references to `runner-assignment` exports | Issuance itself needs the hosted capability gate; the **inspection view does not** — it can read already-schema-ready (currently empty) rows today | Issuance = (b) hosted. Inspection view = (a) pure local coding — **this is unassigned gap U2, task packet below** |
+| Minimized, revocable, quota-limited runner scope; owner inspection | `runner-assignment.ts:14-38` HMAC-signed ≤5-min TTL capability, DB stores hash only (line 34); `revokeRunnerAssignment` (40-52); `submitRunnerObservations` (55-72) | coded, validated (`runner-assignment.test.mjs` + 4 sibling suites) | `prospecting-handler.ts:26` unconditionally rejects `issue_assignment` ("Runner capability is unavailable") regardless of state. Owner inspection is **partially** live already: `prospect-review.ts:121-124` already surfaces `provider`/`model`/`allowedTools`/`quotas` in the Review Queue projection. Two named remaining gaps: (1) no dedicated view combines those with instructions/config/sources/grants — held behind issue #8's disclosure hold (U2a); (2) `runner_submissions.provenance_json` ("transformations") is persisted but never joined into that same projection — not held, just missing (U2b) | Issuance itself needs the hosted capability gate; **neither inspection gap does** — both read already-schema-ready rows | Issuance = (b) hosted. U2a = (c) owner decision. U2b = (a) pure local coding — **unassigned, task packets below** |
 | Signal provenance (URL/tier/dates/retrieval/excerpt/lineage); Tier-3-alone insufficient; 24h overlap; 30-day reconfirmation | `source-policy.ts:9-46`; 24h overlap `prospecting-schedule.ts:70-74`; Tier gate `qualification.ts:57-60,81` | coded, validated (covered via `prospecting-ingestion.test.mjs`/`-lifecycle.test.mjs`, not a dedicated `source-policy.test.mjs` — confirmed present under those names, not missing) | Reachable only through runner submissions (blocked, see above) | Same hosted runner-transport gate | (b) hosted for end-to-end; (a) already met for domain logic itself |
 | Deterministic 5-dimension Mining score, 7/10 threshold, pain/timing non-zero, independent-source rule, hard disqualifiers, explicit outcomes | `qualification.ts` — full pure evaluator, `MINING_HARD_DISQUALIFIERS` (2-8), pass rule (70-74), tie-order (92-96) | coded, wired into `prospecting-ingestion.ts`, validated (`qualification.test.mjs`, `prospect-quality-evaluation.test.mjs`) | End-to-end proof needs a live run with non-synthetic evidence | Hosted runner-transport gate | (b) hosted for full acceptance; domain logic itself already (a) done |
 | Review Queue Approve/Reject/Defer with reason, cooldown/re-entry, funnel-loss visibility, no auto-authorization of next effect | `prospect-review.ts` `decideQualifiedProspect`; dispatched at `prospecting-handler.ts:28`, UI at `app/prospecting/review-queue.tsx` | coded, wired, validated (covered inside `profile-prospecting-integration.test.mjs`, confirmed present — not a separate missing file) | Command path is fully reachable, unlike issuance/Contacts — it's just starved of real qualified prospects until the runner-transport gate opens | Same hosted gate, for real data only; the command path itself works today | (a) command path met; (b) only for populating it with real data |
@@ -315,13 +325,13 @@ above, and does not overlap another packet's files.
 - **Gate:** (a) pure local coding, unblocked.
 - **Priority:** low — a coverage gap, not a product-facing gap.
 
-### Packet U2 — Runner Assignment read-only inspection view — **HELD, not dispatchable**
-- **Status corrected from the first pass: this is not a safe, unconditionally dispatchable
-  packet.** Issue #8's body states explicitly: "Full grant/identity/source disclosure remains
-  subject to its existing explicit hold; do not expose withheld information as part of a copy
-  or layout change." A view surfacing provider/model/instructions/tools/sources/grants is
-  exactly the disclosure that hold covers, regardless of which fields a first draft chooses to
-  include — the hold is about the disclosure decision itself, not about any one field list.
+### Packet U2a — Runner Assignment full inspection view (provider/model/instructions/tools/sources/grants) — **HELD, not dispatchable**
+- Issue #8's body states explicitly: "Full grant/identity/source disclosure remains subject
+  to its existing explicit hold; do not expose withheld information as part of a copy or
+  layout change." A dedicated view surfacing provider/model/instructions/tools/sources/grants
+  together is exactly the disclosure that hold covers, regardless of which fields a first
+  draft chooses to include — the hold is about the disclosure decision itself, not about any
+  one field list.
 - **What would need to happen first:** the owner reconciles the disclosure hold (confirms it
   still applies, narrows it, or lifts it for this specific projection) before any code is
   written against it. No confidential capability field may be exposed by inference — i.e., a
@@ -335,6 +345,36 @@ above, and does not overlap another packet's files.
 - **Action for this ledger:** do not dispatch. Report the held status to the coordinator;
   await an explicit owner decision on the disclosure hold before this packet becomes
   actionable.
+
+### Packet U2b — Surface runner-submission transformations in the review queue — **dispatchable, not held**
+- **Reviewer-identified split (Codex, PR #63 review comment on line 329 of the prior draft),
+  independently verified before accepting:** `runner_submissions.provenance_json` is a real,
+  `NOT NULL`, persisted column (`site/drizzle/0007_profile_prospecting.sql:407`), but
+  `readProspectingProjection` (`site/domain/prospect-review.ts:96`) never joins
+  `runner_submissions` at all — only `runner_assignments` — so those recorded transformations
+  are silently dropped from the projection the Review Queue UI consumes. `.planning/ROADMAP.md`
+  Phase 4 criterion 2 explicitly requires the owner be able to inspect "transformations" among
+  provider/model/instructions/tools/configuration/sources/assignment/grants.
+- **Why this is not covered by the U2a hold:** the same `readProspectingProjection` function
+  already surfaces `provider`/`model`/`allowedTools`/`quotas` derived from
+  `runner_assignments.quota_json` (`prospect-review.ts:121-124`) in live, already-shipped code
+  — i.e., that category of field is not itself universally withheld; the U2a hold is about a
+  *dedicated full-grant/identity/source inspection surface*, not about every individual field
+  ever reaching the UI. `provenance_json` (transformations applied to raw evidence) is a
+  distinct field from grant/identity/source/credential material and does not itself disclose
+  any of those.
+- **Work:** join `runner_submissions` into the existing `runs` query in
+  `readProspectingProjection`, project `provenance_json` (parsed, bounded) onto each run/queue
+  row, and render it in the existing Review Queue UI alongside the already-shown
+  provider/model/allowedTools fields — explicitly excluding raw grant tokens, capability
+  secrets, and any field U2a's hold covers.
+- **Verification:** a test asserting the projection surfaces parsed `provenance_json` content
+  for a seeded submission, and a second asserting no `token_hash`/`nonce_hash`/raw-capability
+  field appears anywhere in the projection's output shape.
+- **Gate:** (a) pure local coding, unblocked — no owner decision needed, since it extends an
+  already-shipped, already-disclosed field category rather than opening a new one.
+- **Priority:** medium — closes a concrete, named ROADMAP criterion gap (Phase 4 "inspect
+  transformations") that U2a's hold does not actually cover.
 
 ### Packet U3 — Candidate contact-provider public documentation research
 - **Routes through issue #7's existing owner**, not a freestanding independent dispatch — it
