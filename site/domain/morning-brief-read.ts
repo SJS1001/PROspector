@@ -181,6 +181,12 @@ function toScope(row: ScopeRow): MorningBriefScope | null {
  * Project the Phase 4-owned recurring schedule as a read-only observation.
  * A missing, archived, or shape-invalid row yields `null`, which the brief
  * reports as an unknown schedule rather than an enabled or disabled one.
+ *
+ * The authority-command join carries its own workspace predicate. The schema's
+ * foreign key references `authority_commands(id)` alone and no trigger fences
+ * that column to the row's workspace, so joining on id alone would let a
+ * malformed cross-workspace reference surface another workspace's operation
+ * digest. Such a row matches nothing and is withheld rather than reported.
  */
 async function readScheduleObservation(
   database: D1Database,
@@ -195,7 +201,8 @@ async function readScheduleObservation(
             ps.active AS active, ps.authority_command_id AS authority_command_id,
             ac.operation_digest AS command_operation_digest, ps.updated_at AS updated_at
        FROM prospecting_schedules ps
-       JOIN authority_commands ac ON ac.id = ps.authority_command_id
+       JOIN authority_commands ac
+         ON ac.id = ps.authority_command_id AND ac.workspace_id = ps.workspace_id
       WHERE ps.workspace_id = ? AND ps.profile_id = ? AND ps.active = 1
       LIMIT 1`,
   ).bind(workspaceId, profileId).first<ScheduleRow>();
