@@ -63,6 +63,13 @@ verification/source digests, and rechecks exact current authority. It can
 describe bounded outcome and `do_not_call` ordering, but it creates no phone
 target, activity, suppression, cancellation, follow-up, or effect.
 
+A further preparation slice adds a synthetic provider-neutral mail-port
+admission seam between an already-prepared dispatch attempt and a mail port.
+Its only representable port descriptor is unresolvable, so a wholly current
+tuple still denies admission and projects a definite pre-transmission failure.
+It composes no port, envelope, capability, or credential reference and cannot
+describe a transmission at all.
+
 A further preparation slice adds a synthetic suppression-retention manifest
 across delete, import, export, archive, and restore boundaries. It carries the
 complete subject, alias, and deletion-tombstone union through one exact
@@ -487,6 +494,77 @@ Validation recorded on 2026-08-28: the focused invariant-bundle suite passed
 `npm test` (including the production build) and `npm run lint` passed, and
 `npm audit --omit=dev` reported zero production vulnerabilities on Node.js
 `v24.16.0`. This is local preparation evidence only.
+
+### Synthetic provider-neutral mail-port admission seam
+
+`site/preparation/mail-port-admission-decision.ts` and its focused suite model
+the one boundary that still had no contract: the hand-off from an already
+prepared, provider-disconnected dispatch attempt to a mail port. They prove:
+
+- the candidate binds the exact synthetic workspace, Company, prospect,
+  Contact, outbox item, send key, dispatch key, Package and Message artifacts,
+  separate Package/Message approval IDs, digests and expiries, the passed
+  final-recheck decision ID/digest/status, the pre-call receipt ID/digest and
+  validity, the attempt-preparation ID/digest, one lease generation/holder/
+  window, and one mail-port descriptor;
+- the only representable descriptor is provider-neutral and unresolvable.
+  `providerSelected`, `credentialReferencePresent`, and `endpointConfigured`
+  are literal `false`, `providerInvocationCount` is literal `0`, and
+  `implementationState` admits only `unconfigured` or `not_selected`. A
+  configured, selected, credentialed, endpoint-bearing, or previously invoked
+  port is not a rejected input: it cannot be constructed, so provider
+  invocation is unreachable by construction rather than by policy;
+- a wholly current tuple still returns
+  `synthetic_mail_port_admission_denied_unconfigured_no_authority`. The single
+  projected outcome is
+  `definite_failure_connection_unavailable_before_transmission` with
+  `requestTransmitted: false`; there is no representable acceptance;
+- Package and Message approvals are rechecked separately by ID, digest,
+  expiry, and an explicit immutability fence, and the message-to-package
+  binding is reverified;
+- the final lease fence is rechecked in full alongside the passed final-recheck
+  decision, the unexpired pre-call receipt, and a `prepared_no_invocation`
+  attempt preparation. Expired, swapped, superseded, voided, repreparation, and
+  absent states each name their own rejection, and a receipt that would outlive
+  its lease generation cannot be constructed;
+- effective suppression rejects admission, and losing the ordering fence
+  `suppressionPrecedesSuccessAcknowledgement` rejects it independently, so no
+  success can be acknowledged ahead of a durable tombstone;
+- a recorded DeliveryUnknown, any non-fresh delivery state, or any prior
+  provider attempt rejects admission while `automaticRetryAuthorized` stays
+  false, and a second modelled attempt ordinal cannot be constructed;
+- the manual-call branch is advisory only. Its status is carried through the
+  decision but cannot change the email admission outcome, and a candidate
+  asserting `manualCallSubstitutesForEmailApproval` cannot be constructed; and
+- every candidate and decision keeps mail-port resolution, provider invocation,
+  dispatch, automatic retry, persistence, and success-acknowledgement authority
+  false with literal zero effect counters, and the module imports nothing —
+  including the domain mail port.
+
+The contract contains only synthetic IDs, SHA-256 digests, bounded status and
+reason codes, and timestamps. It constructs no port, envelope, capability,
+credential reference, outbox row, lease claim, dispatching transition, provider
+request, send, call, export, or durable mutation. Runtime code may not import
+it. It does not execute Plan 06-05, 06-06, or 06-12 and grants no Phase 6
+completion credit.
+
+Validation recorded on 2026-09-07 on Node.js `v22.22.2`: the focused admission
+suite passed 13/13, the aggregate Phase 6 and Phase 7 preparation suites passed
+245/245, the static composition guard passed 3/3, canonical `npm run lint`
+passed, and the canonical `npm test` production build completed.
+
+The canonical `npm test` gate could not run to completion on this branch, for a
+reason that predates this slice. `tests/drift-replacement.test.mjs` fails 3/6 at
+checkout `5c3440e11dc32beaed7dfc3d6e1bf11aafd3945c` both with and without this
+slice applied: it calls `applyMigrations` without the
+`initializeCommercialModel` seed that every other knowledge-dependent suite
+performs, so `createKnowledgeProposal` raises `knowledge_conflict`
+("Commercial workspace is unavailable"). That defect belongs to another lane and
+was deliberately left untouched. The canonical runner halts on first failure, so
+the suites ordered after it were not exercised here; the new module is imported
+by no runtime, domain, adapter, worker, or test file outside its own focused
+suite, and the static composition guard enforces that. This is local preparation
+evidence only.
 
 ## Deferred adapters and exact external decision
 
