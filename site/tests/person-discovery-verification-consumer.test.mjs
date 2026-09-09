@@ -78,24 +78,66 @@ test("the local projection seam rejects malformed origins, non-loopback hosts, f
   try {
     await applyCanonicalMigrations(fixture.database);
     fixture.gateTriggerSql = await triggerSql(fixture.database);
-    const acceptance = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-acceptance.ts"));
-    const consumer = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-verification.ts"));
-    await acceptance.seedPersonDiscoveryC4(fixture.database, "local-owner@prospector.invalid", "synthetic-browser-acceptance-pepper-32-bytes-minimum");
-    const workspace = await fixture.database.prepare("SELECT id,owner_subject FROM workspaces LIMIT 1").first();
+    const { consumer, scope, relevanceId } = await arrangeVerificationIntent(fixture);
     const attempts = [
-      [verificationRequest({ origin: "https://attacker.invalid" }), bindings, { workspaceId: workspace.id, principalSubject: workspace.owner_subject }],
-      [verificationRequest({ url: "https://prospector.example/verify", origin: "https://prospector.example" }), bindings, { workspaceId: workspace.id, principalSubject: workspace.owner_subject }],
-      [verificationRequest(), { ...bindings, LOCAL_DEMO: "true" }, { workspaceId: workspace.id, principalSubject: workspace.owner_subject }],
-      [verificationRequest(), bindings, { workspaceId: workspace.id, principalSubject: "outsider-subject" }],
+      [verificationRequest({ origin: "https://attacker.invalid" }), bindings, scope],
+      [verificationRequest({ url: "https://prospector.example/verify", origin: "https://prospector.example" }), bindings, scope],
+      [verificationRequest({ origin: null }), bindings, scope],
+      [verificationRequest({ intent: "wrong-intent" }), bindings, scope],
+      [verificationRequest({ fetchSite: "cross-site" }), bindings, scope],
+      [verificationRequest(), { ...bindings, LOCAL_DEMO: "true" }, scope],
+      [verificationRequest(), bindings, { ...scope, principalSubject: "outsider-subject" }],
     ];
     for (const [candidateRequest, candidateBindings, scope] of attempts) {
-      const result = await consumer.consumePersonDiscoveryC4VerificationIntent(candidateRequest, candidateBindings, fixture.database, scope, { relevanceId: "missing", channel: "email" });
+      const result = await consumer.consumePersonDiscoveryC4VerificationIntent(candidateRequest, candidateBindings, fixture.database, scope, { relevanceId, channel: "email" });
       assert.equal(result.kind, "blocked");
     }
     for (const table of ["phase_activation_gates", "provider_quotes", "enrichment_grants", "enrichment_reservations", "contact_point_observations", "contact_verification_receipts", "contact_eligibility_snapshots"]) {
       assert.equal(await countRows(fixture.database, table), 0, `${table} must remain empty`);
     }
     assert.equal(await triggerSql(fixture.database), fixture.gateTriggerSql);
+  } finally { await fixture.dispose(); }
+});
+
+test("a settled crash-window retry projects once without a second provider operation", async () => {
+  const fixture = await createLocalFixture();
+  try {
+    await applyCanonicalMigrations(fixture.database);
+    const { consumer, scope, relevanceId } = await arrangeVerificationIntent(fixture);
+    const command = { relevanceId, channel: "email" };
+    assert.equal((await consumer.settlePersonDiscoveryC4VerificationIntentForTest(verificationRequest(), bindings, fixture.database, scope, command)).kind, "settled_for_test");
+    const terminalBefore = await countRows(fixture.database, "enrichment_reservation_events");
+    const observationsBefore = await countRows(fixture.database, "contact_point_observations");
+    assert.equal(await countRows(fixture.database, "contact_eligibility_snapshots"), 0);
+
+    const recovered = await consumer.consumePersonDiscoveryC4VerificationIntent(verificationRequest(), bindings, fixture.database, scope, command);
+    assert.deepEqual(recovered, { kind: "verified", state: "ContactReady", eligible: true, replayed: false });
+    assert.equal(await countRows(fixture.database, "contact_eligibility_snapshots"), 1);
+    assert.equal(await countRows(fixture.database, "enrichment_reservation_events"), terminalBefore);
+    assert.equal(await countRows(fixture.database, "contact_point_observations"), observationsBefore);
+  } finally { await fixture.dispose(); }
+});
+
+test("an uncertain provider outcome is durably reconciled and never promotes or retries", async () => {
+  const fixture = await createLocalFixture();
+  try {
+    await applyCanonicalMigrations(fixture.database);
+    const { consumer, scope, relevanceId } = await arrangeVerificationIntent(fixture);
+    const command = { relevanceId, channel: "email" };
+    assert.deepEqual(
+      await consumer.consumePersonDiscoveryC4UncertainVerificationIntentForTest(verificationRequest(), bindings, fixture.database, scope, command),
+      { kind: "blocked", reason: "verification_unavailable" },
+    );
+    assert.equal(await countRows(fixture.database, "contact_eligibility_snapshots"), 0);
+    assert.equal(await countRows(fixture.database, "contact_point_observations"), 0);
+    assert.equal(Number((await fixture.database.prepare("SELECT COUNT(*) count FROM enrichment_reservation_events WHERE state='needs_reconciliation'").first()).count), 1);
+    const eventsBefore = await countRows(fixture.database, "enrichment_reservation_events");
+    assert.deepEqual(
+      await consumer.consumePersonDiscoveryC4VerificationIntent(verificationRequest(), bindings, fixture.database, scope, command),
+      { kind: "blocked", reason: "verification_unavailable" },
+    );
+    assert.equal(await countRows(fixture.database, "enrichment_reservation_events"), eventsBefore);
+    assert.equal(await countRows(fixture.database, "contact_eligibility_snapshots"), 0);
   } finally { await fixture.dispose(); }
 });
 
@@ -183,8 +225,10 @@ async function arrangeVerificationIntent(fixture) {
   return { consumer, scope, relevanceId: decided.decision.relevanceId };
 }
 
-function verificationRequest({ url = "http://127.0.0.1:8788/api/local-demo/person-discovery-c4/verification", origin = "http://127.0.0.1:8788" } = {}) {
-  return new Request(url, { method: "POST", headers: { origin, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-verification" }, body: "{}" });
+function verificationRequest({ url = "http://127.0.0.1:8788/api/local-demo/person-discovery-c4/verification", origin = "http://127.0.0.1:8788", intent = "person-discovery-c4-verification", fetchSite = "same-origin" } = {}) {
+  const headers = { "sec-fetch-site": fetchSite, "content-type": "application/json", "x-prospector-intent": intent };
+  if (origin !== null) headers.origin = origin;
+  return new Request(url, { method: "POST", headers, body: "{}" });
 }
 
 async function triggerSql(database) {

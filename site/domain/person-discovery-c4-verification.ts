@@ -5,6 +5,7 @@ import { bindContactSettlementAttestor, type ContactSettlementAttestor } from ".
 import { createD1ContactsCommandService } from "./contacts-command-service";
 import { canonicalDigest } from "./enrichment-grant-issuance";
 import { personDiscoveryC4Enabled } from "./person-discovery-c4-acceptance";
+import { validateSameOriginMutation } from "./request-security";
 
 const PROVIDER = Object.freeze({
   providerId: "synthetic-local-verification",
@@ -46,7 +47,46 @@ export async function consumePersonDiscoveryC4VerificationIntent(
   scope: Scope,
   command: Readonly<{ relevanceId: string; channel: "email" | "phone" }>,
 ) {
+  return consumeVerificationIntent(request, bindings, database, scope, command, "completed", true);
+}
+
+/** Test-only uncertainty probe for this already DEV-only synthetic module. */
+export async function consumePersonDiscoveryC4UncertainVerificationIntentForTest(
+  request: Request,
+  bindings: Bindings,
+  database: D1Database,
+  scope: Scope,
+  command: Readonly<{ relevanceId: string; channel: "email" | "phone" }>,
+) {
+  if (!import.meta.env.DEV) return blocked("capability_unavailable");
+  return consumeVerificationIntent(request, bindings, database, scope, command, "ambiguous", true);
+}
+
+/** Simulates the process ending after durable settlement but before projection. */
+export async function settlePersonDiscoveryC4VerificationIntentForTest(
+  request: Request,
+  bindings: Bindings,
+  database: D1Database,
+  scope: Scope,
+  command: Readonly<{ relevanceId: string; channel: "email" | "phone" }>,
+) {
+  if (!import.meta.env.DEV) return blocked("capability_unavailable");
+  return consumeVerificationIntent(request, bindings, database, scope, command, "completed", false);
+}
+
+async function consumeVerificationIntent(
+  request: Request,
+  bindings: Bindings,
+  database: D1Database,
+  scope: Scope,
+  command: Readonly<{ relevanceId: string; channel: "email" | "phone" }>,
+  syntheticOutcome: "completed" | "ambiguous",
+  projectEligibility: boolean,
+) {
   if (!personDiscoveryC4Enabled(request, bindings)) return blocked("capability_unavailable");
+  if (validateSameOriginMutation(request, "person-discovery-c4-verification", 1024) !== null) {
+    return blocked("capability_unavailable");
+  }
   const authority = await loadCurrentIntentAuthority(database, scope, command);
   if (!authority) return blocked("verification_intent_unavailable");
   const existing = await existingProjection(database, scope, authority);
@@ -57,9 +97,10 @@ export async function consumePersonDiscoveryC4VerificationIntent(
   const contentHash = await canonicalDigest({ schema: "c4-verification-content/v1", intentId: authority.intentId });
   await ensureSyntheticQuote(database, scope.workspaceId, now);
 
-  let providerCalls = 0;
   const port = bindContactProviderPort(PROVIDER, async (assignment) => {
-    providerCalls += 1;
+    if (syntheticOutcome === "ambiguous") {
+      return Object.freeze({ kind: "ambiguous" as const, reservationId: assignment.reservationId, operationKey: assignment.operationKey });
+    }
     const binding = assignment.evidenceAssignments.find((item) =>
       item.prospectId === authority.prospectId && item.contactId === authority.contactId
     );
@@ -119,8 +160,13 @@ export async function consumePersonDiscoveryC4VerificationIntent(
   });
   if (!isGrant(grant)) return blocked("grant_unavailable");
   await ensureReservationInputs(database, authority, grant.grantId, now);
-  const operation = await service.runGrantedOperation(scope, { grantId: grant.grantId });
-  if (!isSettled(operation) || providerCalls !== 1) return blocked("verification_unavailable");
+  const terminal = await existingTerminalOperation(database, scope.workspaceId, grant.grantId);
+  if (terminal?.state === "needs_reconciliation") return blocked("verification_unavailable");
+  const operation = terminal?.state === "settled"
+    ? Object.freeze({ kind: "operation" as const, status: "settled" as const, operationId: terminal.operationId })
+    : await service.runGrantedOperation(scope, { grantId: grant.grantId });
+  if (!isSettled(operation)) return blocked("verification_unavailable");
+  if (!projectEligibility) return Object.freeze({ kind: "settled_for_test" as const, operationId: operation.operationId });
   const projected = await persistPersonDiscoveryC4ContactEligibilitySnapshot(request, bindings, database, attestor, {
     ownerSubject: scope.principalSubject,
     workspaceId: scope.workspaceId,
@@ -135,6 +181,18 @@ export async function consumePersonDiscoveryC4VerificationIntent(
     return blocked("projection_unavailable");
   }
   return Object.freeze({ kind: "verified" as const, state: "ContactReady" as const, eligible: true, replayed: false });
+}
+
+async function existingTerminalOperation(database: D1Database, workspaceId: string, grantId: string) {
+  const row = await database.prepare(`SELECT reservation.id operation_id,event.state
+    FROM enrichment_reservations reservation
+    JOIN enrichment_reservation_events event ON event.reservation_id=reservation.id AND event.workspace_id=reservation.workspace_id
+    WHERE reservation.workspace_id=? AND reservation.grant_id=?
+      AND event.durable_revision=(SELECT MAX(latest.durable_revision) FROM enrichment_reservation_events latest WHERE latest.reservation_id=reservation.id)
+    LIMIT 1`).bind(workspaceId, grantId).first<Record<string, unknown>>();
+  if (!row || typeof row.operation_id !== "string") return null;
+  if (row.state !== "settled" && row.state !== "needs_reconciliation") return null;
+  return Object.freeze({ operationId: row.operation_id, state: row.state });
 }
 
 export async function createPersonDiscoveryC4SettlementAttestor(): Promise<ContactSettlementAttestor> {
