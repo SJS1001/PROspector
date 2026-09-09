@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { createServer } from "vite";
 import { applyPersonDiscoveryMigrations } from "./d1.mjs";
@@ -105,32 +106,44 @@ export async function createApprovedProspectLifecycle(fixture) {
 }
 
 export async function snapshotLaterPhaseEffects(database) {
+  const tables = (await database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  ).all()).results.map((row) => String(row.name));
   const result = {};
-  for (const name of [
-    "outreach_artifact_bindings", "outreach_audit_records", "outreach_commands",
-    "outreach_message_approval_consumptions", "outreach_message_approvals", "outreach_message_versions",
-    "outreach_messages", "outreach_package_approvals", "outreach_package_versions", "outreach_packages",
-    "outreach_stop_events", "outreach_suppression_tombstones",
-    "message_versions", "message_dispatches", "export_jobs", "workspace_archives",
-  ]) {
-    const table = await database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").bind(name).first();
-    result[name] = table ? Number((await database.prepare(`SELECT COUNT(*) count FROM ${name}`).first()).count) : null;
+  for (const name of tables.filter(isLaterPhasePersistedEffectTable)) {
+    result[name] = Number((await database.prepare(`SELECT COUNT(*) count FROM ${name}`).first()).count);
   }
-  return result;
+  return Object.freeze(result);
 }
 
-export async function seedSyntheticReservationInputs(database, lifecycle, grant) {
-  await database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'p5i-contact',?,?,?,1,id,?,'Synthetic contact' FROM companies WHERE workspace_id=?")
-    .bind(lifecycle.workspaceId,NOW,NOW,"c".repeat(64),lifecycle.workspaceId).run();
+export async function applyEnrichmentLineageCandidate(database) {
+  for (const name of ["0010_governed_outreach.sql", "0011_enrichment_candidate_lineage.sql"]) {
+    const sql = await readFile(new URL(`../../drizzle/${name}`, import.meta.url), "utf8");
+    for (const statement of sql.split("--> statement-breakpoint")) {
+      if (statement.trim()) await database.prepare(statement.trim()).run();
+    }
+  }
+}
+
+function isLaterPhasePersistedEffectTable(name) {
+  return name === "suppressions"
+    || /^(?:outreach_|message_|export_|workspace_archives$|archive_|delivery_|dispatch_|call_)/u.test(name);
+}
+
+export async function seedSyntheticReservationInputs(database, lifecycle, grant, suffix = "default") {
+  const contactId = `p5i-contact-${suffix}`;
+  const assignmentId = `p5i-contact-assignment-${suffix}`;
+  await database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT ?,?,?,?,1,id,?,'Synthetic contact' FROM companies WHERE workspace_id=?")
+    .bind(contactId,lifecycle.workspaceId,NOW,NOW,"c".repeat(64),lifecycle.workspaceId).run();
   await database.prepare(`INSERT INTO contact_evidence_assignments
     (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
-    VALUES ('p5i-contact-assignment',?,NULL,?,?,'p5i-contact','champion',?,?,?,?,?,1,?,?)`)
-    .bind(lifecycle.workspaceId,grant.id,lifecycle.prospectId,grant.tuple.configurationId,grant.tuple.configurationDigest,grant.tuple.providerId,grant.tuple.providerVersion,grant.tuple.catalogRef,"d".repeat(64),NOW).run();
+    VALUES (?, ?,NULL,?,?,?,'champion',?,?,?,?,?,1,?,?)`)
+    .bind(assignmentId,lifecycle.workspaceId,grant.id,lifecycle.prospectId,contactId,grant.tuple.configurationId,grant.tuple.configurationDigest,grant.tuple.providerId,grant.tuple.providerVersion,grant.tuple.catalogRef,"d".repeat(64),NOW).run();
   for (const [scope, entityId] of Object.entries({ grant:grant.id,profile:grant.tuple.configurationId,workspace:lifecycle.workspaceId,provider:grant.tuple.providerId })) {
     const accountId = `enrichment:${lifecycle.workspaceId.length}:${lifecycle.workspaceId}:${scope}:${entityId.length}:${entityId}`;
     await database.prepare(`INSERT INTO enrichment_budget_accounts
       (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
-      VALUES (?,?,'enrichment',?,?,'CAD',0,0,1,0,0,10,1,?,?)`)
+      VALUES (?,?,'enrichment',?,?,'CAD',0,0,1,0,0,10,1,?,?) ON CONFLICT DO NOTHING`)
       .bind(accountId,lifecycle.workspaceId,scope,entityId,NOW,NOW).run();
   }
 }
