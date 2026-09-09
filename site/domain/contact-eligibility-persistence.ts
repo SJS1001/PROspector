@@ -9,6 +9,9 @@ import {
 } from "./contact-settlement-persistence";
 import { canonicalDigest } from "./enrichment-grant-issuance";
 import { controlledEnrichmentActivated } from "./phase-activation";
+import { validateSameOriginMutation } from "./request-security";
+
+const PERSON_DISCOVERY_C4_VERIFICATION_INTENT = "person-discovery-c4-verification";
 
 export type ContactEligibilitySnapshot = Readonly<{
   id: string;
@@ -86,6 +89,45 @@ export async function persistCurrentContactEligibilitySnapshot(
   if (!await controlledEnrichmentActivated(database, request.workspaceId)) {
     return blocked("contact_capability_unavailable");
   }
+  return persistAfterActivation(database, attestor, request);
+}
+
+/**
+ * Disposable C4 acceptance seam. The production entry point above always
+ * requires the real immutable activation gate; only the dev-only C4 module
+ * imports this wrapper, and a production build folds the body away.
+ */
+export async function persistPersonDiscoveryC4ContactEligibilitySnapshot(
+  request: Request,
+  bindings: Readonly<{
+    PROSPECTOR_PERSON_DISCOVERY_C4?: unknown;
+    TRUSTED_IDENTITY_PROVIDER?: unknown;
+    LOCAL_DEMO?: unknown;
+  }>,
+  database: D1Database,
+  attestor: ContactSettlementAttestor | null | undefined,
+  requestValue: PersistRequest | unknown,
+): Promise<PersistContactEligibilityResult> {
+  if (import.meta.env.DEV) {
+    const { personDiscoveryC4Enabled } = await import("./person-discovery-c4-acceptance");
+    if (
+      personDiscoveryC4Enabled(request, bindings)
+      && validateSameOriginMutation(request, PERSON_DISCOVERY_C4_VERIFICATION_INTENT, 1024) === null
+    ) {
+      const normalized = normalizeRequest(requestValue);
+      return normalized
+        ? persistAfterActivation(database, attestor, normalized)
+        : blocked("invalid_request");
+    }
+  }
+  return blocked("contact_capability_unavailable");
+}
+
+async function persistAfterActivation(
+  database: D1Database,
+  attestor: ContactSettlementAttestor | null | undefined,
+  request: PersistRequest,
+): Promise<PersistContactEligibilityResult> {
   const authority = await readAuthority(database, request);
   if (!authority) return blocked("contact_authority_unavailable");
   const points = await readVerifiedContactEligibilityEvidence(database, attestor, {

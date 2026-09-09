@@ -33,9 +33,34 @@ test("runtime composition stays deterministic, secretless, loopback-only, and ze
   assert.match(seed, /status: 404/);
 });
 
-test("C4 verifier explicitly excludes every effect-bearing family", async () => {
+test("C4 verifier admits only the exact canonical local enrichment chain and excludes every external-effect family", async () => {
   const source = await readFile(resolve(root, "scripts/verify-person-discovery-c4.mjs"), "utf8");
-  for (const name of ["contact_point_observations", "contact_eligibility_snapshots", "contact_verification_receipts", "enrichment_grants", "runner_spend_grants", "outreach_messages", "outreach_outbox_items", "prospecting_schedules", "product_discovery_schedules", "_mf_objects"]) assert.match(source, new RegExp(name));
+  for (const name of ["contact_point_observations", "contact_eligibility_snapshots", "contact_verification_receipts", "enrichment_grants", "enrichment_reservations", "provider_quotes", "phase_activation_gates", "runner_spend_grants", "outreach_messages", "outreach_outbox_items", "prospecting_schedules", "product_discovery_schedules", "_mf_objects"]) assert.match(source, new RegExp(name));
+  assert.match(source, /ContactReady/);
+  assert.match(source, /documented_cost_minor: 0/);
+});
+
+test("verification composition is a local adapter seam with no network or credential primitive", async () => {
+  const source = await readFile(resolve(root, "domain/person-discovery-c4-verification.ts"), "utf8");
+  for (const expected of [
+    "createD1ContactsCommandService", "bindContactProviderPort", "bindContactEvidenceVerifier",
+    "persistPersonDiscoveryC4ContactEligibilitySnapshot", "contact_verification_intents", "ContactReady",
+  ]) assert.match(source, new RegExp(expected));
+  assert.doesNotMatch(source, /DROP\s+TRIGGER|CREATE\s+TRIGGER|phase_activation_gates/i,
+    "the synthetic consumer must not mutate or fabricate activation evidence");
+  const persistence = await readFile(resolve(root, "domain/contact-eligibility-persistence.ts"), "utf8");
+  assert.match(persistence, /persistCurrentContactEligibilitySnapshot[\s\S]*controlledEnrichmentActivated/);
+  assert.match(persistence, /persistPersonDiscoveryC4ContactEligibilitySnapshot[\s\S]*import\.meta\.env\.DEV/);
+  assert.match(persistence, /validateSameOriginMutation\(request, PERSON_DISCOVERY_C4_VERIFICATION_INTENT, 1024\)/);
+  for (const forbidden of ["fetch(", "http://", "https://", "process.env", "Authorization", "Bearer "])
+    assert.equal(source.includes(forbidden), false, forbidden);
+  assert.doesNotMatch(source, /INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:contact_eligibility_snapshots|contact_point_observations|contact_verification_receipts|enrichment_grants|enrichment_reservations)/i,
+    "the consumer must not hand-construct canonical enrichment or ContactReady outputs");
+  const route = await readFile(resolve(root, "app/api/local-demo/person-discovery-c4/verification/route.ts"), "utf8");
+  assert.match(route, /import\.meta\.env\.DEV/);
+  assert.match(route, /status: 404/);
+  const handler = await readFile(resolve(root, "app/api/local-demo/person-discovery-c4/verification/_handler.ts"), "utf8");
+  assert.ok(handler.indexOf("personDiscoveryC4Enabled(request, bindings)") < handler.indexOf("consumeCsrfToken("), "the exact local gate must close before any durable mutation");
 });
 
 test("C4 seed creates one explicit Approved Prospect with no schedule", async () => {

@@ -59,6 +59,8 @@ test("synthetic Approved Prospect reaches governed intents, survives restart, an
   await expect(page.getByRole("heading", { name: "Decision recorded" })).toBeVisible();
   await page.getByLabel("Contact channel").selectOption("phone");
   await page.getByRole("button", { name: "Record initial verification intent" }).click();
+  await page.getByRole("button", { name: "Run local synthetic verification" }).click();
+  await expect(page.getByText("ContactReady — fresh verified evidence is now persisted through the canonical enrichment workflow.")).toBeVisible();
   await expect(page.getByText("A person link is not verification.")).toBeVisible();
   await expect(page.getByText("Generated, directory, domain, or MX data is never eligible.")).toBeVisible();
   await expect(page.locator(".person-discovery-workspace [role='status']")).toBeFocused();
@@ -68,6 +70,8 @@ test("synthetic Approved Prospect reaches governed intents, survives restart, an
   await page.goto("/contacts");
   await expect(page.getByRole("heading", { name: "Decision recorded" })).toBeVisible();
   await expect(page.getByText("Jordan Synthetic", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Verified contacts" })).toBeVisible();
+  await expect(page.getByText("ContactReady", { exact: true }).first()).toBeVisible();
   await assertNoOverlay(page);
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.locator(".person-discovery-workspace")).toBeVisible();
