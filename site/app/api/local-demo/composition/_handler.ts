@@ -1,6 +1,9 @@
 import { env } from "cloudflare:workers";
 import { admitPilotOwner } from "../../../../domain/pilot-access";
-import { readLocalDemoComposition } from "../../../../domain/local-demo-composition";
+import {
+  readLocalDemoComposition,
+  validateLocalDemoComposition,
+} from "../../../../domain/local-demo-composition";
 import { isLocalDemoRequest, runtimeIdentity } from "../../../runtime-identity";
 
 type Bindings = Readonly<{
@@ -18,6 +21,7 @@ export type LocalDemoCompositionDependencies = Readonly<{
   runtimeIdentity: typeof runtimeIdentity;
   admitPilotOwner: typeof admitPilotOwner;
   readLocalDemoComposition: typeof readLocalDemoComposition;
+  validateLocalDemoComposition: typeof validateLocalDemoComposition;
 }>;
 
 const productionDependencies: LocalDemoCompositionDependencies = {
@@ -26,6 +30,7 @@ const productionDependencies: LocalDemoCompositionDependencies = {
   runtimeIdentity,
   admitPilotOwner,
   readLocalDemoComposition,
+  validateLocalDemoComposition,
 };
 
 function sameOrigin(request: Request) {
@@ -56,11 +61,16 @@ export async function handleLocalDemoComposition(
   } catch {
     return notFound();
   }
-  return Response.json(dependencies.readLocalDemoComposition(), {
+  const composition = await dependencies.readLocalDemoComposition();
+  if (!await dependencies.validateLocalDemoComposition(composition)) return notFound();
+  return Response.json(composition, {
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
   });
 }
 
 function notFound() {
-  return Response.json({ error: "not_found" }, { status: 404, headers: { "cache-control": "no-store" } });
+  return Response.json({ error: "not_found" }, {
+    status: 404,
+    headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
+  });
 }

@@ -1,11 +1,4 @@
-/**
- * One fixed, disposable story for the LOCAL_DEMO composition screen.
- *
- * This is data, not a workflow. It has no arguments, does no I/O, and each
- * downstream projection carries the immutable identifier and digest of its
- * immediate authorized predecessor. `ContactReady` is presentation-only;
- * it never represents a real admission or a provider verification.
- */
+/** Fixed, disposable LOCAL_DEMO composition data with no external I/O. */
 
 type ImmutableStage = Readonly<{
   id: string;
@@ -27,184 +20,96 @@ export type LocalDemoComposition = Readonly<{
   prospect: Readonly<{
     id: "local-demo-prospect-qualified-v1";
     qualification: "qualified";
-    immutableDigest: "sha256:local-demo-prospect-qualified-v1";
+    immutableDigest: string;
   }>;
   ownerProspectApproval: Readonly<{
     id: "local-demo-owner-prospect-approval-v1";
-    immutableDigest: "sha256:local-demo-owner-prospect-approval-v1";
+    immutableDigest: string;
     reviewedProspectId: "local-demo-prospect-qualified-v1";
-    reviewedProspectDigest: "sha256:local-demo-prospect-qualified-v1";
+    reviewedProspectDigest: string;
     decision: "approved";
     provenance: "fictional owner Prospect approval";
   }>;
-  contactSuggestion: ImmutableStage & Readonly<{
-    id: "local-demo-contact-suggestion-v1";
-    predecessorId: "local-demo-owner-prospect-approval-v1";
-    predecessorDigest: "sha256:local-demo-owner-prospect-approval-v1";
-    state: "ContactSuggestion";
-  }>;
-  verificationIntent: ImmutableStage & Readonly<{
-    id: "local-demo-verification-intent-v1";
-    predecessorId: "local-demo-contact-suggestion-v1";
-    predecessorDigest: "sha256:local-demo-contact-suggestion-v1";
-    state: "verification_intent";
-    providerInvocation: false;
-    verified: false;
-  }>;
-  contactReady: ImmutableStage & Readonly<{
-    id: "local-demo-contact-ready-v1";
-    predecessorId: "local-demo-verification-intent-v1";
-    predecessorDigest: "sha256:local-demo-verification-intent-v1";
-    state: "ContactReady";
-    shapedOnly: true;
-    admitted: false;
-  }>;
-  package: ImmutableStage & Readonly<{
-    id: "local-demo-package-v1";
-    predecessorId: "local-demo-contact-ready-v1";
-    predecessorDigest: "sha256:local-demo-contact-ready-v1";
-    exact: true;
-    admitted: false;
-  }>;
-  message: ImmutableStage & Readonly<{
-    id: "local-demo-message-v1";
-    predecessorId: "local-demo-package-v1";
-    predecessorDigest: "sha256:local-demo-package-v1";
-    exact: true;
-    admitted: false;
-  }>;
-  suppression: ImmutableStage & Readonly<{
-    id: "local-demo-suppression-v1";
-    predecessorId: "local-demo-message-v1";
-    predecessorDigest: "sha256:local-demo-message-v1";
-    outcome: "blocked";
-  }>;
-  weeklyPreview: ImmutableStage & Readonly<{
-    id: "local-demo-weekly-preview-v1";
-    predecessorId: "local-demo-suppression-v1";
-    predecessorDigest: "sha256:local-demo-suppression-v1";
-    source: "fictional projections";
-    realAdmissionCount: 0;
-  }>;
-  crmPreview: ImmutableStage & Readonly<{
-    id: "local-demo-crm-preview-v1";
-    predecessorId: "local-demo-weekly-preview-v1";
-    predecessorDigest: "sha256:local-demo-weekly-preview-v1";
-    source: "fictional projections";
-    realAdmissionCount: 0;
-    downloadAuthorized: false;
-  }>;
-  effects: Readonly<{
-    persistence: false;
-    browserStorage: false;
-    network: false;
-    providerInvocation: false;
-    outbound: false;
-    export: false;
-    effectCount: 0;
-  }>;
+  contactSuggestion: ImmutableStage & Readonly<{ id: "local-demo-contact-suggestion-v1"; predecessorId: "local-demo-owner-prospect-approval-v1"; state: "ContactSuggestion" }>;
+  verificationIntent: ImmutableStage & Readonly<{ id: "local-demo-verification-intent-v1"; predecessorId: "local-demo-contact-suggestion-v1"; state: "verification_intent"; providerInvocation: false; verified: false }>;
+  contactReady: ImmutableStage & Readonly<{ id: "local-demo-contact-ready-v1"; predecessorId: "local-demo-verification-intent-v1"; state: "ContactReady"; shapedOnly: true; admitted: false }>;
+  package: ImmutableStage & Readonly<{ id: "local-demo-package-v1"; predecessorId: "local-demo-contact-ready-v1"; exact: true; admitted: false }>;
+  message: ImmutableStage & Readonly<{ id: "local-demo-message-v1"; predecessorId: "local-demo-package-v1"; exact: true; admitted: false }>;
+  suppression: ImmutableStage & Readonly<{ id: "local-demo-suppression-v1"; predecessorId: "local-demo-message-v1"; outcome: "blocked" }>;
+  weeklyPreview: ImmutableStage & Readonly<{ id: "local-demo-weekly-preview-v1"; predecessorId: "local-demo-suppression-v1"; source: "fictional projections"; realAdmissionCount: 0 }>;
+  crmPreview: ImmutableStage & Readonly<{ id: "local-demo-crm-preview-v1"; predecessorId: "local-demo-weekly-preview-v1"; source: "fictional projections"; realAdmissionCount: 0; downloadAuthorized: false }>;
+  effects: Readonly<{ persistence: false; browserStorage: false; network: false; providerInvocation: false; outbound: false; export: false; effectCount: 0 }>;
 }>;
 
-const composition: LocalDemoComposition = Object.freeze({
-  kind: "local_demo_composition",
-  fictional: true,
-  disposable: true,
-  scope: Object.freeze({
-    company: "Northwind Sample Works",
-    product: "Sample Operations Console",
-    marketPlay: "Fictional regional operations teams",
-    profile: "Fictional maintenance planning profile",
-  }),
-  prospect: Object.freeze({
-    id: "local-demo-prospect-qualified-v1",
-    qualification: "qualified",
-    immutableDigest: "sha256:local-demo-prospect-qualified-v1",
-  }),
-  ownerProspectApproval: Object.freeze({
-    id: "local-demo-owner-prospect-approval-v1",
-    immutableDigest: "sha256:local-demo-owner-prospect-approval-v1",
-    reviewedProspectId: "local-demo-prospect-qualified-v1",
-    reviewedProspectDigest: "sha256:local-demo-prospect-qualified-v1",
-    decision: "approved",
-    provenance: "fictional owner Prospect approval",
-  }),
-  contactSuggestion: Object.freeze({
-    id: "local-demo-contact-suggestion-v1",
-    immutableDigest: "sha256:local-demo-contact-suggestion-v1",
-    predecessorId: "local-demo-owner-prospect-approval-v1",
-    predecessorDigest: "sha256:local-demo-owner-prospect-approval-v1",
-    state: "ContactSuggestion",
-  }),
-  verificationIntent: Object.freeze({
-    id: "local-demo-verification-intent-v1",
-    immutableDigest: "sha256:local-demo-verification-intent-v1",
-    predecessorId: "local-demo-contact-suggestion-v1",
-    predecessorDigest: "sha256:local-demo-contact-suggestion-v1",
-    state: "verification_intent",
-    providerInvocation: false,
-    verified: false,
-  }),
-  contactReady: Object.freeze({
-    id: "local-demo-contact-ready-v1",
-    immutableDigest: "sha256:local-demo-contact-ready-v1",
-    predecessorId: "local-demo-verification-intent-v1",
-    predecessorDigest: "sha256:local-demo-verification-intent-v1",
-    state: "ContactReady",
-    shapedOnly: true,
-    admitted: false,
-  }),
-  package: Object.freeze({
-    id: "local-demo-package-v1",
-    immutableDigest: "sha256:local-demo-package-v1",
-    predecessorId: "local-demo-contact-ready-v1",
-    predecessorDigest: "sha256:local-demo-contact-ready-v1",
-    exact: true,
-    admitted: false,
-  }),
-  message: Object.freeze({
-    id: "local-demo-message-v1",
-    immutableDigest: "sha256:local-demo-message-v1",
-    predecessorId: "local-demo-package-v1",
-    predecessorDigest: "sha256:local-demo-package-v1",
-    exact: true,
-    admitted: false,
-  }),
-  suppression: Object.freeze({
-    id: "local-demo-suppression-v1",
-    immutableDigest: "sha256:local-demo-suppression-v1",
-    predecessorId: "local-demo-message-v1",
-    predecessorDigest: "sha256:local-demo-message-v1",
-    outcome: "blocked",
-  }),
-  weeklyPreview: Object.freeze({
-    id: "local-demo-weekly-preview-v1",
-    immutableDigest: "sha256:local-demo-weekly-preview-v1",
-    predecessorId: "local-demo-suppression-v1",
-    predecessorDigest: "sha256:local-demo-suppression-v1",
-    source: "fictional projections",
-    realAdmissionCount: 0,
-  }),
-  crmPreview: Object.freeze({
-    id: "local-demo-crm-preview-v1",
-    immutableDigest: "sha256:local-demo-crm-preview-v1",
-    predecessorId: "local-demo-weekly-preview-v1",
-    predecessorDigest: "sha256:local-demo-weekly-preview-v1",
-    source: "fictional projections",
-    realAdmissionCount: 0,
-    downloadAuthorized: false,
-  }),
-  effects: Object.freeze({
-    persistence: false,
-    browserStorage: false,
-    network: false,
-    providerInvocation: false,
-    outbound: false,
-    export: false,
-    effectCount: 0,
-  }),
-});
+type StageFields = Readonly<Record<string, string | number | boolean>>;
+
+async function stage<T extends StageFields>(fields: T) {
+  return Object.freeze({ ...fields, immutableDigest: await digest(fields) });
+}
+
+async function buildComposition(): Promise<LocalDemoComposition> {
+  const prospect = await stage({ id: "local-demo-prospect-qualified-v1" as const, qualification: "qualified" as const });
+  const ownerProspectApproval = await stage({
+    id: "local-demo-owner-prospect-approval-v1" as const,
+    reviewedProspectId: prospect.id,
+    reviewedProspectDigest: prospect.immutableDigest,
+    decision: "approved" as const,
+    provenance: "fictional owner Prospect approval" as const,
+  });
+  const contactSuggestion = await stage({ id: "local-demo-contact-suggestion-v1" as const, predecessorId: ownerProspectApproval.id, predecessorDigest: ownerProspectApproval.immutableDigest, state: "ContactSuggestion" as const });
+  const verificationIntent = await stage({ id: "local-demo-verification-intent-v1" as const, predecessorId: contactSuggestion.id, predecessorDigest: contactSuggestion.immutableDigest, state: "verification_intent" as const, providerInvocation: false as const, verified: false as const });
+  const contactReady = await stage({ id: "local-demo-contact-ready-v1" as const, predecessorId: verificationIntent.id, predecessorDigest: verificationIntent.immutableDigest, state: "ContactReady" as const, shapedOnly: true as const, admitted: false as const });
+  const outreachPackage = await stage({ id: "local-demo-package-v1" as const, predecessorId: contactReady.id, predecessorDigest: contactReady.immutableDigest, exact: true as const, admitted: false as const });
+  const message = await stage({ id: "local-demo-message-v1" as const, predecessorId: outreachPackage.id, predecessorDigest: outreachPackage.immutableDigest, exact: true as const, admitted: false as const });
+  const suppression = await stage({ id: "local-demo-suppression-v1" as const, predecessorId: message.id, predecessorDigest: message.immutableDigest, outcome: "blocked" as const });
+  const weeklyPreview = await stage({ id: "local-demo-weekly-preview-v1" as const, predecessorId: suppression.id, predecessorDigest: suppression.immutableDigest, source: "fictional projections" as const, realAdmissionCount: 0 as const });
+  const crmPreview = await stage({ id: "local-demo-crm-preview-v1" as const, predecessorId: weeklyPreview.id, predecessorDigest: weeklyPreview.immutableDigest, source: "fictional projections" as const, realAdmissionCount: 0 as const, downloadAuthorized: false as const });
+
+  return Object.freeze({
+    kind: "local_demo_composition",
+    fictional: true,
+    disposable: true,
+    scope: Object.freeze({ company: "Northwind Sample Works", product: "Sample Operations Console", marketPlay: "Fictional regional operations teams", profile: "Fictional maintenance planning profile" }),
+    prospect,
+    ownerProspectApproval,
+    contactSuggestion,
+    verificationIntent,
+    contactReady,
+    package: outreachPackage,
+    message,
+    suppression,
+    weeklyPreview,
+    crmPreview,
+    effects: Object.freeze({ persistence: false, browserStorage: false, network: false, providerInvocation: false, outbound: false, export: false, effectCount: 0 }),
+  });
+}
+
+let compositionPromise: Promise<LocalDemoComposition> | undefined;
 
 /** Returns the one fixed local-only story; the returned graph is immutable. */
-export function readLocalDemoComposition(): LocalDemoComposition {
-  return composition;
+export function readLocalDemoComposition(): Promise<LocalDemoComposition> {
+  compositionPromise ??= buildComposition();
+  return compositionPromise;
+}
+
+/** Reject any injected graph with a changed field, link, digest, or effect claim. */
+export async function validateLocalDemoComposition(candidate: unknown) {
+  try {
+    return canonicalJson(candidate) === canonicalJson(await readLocalDemoComposition());
+  } catch {
+    return false;
+  }
+}
+
+async function digest(value: StageFields) {
+  const bytes = new TextEncoder().encode(canonicalJson(value));
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
 }

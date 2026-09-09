@@ -27,6 +27,7 @@ function calls() {
     identity: 0,
     ownerAdmission: 0,
     compositionRead: 0,
+    graphValidation: 0,
     persistence: 0,
     provider: 0,
     network: 0,
@@ -35,7 +36,7 @@ function calls() {
   };
 }
 
-function harness(modules, bindings = localBindings, identityOverride) {
+function harness(modules, bindings = localBindings, identityOverride, compositionOverride) {
   const observed = calls();
   return {
     observed,
@@ -53,9 +54,13 @@ function harness(modules, bindings = localBindings, identityOverride) {
         observed.ownerAdmission += 1;
         return modules.pilotAccess.admitPilotOwner(identity, owner, pepper);
       },
-      readLocalDemoComposition() {
+      async readLocalDemoComposition() {
         observed.compositionRead += 1;
-        return modules.contract.readLocalDemoComposition();
+        return compositionOverride ?? modules.contract.readLocalDemoComposition();
+      },
+      async validateLocalDemoComposition(candidate) {
+        observed.graphValidation += 1;
+        return modules.contract.validateLocalDemoComposition(candidate);
       },
     },
   };
@@ -69,20 +74,24 @@ test("the fixed composition preserves the authorized fictional predecessor chain
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
     const { readLocalDemoComposition } = await vite.ssrLoadModule(contractUrl);
-    const scenario = readLocalDemoComposition();
-    assert.equal(readLocalDemoComposition(), scenario, "the graph is fixed and has no caller input");
+    const scenario = await readLocalDemoComposition();
+    assert.equal(await readLocalDemoComposition(), scenario, "the graph is fixed and has no caller input");
     assert.deepEqual(scenario.scope, {
       company: "Northwind Sample Works", product: "Sample Operations Console",
       marketPlay: "Fictional regional operations teams", profile: "Fictional maintenance planning profile",
     });
     assert.deepEqual(scenario.ownerProspectApproval, {
       id: "local-demo-owner-prospect-approval-v1",
-      immutableDigest: "sha256:local-demo-owner-prospect-approval-v1",
+      immutableDigest: scenario.ownerProspectApproval.immutableDigest,
       reviewedProspectId: scenario.prospect.id,
       reviewedProspectDigest: scenario.prospect.immutableDigest,
       decision: "approved",
       provenance: "fictional owner Prospect approval",
     });
+    for (const stage of [scenario.prospect, scenario.ownerProspectApproval]) {
+      assert.match(stage.immutableDigest, /^sha256:[a-f0-9]{64}$/);
+      assert.equal(stage.immutableDigest, await independentDigest(stage));
+    }
     const chain = [
       scenario.contactSuggestion,
       scenario.verificationIntent,
@@ -109,6 +118,10 @@ test("the fixed composition preserves the authorized fictional predecessor chain
       "local-demo-weekly-preview-v1",
       "local-demo-crm-preview-v1",
     ]);
+    for (const stage of chain) {
+      assert.match(stage.immutableDigest, /^sha256:[a-f0-9]{64}$/);
+      assert.equal(stage.immutableDigest, await independentDigest(stage));
+    }
     assert.equal(scenario.verificationIntent.providerInvocation, false);
     assert.equal(scenario.verificationIntent.verified, false);
     assert.equal(scenario.contactReady.shapedOnly, true);
@@ -153,6 +166,7 @@ test("the composition handler executes every deny boundary without effects", asy
       identity: 0,
       ownerAdmission: 0,
       compositionRead: 0,
+      graphValidation: 0,
       persistence: 0,
       provider: 0,
       network: 0,
@@ -174,6 +188,8 @@ test("the composition handler executes every deny boundary without effects", asy
       const attempt = harness(modules, bindings);
       const response = await modules.handler.handleLocalDemoComposition(request, attempt.dependencies);
       assert.equal(response.status, 404, name);
+      assert.equal(response.headers.get("cache-control"), "no-store", name);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff", name);
       assert.deepEqual(await responseBody(response), { error: "not_found" }, name);
       assert.deepEqual(attempt.observed, noEffects, name);
     }
@@ -186,6 +202,7 @@ test("the composition handler executes every deny boundary without effects", asy
       const attempt = harness(modules);
       const response = await modules.handler.handleLocalDemoComposition(request, attempt.dependencies);
       assert.equal(response.status, 404, name);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff", name);
       assert.deepEqual(await responseBody(response), { error: "not_found" }, name);
       assert.deepEqual(attempt.observed, noEffects, name);
     }
@@ -196,12 +213,32 @@ test("the composition handler executes every deny boundary without effects", asy
     });
     const wrongOwnerResponse = await modules.handler.handleLocalDemoComposition(localRequest(), wrongOwner.dependencies);
     assert.equal(wrongOwnerResponse.status, 404);
+    assert.equal(wrongOwnerResponse.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(await responseBody(wrongOwnerResponse), { error: "not_found" });
     assert.deepEqual(wrongOwner.observed, {
       ...noEffects,
       identity: 1,
       ownerAdmission: 1,
     });
+
+    const malformedBindings = [
+      ["missing PILOT_OWNER_EMAIL", { ...localBindings, PILOT_OWNER_EMAIL: undefined }, 0],
+      ["malformed PILOT_OWNER_EMAIL", { ...localBindings, PILOT_OWNER_EMAIL: "not-an-email" }, 1],
+      ["missing OWNER_SUBJECT_PEPPER", { ...localBindings, OWNER_SUBJECT_PEPPER: undefined }, 0],
+      ["short OWNER_SUBJECT_PEPPER", { ...localBindings, OWNER_SUBJECT_PEPPER: "too-short" }, 1],
+    ];
+    for (const [name, bindings, expectedAdmission] of malformedBindings) {
+      const attempt = harness(modules, bindings);
+      const response = await modules.handler.handleLocalDemoComposition(localRequest(), attempt.dependencies);
+      assert.equal(response.status, 404, name);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff", name);
+      assert.deepEqual(await responseBody(response), { error: "not_found" }, name);
+      assert.deepEqual(attempt.observed, {
+        ...noEffects,
+        identity: expectedAdmission,
+        ownerAdmission: expectedAdmission,
+      }, name);
+    }
   } finally {
     await vite.close();
     delete globalThis.__prospectorCompositionTestEnv;
@@ -237,12 +274,13 @@ test("the composition handler returns its immutable graph only after every autho
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
-    assert.deepEqual(await responseBody(response), modules.contract.readLocalDemoComposition());
+    assert.deepEqual(await responseBody(response), await modules.contract.readLocalDemoComposition());
     assert.deepEqual(accepted.observed, {
       localDemoFence: 1,
       identity: 1,
       ownerAdmission: 1,
       compositionRead: 1,
+      graphValidation: 1,
       persistence: 0,
       provider: 0,
       network: 0,
@@ -254,3 +292,76 @@ test("the composition handler returns its immutable graph only after every autho
     delete globalThis.__prospectorCompositionTestEnv;
   }
 });
+
+test("the handler rejects every mismatched predecessor ID and digest before serialization", async () => {
+  globalThis.__prospectorCompositionTestEnv = {};
+  const vite = await createServer({
+    configFile: false,
+    logLevel: "silent",
+    plugins: [{
+      name: "composition-cloudflare-workers-chain",
+      resolveId(id) { return id === "cloudflare:workers" ? "\0composition-cloudflare-workers-chain" : null; },
+      load(id) { return id === "\0composition-cloudflare-workers-chain" ? "export const env = globalThis.__prospectorCompositionTestEnv;" : null; },
+    }],
+  });
+  try {
+    const modules = {
+      contract: await vite.ssrLoadModule(contractUrl),
+      identity: await vite.ssrLoadModule(identityUrl),
+      pilotAccess: await vite.ssrLoadModule(pilotAccessUrl),
+      handler: await vite.ssrLoadModule(handlerUrl),
+    };
+    const canonical = await modules.contract.readLocalDemoComposition();
+    for (const field of ["reviewedProspectId", "reviewedProspectDigest"]) {
+      const changed = structuredClone(canonical);
+      changed.ownerProspectApproval[field] = field === "reviewedProspectId"
+        ? "wrong-prospect"
+        : `sha256:${"0".repeat(64)}`;
+      await assertGraphDenied(modules, changed, `ownerProspectApproval.${field}`);
+    }
+    for (const stageName of ["contactSuggestion", "verificationIntent", "contactReady", "package", "message", "suppression", "weeklyPreview", "crmPreview"]) {
+      for (const field of ["predecessorId", "predecessorDigest"]) {
+        const changed = structuredClone(canonical);
+        changed[stageName][field] = field === "predecessorId" ? "wrong-predecessor" : `sha256:${"0".repeat(64)}`;
+        await assertGraphDenied(modules, changed, `${stageName}.${field}`);
+      }
+    }
+  } finally {
+    await vite.close();
+    delete globalThis.__prospectorCompositionTestEnv;
+  }
+});
+
+async function independentDigest(stage) {
+  const fields = { ...stage };
+  delete fields.immutableDigest;
+  const bytes = new TextEncoder().encode(canonicalJson(fields));
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function assertGraphDenied(modules, changed, label) {
+  const attempt = harness(modules, localBindings, undefined, changed);
+  const response = await modules.handler.handleLocalDemoComposition(localRequest(), attempt.dependencies);
+  assert.equal(response.status, 404, label);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff", label);
+  assert.deepEqual(await responseBody(response), { error: "not_found" }, label);
+  assert.deepEqual(attempt.observed, {
+    localDemoFence: 1,
+    identity: 1,
+    ownerAdmission: 1,
+    compositionRead: 1,
+    graphValidation: 1,
+    persistence: 0,
+    provider: 0,
+    network: 0,
+    outbound: 0,
+    export: 0,
+  }, label);
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+}
