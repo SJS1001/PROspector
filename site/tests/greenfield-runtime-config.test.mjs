@@ -36,6 +36,11 @@ test("the runtime CLI prepares one private Access-mode candidate without secret 
   const access = {
     accessAudience: "abcdefghijklmnop1234567890",
     accessIssuer: "https://prospector-test.cloudflareaccess.com",
+    releaseFixtureDigest: "c".repeat(64),
+    releaseFixtureProvenance: "synthetic_private_proof:repository:v1",
+    releaseMigrationDigest: "d54c3929120cd7d41e33d53a444404d53935e5785b5f85e6cc9bebb447d0a013",
+    releaseMigrationIdentity: "canonical-chain-0019-person-discovery",
+    releaseSourceRevision: sourceCommit,
     sourceCommit,
     targetCandidateDigest: digest(targetSource),
   };
@@ -82,6 +87,11 @@ test("the runtime CLI prepares one private Access-mode candidate without secret 
         TRUSTED_IDENTITY_PROVIDER: "cloudflare-access",
         CLOUDFLARE_ACCESS_ISSUER: access.accessIssuer,
         CLOUDFLARE_ACCESS_AUDIENCE: access.accessAudience,
+        PROSPECTOR_RELEASE_SOURCE_SHA: access.releaseSourceRevision,
+        PROSPECTOR_RELEASE_MIGRATION_IDENTITY: access.releaseMigrationIdentity,
+        PROSPECTOR_RELEASE_MIGRATION_DIGEST: access.releaseMigrationDigest,
+        PROSPECTOR_RELEASE_FIXTURE_DIGEST: access.releaseFixtureDigest,
+        PROSPECTOR_RELEASE_FIXTURE_PROVENANCE: access.releaseFixtureProvenance,
       },
       secrets: {
         required: ["OWNER_SUBJECT_PEPPER", "PILOT_OWNER_EMAIL"],
@@ -244,6 +254,11 @@ async function createFixture(label) {
   const access = {
     accessAudience: "abcdefghijklmnop1234567890",
     accessIssuer: "https://prospector-test.cloudflareaccess.com",
+    releaseFixtureDigest: "c".repeat(64),
+    releaseFixtureProvenance: "synthetic_private_proof:repository:v1",
+    releaseMigrationDigest: "d54c3929120cd7d41e33d53a444404d53935e5785b5f85e6cc9bebb447d0a013",
+    releaseMigrationIdentity: "canonical-chain-0019-person-discovery",
+    releaseSourceRevision: sourceCommit,
     sourceCommit,
     targetCandidateDigest: digest(targetSource),
   };

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, readFileSync } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readMigrationChain } from "./migration-chain.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const REPOSITORY_ROOT = resolve(ROOT, "..");
@@ -32,6 +33,11 @@ const TARGET_KEYS = [
 const ACCESS_KEYS = [
   "accessAudience",
   "accessIssuer",
+  "releaseFixtureDigest",
+  "releaseFixtureProvenance",
+  "releaseMigrationDigest",
+  "releaseMigrationIdentity",
+  "releaseSourceRevision",
   "sourceCommit",
   "targetCandidateDigest",
 ];
@@ -57,6 +63,12 @@ export async function prepareGreenfieldRuntime({ targetPath, accessPath, outputP
   const sourceCommit = currentSourceCommit();
   const targetCandidateDigest = digest(targetSource);
   if (access.sourceCommit !== sourceCommit) throw new Error("source_commit_mismatch");
+  if (access.releaseSourceRevision !== sourceCommit) throw new Error("release_source_mismatch");
+  const migrationEvidence = currentMigrationEvidence();
+  if (access.releaseMigrationIdentity !== migrationEvidence.identity
+      || access.releaseMigrationDigest !== migrationEvidence.digest) {
+    throw new Error("release_migration_mismatch");
+  }
   if (access.targetCandidateDigest !== targetCandidateDigest) {
     throw new Error("target_candidate_digest_mismatch");
   }
@@ -67,6 +79,11 @@ export async function prepareGreenfieldRuntime({ targetPath, accessPath, outputP
       TRUSTED_IDENTITY_PROVIDER: "cloudflare-access",
       CLOUDFLARE_ACCESS_ISSUER: access.accessIssuer,
       CLOUDFLARE_ACCESS_AUDIENCE: access.accessAudience,
+      PROSPECTOR_RELEASE_SOURCE_SHA: access.releaseSourceRevision,
+      PROSPECTOR_RELEASE_MIGRATION_IDENTITY: access.releaseMigrationIdentity,
+      PROSPECTOR_RELEASE_MIGRATION_DIGEST: access.releaseMigrationDigest,
+      PROSPECTOR_RELEASE_FIXTURE_DIGEST: access.releaseFixtureDigest,
+      PROSPECTOR_RELEASE_FIXTURE_PROVENANCE: access.releaseFixtureProvenance,
     },
     secrets: {
       required: ["OWNER_SUBJECT_PEPPER", "PILOT_OWNER_EMAIL"],
@@ -112,11 +129,33 @@ function parseAccess(source) {
       || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(ACCESS_KEYS)
       || !SAFE_COMMIT.test(value.sourceCommit)
       || !SAFE_DIGEST.test(value.targetCandidateDigest)
+      || !SAFE_COMMIT.test(value.releaseSourceRevision)
+      || !SAFE_DIGEST.test(value.releaseMigrationDigest)
+      || typeof value.releaseMigrationIdentity !== "string"
+      || !/^canonical-chain-[0-9]{4}-[a-z0-9-]+$/u.test(value.releaseMigrationIdentity)
+      || !SAFE_DIGEST.test(value.releaseFixtureDigest)
+      || typeof value.releaseFixtureProvenance !== "string"
+      || !/^synthetic_private_proof:[a-z0-9:_-]+$/u.test(value.releaseFixtureProvenance)
       || !SAFE_AUDIENCE.test(value.accessAudience)
       || !validAccessIssuer(value.accessIssuer)) {
     throw new Error("access_config_invalid");
   }
   return value;
+}
+
+function currentMigrationEvidence() {
+  const directory = resolve(ROOT, "drizzle");
+  const chain = readMigrationChain(directory);
+  const entries = chain.map((filename, idx) => ({
+    idx,
+    tag: filename.slice(0, -4),
+    digest: createHash("sha256").update(readFileSync(resolve(directory, filename))).digest("hex"),
+  }));
+  const head = chain.at(-1).slice(0, -4).replaceAll("_", "-");
+  return {
+    identity: `canonical-chain-${head}`,
+    digest: createHash("sha256").update(JSON.stringify(entries)).digest("hex"),
+  };
 }
 
 function validAccessIssuer(value) {

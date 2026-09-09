@@ -58,7 +58,7 @@ export function assessReleaseEvidence(evidence, { now = new Date().toISOString()
   if (local.testPhase3 !== "passed") fail("local_phase3_test_incomplete");
   if (typeof local.reviewedSourceRevision !== "string" || !GIT_REVISION.test(local.reviewedSourceRevision)) fail("reviewed_source_revision_invalid");
   const migration = exactKeys(local.migration, ["identity", "digest"], "migration_identity_incomplete");
-  opaque(migration.identity, "migration_identity_incomplete");
+  if (typeof migration.identity !== "string" || !/^canonical-chain-[0-9]{4}-[a-z0-9-]+$/u.test(migration.identity)) fail("migration_identity_incomplete");
   if (typeof migration.digest !== "string" || !SHA256.test(migration.digest)) fail("migration_digest_invalid");
 
   const target = exactKeys(manifest.target, ["productId", "expectedRevision"], "target_identity_incomplete");
@@ -66,12 +66,13 @@ export function assessReleaseEvidence(evidence, { now = new Date().toISOString()
   if (typeof target.expectedRevision !== "string" || !/^[1-9][0-9]{0,15}$/u.test(target.expectedRevision)) fail("target_identity_incomplete");
 
   if (manifest.capability !== CAPABILITY) fail("unsupported_capability");
-  const authorization = exactKeys(manifest.authorization, ["admittedOwnerId", "workspaceId", "productId", "expectedRevision", "sourceRevision", "migrationDigest", "fixtureDigest", "fixtureProvenance", "expiresAt", "reference"], "authorization_incomplete");
+  const authorization = exactKeys(manifest.authorization, ["admittedOwnerId", "workspaceId", "productId", "expectedRevision", "sourceRevision", "migrationIdentity", "migrationDigest", "fixtureDigest", "fixtureProvenance", "expiresAt", "reference"], "authorization_incomplete");
   for (const key of ["admittedOwnerId", "workspaceId", "productId", "fixtureProvenance", "reference"]) opaque(authorization[key], "authorization_incomplete");
   if (typeof authorization.expectedRevision !== "string" || !/^[1-9][0-9]{0,15}$/u.test(authorization.expectedRevision)) fail("authorization_incomplete");
   if (authorization.productId !== target.productId || authorization.expectedRevision !== target.expectedRevision) fail("product_scope_mismatch");
   if (typeof authorization.sourceRevision !== "string" || !GIT_REVISION.test(authorization.sourceRevision)) fail("authorization_source_revision_invalid");
   if (authorization.sourceRevision !== local.reviewedSourceRevision) fail("source_revision_mismatch");
+  if (authorization.migrationIdentity !== migration.identity) fail("migration_identity_mismatch");
   if (authorization.migrationDigest !== migration.digest) fail("migration_digest_mismatch");
   if (!SHA256.test(authorization.fixtureDigest)) fail("fixture_digest_invalid");
   parseExpiry(authorization.expiresAt, Date.parse(now));

@@ -20,6 +20,7 @@ import {
 } from "./product-readiness";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
+import { LOCAL_SYNTHETIC_RELEASE_EVIDENCE, type ReleaseEvidenceConfig } from "./release-evidence";
 
 export const DISCOVERY_MUTATION_INTENT = "discovery-mutation";
 export const MAX_DISCOVERY_BODY_BYTES = 8192;
@@ -29,6 +30,7 @@ export type DiscoveryHandlerDependencies = {
   subjectPepper: string;
   pilotOwnerEmail: string;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
+  releaseEvidence?: ReleaseEvidenceConfig;
 };
 
 type ProductRow = { id: string; name: string; lifecycle: string; revision: number };
@@ -46,7 +48,7 @@ export async function handleDiscoveryGet(
   try {
     const principal = await authenticatedPrincipal(dependencies);
     const productId = optionalProductLocator(new URL(request.url).searchParams.get("productId"));
-    return projectionResponse(dependencies.database, principal, productId);
+    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isConflict(error)) return privateWorkspaceUnavailable();
@@ -77,8 +79,8 @@ export async function handleDiscoveryPost(
       return json({ error: "unsupported_action" }, 400);
     const action = body.action as DiscoveryAction;
     assertClosedCommand(body, action);
-    const productId = await dispatch(action, body, dependencies.database, principal);
-    return projectionResponse(dependencies.database, principal, productId);
+    const productId = await dispatch(action, body, dependencies.database, principal, dependencies.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
+    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
@@ -94,6 +96,7 @@ async function dispatch(
   body: Record<string, unknown>,
   database: D1Database,
   principal: InterviewPrincipal,
+  releaseEvidence: ReleaseEvidenceConfig,
 ): Promise<string | null> {
   if (action === "read_current_state" || action === "read_product_readiness")
     return optionalString(body, "productId", 160).productId ?? null;
@@ -142,8 +145,8 @@ async function dispatch(
     idempotencyKey: requiredString(body, "idempotencyKey", 80),
   };
   if (action === "activate_private_synthetic_proof_authorization")
-    await activatePrivateSyntheticProofAuthorization(database, principal, input);
-  else await submitPrivateSyntheticProof(database, principal, input);
+    await activatePrivateSyntheticProofAuthorization(database, principal, { ...input, releaseEvidence });
+  else await submitPrivateSyntheticProof(database, principal, { ...input, releaseEvidence });
   return productId;
 }
 
@@ -151,6 +154,7 @@ async function projectionResponse(
   database: D1Database,
   principal: InterviewPrincipal,
   requestedProductId: string | null,
+  releaseEvidence: ReleaseEvidenceConfig,
 ) {
   const workspace = await ownedWorkspace(database, principal);
   const products = await database.prepare(
@@ -161,7 +165,7 @@ async function projectionResponse(
     : products.results.find((item) => item.id === requestedProductId) ?? null;
   if (requestedProductId !== null && !product) throw new PilotAccessError();
 
-  const state = product === null ? null : await readMarketDiscoveryState(database, principal, product.id);
+  const state = product === null ? null : await readMarketDiscoveryState(database, principal, product.id, releaseEvidence);
   const response = json({
     products: products.results.map((item) => ({ id: item.id, name: item.name, lifecycle: item.lifecycle, revision: Number(item.revision) })),
     selectedProductId: product?.id ?? null,

@@ -122,6 +122,7 @@ async function seedPrivateProofConfirmation(fixture, authority, expiresAt, overr
     productId: authority.productId,
     expectedProductRevision: authority.ready.product.revision,
     reviewedSourceRevision: authority.submission.PRIVATE_SYNTHETIC_PROOF_REVIEWED_SOURCE_REVISION,
+    migrationIdentity: authority.submission.PRIVATE_SYNTHETIC_PROOF_MIGRATION_IDENTITY,
     migrationDigest: authority.submission.PRIVATE_SYNTHETIC_PROOF_MIGRATION_DIGEST,
     fixtureDigest: authority.submission.PRIVATE_SYNTHETIC_PROOF_FIXTURE_DIGEST,
     fixtureProvenance: authority.submission.PRIVATE_SYNTHETIC_PROOF_FIXTURE_PROVENANCE,

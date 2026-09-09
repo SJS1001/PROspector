@@ -8,6 +8,7 @@ const NOW = "2026-07-30T12:00:00.000Z";
 const SOURCE_REVISION = "a".repeat(40);
 const MIGRATION_DIGEST = "b".repeat(64);
 const FIXTURE_DIGEST = "c".repeat(64);
+const MIGRATION_IDENTITY = "canonical-chain-0019-person-discovery";
 
 function validEvidence() {
   return {
@@ -15,7 +16,7 @@ function validEvidence() {
     local: {
       testPhase3: "passed",
       reviewedSourceRevision: SOURCE_REVISION,
-      migration: { identity: "0000-0006", digest: MIGRATION_DIGEST },
+      migration: { identity: MIGRATION_IDENTITY, digest: MIGRATION_DIGEST },
     },
     target: { productId: "product-opaque-1", expectedRevision: "7" },
     capability: "private-hosted-synthetic-proposal-proof",
@@ -25,6 +26,7 @@ function validEvidence() {
       productId: "product-opaque-1",
       expectedRevision: "7",
       sourceRevision: SOURCE_REVISION,
+      migrationIdentity: MIGRATION_IDENTITY,
       migrationDigest: MIGRATION_DIGEST,
       fixtureDigest: FIXTURE_DIGEST,
       fixtureProvenance: "fixed-local-synthetic-fixture-v1",
@@ -72,6 +74,7 @@ test("fails closed for absent, expired, mismatched, replayed, stale, and unknown
     [Object.assign(validEvidence(), { authorization: { ...validEvidence().authorization, expiresAt: NOW } }), "authorization_expired"],
     [Object.assign(validEvidence(), { authorization: { ...validEvidence().authorization, sourceRevision: "d".repeat(40) } }), "source_revision_mismatch"],
     [Object.assign(validEvidence(), { authorization: { ...validEvidence().authorization, migrationDigest: "d".repeat(64) } }), "migration_digest_mismatch"],
+    [Object.assign(validEvidence(), { authorization: { ...validEvidence().authorization, migrationIdentity: "canonical-chain-0005-old" } }), "migration_identity_mismatch"],
     [Object.assign(validEvidence(), { target: { ...validEvidence().target, productId: "product-opaque-2" } }), "product_scope_mismatch"],
     [Object.assign(validEvidence(), { consumption: { ...validEvidence().consumption, consumedByOperationId: "other-operation" } }), "consumption_operation_mismatch"],
     [Object.assign(validEvidence(), { noEffect: { ...validEvidence().noEffect, downstreamEffects: 1 } }), "effect_evidence_not_zero"],
