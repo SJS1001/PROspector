@@ -48,6 +48,9 @@ test("reduces the frozen synthetic two-arm cohort with exact denominators and li
     assert.equal(report.arms.system.knownActualCostMinor, 150);
     assert.equal(report.arms.system.unresolvedReservedCostMinor, 100);
     assert.equal(report.arms.system.atRiskCostMinorPerUsable, 250);
+    assert.equal(report.pairedDelta.activeMinutesPerUsable, -30);
+    assert.equal(report.pairedDelta.knownCostMinorPerUsable, 100);
+    assert.equal(report.pairedDelta.atRiskCostMinorPerUsable, 150);
     assert.deepEqual(report.arms.system.contactOutcomeCounts, { complete: 1, no_result: 1, partial: 2, uncertain: 1 });
     assert.deepEqual(report.arms.system.contactEligibilityCounts, { current_eligible: 2, stale: 0, weak: 1, invalid: 0, unknown: 1, no_result: 1 });
     assert.deepEqual(report.arms.system.chargeOutcomeCounts, { complete: 1, no_result: 1, partial: 1, uncertain: 1 });
@@ -266,8 +269,90 @@ test("zero usable or zero metric denominators are unavailable for passing, never
     assert.equal(report.arms.system.relevancePrecision.wilson95, null);
     assert.equal(report.arms.system.activeMinutesPerUsable, null);
     assert.equal(report.arms.system.knownCostMinorPerUsable, null);
+    assert.equal(report.pairedDelta.activeMinutesPerUsable, null);
+    assert.equal(report.pairedDelta.knownCostMinorPerUsable, null);
+    assert.equal(report.pairedDelta.atRiskCostMinorPerUsable, null);
     assert.equal(report.thresholdExercise.status, "failed");
     assert.ok(report.limitations.includes("system_contains_zero_denominator_metric"));
+  } finally { await vite.close(); }
+});
+
+test("efficiency deltas are unavailable when only the manual arm has no usable target", async () => {
+  const { vite, quality } = await load();
+  try {
+    const input = await fixture();
+    const manual = input.arms.find((arm) => arm.arm === "manual");
+    for (const result of manual.results) {
+      result.surfaced = false; result.organizationMatch = null; result.evidence = []; result.contacts = [];
+    }
+    const report = await quality.evaluateProspectQuality(input);
+    assert.equal(report.status, "available");
+    assert.equal(report.arms.system.activeMinutesPerUsable, 60);
+    assert.equal(report.arms.manual.activeMinutesPerUsable, null);
+    assert.equal(report.pairedDelta.activeMinutesPerUsable, null);
+    assert.equal(report.pairedDelta.knownCostMinorPerUsable, null);
+    assert.equal(report.pairedDelta.atRiskCostMinorPerUsable, null);
+  } finally { await vite.close(); }
+});
+
+test("efficiency deltas subtract raw arm ratios before one display rounding", async () => {
+  const { vite, quality } = await load();
+  try {
+    const input = await fixture();
+    input.cohort.strata = ["quantization-boundary"];
+    input.cohort.targets = Array.from({ length: quality.PROSPECT_QUALITY_MAX_TARGETS }, (_, index) => ({
+      id: `target-quantized-${String(index).padStart(4, "0")}`,
+      stratum: "quantization-boundary",
+      label: "relevant",
+    }));
+    input.protocol.thresholds.minAdjudicatedTargets = quality.PROSPECT_QUALITY_MAX_TARGETS;
+    for (const arm of input.arms) {
+      arm.results = input.cohort.targets.map((target, index) => ({
+        id: `${arm.arm}-quantized-result-${String(index).padStart(4, "0")}`,
+        targetId: target.id,
+        surfaced: true,
+        organizationMatch: "correct",
+        evidence: [{ id: `${arm.arm}-quantized-claim-${String(index).padStart(4, "0")}`, label: "supported_current" }],
+        contacts: [{
+          id: `${arm.arm}-quantized-contact-${String(index).padStart(4, "0")}`,
+          attempted: true, outcome: "complete", identity: "correct", role: "correct",
+          currentAffiliation: true, eligibility: "current_eligible",
+        }],
+      }));
+      arm.costs = [];
+    }
+    input.arms.find((arm) => arm.arm === "system").effort = [{
+      id: "system-quantized-effort", targetId: input.cohort.targets[0].id,
+      startedAt: "2026-09-02T10:00:00.000Z", endedAt: "2026-09-02T10:00:00.029Z",
+    }];
+    input.arms.find((arm) => arm.arm === "manual").effort = [{
+      id: "manual-quantized-effort", targetId: input.cohort.targets[0].id,
+      startedAt: "2026-09-03T10:00:00.000Z", endedAt: "2026-09-03T10:00:00.031Z",
+    }];
+
+    const report = await quality.evaluateProspectQuality(input);
+    assert.equal(report.status, "available");
+    assert.equal(report.arms.system.activeMinutesPerUsable, 0);
+    assert.equal(report.arms.manual.activeMinutesPerUsable, 0.000001);
+    assert.equal(report.arms.system.activeMinutesPerUsable - report.arms.manual.activeMinutesPerUsable, -0.000001, "subtracting independently rounded arms creates a false delta");
+    assert.equal(report.pairedDelta.activeMinutesPerUsable, 0, "the raw 29ms/1000 minus 31ms/1000 delta rounds once to zero");
+  } finally { await vite.close(); }
+});
+
+test("a legacy v1 consumer can select its required quality delta keys and ignore extensions", async () => {
+  const { vite, quality } = await load();
+  try {
+    const report = await quality.evaluateProspectQuality(await fixture());
+    const legacyKeys = [
+      "closedSetRecall", "relevancePrecision", "materialEvidenceCoverage", "evidenceAccuracy",
+      "organizationAccuracy", "organizationFalseMatchRate", "personIdentityAccuracy", "currentRoleAccuracy",
+      "verificationYield", "relevantTargetContactCoverage",
+    ];
+    const legacyProjection = Object.fromEntries(legacyKeys.map((key) => [key, report.pairedDelta[key]]));
+    assert.deepEqual(Object.keys(legacyProjection), legacyKeys);
+    assert.equal(legacyProjection.closedSetRecall, 0.333333);
+    assert.equal(legacyProjection.organizationFalseMatchRate, -0.333333);
+    assert.equal("activeMinutesPerUsable" in legacyProjection, false);
   } finally { await vite.close(); }
 });
 
