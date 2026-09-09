@@ -7,10 +7,11 @@ PROspector moves from its narrow hosted interview proof to a safe private operat
 **Granularity:** Standard (default; no project config was present)  
 **Coverage:** 17/17 v1 requirements mapped exactly once
 
-**LOCAL_DEMO planning boundary:** `docs/LOCAL-DEMO-AUTHORITY-TRACK.md` is a
-separate, unaccepted loopback-only track for fictional composition of existing
-Phase 4–7 foundations. It changes no phase dependencies or completion status,
-and grants no hosted, provider, data, export, credential, or effect authority.
+**LOCAL_DEMO planning boundary:** `.planning/LOCAL-DEMO-COMPOSITION.md` is the
+single canonical record for a proposed, separate, and unaccepted loopback-only
+track for fictional composition of existing Phase 4–7 foundations. It changes
+no phase dependencies or completion status and grants no hosted, provider,
+data, persistence, export, credential, or effect authority.
 
 ## Phases
 
@@ -23,12 +24,12 @@ external dependencies remain incomplete. Canonical preflight remains held.
 substantial Phase 4–7 implementation and focused/browser evidence. The plan
 checkboxes below intentionally do not move: implementation presence, local
 validation, preparation contracts, and dev-only previews are not formal plan
-or phase acceptance. The bounded exception in
-`.planning/LOCAL-DEMO-COMPOSITION.md` authorizes one guarded loopback
-`LOCAL_DEMO` supported-screen journey across the remaining phase UX, in Phase
-4 → 5 → 6 → 7 dependency order. It grants no plan/requirement/phase credit and
-no hosted, provider, credential, real-data, persistence, export, or outbound
-authority.
+or phase acceptance. The proposed track in
+`.planning/LOCAL-DEMO-COMPOSITION.md` defines one guarded loopback `LOCAL_DEMO`
+supported-screen journey across the remaining phase UX, in Phase 4 → 5 → 6 → 7
+dependency order. It is not accepted for execution, grants no
+plan/requirement/phase credit, and grants no hosted, provider, credential,
+real-data, persistence, export, or outbound authority.
 
 **Phase Numbering:**
 

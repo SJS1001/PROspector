@@ -1,6 +1,8 @@
 # Guarded LOCAL_DEMO composition track
 
-**Authorized:** 2026-09-09
+**Status:** proposed, separate, and unaccepted
+
+**Recorded:** 2026-09-09
 
 **Scope:** bounded local scenario-projection and UX composition only
 
@@ -26,18 +28,19 @@ browser lanes prove individual seams; they do not prove this cross-phase UX
 ordering, state hand-off, reload behavior, or fail-closed presentation as one
 journey.
 
-## Exact authorization
+## Exact proposed boundary
 
-This track may add or adjust only development-gated `LOCAL_DEMO` composition,
-fictional fixtures/projections, supported-screen UI, and local automated or
-browser acceptance evidence needed for that journey. Every entry point must
+If accepted for execution, this track may add or adjust only development-gated
+`LOCAL_DEMO` composition, fictional fixtures/projections, supported-screen UI,
+and local automated or browser acceptance evidence needed for that journey.
+Every entry point must
 require all of the existing development, exact `LOCAL_DEMO`, loopback,
 same-origin, and synthetic-owner fences. Production builds must continue to
 exclude demo fixtures and routes. Inputs must be fixed fictional/disposable
 data; caller-supplied identity, address, message, phone, provider, credential,
 file, or target material must fail closed.
 
-This track authorizes no ordinary mutation endpoint and no relaxation of one.
+This track proposes no ordinary mutation endpoint and no relaxation of one.
 Scenario reads or changes must use only dedicated development-only local-demo
 seams whose implementation is reached by dynamic import after the complete
 guard. They may project fictional state but may not compose a retrieval,
@@ -50,7 +53,7 @@ that any external event occurred. Where an underlying real boundary is still
 blocked, the UX must say so and keep the fictional preview visibly separate
 from an empty/refused real decision.
 
-This authorization grants **no**:
+This proposal grants **no**:
 
 - Phase 4, 5, 6, or 7 plan, requirement, phase, or milestone completion credit;
 - satisfaction of any `depends_on`, hosted, provider, credential,
@@ -72,8 +75,8 @@ substitute evidence.
 
 ## Dependency order
 
-Work within this exception must preserve the product authority order even
-though every record is fictional and non-durable:
+If separately accepted, work within this proposed track must preserve the
+product authority order even though every record is fictional and non-durable:
 
 1. Reuse the accepted local identity/onboarding/Knowledge and Product/Offer
    foundation; do not reopen Plan 02-99 or Plans 03-09–03-11.
@@ -98,7 +101,7 @@ though every record is fictional and non-durable:
    checks where applicable, production-bundle exclusion checks, canonical
    tests/lint, and exact zero-effect assertions.
 
-Parallel implementation is permitted only for independent seams with
+Parallel implementation would be permitted only for independent seams with
 non-overlapping ownership. The final composition and browser proof wait for
 steps 2–5 in order. No `*-SUMMARY.md` may be created from this track.
 

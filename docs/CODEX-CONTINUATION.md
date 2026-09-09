@@ -17,8 +17,9 @@ credential, real-principal, independent-review, and owner-acceptance gates
 remain pending exactly as checked.
 
 The remaining local end-to-end gap is one coherent supported-screen browser
-journey across those already-merged later-phase UX seams. The bounded authority
-for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It permits only fixed
+journey across those already-merged later-phase UX seams. The single canonical
+proposal for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It is separate
+and unaccepted, and defines only fixed
 fictional/disposable projections behind the existing development, exact
 `LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
 the dependency order: Phase 4 ready Profile/qualified Prospect/review → Phase 5
@@ -27,7 +28,7 @@ suppression rechecks → Phase 7 morning/weekly/CRM/portability previews. Real
 decisions stay refused, effect counters stay zero, production bundles exclude
 the fixtures/routes, and no summary or formal credit may result.
 
-That amendment grants no hosted/provider/credential/real-data/persistence/
+That proposal grants no hosted/provider/credential/real-data/persistence/
 export/outbound authority. Stop rather than widening a checked plan, composing
 a real port, writing durable state, delivering bytes, or fabricating evidence.
 
@@ -126,13 +127,14 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 
 ## Current state
 
-- A separate proposed `LOCAL_DEMO` composition track is documented in
-  [`LOCAL-DEMO-AUTHORITY-TRACK.md`](LOCAL-DEMO-AUTHORITY-TRACK.md). It permits
-  only fictional disposable loopback composition of existing Phase 4–7
-  foundations, in dependency order, with exact verification and literal-zero
-  effect criteria. It grants no plan/phase, hosted, provider, data, export,
-  credential, or external-effect authority; the original Sites boundary stays
-  permanently retired.
+- The single canonical record for the separate proposed and unaccepted
+  `LOCAL_DEMO` composition track is
+  [`.planning/LOCAL-DEMO-COMPOSITION.md`](../.planning/LOCAL-DEMO-COMPOSITION.md).
+  It defines only fictional disposable loopback composition of existing Phase
+  4–7 foundations, in dependency order, with exact verification and
+  literal-zero-effect criteria. It grants no plan/phase, hosted, provider,
+  data, persistence, export, credential, or external-effect authority; the
+  original Sites boundary stays permanently retired.
 
 - Phase 1 automated build is complete. Its four Sites-version-10 human checks were never performed and are now explicitly superseded historical evidence because that release is retired; they are not passed or waived proof and must not be attempted against it. Equivalent real-principal, authenticated negative-mutation/zero-delta, secret/log, and exact-release review evidence remains non-substitutable under greenfield Plan 02-99.
 - Phase 2 retains Plans 02-01 through 02-12 completion credit. Plans 02-13 through 02-21 and the old recovery Plan 02-99 are retired incident history and earn no new credit. Plan 02-22 establishes the verified greenfield local baseline; the new terminal Plan 02-99 keeps future hosted acceptance separate.

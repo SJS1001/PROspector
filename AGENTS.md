@@ -10,9 +10,9 @@ Before changing this repository, read these committed sources of truth in order:
 6. The active Phase 2 `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`
 7. The current plan and every dependency summary named by that plan
 
-Before undertaking any local Phase 4–7 product-composition work, also read
-`.planning/LOCAL-DEMO-COMPOSITION.md`. It is an explicitly unaccepted
-dependency track and does not change plan credit or external gates.
+Before proposing or reviewing any local Phase 4–7 product-composition work,
+also read `.planning/LOCAL-DEMO-COMPOSITION.md`. It is an explicitly
+unaccepted dependency track and does not change plan credit or external gates.
 
 The original private Sites project is inaccessible and permanently retired from the execution path. Do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Future environments must be greenfield and require separate provisioning authority. Never display, copy, rotate, remove, or commit secret values or private hosted data.
 
