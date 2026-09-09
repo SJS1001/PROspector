@@ -30,6 +30,8 @@ const JWKS_REFRESH_COOLDOWN_MS = 30 * 1000;
 const JWKS_HARD_STALE_MS = 10 * 60 * 1000;
 const MAX_ASSERTION_BYTES = 16 * 1024;
 const MAX_JWKS_BYTES = 256 * 1024;
+const ASSERTION_CLOCK_SKEW_SECONDS = 60;
+const MAX_ASSERTION_LIFETIME_SECONDS = 60 * 60;
 const cache = new Map<string, CachedJwks>();
 const pending = new Map<string, Promise<AccessJwk[]>>();
 
@@ -211,9 +213,16 @@ function validClaims(
 ) {
   if (payload.iss !== issuer || !audienceIncludes(payload.aud, audience)) return false;
   if (!numericDate(payload.exp) || payload.exp <= nowSeconds) return false;
-  if (payload.nbf !== undefined && (!numericDate(payload.nbf) || payload.nbf > nowSeconds))
+  if (
+    payload.nbf !== undefined
+    && (!numericDate(payload.nbf) || payload.nbf > nowSeconds + ASSERTION_CLOCK_SKEW_SECONDS)
+  )
     return false;
-  if (payload.iat !== undefined && (!numericDate(payload.iat) || payload.iat > nowSeconds))
+  if (!numericDate(payload.iat)) return false;
+  if (payload.iat > nowSeconds + ASSERTION_CLOCK_SKEW_SECONDS) return false;
+  if (payload.iat < nowSeconds - MAX_ASSERTION_LIFETIME_SECONDS - ASSERTION_CLOCK_SKEW_SECONDS)
+    return false;
+  if (payload.exp <= payload.iat || payload.exp - payload.iat > MAX_ASSERTION_LIFETIME_SECONDS)
     return false;
   return normalizeEmail(payload.email) !== null;
 }

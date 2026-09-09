@@ -36,6 +36,13 @@ partial, or conflicting identity configuration denies access; neither Sites
 headers nor `LOCAL_DEMO` can act as a fallback. Do not add the Cloudflare
 bindings to the disposable localhost `.dev.vars` file.
 
+The server-side Access verifier requires an integral positive `iat`, permits at
+most 60 seconds of future clock skew for both `iat` and an optional `nbf`,
+rejects assertions issued more than one hour plus that skew ago, and rejects
+any non-positive or over-one-hour declared `exp - iat` lifetime. Signature,
+issuer, audience, expiry, and identity checks remain mandatory; these local
+verifier bounds do not prove or configure the hosted Access session duration.
+
 The hosted interview requires a secret `OWNER_SUBJECT_PEPPER` binding of at
 least 32 characters. It is used to derive a non-enumerable owner subject; it
 must never be committed. Rotating it requires an explicit identity migration,

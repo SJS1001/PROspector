@@ -44,6 +44,7 @@ test("Cloudflare Access verifies a signed owner identity and caches the issuer J
       iss: ISSUER,
       aud: ["unrelated-audience", AUDIENCE],
       email: "owner@example.com",
+      iat: NOW_SECONDS - 30,
       exp: NOW_SECONDS + 300,
     });
     assert.deepEqual(
@@ -58,6 +59,101 @@ test("Cloudflare Access verifies a signed owner identity and caches the issuer J
       { email: "owner@example.com", displayName: "owner@example.com" },
     );
     assert.equal(fetchCount, 1);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("Cloudflare Access bounds assertion issuance time and declared session lifetime", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const access = await vite.ssrLoadModule(
+      new URL("../app/cloudflare-access.ts", import.meta.url).pathname,
+    );
+    const fixture = await signedFixture("lifetime-key");
+    let sequence = 0;
+    const verify = async (claims) => {
+      sequence += 1;
+      const issuer = `https://lifetime-${sequence}.cloudflareaccess.com`;
+      const token = await fixture.sign({
+        iss: issuer,
+        aud: AUDIENCE,
+        email: "owner@example.com",
+        exp: NOW_SECONDS + 300,
+        ...claims,
+      });
+      return access.verifyCloudflareAccessIdentity(
+        new Headers({ "cf-access-jwt-assertion": token }),
+        { issuer, audience: AUDIENCE },
+        {
+          now: () => NOW_SECONDS * 1000,
+          fetcher: async () => Response.json({ keys: [fixture.publicJwk] }),
+        },
+      );
+    };
+
+    assert.equal(await verify({ iat: undefined }), null, "iat is required");
+    for (const malformedIat of ["1800000000", 1_800_000_000.5, 0, null]) {
+      assert.equal(
+        await verify({ iat: malformedIat }),
+        null,
+        `malformed iat ${String(malformedIat)} must fail closed`,
+      );
+    }
+    assert.equal(
+      await verify({ iat: NOW_SECONDS + 61, nbf: NOW_SECONDS + 61 }),
+      null,
+      "coupled future iat and nbf beyond skew are rejected",
+    );
+    assert.equal(
+      await verify({ iat: NOW_SECONDS + 60, nbf: NOW_SECONDS + 61 }),
+      null,
+      "nbf beyond skew is rejected independently of a valid iat",
+    );
+    assert.equal(
+      await verify({ iat: NOW_SECONDS - 3_661, exp: NOW_SECONDS + 1 }),
+      null,
+      "iat older than the one-hour bound plus skew is rejected",
+    );
+    assert.equal(
+      await verify({ iat: NOW_SECONDS - 30, exp: NOW_SECONDS + 3_571 }),
+      null,
+      "declared lifetime over one hour is rejected",
+    );
+    assert.equal(
+      await verify({
+        iat: NOW_SECONDS + 30,
+        nbf: NOW_SECONDS + 30,
+        exp: NOW_SECONDS + 30,
+      }),
+      null,
+      "an unexpired exp equal to iat is rejected",
+    );
+    assert.equal(
+      await verify({
+        iat: NOW_SECONDS + 30,
+        nbf: NOW_SECONDS + 29,
+        exp: NOW_SECONDS + 29,
+      }),
+      null,
+      "an unexpired exp before iat is rejected",
+    );
+
+    for (const claims of [
+      { iat: NOW_SECONDS - 3_599, exp: NOW_SECONDS + 1 },
+      {
+        iat: NOW_SECONDS + 60,
+        nbf: NOW_SECONDS + 60,
+        exp: NOW_SECONDS + 3_660,
+      },
+      { iat: NOW_SECONDS - 30, exp: NOW_SECONDS + 300 },
+    ]) {
+      assert.deepEqual(
+        await verify(claims),
+        { email: "owner@example.com", displayName: "owner@example.com" },
+        "valid assertions at and within the documented bounds remain accepted",
+      );
+    }
   } finally {
     await vite.close();
   }
@@ -108,7 +204,7 @@ test("Cloudflare Access rejects malformed configuration, claims, signatures, and
     assert.equal(await verify({ claims: { iss: "https://other.cloudflareaccess.com" } }), null);
     assert.equal(await verify({ claims: { aud: "b".repeat(64) } }), null);
     assert.equal(await verify({ claims: { exp: NOW_SECONDS } }), null);
-    assert.equal(await verify({ claims: { nbf: NOW_SECONDS + 1 } }), null);
+    assert.equal(await verify({ claims: { nbf: NOW_SECONDS + 61 } }), null);
     assert.equal(await verify({ claims: { email: "not-an-email" } }), null);
 
     const otherFixture = await signedFixture();
@@ -285,6 +381,7 @@ test("JWKS refresh is single-flight and supports bounded same-kid rotation", asy
       iss: issuer,
       aud: AUDIENCE,
       email: "owner@example.com",
+      iat: NOW_SECONDS - 30,
       exp: NOW_SECONDS + 600,
     };
     const oldToken = await oldFixture.sign(claims);
@@ -345,7 +442,8 @@ test("failed JWKS refreshes cannot extend the fixed stale-key deadline", async (
       iss: issuer,
       aud: AUDIENCE,
       email: "owner@example.com",
-      exp: NOW_SECONDS + 3_600,
+      iat: NOW_SECONDS - 30,
+      exp: NOW_SECONDS + 3_570,
     });
     const headers = new Headers({ "cf-access-jwt-assertion": token });
     const config = { issuer, audience: AUDIENCE };
