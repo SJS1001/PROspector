@@ -1,0 +1,4 @@
+interface:
+  display_name: "HVAC Search Visibility"
+  short_description: "Evidence-grounded HVAC local search and UX"
+  default_prompt: "Use $hvac-search-visibility to create or audit an evidence-grounded search visibility program for an HVAC contractor."

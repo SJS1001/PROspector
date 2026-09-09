@@ -1,0 +1,22 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Service",
+  "@id": "https://www.example-hvac.invalid/services/furnace-repair/#service",
+  "name": "Residential furnace repair",
+  "serviceType": "Residential furnace diagnosis and repair",
+  "url": "https://www.example-hvac.invalid/services/furnace-repair/",
+  "provider": {
+    "@id": "https://www.example-hvac.invalid/#business"
+  },
+  "areaServed": [
+    {
+      "@type": "City",
+      "name": "Example City"
+    },
+    {
+      "@type": "AdministrativeArea",
+      "name": "Example Region"
+    }
+  ],
+  "description": "Example placeholder describing the visible service page. Service markup is semantic vocabulary and does not guarantee a Google rich result or ranking benefit."
+}

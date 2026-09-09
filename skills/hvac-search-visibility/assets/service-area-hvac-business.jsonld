@@ -1,0 +1,33 @@
+{
+  "@context": "https://schema.org",
+  "@type": "HVACBusiness",
+  "@id": "https://www.example-service-area-hvac.invalid/#business",
+  "name": "Example Service Area HVAC",
+  "url": "https://www.example-service-area-hvac.invalid/",
+  "telephone": "+1-202-555-0110",
+  "description": "Fictional address-hidden template. This does not satisfy Google's documented LocalBusiness rich-result address requirement.",
+  "areaServed": [
+    {
+      "@type": "City",
+      "name": "Exampleville"
+    },
+    {
+      "@type": "AdministrativeArea",
+      "name": "Example County"
+    }
+  ],
+  "openingHoursSpecification": [
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "opens": "08:00",
+      "closes": "17:00"
+    }
+  ]
+}

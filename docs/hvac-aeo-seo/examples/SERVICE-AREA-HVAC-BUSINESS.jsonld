@@ -1,0 +1,36 @@
+{
+  "@context": "https://schema.org",
+  "@type": "HVACBusiness",
+  "@id": "https://www.example-service-area-hvac.invalid/#business",
+  "name": "Example Mobile Heating and Cooling",
+  "url": "https://www.example-service-area-hvac.invalid/",
+  "telephone": "+1-555-010-0300",
+  "description": "Example placeholder for an HVAC service-area business that does not receive customers at its base address.",
+  "priceRange": "$$",
+  "image": "https://www.example-service-area-hvac.invalid/images/team-vehicle.jpg",
+  "logo": "https://www.example-service-area-hvac.invalid/images/logo.png",
+  "areaServed": [
+    {
+      "@type": "City",
+      "name": "Example City"
+    },
+    {
+      "@type": "AdministrativeArea",
+      "name": "Example Region"
+    }
+  ],
+  "openingHoursSpecification": [
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "opens": "08:00",
+      "closes": "17:00"
+    }
+  ]
+}

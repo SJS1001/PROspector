@@ -1,0 +1,55 @@
+{
+  "@context": "https://schema.org",
+  "@type": "HVACBusiness",
+  "@id": "https://www.example-hvac.invalid/#business",
+  "name": "Example Heating and Cooling",
+  "url": "https://www.example-hvac.invalid/",
+  "telephone": "+1-555-010-0200",
+  "description": "Example placeholder for an HVAC business that receives customers at a real staffed location and also travels to customers.",
+  "priceRange": "$$",
+  "image": [
+    "https://www.example-hvac.invalid/images/team.jpg",
+    "https://www.example-hvac.invalid/images/location.jpg"
+  ],
+  "logo": "https://www.example-hvac.invalid/images/logo.png",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "123 Example Street",
+    "addressLocality": "Example City",
+    "addressRegion": "ON",
+    "postalCode": "A1A 1A1",
+    "addressCountry": "CA"
+  },
+  "geo": {
+    "@type": "GeoCoordinates",
+    "latitude": 43.000001,
+    "longitude": -79.000001
+  },
+  "areaServed": [
+    {
+      "@type": "City",
+      "name": "Example City"
+    },
+    {
+      "@type": "AdministrativeArea",
+      "name": "Example Region"
+    }
+  ],
+  "openingHoursSpecification": [
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "opens": "08:00",
+      "closes": "17:00"
+    }
+  ],
+  "sameAs": [
+    "https://www.example.invalid/replace-with-a-real-owned-profile"
+  ]
+}
