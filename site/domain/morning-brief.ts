@@ -10,8 +10,9 @@
  * Boundary. This module is a pure reducer over caller-supplied values. It has
  * no database, repository, route, persistence, scheduler, runner, provider,
  * export, delivery, archive, restore, environment, filesystem, or network
- * port. It imports no preparation-only module and is composed into no runtime
- * surface. It reports the upstream schedule state and never requests,
+ * port. It imports no preparation-only module. Its read-only Morning Brief
+ * route supplies persisted Phase 4 observations only. It reports the upstream
+ * schedule state and never requests,
  * authorizes, provisions, or records a schedule-activation command. It reports
  * handoff readiness counts and never reads an eligibility row, serializes a
  * CSV byte, computes an artifact checksum, persists a version, or delivers a
@@ -60,7 +61,7 @@ export const MORNING_BRIEF_EXCLUSION_REASONS = Object.freeze([
 
 export const MORNING_BRIEF_WEEKLY_EXPLANATION = "Counts each stable Prospect once, at its first Export-ready transition this local week. CSV contact rows, re-exports, and later reversals do not increase this target." as const;
 
-export const MORNING_BRIEF_PILOT_NOTICE = "Controlled pilot — all displayed records are illustrative or synthetic until the required Phase 3–6 authority and Phase 7 release gates are accepted. This Phase 7 surface cannot change schedules, providers, outreach, or restore effects; restored targets remain disabled." as const;
+export const MORNING_BRIEF_PILOT_NOTICE = "Controlled pilot — all displayed records are illustrative or synthetic until the required Phase 3–6 authority and Phase 7 release gates are accepted. This read-only surface cannot change schedules, providers, outreach, or restore effects; restored targets remain disabled." as const;
 
 export const MORNING_BRIEF_GREENFIELD_NOTICE = "Greenfield is not an active operating profile. It contributes no schedule, weekly outcome, handoff, or runner activity." as const;
 

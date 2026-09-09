@@ -13,7 +13,7 @@ const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
 const IDENTITY = "aaaaaaaabbbbbbbbccccccccdddddddd";
 const OTHER_IDENTITY = "1111111122222222333333334444444";
-const TASK_LABELS = ["Status", "Company & products", "Market discovery", "Review prospects", "Prospects", "Contacts"];
+const TASK_LABELS = ["Status", "Company & products", "Market discovery", "Morning Brief", "Review prospects", "Prospects", "Contacts"];
 
 async function shell() {
   const vite = await createServer({ configFile: false, logLevel: "silent", plugins: [react()], server: { middlewareMode: true } });
@@ -39,14 +39,13 @@ function memoryStorage(initial = null) {
   };
 }
 
-test("D shows exactly the six real operator tasks and no unsupported affordance", async () => {
+test("D shows exactly the seven real operator tasks and no unsupported affordance", async () => {
   const { vite, app } = await shell();
   try {
     const html = renderToStaticMarkup(React.createElement(app.ProspectorApp, { initialView: "status" }));
     for (const label of TASK_LABELS) assert.match(html, new RegExp(label.replace("&", "&amp;")));
     assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1, "exactly one task is current");
     for (const removed of [
-      /Morning brief/i,
       /Exports &amp; History/i,
       /Search prospects/,
       /No live runs/,
@@ -61,7 +60,7 @@ test("D shows exactly the six real operator tasks and no unsupported affordance"
     ]) assert.doesNotMatch(html, removed, `${removed} must not remain in the shell`);
     assert.doesNotMatch(html, /<input[^>]*placeholder="Search"/, "the global search affordance is removed");
     const appSource = await source("app/prospector-app.tsx");
-    for (const removed of ["MorningBrief", "function Exports(", "SignalRow", "filteredSignals"]) {
+    for (const removed of ["function MorningBrief(", "function Exports(", "SignalRow", "filteredSignals"]) {
       assert.equal(appSource.includes(removed), false, `${removed} must not remain in the shell source`);
     }
   } finally { await vite.close(); }
@@ -71,13 +70,14 @@ test("D separates stable route IDs from labels and rejects removed or Contacts r
   const { vite, module } = await routing();
   try {
     assert.deepEqual(module.OPERATOR_TASKS.map((task) => task.id), [
-      "status", "knowledge", "market-discovery", "review-queue", "prospects", "contacts",
+      "status", "knowledge", "market-discovery", "morning-brief", "review-queue", "prospects", "contacts",
     ]);
     assert.deepEqual(module.OPERATOR_TASKS.map((task) => task.label), TASK_LABELS);
     for (const [parameter, id] of [
       [null, "status"],
       ["knowledge", "knowledge"],
       ["market-discovery", "market-discovery"],
+      ["morning-brief", "morning-brief"],
       ["review-queue", "review-queue"],
       ["prospects", "prospects"],
     ]) {
@@ -85,7 +85,7 @@ test("D separates stable route IDs from labels and rejects removed or Contacts r
       assert.equal(module.shellTaskParam(id), parameter);
     }
     for (const rejected of [
-      "contacts", "morning-brief", "exports-history", "", "Knowledge", "../knowledge",
+      "contacts", "exports-history", "", "Knowledge", "../knowledge",
       undefined, ["knowledge"], { view: "knowledge" },
     ]) {
       assert.equal(module.shellTaskFromParam(rejected), "status", `${String(rejected)} is not a root view`);

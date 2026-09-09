@@ -1,4 +1,4 @@
-/** The operator shell shows exactly the six tasks that have a real service.
+/** The operator shell shows exactly the tasks that have a real service.
  * A task's stable route identity is deliberately separate from its label so the
  * operator-facing wording can change without invalidating a bookmarked URL, and
  * so no label is ever used as a routing key. Contacts keeps its own admitted
@@ -7,6 +7,7 @@ export const OPERATOR_TASKS = [
   { id: "status", label: "Status", param: null, href: "/" },
   { id: "knowledge", label: "Company & products", param: "knowledge", href: "/?view=knowledge" },
   { id: "market-discovery", label: "Market discovery", param: "market-discovery", href: "/?view=market-discovery" },
+  { id: "morning-brief", label: "Morning Brief", param: "morning-brief", href: "/?view=morning-brief" },
   { id: "review-queue", label: "Review prospects", param: "review-queue", href: "/?view=review-queue" },
   { id: "prospects", label: "Prospects", param: "prospects", href: "/?view=prospects" },
   { id: "contacts", label: "Contacts", param: null, href: "/contacts" },
