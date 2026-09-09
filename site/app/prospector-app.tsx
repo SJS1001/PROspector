@@ -8,6 +8,7 @@ import {
   type ProspectingProjection,
 } from "./prospecting/prospecting-workspace";
 import { ContactsWorkspace } from "./prospects/contacts-workspace";
+import { MorningBriefWorkspace } from "./morning-brief/morning-brief-workspace";
 import {
   emptyOperatorContext,
   isOperatorContextEmpty,
@@ -185,6 +186,7 @@ export function ProspectorApp({
           {task === "status" && <PilotStatus initialState={initialCapabilityState} onUnauthorized={handleUnauthorized} />}
           {task === "knowledge" && <KnowledgeWorkspace onUnauthorized={handleUnauthorized} onCommercialPathResolved={recordCommercialPath} />}
           {task === "market-discovery" && <DiscoveryWorkspace onUnauthorized={handleUnauthorized} />}
+          {task === "morning-brief" && <MorningBriefWorkspace onUnauthorized={handleUnauthorized} />}
           {(task === "review-queue" || task === "prospects") && (
             <ProspectingWorkspace
               projection={initialProspectingProjection}

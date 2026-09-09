@@ -13,6 +13,7 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
       [null, "status"],
       ["knowledge", "knowledge"],
       ["market-discovery", "market-discovery"],
+      ["morning-brief", "morning-brief"],
       ["review-queue", "review-queue"],
       ["prospects", "prospects"],
     ]);
@@ -20,7 +21,7 @@ test("workspace URLs admit only the exact bounded view vocabulary", async () => 
       assert.equal(routing.shellTaskFromParam(parameter), task);
       assert.equal(routing.shellTaskParam(task), parameter);
     }
-    for (const value of [undefined, "", "contacts", "morning-brief", "exports-history", "Knowledge", "../knowledge", ["knowledge"], { view: "knowledge" }]) {
+    for (const value of [undefined, "", "contacts", "exports-history", "Knowledge", "../knowledge", ["knowledge"], { view: "knowledge" }]) {
       assert.equal(routing.shellTaskFromParam(value), "status");
     }
   } finally {

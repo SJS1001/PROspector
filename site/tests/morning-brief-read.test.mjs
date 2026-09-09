@@ -135,7 +135,7 @@ test("reads scope, schedule and review funnel from persisted rows while weekly, 
     );
 
     assert.equal(result.status, "available");
-    const brief = result.brief;
+    const brief = result.profiles[0];
     assert.equal(brief.status, "available");
 
     // Scope keeps the profile NAME and the persisted lifecycle apart.
@@ -167,8 +167,7 @@ test("reads scope, schedule and review funnel from persisted rows while weekly, 
     assert.deepEqual(brief.workspace.reasonCodes, ["workspace_origin_not_persisted"]);
     assert.equal(brief.workspace.restoredEffectsFenced, true);
 
-    assert.deepEqual(brief.greenfield.profiles.map((p) => p.label), ["Greenfield"]);
-    assert.ok(brief.greenfield.profiles.every((p) => p.contributesToWeeklyOutcome === false));
+    assert.deepEqual(brief.greenfield.profiles, [], "inactive sibling profiles are excluded");
     assert.ok(Object.values(brief.authority).every((v) => v === false));
     assert.ok(Object.values(brief.effects).every((v) => v === 0));
   } finally {
@@ -196,10 +195,10 @@ test("a second workspace's rows never leak into another owner's brief", async ()
       fixture.database, { subject: "owner-mine" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(result.brief.scope.workspaceId, "workspace-mine");
-    assert.deepEqual(result.brief.funnel.decisions, { approve: 1, reject: 0, defer: 0 });
-    assert.equal(result.brief.funnel.distinctReviewedProspectCount, 1);
-    assert.equal(result.brief.schedule.observationRef.id, "schedule-mine");
+    assert.equal(result.profiles[0].scope.workspaceId, "workspace-mine");
+    assert.deepEqual(result.profiles[0].funnel.decisions, { approve: 1, reject: 0, defer: 0 });
+    assert.equal(result.profiles[0].funnel.distinctReviewedProspectCount, 1);
+    assert.equal(result.profiles[0].schedule.observationRef.id, "schedule-mine");
 
     const unknown = await read.readMorningBrief(
       fixture.database, { subject: "owner-nobody" },
@@ -207,10 +206,35 @@ test("a second workspace's rows never leak into another owner's brief", async ()
     );
     assert.equal(unknown.status, "unavailable");
     assert.deepEqual(unknown.reasonCodes, ["workspace_absent"]);
-    assert.equal(unknown.brief, null);
+    assert.deepEqual(unknown.profiles, []);
   } finally {
     await fixture.dispose();
   }
+});
+
+test("active profiles across separate Product and Play paths all contribute in stable hierarchy order", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-multi-path");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "paths");
+    const { id, now } = ctx;
+    await run(fixture.database, "INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) VALUES ('product-a-paths', ?, ?, ?, 1, ?, 'Second product', 'ready')", id("workspace"), now + 10, now + 10, id("company"));
+    await run(fixture.database, "INSERT INTO market_plays (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle) VALUES ('play-a-paths', ?, ?, ?, 1, 'product-a-paths', 'Second play', 'active')", id("workspace"), now + 11, now + 11);
+    await run(fixture.database, "INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) VALUES ('profile-a-paths', ?, ?, ?, 1, 'play-a-paths', 'Second profile', 'ready', 'America/Toronto', 7)", id("workspace"), now + 12, now + 12);
+    await run(fixture.database, "INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('config-a-paths', ?, ?, ?, 1, ?, 'profile', 'profile-a-paths', 'profile_effective', ?, '{}', 1)", id("workspace"), now + 13, now + 13, id("company"), DIGEST_B);
+
+    const result = await read.readMorningBrief(
+      fixture.database, { subject: "owner-paths" },
+      { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
+    );
+    assert.deepEqual(result.profiles.map((brief) => [
+      brief.scope.productId, brief.scope.marketPlayId, brief.scope.profileId,
+    ]), [
+      ["product-a-paths", "play-a-paths", "profile-a-paths"],
+      ["product-paths", "play-paths", "profile-paths"],
+    ]);
+  } finally { await fixture.dispose(); }
 });
 
 test("absent, paused, capability-blocked, drifted and stale schedules never report enabled", async () => {
@@ -224,17 +248,17 @@ test("absent, paused, capability-blocked, drifted and stale schedules never repo
       fixture.database, { subject: "owner-sched" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(absent.brief.schedule.status, "unknown");
-    assert.equal(absent.brief.schedule.reportedState, null);
-    assert.deepEqual(absent.brief.schedule.reasonCodes, ["schedule_observation_absent"]);
+    assert.equal(absent.profiles[0].schedule.status, "unknown");
+    assert.equal(absent.profiles[0].schedule.reportedState, null);
+    assert.deepEqual(absent.profiles[0].schedule.reasonCodes, ["schedule_observation_absent"]);
 
     await seedSchedule(fixture.database, ctx, { executionState: "paused" });
     const paused = await read.readMorningBrief(
       fixture.database, { subject: "owner-sched" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(paused.brief.schedule.status, "current");
-    assert.equal(paused.brief.schedule.reportedState, "disabled");
+    assert.equal(paused.profiles[0].schedule.status, "current");
+    assert.equal(paused.profiles[0].schedule.reportedState, "disabled");
   } finally {
     await fixture.dispose();
   }
@@ -251,9 +275,9 @@ test("a stale schedule observation is reported blocked, not enabled", async () =
       fixture.database, { subject: "owner-stale" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(result.brief.schedule.status, "blocked");
-    assert.equal(result.brief.schedule.reportedState, null);
-    assert.deepEqual(result.brief.schedule.reasonCodes, ["schedule_observation_stale"]);
+    assert.equal(result.profiles[0].schedule.status, "blocked");
+    assert.equal(result.profiles[0].schedule.reportedState, null);
+    assert.deepEqual(result.profiles[0].schedule.reasonCodes, ["schedule_observation_stale"]);
   } finally {
     await fixture.dispose();
   }
@@ -276,10 +300,10 @@ test("a schedule left on a superseded configuration is reported as drift, never 
       fixture.database, { subject: "owner-drift" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(result.brief.scope.activeConfigurationDigest, DIGEST_B);
-    assert.equal(result.brief.schedule.status, "blocked");
-    assert.equal(result.brief.schedule.reportedState, null);
-    assert.deepEqual(result.brief.schedule.reasonCodes, ["schedule_configuration_drift"]);
+    assert.equal(result.profiles[0].scope.activeConfigurationDigest, DIGEST_B);
+    assert.equal(result.profiles[0].schedule.status, "blocked");
+    assert.equal(result.profiles[0].schedule.reportedState, null);
+    assert.deepEqual(result.profiles[0].schedule.reasonCodes, ["schedule_configuration_drift"]);
   } finally {
     await fixture.dispose();
   }
@@ -304,10 +328,10 @@ test("review counts are authoritative: repeated decisions on one Prospect never 
       fixture.database, { subject: "owner-dupe" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.deepEqual(result.brief.funnel.decisions, { approve: 1, reject: 0, defer: 1 });
+    assert.deepEqual(result.profiles[0].funnel.decisions, { approve: 1, reject: 0, defer: 1 });
     // Two decisions, one Prospect.
-    assert.equal(result.brief.funnel.distinctReviewedProspectCount, 1);
-    assert.equal(result.brief.weekly.status, "unavailable");
+    assert.equal(result.profiles[0].funnel.distinctReviewedProspectCount, 1);
+    assert.equal(result.profiles[0].weekly.status, "unavailable");
   } finally {
     await fixture.dispose();
   }
@@ -330,15 +354,15 @@ test("decisions outside the supplied window are excluded and every persisted lif
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
     // Start is inclusive, end is exclusive.
-    assert.deepEqual(result.brief.funnel.decisions, { approve: 1, reject: 0, defer: 0 });
-    assert.equal(result.brief.funnel.windowStart, WINDOW_START);
-    assert.equal(result.brief.funnel.windowEndExclusive, WINDOW_END);
+    assert.deepEqual(result.profiles[0].funnel.decisions, { approve: 1, reject: 0, defer: 0 });
+    assert.equal(result.profiles[0].funnel.windowStart, WINDOW_START);
+    assert.equal(result.profiles[0].funnel.windowEndExclusive, WINDOW_END);
   } finally {
     await fixture.dispose();
   }
 });
 
-test("every persisted profile lifecycle is reported verbatim and none is equated with a profile name", async () => {
+test("only ready Profiles contribute; inactive persisted lifecycles are excluded", async () => {
   for (const lifecycle of ["draft", "ready", "paused", "archived"]) {
     const fixture = await createD1Fixture(`morning-brief-read-lifecycle-${lifecycle}`);
     try {
@@ -350,17 +374,20 @@ test("every persisted profile lifecycle is reported verbatim and none is equated
         { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
       );
       assert.equal(result.status, "available", lifecycle);
-      assert.equal(result.brief.scope.profileLifecycle, lifecycle, lifecycle);
-      assert.equal(result.brief.scope.profileName, "Operating", lifecycle);
-      // No lifecycle is ever promoted to an Operating/Draft judgement.
-      assert.ok(!["Operating", "Draft"].includes(result.brief.scope.profileLifecycle), lifecycle);
+      if (lifecycle === "ready") {
+        assert.equal(result.profiles.length, 1);
+        assert.equal(result.profiles[0].scope.profileLifecycle, "ready");
+        assert.equal(result.profiles[0].scope.profileName, "Operating");
+      } else {
+        assert.deepEqual(result.profiles, [], `${lifecycle} is not active`);
+      }
     } finally {
       await fixture.dispose();
     }
   }
 });
 
-test("a workspace without an active profile configuration cannot establish scope", async () => {
+test("an owned workspace without an active profile configuration returns an empty brief", async () => {
   const fixture = await createD1Fixture("morning-brief-read-noconfig");
   try {
     await applyPhase4Migrations(fixture.database);
@@ -371,9 +398,9 @@ test("a workspace without an active profile configuration cannot establish scope
       fixture.database, { subject: "owner-noconf" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(result.status, "unavailable");
-    assert.deepEqual(result.reasonCodes, ["workspace_absent"]);
-    assert.equal(result.brief, null);
+    assert.equal(result.status, "available");
+    assert.equal(result.workspaceId, "workspace-noconf");
+    assert.deepEqual(result.profiles, []);
   } finally {
     await fixture.dispose();
   }
@@ -403,6 +430,62 @@ test("malformed clocks and windows are rejected rather than silently coerced", a
   }
 });
 
+test("multi-profile reads sort active hierarchy paths and omit duplicate, inactive, malformed, and cross-workspace rows", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-adversarial-rows");
+  try {
+    const read = await load(fixture);
+    const row = (profileId, patch = {}) => ({
+      workspace_id: "workspace-owned",
+      company_id: "company-one",
+      product_id: "product-one",
+      market_play_id: "play-one",
+      profile_id: profileId,
+      profile_name: `Profile ${profileId.slice(-1).toUpperCase()}`,
+      profile_lifecycle: "ready",
+      configuration_digest: DIGEST_A,
+      ...patch,
+    });
+    const scopeRows = [
+      row("profile-z", { product_id: "product-z", market_play_id: "play-z" }),
+      row("profile-z", { product_id: "product-z", market_play_id: "play-z" }),
+      row("profile-cross", { workspace_id: "workspace-other" }),
+      row("profile-paused", { profile_lifecycle: "paused" }),
+      row("bad/profile"),
+      row("profile-malformed", { profile_name: "person@example.invalid" }),
+      row("profile-a", { product_id: "product-a", market_play_id: "play-a" }),
+    ];
+    const database = {
+      prepare(sql) {
+        return {
+          bind() {
+            if (/SELECT w\.id AS workspace_id\s+FROM workspaces/u.test(sql)) {
+              return { first: async () => ({ workspace_id: "workspace-owned" }) };
+            }
+            if (/JOIN workspace_companies/u.test(sql)) {
+              return { all: async () => ({ results: scopeRows }) };
+            }
+            if (/FROM prospecting_schedules/u.test(sql)) return { first: async () => null };
+            if (/GROUP BY prd\.decision/u.test(sql)) return { all: async () => ({ results: [] }) };
+            if (/COUNT\(DISTINCT prd\.prospect_id\)/u.test(sql)) return { first: async () => ({ prospect_count: 0 }) };
+            if (/FROM prospect_cooldowns/u.test(sql)) return { first: async () => ({ cooldown_count: 0 }) };
+            return { all: async () => ({ results: [] }) };
+          },
+        };
+      },
+    };
+
+    const result = await read.readMorningBrief(
+      database,
+      { subject: "owner-subject" },
+      { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
+    );
+    assert.equal(result.status, "available");
+    assert.deepEqual(result.profiles.map((brief) => brief.scope.profileId), ["profile-a", "profile-z"]);
+    assert.equal(new Set(result.profiles.map((brief) => brief.scope.profileId)).size, 2);
+    assert.ok(result.profiles.every((brief) => brief.scope.workspaceId === "workspace-owned"));
+  } finally { await fixture.dispose(); }
+});
+
 test("the read module issues only SELECT statements and composes no effect seam", async () => {
   const source = await (await import("node:fs/promises"))
     .readFile(new URL("../domain/morning-brief-read.ts", import.meta.url), "utf8");
@@ -429,7 +512,7 @@ test("the read module issues only SELECT statements and composes no effect seam"
   }
 });
 
-test("a sibling profile's review decisions never appear in this profile's funnel", async () => {
+test("all active sibling profiles contribute independently without mixing their funnels", async () => {
   const fixture = await createD1Fixture("morning-brief-read-sibling");
   try {
     await applyPhase4Migrations(fixture.database);
@@ -440,6 +523,7 @@ test("a sibling profile's review decisions never appear in this profile's funnel
     await seedReviewedProspect(fixture.database, ctx, "own", "approve", Date.UTC(2026, 2, 10, 12));
 
     // The same workspace's Greenfield profile also has reviewed Prospects.
+    await run(fixture.database, "UPDATE customer_profiles SET lifecycle = 'ready' WHERE id = 'profile-greenfield-sib'");
     await run(fixture.database, "INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES ('config-gf-sib', 'workspace-sib', ?, ?, 1, 'company-sib', 'profile', 'profile-greenfield-sib', 'profile_effective', ?, '{}', 1)", ctx.now, ctx.now, DIGEST_B);
     await seedOffer(fixture.database, ctx, "profile-greenfield", "config-gf", DIGEST_B);
     for (const key of ["gf-a", "gf-b", "gf-c"]) {
@@ -450,10 +534,14 @@ test("a sibling profile's review decisions never appear in this profile's funnel
       fixture.database, { subject: "owner-sib" },
       { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
     );
-    assert.equal(result.brief.scope.profileId, "profile-sib");
-    // Three sibling rejections exist in the same workspace and must be excluded.
-    assert.deepEqual(result.brief.funnel.decisions, { approve: 1, reject: 0, defer: 0 });
-    assert.equal(result.brief.funnel.distinctReviewedProspectCount, 1);
+    assert.deepEqual(result.profiles.map((brief) => brief.scope.profileId), [
+      "profile-greenfield-sib", "profile-sib",
+    ]);
+    const byProfile = new Map(result.profiles.map((brief) => [brief.scope.profileId, brief]));
+    assert.deepEqual(byProfile.get("profile-sib").funnel.decisions, { approve: 1, reject: 0, defer: 0 });
+    assert.equal(byProfile.get("profile-sib").funnel.distinctReviewedProspectCount, 1);
+    assert.deepEqual(byProfile.get("profile-greenfield-sib").funnel.decisions, { approve: 0, reject: 3, defer: 0 });
+    assert.equal(byProfile.get("profile-greenfield-sib").funnel.distinctReviewedProspectCount, 3);
   } finally {
     await fixture.dispose();
   }
@@ -492,17 +580,17 @@ test("a schedule whose authority command belongs to another workspace never surf
     );
 
     assert.equal(result.status, "available");
-    assert.equal(result.brief.scope.workspaceId, "workspace-victim");
+    assert.equal(result.profiles[0].scope.workspaceId, "workspace-victim");
     // The foreign digest must not reach the brief through any field.
     assert.ok(
-      !JSON.stringify(result.brief).includes(FOREIGN_DIGEST),
+      !JSON.stringify(result.profiles[0]).includes(FOREIGN_DIGEST),
       "another workspace's authority-command digest must never appear in the brief",
     );
     // A cross-workspace reference is not a usable observation: it is withheld.
-    assert.equal(result.brief.schedule.status, "unknown");
-    assert.equal(result.brief.schedule.reportedState, null);
-    assert.equal(result.brief.schedule.readinessRef, null);
-    assert.deepEqual(result.brief.schedule.reasonCodes, ["schedule_observation_absent"]);
+    assert.equal(result.profiles[0].schedule.status, "unknown");
+    assert.equal(result.profiles[0].schedule.reportedState, null);
+    assert.equal(result.profiles[0].schedule.readinessRef, null);
+    assert.deepEqual(result.profiles[0].schedule.reasonCodes, ["schedule_observation_absent"]);
   } finally {
     await fixture.dispose();
   }

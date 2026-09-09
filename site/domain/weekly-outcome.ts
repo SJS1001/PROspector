@@ -464,6 +464,11 @@ function project(input: WeeklyOutcomeHistoryInput): WeeklyOutcomeAvailable {
   });
 }
 
+/** Derive the canonical Monday-to-Monday reporting window in Toronto. */
+export function torontoWeekForInstant(asOf: string): WeeklyOutcomeWeek {
+  return projectWeek(instant(asOf));
+}
+
 function projectWeek(asOf: string): WeeklyOutcomeWeek {
   const evaluated = localDateInfo(asOf);
   const localEpoch = parseLocalDate(evaluated.localDate);

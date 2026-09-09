@@ -66,7 +66,7 @@ test("every shell task renders the capability boundary and no fixture-governed c
   assert.doesNotMatch(html, /Connected · advisory|Last run 06:00|fixture mode/);
 
   const source = await readFile(new URL("../app/prospector-app.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /const signals\b|SignalRow|MorningBrief|function Exports\(/);
+  assert.doesNotMatch(source, /const signals\b|SignalRow|function MorningBrief\(|function Exports\(/);
   assert.doesNotMatch(source, /Search prospects|No live runs|Codex runner/);
 });
 
