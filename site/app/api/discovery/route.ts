@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { runtimeIdentity } from "../../runtime-identity";
+import { parseReleaseEvidenceConfig } from "../../../domain/release-evidence";
 import {
   handleDiscoveryGet,
   handleDiscoveryPost,
@@ -25,6 +26,11 @@ function dependencies(request: Request): DiscoveryHandlerDependencies {
     LOCAL_DEMO?: string;
     CLOUDFLARE_ACCESS_ISSUER?: string;
     CLOUDFLARE_ACCESS_AUDIENCE?: string;
+    PROSPECTOR_RELEASE_SOURCE_SHA?: string;
+    PROSPECTOR_RELEASE_MIGRATION_IDENTITY?: string;
+    PROSPECTOR_RELEASE_MIGRATION_DIGEST?: string;
+    PROSPECTOR_RELEASE_FIXTURE_DIGEST?: string;
+    PROSPECTOR_RELEASE_FIXTURE_PROVENANCE?: string;
   };
   if (!bindings.DB || !bindings.OWNER_SUBJECT_PEPPER || !bindings.PILOT_OWNER_EMAIL)
     throw new Error("Secure discovery bindings are unavailable");
@@ -32,6 +38,13 @@ function dependencies(request: Request): DiscoveryHandlerDependencies {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
+    releaseEvidence: parseReleaseEvidenceConfig({
+      sourceRevision: bindings.PROSPECTOR_RELEASE_SOURCE_SHA,
+      migrationIdentity: bindings.PROSPECTOR_RELEASE_MIGRATION_IDENTITY,
+      migrationDigest: bindings.PROSPECTOR_RELEASE_MIGRATION_DIGEST,
+      fixtureDigest: bindings.PROSPECTOR_RELEASE_FIXTURE_DIGEST,
+      fixtureProvenance: bindings.PROSPECTOR_RELEASE_FIXTURE_PROVENANCE,
+    }),
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },
