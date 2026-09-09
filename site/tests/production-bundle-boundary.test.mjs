@@ -83,6 +83,7 @@ test("the production build does not emit the local-demo routes", async () => {
   assertAbsent(files, [
     { pattern: "data-local-demo-visible", label: "app/local-demo/_screen.tsx:49" },
     { pattern: "Local demo interview", label: "app/local-demo/_screen.tsx:52" },
+    { pattern: "Outreach approval and suppression preview", label: "app/local-demo/_outreach-approval-preview.tsx presentation-only component" },
     { pattern: "synthetic_seed_failed", label: "app/api/local-demo/person-discovery-c4/_handler.ts:17" },
   ], "a local-demo route module reached the deployed artifact");
 });
