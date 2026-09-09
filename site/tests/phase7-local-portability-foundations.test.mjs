@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { extname, join, resolve } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { createServer } from "vite";
 
@@ -49,6 +51,9 @@ test("CRM materialization is deterministic, tenant-bound, and formula-safe", asy
     assert.equal(first.manifest.operationalAuthority, false);
     assert.equal(first.manifest.rowCount, 2);
     assert.equal(first.manifest.uniqueProspectCount, 2);
+    const firstByte = first.bytes[0];
+    first.bytes[0] = 0;
+    assert.equal(first.bytes[0], firstByte, "each byte read returns a defensive copy");
 
     const otherTenant = await artifact.materializeCrmHandoff({
       ...input,
@@ -57,6 +62,9 @@ test("CRM materialization is deterministic, tenant-bound, and formula-safe", asy
     });
     assert.notEqual(first.manifest.manifestSha256, otherTenant.manifest.manifestSha256);
     await assert.rejects(() => artifact.materializeCrmHandoff({ ...input, rows: [row({ source_workspace_id: "workspace-2" })] }), /crm_handoff_manifest_invalid/u);
+    await assert.rejects(() => artifact.materializeCrmHandoff({ ...input, packageDigests: [] }), /crm_handoff_manifest_invalid/u);
+    await assert.rejects(() => artifact.materializeCrmHandoff({ ...input, packageDigests: [digest("d"), digest("d")] }), /crm_handoff_manifest_invalid/u);
+    await assert.rejects(() => artifact.materializeCrmHandoff({ ...input, unexpected: true }), /crm_handoff_manifest_invalid/u);
   } finally { await vite.close(); }
 });
 
@@ -94,10 +102,45 @@ test("encrypted local backup restores atomically, idempotently, and keeps effect
     await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, "wrong-passphrase-long-enough", empty), /portable_backup_untrusted/u);
     const corrupt = { ...envelope, ciphertext: `${envelope.ciphertext.slice(0, -4)}AAAA` };
     await assert.rejects(() => backup.restoreEncryptedLocalBackup(corrupt, passphrase, empty), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, ciphertext: envelope.ciphertext.slice(0, -4) }, passphrase, empty), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, salt: envelope.salt.replace(/=+$/u, "") }, passphrase, empty), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, extra: true }, passphrase, empty), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, iterations: 209_999 }, passphrase, empty), /portable_backup_untrusted/u);
     const nonClean = { ...empty, records: [{ kind: "existing", id: "existing-1", value: {} }] };
     await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, passphrase, nonClean), /portable_backup_untrusted/u);
     assert.equal(nonClean.records.length, 1, "failed restore leaves caller state unchanged");
     await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...empty, workspaceId: "workspace-2" }), /portable_backup_untrusted/u);
+  } finally { await vite.close(); }
+});
+
+test("backup canonicalization rejects ambiguous and malformed suppression identities", async () => {
+  const { vite, backup } = await load();
+  try {
+    const base = {
+      workspaceId: "workspace-1", createdAt: "2026-09-09T12:00:00.000Z", objectDigests: [digest("b"), digest("a")],
+      records: [{ kind: "account", id: "account-2", value: { z: 1, a: 2 } }],
+      suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: { scopeDigest: digest("c") } }],
+    };
+    const passphrase = "disposable-test-passphrase-only";
+    const envelope = await backup.createEncryptedLocalBackup(base, passphrase);
+    const empty = { workspaceId: "workspace-1", archiveDigest: null, records: [], objectDigests: [], suppressionTombstones: [], effectsEnabled: false };
+    const restored = await backup.restoreEncryptedLocalBackup(envelope, passphrase, empty);
+    assert.deepEqual(restored.objectDigests, [digest("a"), digest("b")]);
+    assert.deepEqual(restored.records[0].value, { a: 2, z: 1 });
+
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base,
+      records: [{ kind: "suppression", id: "tombstone-1", value: {} }],
+    }, passphrase), /portable_backup_invalid/u, "one cross-archive identity index rejects collisions");
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, suppressionTombstones: [{ kind: "account", id: "tombstone-1", value: { scopeDigest: digest("c") } }],
+    }, passphrase), /portable_backup_invalid/u);
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: {} }],
+    }, passphrase), /portable_backup_invalid/u);
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: { scopeDigest: "malformed" } }],
+    }, passphrase), /portable_backup_invalid/u);
   } finally { await vite.close(); }
 });
 
@@ -131,5 +174,41 @@ test("retention fails closed and suppression tombstones always survive", async (
 
     assert.throws(() => retention.decideRetention({ kind: "unknown", createdAt: "2025-01-01T00:00:00.000Z", expiresAt: null, suppressionScopeDigest: null }, "2025-01-02T00:00:00.000Z"), /retention_input_invalid/u);
     assert.throws(() => retention.decideRetention({ kind: "crm_artifact", createdAt: "bad", expiresAt: null, suppressionScopeDigest: null }, "2025-01-02T00:00:00.000Z"), /retention_input_invalid/u);
+    const valid = { kind: "crm_artifact", createdAt: "2025-01-01T00:00:00.000Z", expiresAt: "2025-01-02T00:00:00.000Z", suppressionScopeDigest: null };
+    assert.equal(retention.decideRetention(valid, valid.expiresAt).disposition, "purge_payload_preserve_manifest", "expiry boundary is inclusive");
+    for (const [subject, now] of [
+      [{ ...valid, createdAt: "2025-02-30T00:00:00.000Z" }, "2025-03-01T00:00:00.000Z"],
+      [{ ...valid, createdAt: "2025-99-01T00:00:00.000Z" }, "2025-03-01T00:00:00.000Z"],
+      [{ ...valid, createdAt: "2025-01-01T00:00:00+00:00" }, "2025-03-01T00:00:00.000Z"],
+      [{ ...valid, expiresAt: "2024-12-31T23:59:59.999Z" }, "2025-03-01T00:00:00.000Z"],
+      [valid, "2024-12-31T23:59:59.999Z"],
+      [{ ...valid, extra: true }, "2025-03-01T00:00:00.000Z"],
+    ]) assert.throws(() => retention.decideRetention(subject, now), /retention_input_invalid/u);
   } finally { await vite.close(); }
 });
+
+test("local portability modules remain excluded from production composition", async () => {
+  const siteRoot = resolve(import.meta.dirname, "..");
+  const runtimeFiles = [
+    ...await sourceFiles(join(siteRoot, "app")),
+    ...await sourceFiles(join(siteRoot, "adapters")),
+    ...await sourceFiles(join(siteRoot, "worker"), true),
+  ];
+  for (const file of runtimeFiles) {
+    const source = await readFile(file, "utf8");
+    assert.doesNotMatch(source, /(?:crm-handoff-artifact|local-portable-backup|retention-decision)/u, `${file} must not compose local portability preparation`);
+  }
+});
+
+async function sourceFiles(directory, optional = false) {
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); }
+  catch (error) { if (optional && error?.code === "ENOENT") return []; throw error; }
+  const files = [];
+  for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await sourceFiles(path));
+    else if ([".ts", ".tsx", ".js", ".mjs"].includes(extname(entry.name))) files.push(path);
+  }
+  return files;
+}

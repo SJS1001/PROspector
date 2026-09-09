@@ -30,6 +30,9 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const DIGEST = /^[a-f0-9]{64}$/u;
 const FORBIDDEN_KEY = /(?:passphrase|password|secret|credential|oauth|bearer|token)/iu;
+const SOURCE_KEYS = ["workspaceId", "createdAt", "records", "objectDigests", "suppressionTombstones"] as const;
+const ENVELOPE_KEYS = ["format", "kdf", "iterations", "cipher", "salt", "iv", "ciphertext"] as const;
+const ARCHIVE_KEYS = ["format", "workspaceId", "createdAt", "records", "objectDigests", "suppressionTombstones", "effectsEnabled"] as const;
 
 export async function createEncryptedLocalBackup(source: PortableBackupSource, passphrase: string): Promise<EncryptedPortableBackup> {
   validatePassphrase(passphrase);
@@ -63,7 +66,15 @@ export async function restoreEncryptedLocalBackup(
     const key = await deriveKey(passphrase, salt, ["decrypt"]);
     const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(envelope.format) }, key, ciphertext);
     const canonical = decoder.decode(clear);
-    const parsed = JSON.parse(canonical) as PortableBackupSource;
+    const payload = JSON.parse(canonical) as unknown;
+    if (!plainExact(payload, ARCHIVE_KEYS) || payload.format !== "prospector/portable-workspace/v1" || payload.effectsEnabled !== false) throw new Error("invalid");
+    const parsed: PortableBackupSource = {
+      workspaceId: payload.workspaceId,
+      createdAt: payload.createdAt,
+      records: payload.records,
+      objectDigests: payload.objectDigests,
+      suppressionTombstones: payload.suppressionTombstones,
+    } as PortableBackupSource;
     if (canonicalArchive(parsed) !== canonical) throw new Error("invalid");
     const archiveDigest = await sha256(encoder.encode(canonical));
     if (current.workspaceId !== parsed.workspaceId || current.effectsEnabled !== false) throw new Error("invalid");
@@ -91,12 +102,13 @@ function restoredState(source: PortableBackupSource, archiveDigest: string): Loc
 }
 
 function canonicalArchive(source: PortableBackupSource) {
-  if (!source || typeof source !== "object" || !/^[\w.:-]{1,256}$/u.test(source.workspaceId) || !Number.isFinite(Date.parse(source.createdAt))) throw new Error("portable_backup_invalid");
+  if (!plainExact(source, SOURCE_KEYS) || !/^[\w.:-]{1,256}$/u.test(source.workspaceId) || !strictUtc(source.createdAt)) throw new Error("portable_backup_invalid");
   if (!Array.isArray(source.records) || !Array.isArray(source.objectDigests) || !Array.isArray(source.suppressionTombstones)) throw new Error("portable_backup_invalid");
   assertNoSecrets(source);
   if (!source.objectDigests.every((value) => typeof value === "string" && DIGEST.test(value))) throw new Error("portable_backup_invalid");
-  const records = canonicalRecords(source.records);
-  const tombstones = canonicalRecords(source.suppressionTombstones);
+  const identityIndex = new Set<string>();
+  const records = canonicalRecords(source.records, identityIndex, false);
+  const tombstones = canonicalRecords(source.suppressionTombstones, identityIndex, true);
   return JSON.stringify({
     format: "prospector/portable-workspace/v1",
     workspaceId: source.workspaceId,
@@ -108,13 +120,13 @@ function canonicalArchive(source: PortableBackupSource) {
   });
 }
 
-function canonicalRecords(records: readonly PortableRecord[]) {
-  const seen = new Set<string>();
+function canonicalRecords(records: readonly PortableRecord[], identityIndex: Set<string>, tombstones: boolean) {
   return records.map((record) => {
-    if (!record || typeof record !== "object" || !/^[\w.:-]{1,128}$/u.test(record.kind) || !/^[\w.:-]{1,256}$/u.test(record.id)) throw new Error("portable_backup_invalid");
+    if (!plainExact(record, ["kind", "id", "value"]) || !/^[\w.:-]{1,128}$/u.test(record.kind) || !/^[\w.:-]{1,256}$/u.test(record.id)) throw new Error("portable_backup_invalid");
     const key = `${record.kind}\0${record.id}`;
-    if (seen.has(key)) throw new Error("portable_backup_invalid");
-    seen.add(key);
+    if (identityIndex.has(key)) throw new Error("portable_backup_invalid");
+    identityIndex.add(key);
+    if (tombstones && (record.kind !== "suppression" || !plainExact(record.value, ["scopeDigest"]) || typeof record.value.scopeDigest !== "string" || !DIGEST.test(record.value.scopeDigest))) throw new Error("portable_backup_invalid");
     return { kind: record.kind, id: record.id, value: sortValue(record.value) };
   }).sort((left, right) => compareText(`${left.kind}\0${left.id}`, `${right.kind}\0${right.id}`));
 }
@@ -142,12 +154,13 @@ async function deriveKey(passphrase: string, salt: Uint8Array, usages: KeyUsage[
 
 function validatePassphrase(value: string) { if (typeof value !== "string" || value.length < 16 || value.length > 1024) throw new Error("portable_backup_invalid"); }
 function validateEnvelope(value: EncryptedPortableBackup) {
-  if (!value || value.format !== "prospector/local-portable-backup/v1" || value.kdf !== "PBKDF2-SHA-256" || value.iterations !== 210_000 || value.cipher !== "AES-256-GCM") throw new Error("invalid");
+  if (!plainExact(value, ENVELOPE_KEYS) || value.format !== "prospector/local-portable-backup/v1" || value.kdf !== "PBKDF2-SHA-256" || value.iterations !== 210_000 || value.cipher !== "AES-256-GCM") throw new Error("invalid");
 }
 function base64(value: Uint8Array) { return btoa(String.fromCharCode(...value)); }
 function unbase64(value: string, exactLength?: number) {
   if (typeof value !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/u.test(value)) throw new Error("invalid");
   const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+  if (base64(bytes) !== value) throw new Error("invalid");
   if (exactLength !== undefined && bytes.length !== exactLength) throw new Error("invalid");
   return bytes;
 }
@@ -157,3 +170,15 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 function compareText(left: string, right: string) { return left < right ? -1 : left > right ? 1 : 0; }
+function strictUtc(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+function plainExact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  return Reflect.ownKeys(descriptors).every((key) => typeof key === "string")
+    && Object.keys(descriptors).sort().join("\0") === [...keys].sort().join("\0")
+    && Object.values(descriptors).every((descriptor) => "value" in descriptor);
+}

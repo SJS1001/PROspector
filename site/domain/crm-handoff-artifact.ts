@@ -36,7 +36,9 @@ const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,255}$/u;
 
 /** Pure materialization only. It has no persistence, delivery, or provider port. */
 export async function materializeCrmHandoff(input: CrmHandoffArtifactInput): Promise<CrmHandoffArtifact> {
+  if (!plainExact(input, ["workspaceId", "snapshotDigest", "exportDefinitionDigest", "configurationDigest", "packageDigests", "selectedAt", "rows"])) throw new Error("crm_handoff_manifest_invalid");
   if (!ID.test(input.workspaceId) || !validTime(input.selectedAt)) throw new Error("crm_handoff_manifest_invalid");
+  if (!Array.isArray(input.packageDigests) || input.packageDigests.length === 0 || new Set(input.packageDigests).size !== input.packageDigests.length) throw new Error("crm_handoff_manifest_invalid");
   const digests = [input.snapshotDigest, input.exportDefinitionDigest, input.configurationDigest, ...input.packageDigests];
   if (!digests.every((value) => DIGEST.test(value))) throw new Error("crm_handoff_manifest_invalid");
   if (!Array.isArray(input.rows) || input.rows.some((row) => row?.source_workspace_id !== input.workspaceId)) {
@@ -68,7 +70,17 @@ export async function materializeCrmHandoff(input: CrmHandoffArtifactInput): Pro
 }
 
 function validTime(value: string) {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) && Number.isFinite(Date.parse(value));
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function plainExact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  return Reflect.ownKeys(descriptors).every((key) => typeof key === "string")
+    && Object.keys(descriptors).sort().join("\0") === [...keys].sort().join("\0")
+    && Object.values(descriptors).every((descriptor) => "value" in descriptor);
 }
 
 async function sha256(bytes: Uint8Array) {
