@@ -6,8 +6,8 @@
  * such call carries one canonical `ReconciliationReason`. The separate
  * statement-based closure decision (`decideSyntheticEnrichmentReconciliation`)
  * answers what a stranded reservation *settles or releases* once an owner has
- * transcribed a provider billing statement, and it admits only the two reasons
- * the provider itself reports.
+ * transcribed a provider billing statement, and it admits the six reasons for
+ * which a provider request may have occurred.
  *
  * This module answers the question that comes before that one, for all eight
  * canonical reasons: could a provider request even exist for this reason, so
