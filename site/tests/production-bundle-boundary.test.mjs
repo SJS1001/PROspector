@@ -87,6 +87,19 @@ test("the production build does not emit the local-demo routes", async () => {
   ], "a local-demo route module reached the deployed artifact");
 });
 
+test("the production build does not emit the CRM preview fixture", async () => {
+  const files = await deployedTextFiles();
+  // The CRM preview screen and its fictional rows are also reachable only
+  // through a dev-gated dynamic import. Keep representative markers from both
+  // modules here so a future eager/static import cannot silently publish the
+  // local-demo response shape or its synthetic contact values.
+  assertAbsent(files, [
+    { pattern: "crm_handoff_local_demo_preview", label: "CRM preview response kind" },
+    { pattern: "fictional.buyer@example.test", label: "CRM preview synthetic contact value" },
+    { pattern: "FICTIONAL · NOT APPROVED FOR EXPORT", label: "CRM preview screen banner" },
+  ], "the CRM handoff local-demo fixture reached the deployed artifact");
+});
+
 test("the production build does not emit the E1 operator-journey fixture", async () => {
   const files = await deployedTextFiles();
   // domain/operator-journey-e1-acceptance.ts is reachable only from the
