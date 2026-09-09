@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Offline work units A, B, and C1-C4 integrated and verified; Work Unit D operator interface is next while hosted Stage 3B attachment remains separately gated
-last_updated: "2026-09-07"
-last_activity: 2026-09-07
+stopped_at: Phase 4-7 local implementation is substantially merged; formal acceptance remains pending, and the next bounded work is the guarded cross-phase LOCAL_DEMO UX composition track
+last_updated: "2026-09-09"
+last_activity: 2026-09-09
 progress:
   total_phases: 7
   completed_phases: 1
@@ -15,6 +15,17 @@ progress:
 ---
 
 # Project State
+
+**Planning reconciliation (2026-09-09):** `main` now contains substantial
+Phase 4–7 domain, UI, persistence-candidate, preparation, and acceptance work.
+This is implementation/readiness evidence only: the phase checkboxes, plan
+credit count, requirements, predecessor gates, and hosted/human/provider
+acceptance remain unchanged. The remaining local E2E gap is a single
+supported-screen browser journey that composes the already-merged remaining
+phase UX in authority order. `.planning/LOCAL-DEMO-COMPOSITION.md` authorizes
+only a guarded loopback `LOCAL_DEMO` story using fixed fictional/disposable
+projections. It grants no plan or phase credit and no hosted, provider,
+credential, real-data, persistence, export, or outbound authority.
 
 **Offline implementation update (2026-09-06):** Work units A, B, and C1 through C4 plus the
 prerequisite `0018` importer normalization are integrated on the
@@ -80,6 +91,7 @@ Progress: [████░░░░░░] 35% of active plans (26/74 completion
 Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions affecting current work:
 
 - Existing implementation is partial progress and must pass the owning phase's observable criteria before receiving credit.
+- [Guarded LOCAL_DEMO composition]: The 2026-09-09 planning amendment permits a bounded cross-Phase 4–7 supported-screen UX journey only behind the existing development + exact LOCAL_DEMO + loopback + same-origin + synthetic-owner fences. It must preserve Phase 4 → 5 → 6 → 7 authority ordering, use fixed fictional/disposable non-durable projections, keep real decisions refused and all effects zero, and remain absent from production bundles. It grants no formal credit and no hosted/provider/credential/real-data/persistence/export/outbound authority. See `.planning/LOCAL-DEMO-COMPOSITION.md`.
 - The current live exception is limited to the low-sensitivity historian-readiness Answer-to-Confirmation lifecycle.
 - Real leads, contacts, imports, schedules, exports, provider credentials, and outbound effects remain disabled until applicable gates pass.
 - Seven vertical phases own all 17 v1 requirements exactly once.

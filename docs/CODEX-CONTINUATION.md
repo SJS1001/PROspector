@@ -6,6 +6,31 @@
 **Portable checkpoint:** use the latest `origin/codex/generic-prospector-pilot` commit  
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
+## Current planning reconciliation — 2026-09-09
+
+Current `main` contains substantial merged Phase 4–7 local implementation:
+profile/prospecting and operator-review flows, fictional contact/enrichment
+boundaries, governed-outreach/suppression cores, morning and weekly outcome
+projections, CRM preview, and local portability foundations. This does not move
+the formal phase/plan/requirement ledger. The upstream, hosted, provider,
+credential, real-principal, independent-review, and owner-acceptance gates
+remain pending exactly as checked.
+
+The remaining local end-to-end gap is one coherent supported-screen browser
+journey across those already-merged later-phase UX seams. The bounded authority
+for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It permits only fixed
+fictional/disposable, non-durable projections behind the existing development,
+exact `LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
+the dependency order: Phase 4 ready Profile/qualified Prospect/review → Phase 5
+fictional contact/enrichment review → Phase 6 Package before Message and
+suppression rechecks → Phase 7 morning/weekly/CRM/portability previews. Real
+decisions stay refused, effect counters stay zero, production bundles exclude
+the fixtures/routes, and no summary or formal credit may result.
+
+That amendment grants no hosted/provider/credential/real-data/persistence/
+export/outbound authority. Stop rather than widening a checked plan, composing
+a real port, writing durable state, delivering bytes, or fabricating evidence.
+
 ## Current Claude Cloud transfer — 2026-09-06
 
 Local Codex implementation and its transfer record are clean and pushed at
