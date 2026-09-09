@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 import { handleRunnerIngress } from "../../../../domain/prospecting-handler";
+import { composeRunnerIngress, type RunnerRuntimeBindings } from "../../../../domain/runner-runtime";
 
-/** The deployed callback is deliberately unavailable until a later hosted
- * capability checkpoint installs an explicit adapter and secret binding. */
+/** Default-off: only the explicit ingress switch plus a strong secret binding
+ * composes this callback. Assignment issuance remains a separate switch. */
 export async function POST(request: Request) {
-  const bindings = env as unknown as { DB?: D1Database };
-  return handleRunnerIngress(request, bindings.DB ? { database: bindings.DB, runnerIngressEnabled: false } : undefined);
+  return handleRunnerIngress(request, composeRunnerIngress(env as unknown as RunnerRuntimeBindings));
 }

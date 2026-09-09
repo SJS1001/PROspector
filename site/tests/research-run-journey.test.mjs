@@ -167,7 +167,8 @@ test("production composition stays fail closed and nothing in the app imports th
   } finally { await fixture.dispose(); }
 
   const deployedRoute = await readFile(join(root, "app", "api", "prospecting", "runner", "route.ts"), "utf8");
-  assert.match(deployedRoute, /runnerIngressEnabled:\s*false/, "the deployed runner route must remain disabled");
+  assert.match(deployedRoute, /composeRunnerIngress/, "the deployed runner route must use the explicit default-off binding composer");
+  assert.doesNotMatch(deployedRoute, /runnerIngressEnabled:\s*true/, "the deployed runner route must not force ingress on");
 
   for (const file of await sourceFiles(join(root, "app"))) {
     const contents = await readFile(file, "utf8");
