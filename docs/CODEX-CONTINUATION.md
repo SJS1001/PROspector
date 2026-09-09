@@ -27,11 +27,9 @@ suppression rechecks → Phase 7 morning/weekly/CRM/portability previews. Real
 decisions stay refused, effect counters stay zero, production bundles exclude
 the fixtures/routes, and no summary or formal credit may result.
 
-That amendment grants no hosted/provider/credential/real-data/application-or-
-external-persistence/export/outbound authority. Its only persistence exception
-is a dedicated, resettable, production-excluded demo metadata repository for
-bounded fictional weekly-transition references. Stop rather than widening a
-checked plan, composing a real port, delivering bytes, or fabricating evidence.
+That amendment grants no hosted/provider/credential/real-data/persistence/
+export/outbound authority. Stop rather than widening a checked plan, composing
+a real port, writing durable state, delivering bytes, or fabricating evidence.
 
 ## Historical Claude Cloud transfer — 2026-09-06
 

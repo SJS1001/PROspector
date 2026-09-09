@@ -61,9 +61,8 @@ This authorization grants **no**:
   mailbox, telephone, runner, callback, retry, or outbound effect;
 - use of real or production data, contacts, addresses, phone numbers, message
   bodies, credentials, tokens, provider responses, or protected references;
-- production/application/external persistence authority, migration, import,
-  archive, restore, or durable operational-state claim, except for the exact
-  disposable demo-metadata repository below;
+- D1/R2/filesystem/browser-storage persistence authority, migration, import,
+  archive, restore, or durable state claim;
 - CSV/file/archive byte delivery, download, clipboard transfer, external
   export, or CRM handoff authority.
 
@@ -71,32 +70,10 @@ Any later request for one of those capabilities requires its checked plan and
 a separate exact authorization. A passing local journey cannot be cited as
 substitute evidence.
 
-## Phase 7 metadata-repository decision
-
-The owner expressly authorizes one fictional disposable local metadata
-repository for this track, solely to demonstrate synthetic weekly-transition
-history across a local runtime restart.
-
-It is not the Plan 07-04 repository and does not resolve that plan's `NNNN`
-migration. It must use a dedicated demo-only local binding and a harness-owned
-schema outside the checked application migration chain, exist only inside the
-explicitly reset `site/.local/` state directory, and be absent from the
-production build. It may store only immutable synthetic
-workspace/Profile/Prospect/audit references, event kind/time, and canonical
-digests. Contact values, source URLs/excerpts, CSV rows or bytes,
-package/message content, phone values, passphrases, keys, archive payloads,
-provider responses, credentials, and real identifiers are forbidden.
-
-Plans 07-01 through 07-03 still have no summaries and depend on incomplete Plan
-06-10. Plan 07-04 remains stopped with its unresolved `NNNN` migration. The
-Phase 7 preparation line remains complete and closed. No phase plan may consume
-the demo repository as a dependency, and its rows are neither canonical Phase
-7 history nor outcome provenance.
-
 ## Dependency order
 
 Work within this exception must preserve the product authority order even
-though every record is fictional and non-operational:
+though every record is fictional and non-durable:
 
 1. Reuse the accepted local identity/onboarding/Knowledge and Product/Offer
    foundation; do not reopen Plan 02-99 or Plans 03-09–03-11.
@@ -105,8 +82,7 @@ though every record is fictional and non-operational:
    discovery without invoking a runner/retrieval port or claiming a run.
 3. Compose Phase 5 fictional suggestion → verification-intent → visibly
    fictional `ContactReady`-shaped projection only after an approved Prospect;
-   consume the merged guarded ContactReady contract, but keep ordinary
-   mutations, the real provider, and operational persistence refused.
+   keep the real provider and persistence decisions refused.
 4. Compose Phase 6 exact Package review before exact Message review, then show
    suppression/current-state rechecks before any fictional dispatch or manual
    outcome. This is an approval/suppression preview only: no preparation-module
@@ -115,7 +91,6 @@ though every record is fictional and non-operational:
 5. Compose Phase 7 morning/weekly outcome and CRM/portability previews only
    from the preceding fictional projections. Real admission stays empty,
    export/download stays absent, and restore remains a compatibility preview.
-   Morning Brief may read the bounded demo journal only when labelled fictional.
    The integrated CRM preview may render field names, row-shaped fictional
    values, counts, and refusal reasons, but must not call the CSV codec or
    materialize CSV text/bytes.
@@ -142,27 +117,18 @@ The exact-head evidence must prove:
    same-origin mutation, owner admission, and fresh CSRF can admit the scenario.
    Missing/conflicting bindings, non-loopback, foreign Origin, non-owner,
    stale authority, and cross-workspace input deny.
-2. The run starts from a new reset state below `site/.local/`; every identifier,
-   person, company, address-like value, source, outcome, and cost is visibly
-   fictional; no secret, credential, real identity/data, or retired-Sites
-   identifier is present.
+2. Every identifier, person, company, address-like value, source, outcome, and
+   cost is visibly fictional; no secret, credential, real identity/data, or
+   retired-Sites identifier is present.
 3. The captured request log has no non-loopback destination. Provider, runner,
    spend, mail, phone, schedule, export/delivery, archive, restore, and all
    other external-effect counters are literally zero. There is no retry after
    a denial, stale conflict, uncertain result, or lost response.
-4. Every SQLite file in the disposable state is inspected. R2 object and
-   multipart counts are zero; unknown application tables/views/triggers reject;
-   ordinary allowed rows are bounded; run/schedule execution remains
-   `blocked_missing_capability`; no outbox item becomes `Dispatching` or `Sent`;
-   and the separate demo store has the exact allowlisted schema, columns, and
-   bounded synthetic rows.
-5. A fresh production build has no source maps, unresolved build-mode gate,
+4. A fresh production build has no source maps, unresolved build-mode gate,
    demo identity, scenario binding value, local-demo route body, representative
    fixture marker, or ordinary-route import of the scenario. Local-demo URLs
    behave as unknown in production.
-6. Intended fictional scenario state survives a local restart, while denied,
-   stale, concurrent, malformed, and lost-response paths create no extra row.
-   The integrated UI has no CSV bytes, `Content-Disposition`, download,
+5. The integrated UI has no CSV bytes, `Content-Disposition`, download,
    clipboard, `blob:`, `data:`, `mailto:`, or `tel:` affordance.
 
 Any nonzero effect, real-data input, unclassified durable object, production
@@ -172,9 +138,8 @@ blocks downstream LOCAL_DEMO work.
 ## Stop conditions
 
 Stop immediately if the work would require a hosted resource, network/provider
-port, credential or protected reference, real data, ordinary/application or
-external persistence, migration, scheduler, CSV materialization,
-export/download, outbound action, production route, or a change to a checked
-plan's formal dependency or acceptance contract. The bounded demo-metadata
-repository above is the only persistent-write exception. Record any other gap
-instead of simulating evidence or widening authority.
+port, credential or protected reference, real data, persistent write,
+migration, scheduler, CSV materialization, export/download, outbound action,
+production route, or a change to a checked plan's formal dependency or
+acceptance contract. Record the gap instead of simulating evidence or widening
+authority.
