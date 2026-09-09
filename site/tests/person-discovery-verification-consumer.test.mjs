@@ -141,6 +141,52 @@ test("an uncertain provider outcome is durably reconciled and never promotes or 
   } finally { await fixture.dispose(); }
 });
 
+test("a distinct intent after quote expiry receives new immutable quote authority", async (context) => {
+  const fixture = await createLocalFixture();
+  let now = 1_800_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  try {
+    await applyCanonicalMigrations(fixture.database);
+    fixture.gateTriggerSql = await triggerSql(fixture.database);
+    const { consumer, service, scope, relevanceId, authority } = await arrangeVerificationIntent(fixture);
+    const first = await consumer.consumePersonDiscoveryC4VerificationIntent(
+      verificationRequest(), bindings, fixture.database, scope, { relevanceId, channel: "email" },
+    );
+    assert.equal(first.kind, "verified");
+    const priorQuotes = (await fixture.database.prepare("SELECT * FROM provider_quotes ORDER BY id").all()).results;
+    const priorGrants = (await fixture.database.prepare("SELECT * FROM enrichment_grants ORDER BY id").all()).results;
+    assert.equal(priorQuotes.length, 1);
+    assert.equal(priorGrants.length, 1);
+
+    now += 300_001;
+    const intent = await service.recordVerificationIntent(scope, {
+      relevanceId, intent: "initial_verification", channel: "phone",
+      expectedProspectRevision: Number(authority.prospect_revision), expectedContactRevision: 1,
+      expectedConfigurationId: authority.configuration_id, expectedConfigurationDigest: authority.configuration_digest,
+      expectedConfigurationRevision: Number(authority.configuration_revision), idempotencyKey: "c4-expired-quote-phone-intent",
+    });
+    assert.equal(intent.kind, "accepted");
+    const second = await consumer.consumePersonDiscoveryC4VerificationIntent(
+      verificationRequest(), bindings, fixture.database, scope, { relevanceId, channel: "phone" },
+    );
+    assert.deepEqual(second, { kind: "verified", state: "ContactReady", eligible: true, replayed: false });
+
+    const quotes = (await fixture.database.prepare("SELECT * FROM provider_quotes ORDER BY id").all()).results;
+    const grants = (await fixture.database.prepare("SELECT * FROM enrichment_grants ORDER BY id").all()).results;
+    assert.equal(quotes.length, 2);
+    assert.equal(grants.length, 2);
+    assert.deepEqual(quotes.find((row) => row.id === priorQuotes[0].id), priorQuotes[0], "prior quote must remain byte-for-byte immutable");
+    assert.deepEqual(grants.find((row) => row.id === priorGrants[0].id), priorGrants[0], "prior grant must remain byte-for-byte immutable");
+    assert.notEqual(quotes[0].id, quotes[1].id);
+    assert.notEqual(quotes[0].quote_digest, quotes[1].quote_digest);
+    assert.equal(await countRows(fixture.database, "phase_activation_gates"), 0);
+    assert.equal(await triggerSql(fixture.database), fixture.gateTriggerSql);
+    for (const table of ["outreach_messages", "outreach_outbox_items", "outreach_sender_connections", "prospecting_schedules"]) {
+      assert.equal(await countRows(fixture.database, table), 0);
+    }
+  } finally { await fixture.dispose(); }
+});
+
 test("stale durable intent authority is rejected before quote, grant, provider, or ContactReady effects", async () => {
   const fixture = await createLocalFixture();
   try {
@@ -222,7 +268,7 @@ async function arrangeVerificationIntent(fixture) {
     expectedConfigurationRevision: Number(authority.configuration_revision), idempotencyKey: "c4-stale-consumer-intent",
   });
   assert.equal(intent.kind, "accepted");
-  return { consumer, scope, relevanceId: decided.decision.relevanceId };
+  return { consumer, service, scope, relevanceId: decided.decision.relevanceId, authority };
 }
 
 function verificationRequest({ url = "http://127.0.0.1:8788/api/local-demo/person-discovery-c4/verification", origin = "http://127.0.0.1:8788", intent = "person-discovery-c4-verification", fetchSite = "same-origin" } = {}) {

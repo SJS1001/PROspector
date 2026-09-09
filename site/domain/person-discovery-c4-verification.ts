@@ -95,7 +95,7 @@ async function consumeVerificationIntent(
   const now = Date.now();
   const attestor = await createPersonDiscoveryC4SettlementAttestor();
   const contentHash = await canonicalDigest({ schema: "c4-verification-content/v1", intentId: authority.intentId });
-  await ensureSyntheticQuote(database, scope.workspaceId, now);
+  await ensureSyntheticQuote(database, scope.workspaceId, authority.intentId, now);
 
   const port = bindContactProviderPort(PROVIDER, async (assignment) => {
     if (syntheticOutcome === "ambiguous") {
@@ -226,12 +226,20 @@ async function loadCurrentIntentAuthority(database: D1Database, scope: Scope, co
   });
 }
 
-async function ensureSyntheticQuote(database: D1Database, workspaceId: string, now: number) {
+async function ensureSyntheticQuote(database: D1Database, workspaceId: string, intentId: string, now: number) {
+  const quoteId = `c4-verification-quote-${intentId}`;
+  const existing = await database.prepare("SELECT id FROM provider_quotes WHERE workspace_id=? AND id=? LIMIT 1")
+    .bind(workspaceId, quoteId).first<{ id: string }>();
+  if (existing) return;
+  const latest = await database.prepare(`SELECT COALESCE(MAX(revision),0) revision FROM provider_quotes
+    WHERE workspace_id=? AND provider_id=? AND provider_version=? AND catalog_ref=? AND operation='business_contact_lookup/v1'`)
+    .bind(workspaceId, PROVIDER.providerId, PROVIDER.providerVersion, PROVIDER.catalogRef).first<{ revision: number }>();
+  const revision = Number(latest?.revision ?? 0) + 1;
   await database.prepare(`INSERT OR IGNORE INTO provider_quotes
     (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
-    VALUES (?,?,?, ?,?,1,'business_contact_lookup/v1','CAD',0,?,?,?)`)
-    .bind(`c4-verification-quote-${workspaceId}`, workspaceId, PROVIDER.providerId, PROVIDER.providerVersion, PROVIDER.catalogRef,
-      await canonicalDigest({ schema: "c4-verification-quote/v1", workspaceId }), now + 300_000, now).run();
+    VALUES (?,?,?,?,?,?,'business_contact_lookup/v1','CAD',0,?,?,?)`)
+    .bind(quoteId, workspaceId, PROVIDER.providerId, PROVIDER.providerVersion, PROVIDER.catalogRef, revision,
+      await canonicalDigest({ schema: "c4-verification-quote/v1", workspaceId, intentId, revision }), now + 300_000, now).run();
 }
 
 async function ensureReservationInputs(database: D1Database, authority: IntentAuthority & { workspaceId: string }, grantId: string, now: number) {
@@ -239,16 +247,18 @@ async function ensureReservationInputs(database: D1Database, authority: IntentAu
   const assignmentDigest = await canonicalDigest({ schema: "c4-intent-assignment/v1", intentId: authority.intentId, grantId, prospectId: authority.prospectId, contactId: authority.contactId, channel: authority.channel });
   await database.prepare(`INSERT OR IGNORE INTO contact_evidence_assignments
     (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
-    VALUES (?,?,NULL,?,?,?,'general',?,?,?,?,?,1,?,?)`).bind(
+    SELECT ?,?,NULL,?,?,?,'general',?,?,?,?,?,grant.quote_revision,?,? FROM enrichment_grants grant
+    WHERE grant.id=? AND grant.workspace_id=?`).bind(
       assignmentId, authority.workspaceId, grantId, authority.prospectId, authority.contactId,
       authority.configurationId, authority.configurationDigest, PROVIDER.providerId, PROVIDER.providerVersion,
-      PROVIDER.catalogRef, assignmentDigest, now,
+      PROVIDER.catalogRef, assignmentDigest, now, grantId, authority.workspaceId,
     ).run();
   for (const [scope, entityId] of Object.entries({ grant: grantId, profile: authority.configurationId, workspace: authority.workspaceId, provider: PROVIDER.providerId })) {
     const accountId = `enrichment:${authority.workspaceId.length}:${authority.workspaceId}:${scope}:${entityId.length}:${entityId}`;
+    const maxUnits = scope === "grant" ? 1 : 100;
     await database.prepare(`INSERT OR IGNORE INTO enrichment_budget_accounts
       (id,workspace_id,authority_type,scope,entity_id,currency,actual_units,reserved_units,max_units,actual_cost_minor,reserved_cost_minor,max_cost_minor,revision,created_at,updated_at)
-      VALUES (?,?,'enrichment',?,?,'CAD',0,0,1,0,0,0,1,?,?)`).bind(accountId, authority.workspaceId, scope, entityId, now, now).run();
+      VALUES (?,?,'enrichment',?,?,'CAD',0,0,?,0,0,0,1,?,?)`).bind(accountId, authority.workspaceId, scope, entityId, maxUnits, now, now).run();
   }
 }
 
