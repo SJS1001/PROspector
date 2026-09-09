@@ -120,7 +120,10 @@ export type ProspectQualityReport = Readonly<{
     }>[];
   }>;
   arms: Readonly<Record<ArmName, ArmMetrics>>;
-  pairedDelta: Readonly<Record<QualityMetricName, number | null>>;
+  pairedDelta: Readonly<
+    Record<QualityMetricName, number | null>
+    & Partial<Record<EfficiencyMetricName, number | null>>
+  >;
   thresholdExercise: Readonly<{
     status: "passed" | "failed";
     checks: Readonly<Record<string, boolean>>;
@@ -147,6 +150,11 @@ type QualityMetricName =
   | "currentRoleAccuracy"
   | "verificationYield"
   | "relevantTargetContactCoverage";
+
+type EfficiencyMetricName =
+  | "activeMinutesPerUsable"
+  | "knownCostMinorPerUsable"
+  | "atRiskCostMinorPerUsable";
 
 type ArmMetrics = Readonly<{
   targetCount: number;
@@ -204,7 +212,12 @@ export async function evaluateProspectQuality(value: unknown): Promise<ProspectQ
     const [systemArm, manualArm] = [arm(input, "system"), arm(input, "manual")];
     const system = armMetrics(systemArm, targetById);
     const manual = armMetrics(manualArm, targetById);
-    const pairedDelta = Object.fromEntries(QUALITY_METRICS.map((name) => [name, delta(system[name], manual[name])])) as Record<QualityMetricName, number | null>;
+    const pairedDelta = {
+      ...Object.fromEntries(QUALITY_METRICS.map((name) => [name, ratioDelta(system[name], manual[name])])),
+      activeMinutesPerUsable: perUsableDelta(activeMilliseconds(systemArm) / 60_000, system.evaluationUsableTargetCount, activeMilliseconds(manualArm) / 60_000, manual.evaluationUsableTargetCount),
+      knownCostMinorPerUsable: perUsableDelta(system.knownActualCostMinor, system.evaluationUsableTargetCount, manual.knownActualCostMinor, manual.evaluationUsableTargetCount),
+      atRiskCostMinorPerUsable: perUsableDelta(system.atRiskCostMinor, system.evaluationUsableTargetCount, manual.atRiskCostMinor, manual.evaluationUsableTargetCount),
+    } satisfies Record<QualityMetricName | EfficiencyMetricName, number | null>;
     const checks = thresholdChecks(input.protocol.thresholds, input.cohort.targets, system, manual, systemArm);
     const protocolDigest = await sha256(canonical(input.protocol));
     const cohortDigest = await sha256(canonical(input.cohort));
@@ -487,7 +500,10 @@ function ratio(numerator: number, denominator: number): Ratio {
   const margin = z * Math.sqrt((value * (1 - value) + z2 / (4 * denominator)) / denominator) / (1 + z2 / denominator);
   return deepFreeze({ numerator, denominator, value: rounded(value), wilson95: { lower: rounded(Math.max(0, center - margin)), upper: rounded(Math.min(1, center + margin)) } });
 }
-function delta(system: Ratio, manual: Ratio) { return system.value === null || manual.value === null ? null : rounded(system.value - manual.value); }
+function ratioDelta(system: Ratio, manual: Ratio) { return system.value === null || manual.value === null ? null : rounded(system.value - manual.value); }
+function perUsableDelta(systemTotal: number, systemUsable: number, manualTotal: number, manualUsable: number) {
+  return systemUsable === 0 || manualUsable === 0 ? null : rounded(systemTotal / systemUsable - manualTotal / manualUsable);
+}
 function perUsable(value: number, usable: number) { return usable === 0 ? null : rounded(value / usable); }
 function exactValue(metric: Ratio) { return metric.denominator === 0 ? null : metric.numerator / metric.denominator; }
 function atLeast(metric: Ratio, threshold: number) { const value = exactValue(metric); return value !== null && value >= threshold; }
@@ -498,9 +514,10 @@ function exactActiveMinutesAtMost(armValue: NormalizedArm, usable: number, thres
   const milliseconds = armValue.effort.reduce((sum, row) => sum + row.durationMilliseconds, 0);
   return Number.isSafeInteger(milliseconds) && milliseconds / (60_000 * usable) <= threshold;
 }
+function activeMilliseconds(armValue: NormalizedArm) { return armValue.effort.reduce((sum, row) => sum + row.durationMilliseconds, 0); }
 function isRatio(value: unknown): value is Ratio { return Boolean(value && typeof value === "object" && "denominator" in value && "value" in value); }
 function countEnum<const T extends string>(values: readonly T[], keys: readonly T[]) { return Object.fromEntries(keys.map((key) => [key, values.filter((value) => value === key).length])) as Record<T, number>; }
-function rounded(value: number) { return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000; }
+function rounded(value: number) { const result = Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000; return Object.is(result, -0) ? 0 : result; }
 function exact(value: unknown, keys: readonly string[]): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) malformed(); const row = value as Record<string, unknown>; const actual = Object.keys(row).sort(), expected = [...keys].sort(); if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) malformed(); return row; }
 function dense(value: unknown, max: number): unknown[] { if (!Array.isArray(value)) malformed(); if (value.length > max) invalid("evaluation_limit_exceeded"); if (Object.keys(value).length !== value.length) malformed(); return value; }
 function enumValue<const T extends string>(value: unknown, values: readonly T[]): T { if (typeof value !== "string" || !values.includes(value as T)) malformed(); return value as T; }

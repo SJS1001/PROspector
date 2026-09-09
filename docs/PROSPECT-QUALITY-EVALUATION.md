@@ -95,8 +95,20 @@ counts for complete, no-result, partial, and uncertain attempts and charges.
 The system arm is checked against predeclared absolute thresholds and against
 the manual arm's paired metrics using the predeclared maximum regression.
 Cost and time caps are owner policy inputs that must be fixed before a real
-trial. Synthetic values exercise the calculation and imply no production
-policy.
+trial. The report also emits system-minus-manual deltas for active minutes,
+known cost, and at-risk cost per usable target. Negative values mean the system
+used less time or money; if either arm has no usable target, the applicable
+delta is unavailable rather than zero. Synthetic values exercise the
+calculation and imply no production policy.
+
+`pairedDelta` is an extensible v1 report map: the original ten quality keys
+remain required, while consumers must ignore unfamiliar keys. The three
+efficiency keys are additive and optional at the type boundary so a consumer
+written for the original v1 shape can continue selecting the quality keys it
+understands. Producers in this repository emit all three efficiency keys.
+Each efficiency delta is calculated from the two raw totals and usable-target
+denominators, then rounded once for display; it is never calculated by
+subtracting the independently rounded arm values.
 
 ## Cost and time accounting
 
