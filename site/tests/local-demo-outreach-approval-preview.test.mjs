@@ -131,6 +131,19 @@ test("suppression detail requires a binding to the exact approved Message digest
   });
 });
 
+test("blocked review stages retain native list semantics without aria-disabled", async () => {
+  await withPreview(async (preview) => {
+    const html = renderToStaticMarkup(React.createElement(preview.LocalDemoOutreachApprovalPreview, {
+      ...fictionalProps,
+      messageApproval: { ...fictionalProps.messageApproval, state: "waiting" },
+    }));
+    assert.doesNotMatch(html, /aria-disabled/);
+    assert.match(html, /<ol[^>]+><li>/);
+    assert.match(html, /<li data-message-review-blocked="true">/);
+    assert.match(html, /<li data-suppression-review-blocked="true">/);
+  });
+});
+
 test("hostile fictional labels are escaped and do not create executable markup", async () => {
   await withPreview(async (preview) => {
     const html = renderToStaticMarkup(React.createElement(preview.LocalDemoOutreachApprovalPreview, {
