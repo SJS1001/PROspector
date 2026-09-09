@@ -99,6 +99,14 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 
 ## Current state
 
+- A separate proposed `LOCAL_DEMO` composition track is documented in
+  [`LOCAL-DEMO-AUTHORITY-TRACK.md`](LOCAL-DEMO-AUTHORITY-TRACK.md). It permits
+  only fictional disposable loopback composition of existing Phase 4–7
+  foundations, in dependency order, with exact verification and literal-zero
+  effect criteria. It grants no plan/phase, hosted, provider, data, export,
+  credential, or external-effect authority; the original Sites boundary stays
+  permanently retired.
+
 - Phase 1 automated build is complete. Its four Sites-version-10 human checks were never performed and are now explicitly superseded historical evidence because that release is retired; they are not passed or waived proof and must not be attempted against it. Equivalent real-principal, authenticated negative-mutation/zero-delta, secret/log, and exact-release review evidence remains non-substitutable under greenfield Plan 02-99.
 - Phase 2 retains Plans 02-01 through 02-12 completion credit. Plans 02-13 through 02-21 and the old recovery Plan 02-99 are retired incident history and earn no new credit. Plan 02-22 establishes the verified greenfield local baseline; the new terminal Plan 02-99 keeps future hosted acceptance separate.
 - `REQUIREMENTS.md` deliberately leaves the five Phase 1/2 v1 requirements unchecked until greenfield Plan 02-99 acceptance. Their plan summaries prove local implementation only; retired-target evidence and local tests cannot satisfy the user-level hosted boundary. Active Phase 2 review/activation records carry an explicit 2026-09-03 greenfield continuation notice so historical Plan 02-12/Sites blockers are never resumed.

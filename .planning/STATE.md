@@ -1,5 +1,6 @@
 ---
 gsd_state_version: 1.0
+local_demo_track: proposed_unaccepted_docs_only
 milestone: v1.0
 milestone_name: milestone
 status: active
