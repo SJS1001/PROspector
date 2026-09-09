@@ -70,6 +70,14 @@ tuple still denies admission and projects a definite pre-transmission failure.
 It composes no port, envelope, capability, or credential reference and cannot
 describe a transmission at all.
 
+A further preparation slice adds a canonical digest-only mail-dispatch
+envelope manifest. It binds the final synthetic lease/recheck/receipt/
+preparation chain to exact sender, recipient-set, content-part, unsubscribe,
+and originated-marker digests without containing an address, content,
+attachment, payload, endpoint, capability, credential reference, or callable
+port. Even a wholly current manifest remains explicitly non-authoritative and
+literal-zero-effect.
+
 A further preparation slice adds a synthetic suppression-retention manifest
 across delete, import, export, archive, and restore boundaries. It carries the
 complete subject, alias, and deletion-tombstone union through one exact
@@ -585,6 +593,47 @@ are neither caused nor repaired by this slice.
 The new module is imported by no runtime, domain, adapter, worker, or test file
 outside its own focused suite, and the static composition guard enforces that.
 This is local preparation evidence only.
+
+### Synthetic digest-only mail-dispatch envelope manifest
+
+`site/preparation/mail-dispatch-envelope-manifest.ts` and its focused suite
+close the provider-neutral binding gap between the already-prepared attempt and
+an eventual authorized mail-port payload. They prove:
+
+- one canonical manifest binds the exact synthetic workspace, Company,
+  prospect, Contact, outbox/send/dispatch identities, Package and Message
+  artifacts, separate approval IDs/digests/expiries, lease generation/holder,
+  passed final recheck, pre-call receipt, and `prepared_no_invocation` attempt;
+- sender connection, From, Reply-To, To/CC/BCC sets, subject, text/HTML parts,
+  links, attachments, deterministic RFC Message-ID, originated marker, and
+  unsubscribe authority are represented only as SHA-256 digests. Recipient
+  sets are sorted, bounded, non-empty at To, and globally duplicate-free;
+- Package/Message cross-pairing, stale or reordered lease/receipt/approval
+  windows, any digest change, stale current binding, duplicate recipient,
+  extra field, hostile accessor, forged artifact, or authority-like attempt
+  status fails closed;
+- exact expiry boundaries reject, the current lease generation is rechecked,
+  and every authority category plus the external-effects-disabled fence is
+  independently required; and
+- even a wholly current tuple returns
+  `synthetic_mail_dispatch_envelope_manifest_current_no_authority` with no
+  payload, resolvable port, provider selection, credential reference,
+  dispatch, persistence, retry, transmission, or effect authority.
+
+The contract imports nothing and contains no address, message content,
+attachment, provider endpoint, credential reference, database, network,
+runtime, or callable mail-port seam. It does not create a provider envelope or
+execute Plans 06-05, 06-06, or 06-12; it grants no Phase 6 completion credit.
+Runtime code may not import it, and the existing static preparation boundary
+continues to enforce that separation.
+
+Validation recorded on 2026-09-09 on Node.js `v24.19.0`: the focused manifest
+plus static composition-boundary gate passed 11/11, the aggregate Phase 6
+preparation suites passed 151/151, canonical `npm run lint` passed, and the
+canonical production build completed. The encompassing `npm test` command was
+not executed because its suite was identified as reaching a Cloudflare hosting
+endpoint, which is outside this local-only lane; no hosted request was made and
+no test was weakened or rerouted. This is local preparation evidence only.
 
 ## Deferred adapters and exact external decision
 
