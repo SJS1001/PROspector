@@ -97,6 +97,7 @@ type PersonDiscoveryUiState = Readonly<{
   previous: readonly (string | null)[];
   notice: Notice;
   pending: boolean;
+  verificationReady: boolean;
 }>;
 const initialPersonDiscoveryUiState: PersonDiscoveryUiState = Object.freeze({
   candidateId: "",
@@ -112,6 +113,7 @@ const initialPersonDiscoveryUiState: PersonDiscoveryUiState = Object.freeze({
     text: "Loading person-discovery status…",
   },
   pending: false,
+  verificationReady: false,
 });
 export function personDiscoveryUrl(prospectId: string, cursor: string | null = null) {
   const query = new URLSearchParams({ prospectId });
@@ -430,14 +432,17 @@ export function PersonDiscoveryWorkspace({
     await load(selectedProspectId, null, true);
   }
   async function command(body: Record<string, unknown>, unknown: string) {
-    if (collapsed.current || mutationPending.current || readPending.current) return;
+    if (collapsed.current || mutationPending.current || readPending.current) return false;
     mutationPending.current = true;
     setUi((state) => ({ ...state, pending: true }));
     try {
       const response = await postPersonDiscoveryCommand(fetcher, body);
       if (response.status === 404) collapse();
       else if (!response.ok) await recoverUnknown(unknown);
-      else if (selectedProspectId) await load(selectedProspectId, null);
+      else {
+        if (selectedProspectId) await load(selectedProspectId, null);
+        return true;
+      }
     } catch {
       await recoverUnknown(unknown);
     } finally {
@@ -445,6 +450,7 @@ export function PersonDiscoveryWorkspace({
       setUi((state) => ({ ...state, pending: false }));
       focusStatus();
     }
+    return false;
   }
   function startDiscovery() {
     if (!canDiscover || projection?.people.status === "requested" || projection?.people.status === "needs_reconciliation") return;
@@ -487,6 +493,8 @@ export function PersonDiscoveryWorkspace({
       (kind === "stale_refresh" && !stale)
     )
       return;
+    const acceptedRelevanceId = relevance.relevanceId;
+    const acceptedChannel = ui.channel;
     void command(
       {
         action: "record_verification_intent",
@@ -499,7 +507,37 @@ export function PersonDiscoveryWorkspace({
         idempotencyKey: idFactory(),
       },
       "The verification intent result is unknown. Status was refreshed; it was not retried.",
-    );
+    ).then((accepted) => {
+      if (accepted && kind === "initial_verification") {
+        setUi((state) => ({
+          ...state,
+          relevanceId: acceptedRelevanceId,
+          channel: acceptedChannel,
+          verificationReady: true,
+        }));
+      }
+    });
+  }
+  async function runSyntheticVerification() {
+    if (!relevance || !ui.channel || !ui.verificationReady || ui.pending || mutationPending.current) return;
+    mutationPending.current = true;
+    setUi((state) => ({ ...state, pending: true, notice: { kind: "loading", text: "Running the bounded local synthetic verification…" } }));
+    try {
+      const response = await fetcher("/api/local-demo/person-discovery-c4/verification", {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-verification" },
+        body: JSON.stringify({ relevanceId: relevance.relevanceId, channel: ui.channel }),
+      });
+      const body = await response.json() as { verification?: { state?: unknown; eligible?: unknown } };
+      if (!response.ok || body.verification?.state !== "ContactReady" || body.verification.eligible !== true) throw new Error("verification_failed");
+      setUi((state) => ({ ...state, verificationReady: false, notice: { kind: "ready", text: "ContactReady — fresh verified evidence is now persisted through the canonical enrichment workflow." } }));
+    } catch {
+      setUi((state) => ({ ...state, notice: { kind: "error", text: "Synthetic verification is unavailable. No external request was made." } }));
+    } finally {
+      mutationPending.current = false;
+      setUi((state) => ({ ...state, pending: false }));
+      focusStatus();
+    }
   }
   function selectProspect(id: string) {
     if (!projection?.approvedProspects.some((item) => item.prospectId === id) || readPending.current || mutationPending.current) return;
@@ -850,6 +888,7 @@ export function PersonDiscoveryWorkspace({
                   setUi((state) => ({
                     ...state,
                     channel: event.target.value as Channel | "",
+                    verificationReady: false,
                   }))
                 }
               >
@@ -880,6 +919,11 @@ export function PersonDiscoveryWorkspace({
               Record initial verification intent
             </DisabledAction>
           )}
+          {projection?.capability === "test_composed_only" && ui.verificationReady ? (
+            <button type="button" onClick={() => void runSyntheticVerification()} disabled={ui.pending}>
+              Run local synthetic verification
+            </button>
+          ) : null}
           {stale && canVerify ? (
             <button type="button" onClick={() => verificationIntent("stale_refresh")}>
               Record stale verification refresh
