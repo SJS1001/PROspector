@@ -53,16 +53,23 @@ units and cost against the grant, profile, workspace, and provider budgets
 permanently, and `05-PATTERNS.md`'s requirement that "reconciliation is a
 distinct audited state transition" has no executable description.
 
-This lane adds that missing description only.
+This lane added that missing description only. A 2026-09-09 local follow-up
+widened the same statement-based decision from only `timeout`/`ambiguous` to
+all six runtime reasons for which a provider request was attempted or may have
+been attempted: `timeout`, `ambiguous`, `invalid_provider_outcome`,
+`invalid_evidence`, `provider_throw`, and `settlement_failure`. The two reasons
+that occur before provider invocation (`provider_port_mismatch` and
+`invalid_assignment`) remain invalid inputs because no billing statement can
+exist for them.
 
 ## Scope
 
 `site/domain/synthetic-enrichment-reconciliation-decision.ts` is a pure,
 deterministic decision over three fictional inputs:
 
-- one already-recorded synthetic uncertain reservation (`timeout` or
-  `ambiguous` only) carrying its exact grant, operation key, provider identity
-  and version, catalog reference, quote revision, configuration binding, durable
+- one already-recorded synthetic uncertain reservation carrying one of the six
+  statement-applicable runtime reasons, plus its exact grant, operation key,
+  provider identity and version, catalog reference, quote revision, configuration binding, durable
   revision, acknowledgement digest, reserved units/cost, and currency;
 - one owner-transcribed synthetic provider billing statement whose outcome is
   `documented_charge`, `documented_no_charge`, or `undocumented`; and
@@ -115,6 +122,24 @@ Run from `site/` on Node.js `v22.22.2`. The results below were produced on
 the original tree `2621534a`. Each later rebase replayed the identical
 candidate patch onto an unchanged file-level base, so they describe the
 current checkpoint unchanged.
+
+### 2026-09-09 reason-coverage follow-up
+
+The follow-up was rebased onto authoritative `main` at
+`5bcca58149279dc6a57c1e822a54df00542b4fc5` and validated with Node.js
+`v24.19.0`:
+
+- the combined decision/triage focused suites passed 25/25;
+- repository-wide `npm run lint` passed;
+- `npm run build` passed; and
+- `git diff --check` passed.
+
+A broader Phase 5 suite aggregation was not run: the execution safety reviewer
+rejected that command because it could not establish that a Cloudflare-related
+test path was purely local under the task's no-Cloudflare boundary. The block
+was not bypassed. The changed modules' own suites statically prove no imports,
+runtime composition, provider port, network, persistence, credential, contact
+coordinate, or nonzero effect counter.
 
 - `node --test --test-concurrency=1 tests/synthetic-enrichment-reconciliation-decision.test.mjs` — 13/13.
 - `node scripts/run-test-suite.mjs tests/enrichment-contract.test.mjs tests/controlled-enrichment-integration.test.mjs tests/contacts-command-service.test.mjs tests/contacts-ui.test.mjs` — 6/6, 22/22, 4/4, 11/11.

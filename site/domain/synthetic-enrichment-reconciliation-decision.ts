@@ -1,13 +1,13 @@
 /**
  * Pure, synthetic decision for closing an uncertain enrichment reservation.
  *
- * `executeEnrichmentOperation` records `needs_reconciliation` for a timeout or
- * an ambiguous acceptance and then stops. That is deliberately correct: the
- * locked Phase 5 decisions forbid retry, provider switch, and silent expiry
- * extension for an uncertain charge. Nothing in the checked code, however,
- * describes how such a reservation is ever honestly closed, so its worst-case
- * units and cost stay reserved against the grant, profile, workspace, and
- * provider budgets forever.
+ * `executeEnrichmentOperation` records `needs_reconciliation` when an invoked
+ * provider result is uncertain or unusable, when invocation may have thrown,
+ * or when settlement cannot be durably confirmed. That is deliberately
+ * correct: the locked Phase 5 decisions forbid retry, provider switch, and
+ * silent expiry extension for an uncertain charge. This module describes how
+ * those statement-applicable reservations could be honestly closed so their
+ * worst-case units and cost need not remain reserved forever.
  *
  * This module fills exactly that description gap and nothing else. It consumes
  * only fictional material — an already-recorded uncertain reservation subject,
@@ -32,7 +32,13 @@ type Effects = Readonly<{
   retryInvocations: 0;
 }>;
 
-type UncertainReason = "timeout" | "ambiguous";
+type StatementReconcilableReason =
+  | "timeout"
+  | "ambiguous"
+  | "invalid_provider_outcome"
+  | "invalid_evidence"
+  | "provider_throw"
+  | "settlement_failure";
 type StatementOutcome = "documented_charge" | "documented_no_charge" | "undocumented";
 type DurableTerminalState = "reserved" | "invoking" | "settled" | "released" | "needs_reconciliation";
 
@@ -50,7 +56,7 @@ type ReconciliationSubjectSnapshot = Readonly<{
   configurationDigest: string;
   operation: "business_contact_lookup/v1";
   terminalState: "needs_reconciliation";
-  terminalReason: UncertainReason;
+  terminalReason: StatementReconcilableReason;
   durableRevision: number;
   acknowledgementDigest: string;
   reservedUnits: number;
@@ -115,7 +121,7 @@ export type SyntheticReconciliationDecision = Readonly<{
   kind: "synthetic_enrichment_reconciliation_decision";
   status: "synthetic_reconciliation_resolvable" | "synthetic_reconciliation_held";
   projectedFutureState: "settled" | "released" | "needs_reconciliation";
-  projectedTerminalReason: "partial" | "rejected" | UncertainReason;
+  projectedTerminalReason: "partial" | "rejected" | StatementReconcilableReason;
   reservationId: string;
   subjectDigest: string;
   statementId: string;
@@ -145,6 +151,20 @@ const CURRENCY = /^[A-Z]{3}$/u;
 const SEMANTIC_VERSION = /^synthetic-v[0-9]{1,4}$/u;
 const MAX_UNITS = 1_000;
 const MAX_COST_MINOR = 10_000_000;
+
+/**
+ * Runtime reconciliation reasons for which a provider request was attempted or
+ * may have been attempted. The two pre-invocation reasons are deliberately
+ * absent because no provider billing statement can exist for them.
+ */
+export const SYNTHETIC_STATEMENT_RECONCILABLE_REASONS = Object.freeze([
+  "timeout",
+  "ambiguous",
+  "invalid_provider_outcome",
+  "invalid_evidence",
+  "provider_throw",
+  "settlement_failure",
+] as const) as readonly StatementReconcilableReason[];
 
 const uncertainReservations = new WeakSet<object>();
 const billingStatements = new WeakSet<object>();
@@ -344,7 +364,7 @@ function normalizeSubject(value: unknown): ReconciliationSubjectSnapshot {
     configurationDigest: digest(input.configurationDigest),
     operation: enumValue(input.operation, ["business_contact_lookup/v1"] as const),
     terminalState: enumValue(input.terminalState, ["needs_reconciliation"] as const),
-    terminalReason: enumValue(input.terminalReason, ["timeout", "ambiguous"] as const),
+    terminalReason: enumValue(input.terminalReason, SYNTHETIC_STATEMENT_RECONCILABLE_REASONS),
     durableRevision: boundedInteger(input.durableRevision, 1, Number.MAX_SAFE_INTEGER),
     acknowledgementDigest: digest(input.acknowledgementDigest),
     reservedUnits,

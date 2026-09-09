@@ -6,8 +6,8 @@
  * such call carries one canonical `ReconciliationReason`. The separate
  * statement-based closure decision (`decideSyntheticEnrichmentReconciliation`)
  * answers what a stranded reservation *settles or releases* once an owner has
- * transcribed a provider billing statement, and it admits only the two reasons
- * the provider itself reports.
+ * transcribed a provider billing statement, and it admits the six reasons for
+ * which a provider request may have occurred.
  *
  * This module answers the question that comes before that one, for all eight
  * canonical reasons: could a provider request even exist for this reason, so
@@ -101,16 +101,16 @@ const TRIAGE_TABLE: Readonly<Record<SyntheticEnrichmentReconciliationReason, Syn
   provider_port_mismatch: row("provider_port_mismatch", "not_attempted", "inapplicable_no_provider_request", false, "not_required"),
   // A call returned, but its outcome could not be normalized against the
   // assignment. A billing line may still exist.
-  invalid_provider_outcome: row("invalid_provider_outcome", "attempted", "applicable", false, "not_required"),
+  invalid_provider_outcome: row("invalid_provider_outcome", "attempted", "applicable", true, "not_required"),
   // The claim itself was invalid or unusable; the port was never reached.
   invalid_assignment: row("invalid_assignment", "not_attempted", "inapplicable_no_provider_request", false, "not_required"),
   // The outcome normalized within caps but no contact evidence was admissible.
-  invalid_evidence: row("invalid_evidence", "attempted", "applicable", false, "not_required"),
+  invalid_evidence: row("invalid_evidence", "attempted", "applicable", true, "not_required"),
   // The port threw. The throw may precede or follow a real provider request.
-  provider_throw: row("provider_throw", "indeterminate", "applicable", false, "not_required"),
+  provider_throw: row("provider_throw", "indeterminate", "applicable", true, "not_required"),
   // A durable settlement write was attempted before reconciliation, so the row
   // must be re-read even though the reconciliation marker was acknowledged.
-  settlement_failure: row("settlement_failure", "attempted", "applicable", false, "required"),
+  settlement_failure: row("settlement_failure", "attempted", "applicable", true, "required"),
 });
 
 export const SYNTHETIC_ENRICHMENT_RECONCILIATION_TRIAGE_TABLE = TRIAGE_TABLE;
