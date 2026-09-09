@@ -167,7 +167,10 @@ test("D-07/D-13 discovery workspace source preserves Product scope and fails clo
   assert.match(workspace, /\/api\/discovery/);
   assert.match(workspace, /credentials:\s*["']same-origin["']/);
   assert.match(workspace, /cache:\s*["']no-store["']/);
-  assert.match(workspace, /localStorage/);
+  assert.match(workspace, /from ["']\.\.\/operator-preference["']/);
+  assert.match(workspace, /chooseOperatorPreference\(requested \?\? readOperatorPreference\(["']prospector\.discovery\.product["']\)/);
+  assert.match(workspace, /writeOperatorPreference\(["']prospector\.discovery\.product["'], selectedProductId\)/);
+  assert.doesNotMatch(workspace, /localStorage/);
   assert.match(workspace, /Product picker|Select a Product/i);
   assert.doesNotMatch(workspace, /selectedPlay|selectedProfile|dangerouslySetInnerHTML/);
   assert.match(workspace, new RegExp(UNKNOWN));
