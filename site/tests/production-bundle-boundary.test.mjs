@@ -100,6 +100,15 @@ test("the production build does not emit the CRM preview fixture", async () => {
   ], "the CRM handoff local-demo fixture reached the deployed artifact");
 });
 
+test("the production build does not emit the local-demo composition fixture", async () => {
+  const files = await deployedTextFiles();
+  assertAbsent(files, [
+    { pattern: "local_demo_composition", label: "LOCAL_DEMO composition response kind" },
+    { pattern: "Northwind Sample Works", label: "LOCAL_DEMO composition fictional company" },
+    { pattern: "fictional_shape_not_real_admission", label: "LOCAL_DEMO ContactReady-shaped refusal" },
+  ], "the local-demo composition fixture reached the deployed artifact");
+});
+
 test("the production build does not emit the E1 operator-journey fixture", async () => {
   const files = await deployedTextFiles();
   // domain/operator-journey-e1-acceptance.ts is reachable only from the
