@@ -19,12 +19,13 @@ const fictionalProps = {
     label: "Fictional first message",
     digest: "b".repeat(64),
     packageDigest: "a".repeat(64),
-    state: "waiting",
+    state: "approved",
   },
   currentSuppression: {
     subjectLabel: "Fictional reviewed subject",
     state: "clear",
     digest: "c".repeat(64),
+    messageDigest: "b".repeat(64),
   },
 };
 
@@ -54,9 +55,10 @@ test("fictional outreach preview presents Package before Message, bound digests,
   });
 });
 
-test("a Message is visibly blocked when Package approval is invalidated or its digest changes", async () => {
+test("a waiting, invalidated, or mismatched Package exposes no downstream Message or suppression detail", async () => {
   await withPreview(async (preview) => {
     for (const packageApproval of [
+      { ...fictionalProps.packageApproval, state: "waiting" },
       { ...fictionalProps.packageApproval, state: "invalidated", invalidationReason: "fictional package revision changed" },
       { ...fictionalProps.packageApproval, state: "approved", digest: "d".repeat(64) },
     ]) {
@@ -64,8 +66,67 @@ test("a Message is visibly blocked when Package approval is invalidated or its d
         ...fictionalProps,
         packageApproval,
       }));
-      assert.match(html, /Not reviewable: the exact fictional Package must be approved first and match this Message/);
+      assert.match(html, /Package review is blocked until its fictional approval is approved|Message review is blocked until the exact fictional Package and Message approvals are approved/);
       assert.match(html, /data-message-review-blocked="true"/);
+      assert.match(html, /data-suppression-review-blocked="true"/);
+      for (const detail of [
+        "Fictional message",
+        "Message digest",
+        "Bound Package digest",
+        "Fictional subject",
+        "Suppression digest",
+        "fictional package revision changed",
+        fictionalProps.messageApproval.label,
+        fictionalProps.messageApproval.digest,
+        fictionalProps.messageApproval.packageDigest,
+        fictionalProps.currentSuppression.subjectLabel,
+        fictionalProps.currentSuppression.digest,
+      ]) assert.doesNotMatch(html, new RegExp(detail));
+    }
+  });
+});
+
+test("a waiting, invalidated, or mismatched Message exposes no Message or suppression detail", async () => {
+  await withPreview(async (preview) => {
+    for (const messageApproval of [
+      { ...fictionalProps.messageApproval, state: "waiting" },
+      { ...fictionalProps.messageApproval, state: "invalidated", invalidationReason: "fictional message revision changed" },
+      { ...fictionalProps.messageApproval, packageDigest: "d".repeat(64) },
+    ]) {
+      const html = renderToStaticMarkup(React.createElement(preview.LocalDemoOutreachApprovalPreview, {
+        ...fictionalProps,
+        messageApproval,
+      }));
+      assert.match(html, /Message review is blocked until the exact fictional Package and Message approvals are approved/);
+      assert.match(html, /Suppression recheck is blocked until the exact fictional approved Message is bound/);
+      assert.match(html, /data-message-review-blocked="true"/);
+      assert.match(html, /data-suppression-review-blocked="true"/);
+      for (const detail of [
+        "Fictional message",
+        "Message digest",
+        "Bound Package digest",
+        "Fictional subject",
+        "Suppression digest",
+        "fictional message revision changed",
+        messageApproval.label,
+        messageApproval.digest,
+        fictionalProps.currentSuppression.subjectLabel,
+        fictionalProps.currentSuppression.digest,
+      ]) assert.doesNotMatch(html, new RegExp(detail));
+    }
+  });
+});
+
+test("suppression detail requires a binding to the exact approved Message digest", async () => {
+  await withPreview(async (preview) => {
+    const html = renderToStaticMarkup(React.createElement(preview.LocalDemoOutreachApprovalPreview, {
+      ...fictionalProps,
+      currentSuppression: { ...fictionalProps.currentSuppression, messageDigest: "d".repeat(64), reason: "fictional mismatch" },
+    }));
+    assert.match(html, /Suppression recheck is blocked until the exact fictional approved Message is bound/);
+    assert.match(html, /data-suppression-review-blocked="true"/);
+    for (const detail of ["Fictional subject", "Suppression digest", "fictional mismatch", fictionalProps.currentSuppression.subjectLabel, fictionalProps.currentSuppression.digest]) {
+      assert.doesNotMatch(html, new RegExp(detail));
     }
   });
 });

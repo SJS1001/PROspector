@@ -28,6 +28,7 @@ export type FictionalCurrentSuppression = {
   subjectLabel: string;
   state: "clear" | "suppressed" | "recheck_required";
   digest: string;
+  messageDigest: string;
   reason?: string;
 };
 
@@ -56,8 +57,12 @@ export function LocalDemoOutreachApprovalPreview({
   messageApproval,
   currentSuppression,
 }: LocalDemoOutreachApprovalPreviewProps) {
+  const packageIsApproved = packageApproval.state === "approved";
   const messageMatchesPackage = messageApproval.packageDigest === packageApproval.digest;
-  const messageMayBeReviewed = packageApproval.state === "approved" && messageMatchesPackage;
+  const messagePrerequisitesPass = packageIsApproved && messageMatchesPackage;
+  const messageIsApproved = messagePrerequisitesPass && messageApproval.state === "approved";
+  const suppressionMatchesMessage = currentSuppression.messageDigest === messageApproval.digest;
+  const suppressionMayBeReviewed = messageIsApproved && suppressionMatchesMessage;
   const noEffectLabel = "Disabled — fictional preview only; no Gmail, phone, provider, persistence, or outbound effect is available.";
 
   return (
@@ -74,32 +79,40 @@ export function LocalDemoOutreachApprovalPreview({
       <ol aria-label="Fictional outreach review order" className="local-demo-outreach-review-order">
         <li>
           <h3>1. Package approval</h3>
-          <p>{approvalCopy(packageApproval.state, packageApproval.invalidationReason)}</p>
-          <dl>
-            <div><dt>Fictional package</dt><dd>{packageApproval.label}</dd></div>
-            <div><dt>Package digest</dt><dd>{packageApproval.digest}</dd></div>
-          </dl>
+          {packageIsApproved ? (
+            <>
+              <p>{approvalCopy(packageApproval.state, packageApproval.invalidationReason)}</p>
+              <dl>
+                <div><dt>Fictional package</dt><dd>{packageApproval.label}</dd></div>
+                <div><dt>Package digest</dt><dd>{packageApproval.digest}</dd></div>
+              </dl>
+            </>
+          ) : <p>Package review is blocked until its fictional approval is approved.</p>}
         </li>
-        <li data-message-review-blocked={!messageMayBeReviewed || undefined}>
+        <li data-message-review-blocked={!messageIsApproved || undefined}>
           <h3>2. Message approval</h3>
-          <p>
-            {messageMayBeReviewed
-              ? approvalCopy(messageApproval.state, messageApproval.invalidationReason)
-              : "Not reviewable: the exact fictional Package must be approved first and match this Message's Package digest."}
-          </p>
-          <dl>
-            <div><dt>Fictional message</dt><dd>{messageApproval.label}</dd></div>
-            <div><dt>Message digest</dt><dd>{messageApproval.digest}</dd></div>
-            <div><dt>Bound Package digest</dt><dd>{messageApproval.packageDigest}</dd></div>
-          </dl>
+          {messageIsApproved ? (
+            <>
+              <p>{approvalCopy(messageApproval.state, messageApproval.invalidationReason)}</p>
+              <dl>
+                <div><dt>Fictional message</dt><dd>{messageApproval.label}</dd></div>
+                <div><dt>Message digest</dt><dd>{messageApproval.digest}</dd></div>
+                <div><dt>Bound Package digest</dt><dd>{messageApproval.packageDigest}</dd></div>
+              </dl>
+            </>
+          ) : <p>Message review is blocked until the exact fictional Package and Message approvals are approved.</p>}
         </li>
-        <li>
+        <li data-suppression-review-blocked={!suppressionMayBeReviewed || undefined}>
           <h3>3. Current suppression recheck</h3>
-          <p>{suppressionCopy(currentSuppression)}</p>
-          <dl>
-            <div><dt>Fictional subject</dt><dd>{currentSuppression.subjectLabel}</dd></div>
-            <div><dt>Suppression digest</dt><dd>{currentSuppression.digest}</dd></div>
-          </dl>
+          {suppressionMayBeReviewed ? (
+            <>
+              <p>{suppressionCopy(currentSuppression)}</p>
+              <dl>
+                <div><dt>Fictional subject</dt><dd>{currentSuppression.subjectLabel}</dd></div>
+                <div><dt>Suppression digest</dt><dd>{currentSuppression.digest}</dd></div>
+              </dl>
+            </>
+          ) : <p>Suppression recheck is blocked until the exact fictional approved Message is bound.</p>}
         </li>
       </ol>
 
