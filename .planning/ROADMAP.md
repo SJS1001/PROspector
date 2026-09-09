@@ -7,6 +7,11 @@ PROspector moves from its narrow hosted interview proof to a safe private operat
 **Granularity:** Standard (default; no project config was present)  
 **Coverage:** 17/17 v1 requirements mapped exactly once
 
+**LOCAL_DEMO planning boundary:** `docs/LOCAL-DEMO-AUTHORITY-TRACK.md` is a
+separate, unaccepted loopback-only track for fictional composition of existing
+Phase 4–7 foundations. It changes no phase dependencies or completion status,
+and grants no hosted, provider, data, export, credential, or effect authority.
+
 ## Phases
 
 The 2026-09-04 owner-authorized offline cloud-wave candidate is tracked in
