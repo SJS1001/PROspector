@@ -228,6 +228,13 @@ export function FictionalContactReadyPreview({
     && reviewReceipt.decision === "approved"
     && reviewReceipt.prospectReference === readiness.predecessorProspectReference
     && reviewReceipt.configurationDigest === readiness.predecessorConfigurationDigest;
+  if (!reviewApproved) {
+    return (
+      <section aria-label="Fictional ContactReady preview unavailable">
+        <p role="alert">Fictional ContactReady preview unavailable until its exact predecessor review is approved.</p>
+      </section>
+    );
+  }
   const contactReady = reviewApproved
     && readiness.contactReadiness === "ContactReady"
     && readiness.suppressionState === "clear"
@@ -242,7 +249,7 @@ export function FictionalContactReadyPreview({
         It contains no contact values and cannot verify, retain, or use a contact.
       </p>
       <dl>
-        <dt>Approved fictional review</dt><dd>{reviewApproved ? "yes" : "no"}</dd>
+        <dt>Approved fictional review</dt><dd>yes</dd>
         <dt>Unique prospects</dt><dd>{readiness.uniqueProspectCount}</dd>
         <dt>Eligible contact points</dt><dd>{readiness.eligibleContactPointCount}</dd>
         <dt>Contact Suggestions</dt><dd>{readiness.suggestionCount} — not contactable</dd>

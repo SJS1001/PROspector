@@ -77,11 +77,19 @@ test("ContactReady-shaped preview binds an approved receipt to its immutable pre
   const html = renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness, reviewReceipt: approvedReceipt }));
   for (const expected of ["Unique prospects</dt><dd>2", "Eligible contact points</dt><dd>1", "Contact Suggestions</dt><dd>1", "Non-contactable references</dt><dd>1", "Suppression recheck</dt><dd>clear", "ContactReady-shaped fictional projection only"]) assert.match(html, new RegExp(expected));
   assert.match(html, /<button[^>]*disabled=""[^>]*aria-describedby="[^"]+"/);
-  const forged = renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, {
-    readiness,
-    reviewReceipt: { decision: "approved", prospectReference: "another-fictional-prospect", configurationDigest: qualification.configurationDigest },
-  }));
-  assert.match(forged, /Contact readiness is refused or incomplete/, "an approved decision for another prospect cannot satisfy ContactReady ordering");
+  const deniedReceipts = [
+    ["missing", undefined],
+    ["rejected", { ...approvedReceipt, decision: "rejected" }],
+    ["wrong prospect", { ...approvedReceipt, prospectReference: "another-fictional-prospect" }],
+    ["wrong digest", { ...approvedReceipt, configurationDigest: "another-fictional-digest" }],
+  ];
+  for (const [label, reviewReceipt] of deniedReceipts) {
+    const denied = renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness, reviewReceipt }));
+    assert.match(denied, /preview unavailable until its exact predecessor review is approved/, `${label} receipt must fail closed`);
+    for (const downstream of ["Unique prospects", "Eligible contact points", "Contact Suggestions", "Non-contactable references", "Suppression recheck", "Fictional contact state", "ContactReady-shaped fictional projection only"]) {
+      assert.doesNotMatch(denied, new RegExp(downstream), `${label} receipt must not expose downstream readiness details`);
+    }
+  }
 });
 
 test("incomplete qualification cannot be approved, including by direct handler invocation", async () => {
