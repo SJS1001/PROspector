@@ -12,11 +12,14 @@ const EXACT = Object.freeze({
   person_discovery_candidates: 2, person_discovery_provenance: 2,
   person_discovery_owner_decisions: 1, prospect_contact_role_relevance: 1,
   contacts: 1, contact_verification_intents: 2,
+  contact_point_observations: 1, contact_evidence_assignments: 1,
+  contact_verification_receipts: 1, contact_eligibility_snapshots: 1,
+  enrichment_budget_accounts: 4, enrichment_grant_issuance_events: 1,
+  enrichment_grant_prospects: 1, enrichment_grants: 1,
+  enrichment_reservation_budget_entries: 4, enrichment_reservation_events: 3,
+  enrichment_reservations: 1, provider_quotes: 1, phase_activation_gates: 1,
 });
 const FORBIDDEN = Object.freeze([
-  "contact_point_observations", "contact_evidence_assignments", "contact_verification_receipts", "contact_eligibility_snapshots",
-  "enrichment_budget_accounts", "enrichment_grant_issuance_events", "enrichment_grant_prospects", "enrichment_grants",
-  "enrichment_reservation_budget_entries", "enrichment_reservation_events", "enrichment_reservations", "provider_quotes",
   "runner_budget_accounts", "runner_spend_grants", "runner_spend_reservation_events", "runner_spend_reservations",
   "outreach_artifact_bindings", "outreach_audit_records", "outreach_commands", "outreach_message_approval_consumptions",
   "outreach_message_approvals", "outreach_message_versions", "outreach_messages", "outreach_package_approvals",
@@ -25,7 +28,7 @@ const FORBIDDEN = Object.freeze([
   "outreach_recipient_dispatch_authorities", "outreach_sender_capability_snapshots", "outreach_sender_verified_addresses",
   "outreach_unsubscribe_authority_events", "outreach_pre_call_recheck_receipts", "outreach_dispatch_attempt_preparations",
   "outreach_dispatch_attempt_preparation_events", "product_discovery_runs", "product_discovery_run_events", "product_discovery_submissions",
-  "prospecting_signals", "prospecting_source_lineage", "runner_assignment_revocations", "phase_activation_gates",
+  "prospecting_signals", "prospecting_source_lineage", "runner_assignment_revocations",
 ]);
 const ALLOWED_NONEMPTY = new Set([
   ...Object.keys(EXACT), "authority_commands", "audit_events", "typed_configurations", "product_discovery_configuration_prerequisites",
@@ -58,6 +61,10 @@ try {
   assert.notEqual(linkage.candidate_id, linkage.contact_id, "a suggestion row must never become a Contact row");
   const intentions = application.prepare("SELECT channel,intent FROM contact_verification_intents ORDER BY channel").all();
   assert.deepEqual(intentions.map((row) => `${row.channel}:${row.intent}`), ["email:initial_verification", "phone:initial_verification"]);
+  const ready = application.prepare("SELECT state,eligible FROM contact_eligibility_snapshots").get();
+  assert.deepEqual(ready, Object.assign(Object.create(null), { state: "ContactReady", eligible: 1 }));
+  const settled = application.prepare("SELECT state,documented_units,documented_cost_minor FROM enrichment_reservation_events ORDER BY durable_revision DESC LIMIT 1").get();
+  assert.deepEqual(settled, Object.assign(Object.create(null), { state: "settled", documented_units: 1, documented_cost_minor: 0 }));
   process.stdout.write(`${JSON.stringify({ status: "passed", synthetic: true, migrationCount: CANONICAL_MIGRATION_COUNT, exact: EXACT, forbiddenRows: 0, r2Objects: objectRows, r2Multipart: multipartRows })}\n`);
 } finally { application.close(); }
 

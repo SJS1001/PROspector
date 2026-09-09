@@ -120,6 +120,38 @@ test("C3 mounted flow performs actual create, initial phone, and stale email int
   } finally { await vite.close(); }
 });
 
+test("C4 exposes the local verification consumer only after a durable intent succeeds", async () => {
+  const { vite, ui } = await module();
+  try {
+    const verificationPosts = [];
+    const fetcher = async (url, init = {}) => {
+      if (url === "/api/local-demo/person-discovery-c4/verification") {
+        verificationPosts.push({ body: JSON.parse(init.body), headers: init.headers });
+        return response({ verification: { kind: "verified", state: "ContactReady", eligible: true, replayed: false } });
+      }
+      if (init.method === "POST") return response({ command: { kind: "accepted" } });
+      return response(String(url).includes("?") ? verificationProjection() : initialProjection());
+    };
+    const renderer = await mountWorkspace(ui, fetcher);
+    const channel = select(renderer.root, "Contact channel");
+    act(() => channel.props.onChange({ target: { value: "phone" } }));
+    assert.equal(button(renderer.root, "Run local synthetic verification"), undefined);
+    act(() => button(renderer.root, "Record initial verification intent").props.onClick());
+    await settle();
+    const verify = button(renderer.root, "Run local synthetic verification");
+    assert.ok(verify);
+    act(() => { verify.props.onClick(); verify.props.onClick(); });
+    await settle();
+    assert.deepEqual(verificationPosts, [{
+      body: { relevanceId: "relevance-current", channel: "phone" },
+      headers: { "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-verification" },
+    }]);
+    assert.match(JSON.stringify(renderer.toJSON()), /ContactReady.*canonical enrichment workflow/);
+    assert.equal(button(renderer.root, "Run local synthetic verification"), undefined, "a settled intent cannot be resubmitted from stale UI state");
+    act(() => renderer.unmount());
+  } finally { await vite.close(); }
+});
+
 test("C3 mounted link click is exact and a recorded no-match is terminal", async () => {
   const { vite, ui } = await module();
   try {

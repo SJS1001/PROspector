@@ -114,6 +114,8 @@ test("the production build does not emit the C4 synthetic acceptance fixtures", 
     { pattern: "Jordan Synthetic", label: "PERSON_DISCOVERY_C4_CONTACT_NAME" },
     { pattern: "Morgan Synthetic", label: "supporting synthetic candidate" },
     { pattern: "prospector.person-discovery.c4-acceptance", label: "domain/person-discovery-c4-acceptance.ts:33 synthetic port symbol key" },
+    { pattern: "synthetic-local-verification", label: "domain/person-discovery-c4-verification.ts synthetic provider" },
+    { pattern: "person-discovery-c4-attestation-key-v1", label: "domain/person-discovery-c4-verification.ts synthetic attestor material" },
   ], "synthetic acceptance fixture data reached the deployed artifact");
 });
 
