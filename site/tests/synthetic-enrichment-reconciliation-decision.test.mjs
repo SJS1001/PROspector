@@ -162,6 +162,40 @@ test("synthetic enrichment reconciliation decision", async (t) => {
     assert.equal(decision.status, "synthetic_reconciliation_held");
   });
 
+  await t.test("every statement-applicable runtime reason can be closed without gaining authority", async () => {
+    assert.deepEqual([...decisionModule.SYNTHETIC_STATEMENT_RECONCILABLE_REASONS], [
+      "timeout",
+      "ambiguous",
+      "invalid_provider_outcome",
+      "invalid_evidence",
+      "provider_throw",
+      "settlement_failure",
+    ]);
+    for (const terminalReason of decisionModule.SYNTHETIC_STATEMENT_RECONCILABLE_REASONS) {
+      const charged = await decide(decisionModule, { subject: { terminalReason } });
+      assert.equal(charged.status, "synthetic_reconciliation_resolvable", terminalReason);
+      assert.equal(charged.projectedFutureState, "settled", terminalReason);
+      assert.equal(charged.projectedTerminalReason, "partial", terminalReason);
+      assertNoAuthority(charged, terminalReason);
+
+      const noCharge = await decide(decisionModule, {
+        subject: { terminalReason },
+        statement: { outcome: "documented_no_charge", documentedUnits: 0, documentedCostMinor: 0 },
+      });
+      assert.equal(noCharge.status, "synthetic_reconciliation_resolvable", terminalReason);
+      assert.equal(noCharge.projectedFutureState, "released", terminalReason);
+      assertNoAuthority(noCharge, `${terminalReason} no charge`);
+
+      const undocumented = await decide(decisionModule, {
+        subject: { terminalReason },
+        statement: { outcome: "undocumented", documentedUnits: 0, documentedCostMinor: 0 },
+      });
+      assert.equal(undocumented.status, "synthetic_reconciliation_held", terminalReason);
+      assert.equal(undocumented.projectedTerminalReason, terminalReason);
+      assertNoAuthority(undocumented, `${terminalReason} undocumented`);
+    }
+  });
+
   await t.test("documented amounts can never exceed the committed reservation", async () => {
     const overUnits = await decide(decisionModule, { statement: { documentedUnits: 5, documentedCostMinor: 25 } });
     assert.equal(overUnits.status, "synthetic_reconciliation_held");
@@ -296,7 +330,8 @@ test("synthetic enrichment reconciliation decision", async (t) => {
 
     const badSubjects = [
       ["settled subject", { terminalState: "settled" }],
-      ["retryable reason", { terminalReason: "provider_throw" }],
+      ["pre-invocation port mismatch", { terminalReason: "provider_port_mismatch" }],
+      ["pre-invocation invalid assignment", { terminalReason: "invalid_assignment" }],
       ["zero reserved units", { reservedUnits: 0 }],
       ["real provider identity", { providerId: "hunter-io" }],
       ["client operation key", { operationKey: "chosen-by-client" }],

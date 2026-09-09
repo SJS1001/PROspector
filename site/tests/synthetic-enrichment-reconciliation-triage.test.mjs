@@ -4,6 +4,7 @@ import test from "node:test";
 import { createServer } from "vite";
 
 const MODULE_URL = new URL("../domain/synthetic-enrichment-reconciliation-triage.ts", import.meta.url);
+const DECISION_URL = new URL("../domain/synthetic-enrichment-reconciliation-decision.ts", import.meta.url);
 const AUTHORITY_URL = new URL("../domain/enrichment-authority.ts", import.meta.url);
 const OPERATION_URL = new URL("../domain/enrichment-operation.ts", import.meta.url);
 const MODULE_NAME = "synthetic-enrichment-reconciliation-triage";
@@ -16,7 +17,7 @@ const ASSIGNMENT_DIGEST = "d".repeat(64);
 async function withModule(run) {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   try {
-    await run(await vite.ssrLoadModule(MODULE_URL.pathname));
+    await run(await vite.ssrLoadModule(MODULE_URL.pathname), vite);
   } finally {
     await vite.close();
   }
@@ -141,11 +142,11 @@ test("routes one exhaustive frozen zero-effect result per canonical reason", asy
       timeout: ["attempted", "applicable", true, "statement_based_closure_decision", "not_required"],
       ambiguous: ["attempted", "applicable", true, "statement_based_closure_decision", "not_required"],
       provider_port_mismatch: ["not_attempted", "inapplicable_no_provider_request", false, "no_statement_possible", "not_required"],
-      invalid_provider_outcome: ["attempted", "applicable", false, "statement_based_closure_decision", "not_required"],
+      invalid_provider_outcome: ["attempted", "applicable", true, "statement_based_closure_decision", "not_required"],
       invalid_assignment: ["not_attempted", "inapplicable_no_provider_request", false, "no_statement_possible", "not_required"],
-      invalid_evidence: ["attempted", "applicable", false, "statement_based_closure_decision", "not_required"],
-      provider_throw: ["indeterminate", "applicable", false, "statement_based_closure_decision", "not_required"],
-      settlement_failure: ["attempted", "applicable", false, "durable_state_reread_required", "required"],
+      invalid_evidence: ["attempted", "applicable", true, "statement_based_closure_decision", "not_required"],
+      provider_throw: ["indeterminate", "applicable", true, "statement_based_closure_decision", "not_required"],
+      settlement_failure: ["attempted", "applicable", true, "durable_state_reread_required", "required"],
     };
     for (const triage of await everyReason(module)) {
       const [invocation, applicability, covered, route, verification] = expected[triage.reason];
@@ -166,19 +167,16 @@ test("routes one exhaustive frozen zero-effect result per canonical reason", asy
   });
 });
 
-test("exactly six canonical reasons are uncovered by the statement-based closure decision", async () => {
-  await withModule(async (module) => {
+test("only pre-invocation reasons remain outside the statement-based closure decision", async () => {
+  await withModule(async (module, vite) => {
     const triaged = await everyReason(module);
+    const decisionModule = await vite.ssrLoadModule(DECISION_URL.pathname);
     const covered = triaged.filter((triage) => triage.coveredByStatementDecision).map((triage) => triage.reason);
     const uncovered = triaged.filter((triage) => !triage.coveredByStatementDecision).map((triage) => triage.reason);
-    assert.deepEqual(covered, ["timeout", "ambiguous"]);
+    assert.deepEqual(covered, [...decisionModule.SYNTHETIC_STATEMENT_RECONCILABLE_REASONS]);
     assert.deepEqual(uncovered.sort(), [
       "invalid_assignment",
-      "invalid_evidence",
-      "invalid_provider_outcome",
       "provider_port_mismatch",
-      "provider_throw",
-      "settlement_failure",
     ]);
     // A reason with no possible provider request has no billing line to route.
     for (const triage of triaged) {
@@ -305,12 +303,14 @@ test("an incomplete, duplicated, foreign, or forged ledger never reports complet
   await withModule(async (module) => {
     const triaged = await everyReason(module);
 
-    const statementDecisionOnly = await module.projectSyntheticEnrichmentReconciliationCoverage([triaged[0], triaged[1]]);
+    const statementDecisionOnly = await module.projectSyntheticEnrichmentReconciliationCoverage(
+      triaged.filter((triage) => triage.coveredByStatementDecision),
+    );
     assert.equal(statementDecisionOnly.kind, "incomplete");
     assert.deepEqual(
       [...statementDecisionOnly.missingReasons],
-      module.SYNTHETIC_ENRICHMENT_RECONCILIATION_REASONS.filter((reason) => reason !== "timeout" && reason !== "ambiguous"),
-      "routing only timeout and ambiguous must remain visibly incomplete",
+      ["provider_port_mismatch", "invalid_assignment"],
+      "statement closure coverage must not pretend the two pre-invocation cases have billing evidence",
     );
 
     const duplicated = await module.projectSyntheticEnrichmentReconciliationCoverage([...triaged, structuredClone(triaged[0])]);

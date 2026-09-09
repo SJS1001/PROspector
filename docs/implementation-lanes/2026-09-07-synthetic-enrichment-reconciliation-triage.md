@@ -11,23 +11,21 @@ a future `settled` (partial only, capped at the reservation, remainder released)
 or `released` state, or holds. That module is the product for terminal state and
 amounts, and this lane does not duplicate, replace, or compete with it.
 
-PR #13 admits exactly two of the eight canonical post-claim reasons. Its
-`UncertainReason` type is `"timeout" | "ambiguous"`, enforced when the subject is
-normalized; every other canonical reason throws
-`synthetic_uncertain_enrichment_reservation_invalid`. Verified empirically
-against that exact commit by feeding all eight canonical values to
-`buildSyntheticUncertainReservation`:
+The original PR #13 admitted exactly two of the eight canonical post-claim
+reasons. The 2026-09-09 local gap-closure follow-up now admits all six reasons
+for which a provider request was attempted or may have been attempted, while
+the two pre-invocation reasons remain invalid:
 
 | Canonical reason | Statement-based closure decision |
 |---|---|
 | `timeout` | accepted |
 | `ambiguous` | accepted |
 | `provider_port_mismatch` | rejected as invalid |
-| `invalid_provider_outcome` | rejected as invalid |
+| `invalid_provider_outcome` | accepted |
 | `invalid_assignment` | rejected as invalid |
-| `invalid_evidence` | rejected as invalid |
-| `provider_throw` | rejected as invalid |
-| `settlement_failure` | rejected as invalid |
+| `invalid_evidence` | accepted |
+| `provider_throw` | accepted |
+| `settlement_failure` | accepted after exact durable-state verification |
 
 ## Scope
 
@@ -42,11 +40,11 @@ returns a frozen routing description.
 | `timeout` | attempted | applicable | yes | statement-based closure decision |
 | `ambiguous` | attempted | applicable | yes | statement-based closure decision |
 | `provider_port_mismatch` | not attempted | inapplicable | no | no statement possible |
-| `invalid_provider_outcome` | attempted | applicable | no | statement-based closure decision |
+| `invalid_provider_outcome` | attempted | applicable | yes | statement-based closure decision |
 | `invalid_assignment` | not attempted | inapplicable | no | no statement possible |
-| `invalid_evidence` | attempted | applicable | no | statement-based closure decision |
-| `provider_throw` | indeterminate | applicable | no | statement-based closure decision |
-| `settlement_failure` | attempted | applicable | no | durable state re-read required |
+| `invalid_evidence` | attempted | applicable | yes | statement-based closure decision |
+| `provider_throw` | indeterminate | applicable | yes | statement-based closure decision |
+| `settlement_failure` | attempted | applicable | yes | durable state re-read required, then statement-based closure decision |
 
 A statement is inapplicable only for the two reasons where the runtime provably
 returns before `invokePort`, so no provider request and therefore no billing
@@ -62,8 +60,9 @@ holds with `reservation_not_uncertain`, so every reason then routes to
 A coverage projection replays a set of already-routed cases and reports
 `complete` only when all eight canonical reasons appear exactly once within one
 workspace, with distinct reservations and exact recomputed digests. Routing only
-`timeout` and `ambiguous` reports `incomplete` and names the six missing
-reasons.
+only the six statement-applicable reasons reports `incomplete` and names the
+two pre-invocation reasons, because statement coverage is not complete runtime
+triage coverage.
 
 ## Deliberate non-authority
 
@@ -100,16 +99,17 @@ evidence, owner review authority, persistence composition, provider selection,
 and credentials remain separate gates. This candidate completes no Phase 5 plan,
 earns no phase credit, and creates no `05-*-SUMMARY.md`.
 
-## Open review finding for PR #13 (not applied)
+## Closed review finding from PR #13
 
-PR #13's test lists `provider_throw` under `badSubjects` labelled *"retryable
+PR #13's test listed `provider_throw` under `badSubjects` labelled *"retryable
 reason"*. In the checked runtime, `enrichment-operation.ts:73` routes a thrown
 port to `markNeedsReconciliation` exactly like `timeout`, the module header
 states *"No retry or provider switch is available"*, and
 `claimCommittedInvocation` only moves `reserved -> invoking`. A `provider_throw`
-reservation is therefore stranded exactly as permanently as a `timeout` one, so
-the "retryable" label does not hold and rejecting it leaves that reservation
-unclosed. Recorded here for PR #13's owner; nothing in PR #13 was edited.
+reservation was therefore stranded exactly as permanently as a `timeout` one,
+so the "retryable" label did not hold and rejecting it left that reservation
+unclosed. The 2026-09-09 follow-up closes this mismatch without adding retry,
+persistence, provider, or effect authority.
 
 ## Focused checks
 
@@ -129,3 +129,8 @@ On Node.js `v22.22.2` in this checkout:
 
 The canonical `npm test` gate (which runs the production build first) and
 `npm audit --omit=dev` were not run in this lane.
+
+The 2026-09-09 reason-coverage follow-up validation is recorded in
+`2026-09-07-synthetic-enrichment-reconciliation-decision.md`. It updates the
+closure coverage flags above without changing this module's no-authority or
+runtime-unreachable boundary.
