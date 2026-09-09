@@ -38,7 +38,15 @@ const readiness = {
   suppressionState: "clear",
   contactReadiness: "ContactReady",
   verificationState: "fictional_preview_only",
+  predecessorProspectReference: "fictional-prospect-mining-01",
+  predecessorConfigurationDigest: "fictional-config-digest-01",
 };
+
+const approvedReceipt = Object.freeze({
+  decision: "approved",
+  prospectReference: qualification.prospectReference,
+  configurationDigest: qualification.configurationDigest,
+});
 
 test("fictional qualification exposes deterministic evidence and local-only review controls", async () => {
   const presentation = await loadPresentation();
@@ -51,34 +59,69 @@ test("fictional qualification exposes deterministic evidence and local-only revi
 
 test("fictional review decision stays inside the component reducer", async () => {
   const presentation = await loadPresentation();
+  const decisions = [];
   let renderer;
-  await act(() => { renderer = create(React.createElement(presentation.FictionalProspectQualificationReview, { qualification })); });
+  await act(() => { renderer = create(React.createElement(presentation.FictionalProspectQualificationReview, { qualification, onReviewDecision: (decision) => decisions.push(decision) })); });
   const approve = renderer.root.findAllByType("button").find((button) => button.children.join("") === "Mark fictional review approved");
   assert.ok(approve);
   await act(() => { approve.props.onClick(); });
   const status = renderer.root.findAll((node) => node.props.role === "status").find((node) => node.children.join("").startsWith("Current local state:"));
   assert.equal(status?.children.join(""), "Current local state: approved.");
+  assert.deepEqual(decisions, [approvedReceipt], "the local decision is emitted as a bound fictional receipt");
   for (const button of renderer.root.findAllByType("button")) assert.equal(button.props.disabled, true, "a completed local review cannot be repeated");
   await act(() => { renderer.unmount(); });
 });
 
-test("ContactReady-shaped preview keeps unique prospects, eligible points, suggestions, non-contactable, and suppression distinct", async () => {
+test("ContactReady-shaped preview binds an approved receipt to its immutable predecessor", async () => {
   const presentation = await loadPresentation();
-  const html = renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness, reviewState: "approved" }));
+  const html = renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness, reviewReceipt: approvedReceipt }));
   for (const expected of ["Unique prospects</dt><dd>2", "Eligible contact points</dt><dd>1", "Contact Suggestions</dt><dd>1", "Non-contactable references</dt><dd>1", "Suppression recheck</dt><dd>clear", "ContactReady-shaped fictional projection only"]) assert.match(html, new RegExp(expected));
-  assert.match(html, /<button[^>]*disabled=""[^>]*aria-describedby="fictional-contact-action-reason"/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*aria-describedby="[^"]+"/);
+  const forged = renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, {
+    readiness,
+    reviewReceipt: { decision: "approved", prospectReference: "another-fictional-prospect", configurationDigest: qualification.configurationDigest },
+  }));
+  assert.match(forged, /Contact readiness is refused or incomplete/, "an approved decision for another prospect cannot satisfy ContactReady ordering");
 });
 
-test("malformed fictional values fail closed and the isolated leaves cannot reach runtime authority", async () => {
+test("incomplete qualification cannot be approved, including by direct handler invocation", async () => {
+  const presentation = await loadPresentation();
+  const blockedQualification = { ...qualification, hardGate: "blocked" };
+  const decisions = [];
+  let renderer;
+  await act(() => { renderer = create(React.createElement(presentation.FictionalProspectQualificationReview, { qualification: blockedQualification, onReviewDecision: (decision) => decisions.push(decision) })); });
+  const approve = renderer.root.findAllByType("button").find((button) => button.children.join("") === "Mark fictional review approved");
+  assert.equal(approve?.props.disabled, true, "the same complete predicate disables a hard-gate-blocked qualification");
+  await act(() => { approve.props.onClick(); });
+  const status = renderer.root.findAll((node) => node.props.role === "status").find((node) => node.children.join("").startsWith("Current local state:"));
+  assert.equal(status?.children.join(""), "Current local state: pending.");
+  assert.deepEqual(decisions, [], "the handler independently rejects an incomplete qualification");
+  await act(() => { renderer.unmount(); });
+});
+
+test("malformed fictional values fail closed before any nested dereference and the isolated leaves cannot reach runtime authority", async () => {
   const presentation = await loadPresentation();
   const invalidQualification = { ...qualification, score: 11 };
   const invalidReadiness = { ...readiness, eligibleContactPointCount: 3 };
   assert.match(renderToStaticMarkup(React.createElement(presentation.FictionalProspectQualificationReview, { qualification: invalidQualification })), /projection unavailable/);
-  assert.match(renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness: invalidReadiness, reviewState: "approved" })), /preview unavailable/);
+  assert.match(renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness: invalidReadiness, reviewReceipt: approvedReceipt })), /preview unavailable/);
+  for (const malformedQualification of [null, { ...qualification, evidence: null }, { ...qualification, outcome: "Passed", extra: true }, { ...qualification, evidence: [{ ...qualification.evidence[0], sourceTier: 4 }] }]) {
+    assert.doesNotThrow(() => renderToStaticMarkup(React.createElement(presentation.FictionalProspectQualificationReview, { qualification: malformedQualification })));
+    assert.match(renderToStaticMarkup(React.createElement(presentation.FictionalProspectQualificationReview, { qualification: malformedQualification })), /projection unavailable/);
+  }
+  for (const malformedReadiness of [null, { ...readiness, suppressionState: "unknown" }, { ...readiness, predecessorConfigurationDigest: "" }, { ...readiness, extra: true }]) {
+    assert.doesNotThrow(() => renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness: malformedReadiness, reviewReceipt: approvedReceipt })));
+    assert.match(renderToStaticMarkup(React.createElement(presentation.FictionalContactReadyPreview, { readiness: malformedReadiness, reviewReceipt: approvedReceipt })), /preview unavailable/);
+  }
+  const revokedQualification = Proxy.revocable(qualification, {});
+  revokedQualification.revoke();
+  assert.doesNotThrow(() => renderToStaticMarkup(React.createElement(presentation.FictionalProspectQualificationReview, { qualification: revokedQualification.proxy })));
+  assert.match(renderToStaticMarkup(React.createElement(presentation.FictionalProspectQualificationReview, { qualification: revokedQualification.proxy })), /projection unavailable/);
   const source = await readFile(moduleUrl, "utf8");
   for (const forbidden of [/\bfetch\s*\(/, /localStorage/, /sessionStorage/, /indexedDB/, /document\./, /window\./, /\/api\//, /from\s+["'][^"']*(?:domain|adapter|preparation)[^"']*["']/]) {
     assert.doesNotMatch(source, forbidden, `presentation module must remain transport-free: ${forbidden}`);
   }
+  assert.doesNotMatch(source, /id="fictional-(?:qualification-title|contact-ready-title|contact-action-reason)"/, "multiple mounted leaves must not reuse hard-coded IDs");
 });
 
 test("presentation leaves remain unreachable from the current local-demo screen and route", async () => {
