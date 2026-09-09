@@ -14,6 +14,17 @@ The 2026-09-04 owner-authorized offline cloud-wave candidate is tracked in
 and focused tests, not phase acceptance; the unchecked phases below and their
 external dependencies remain incomplete. Canonical preflight remains held.
 
+**2026-09-09 local implementation reconciliation:** `main` has since merged
+substantial Phase 4–7 implementation and focused/browser evidence. The plan
+checkboxes below intentionally do not move: implementation presence, local
+validation, preparation contracts, and dev-only previews are not formal plan
+or phase acceptance. The bounded exception in
+`.planning/LOCAL-DEMO-COMPOSITION.md` authorizes one guarded loopback
+`LOCAL_DEMO` supported-screen journey across the remaining phase UX, in Phase
+4 → 5 → 6 → 7 dependency order. It grants no plan/requirement/phase credit and
+no hosted, provider, credential, real-data, persistence, export, or outbound
+authority.
+
 **Phase Numbering:**
 
 - Integer phases (1, 2, 3): planned milestone work.
@@ -130,6 +141,12 @@ Plans:
 - [ ] `04-01-PLAN.md` — Establish Wave 1 profile-prospecting RED contracts. Contracts are committed; no summary exists.
 - [ ] `04-02-PLAN.md` through `04-12-PLAN.md` — Checked implementation and acceptance sequence; additive persistence is committed and later dependency gates remain in force.
 
+Local reconciliation: ready-Profile/prospecting, provenance, qualification,
+review, runner-boundary, operator-journey, and related local runtime/test slices
+are substantially merged. They remain implementation evidence without plan
+summaries or formal acceptance. Under the guarded composition track, their
+fictional supported-screen projection is the first remaining-UX dependency.
+
 ### Phase 5: Controlled Enrichment and Verified Contacts
 **Goal**: The owner can obtain usable business contact points for approved prospects without exceeding explicit authority or promoting unverified suggestions.  
 **Depends on**: Phase 4  
@@ -146,6 +163,13 @@ Plans:
 Plans:
 - [ ] `05-01-PLAN.md` through `05-09-PLAN.md` — Checked controlled-enrichment and verified-contact sequence; execution has not started.
 
+Local reconciliation: contact/person-discovery, verification-intent,
+eligibility, enrichment-authority, and provider-port seams are substantially
+merged and remain local, fake/reject-only, or separately gated. The demo track
+may compose only a fictional ContactReady-shaped projection after the Phase 4
+approved-Prospect step; it cannot invoke a provider, persist a verification,
+or satisfy Plan 05-07 or any Phase 5 acceptance condition.
+
 ### Phase 6: Governed Outreach and Suppression
 **Goal**: The operator can prepare and execute tightly controlled Gmail and manual-call outreach while exact approvals and Company-wide suppression win every race.  
 **Depends on**: Phase 5  
@@ -161,6 +185,14 @@ Plans:
 
 Plans:
 - [ ] `06-01-PLAN.md` through `06-13-PLAN.md` — Checked predecessor acceptance, governed-outreach, Gmail composition, manual-call, suppression, and release sequence; execution has not started.
+
+Local reconciliation: governed approval, suppression, lease/recheck,
+mail-envelope, manual-call, reconciliation, and audit cores are substantially
+merged, but much remains preparation-only or runtime-unreachable. The demo
+track may present fictional Package then Message decisions and zero-effect
+outcomes only after Phase 5's fictional projection; it may not weaken Plan
+06-10, import preparation authority into production, persist, or invoke Gmail
+or telephone effects.
 
 **Greenfield preparation:** `06-PREPARATION.md` authorizes only local synthetic
 fail-closed boundary work. The static provider/effect guard and isolated
@@ -220,6 +252,14 @@ authority, and earns no plan or phase credit.
 
 Plans:
 - [ ] `07-01-PLAN.md` through `07-10-PLAN.md` — Checked Mining pilot handoff, CRM CSV, encrypted archive, and clean-restore sequence; execution has not started.
+
+Local reconciliation: morning/weekly outcome, CRM decision/fictional preview,
+CSV contract, archive/restore compatibility, and portability foundations are
+substantially merged, but real admission, byte delivery, persistence, and
+restore remain blocked. They are the final dependency in the demo track and
+may render only visibly fictional previews sourced from the earlier fictional
+steps. No CSV/archive bytes, download, durable restore, or Phase 7 credit is
+authorized.
 
 **Greenfield preparation:** `07-PREPARATION.md` authorizes only local synthetic
 fail-closed boundary work while Plan 06-10 and every Phase 7 dependency remain
