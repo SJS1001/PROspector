@@ -27,8 +27,9 @@ or phase acceptance. The bounded exception in
 `.planning/LOCAL-DEMO-COMPOSITION.md` authorizes one guarded loopback
 `LOCAL_DEMO` supported-screen journey across the remaining phase UX, in Phase
 4 → 5 → 6 → 7 dependency order. It grants no plan/requirement/phase credit and
-no hosted, provider, credential, real-data, persistence, export, or outbound
-authority.
+no hosted, provider, credential, real-data, application/external persistence,
+export, or outbound authority. Its sole persistence exception is the bounded,
+production-excluded fictional demo metadata repository defined there.
 
 **Phase Numbering:**
 

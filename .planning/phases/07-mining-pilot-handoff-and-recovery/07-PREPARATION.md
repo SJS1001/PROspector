@@ -494,9 +494,42 @@ This grant is bounded to the preview seam. It is not production runtime
 authority, not general Phase 7 execution, and it earns no plan or phase
 completion credit. Plans 07-01 through 07-10 remain unexecuted.
 
+## LOCAL_DEMO metadata-repository exception (owner-authorized 2026-09-09)
+
+The preparation line above remains complete and closed. Plans 07-01 through
+07-03 still lack summaries and depend on incomplete Plan 06-10. Plan 07-04
+still has an unresolved `NNNN` migration and remains stopped; this exception
+does not implement, satisfy, or supply a dependency to it.
+
+For the separate unaccepted track in
+`.planning/LOCAL-DEMO-COMPOSITION.md`, the owner authorizes one dedicated
+fictional disposable metadata repository solely to demonstrate a Morning Brief
+weekly cohort across a loopback local-runtime restart. It must use a dedicated
+local binding and harness-owned schema outside the checked application
+migration chain, live only below the explicitly reset `site/.local/` state
+directory, and be absent from production output.
+
+It may persist only immutable synthetic workspace/Profile/Prospect/audit
+references, event kind/time, and canonical digests. Raw contact values, source
+URLs/excerpts, CSV rows/bytes, package or message content, phone values,
+passphrases, keys, archive payloads, provider responses, credentials, and real
+identifiers are forbidden. Its rows are demo metadata, not canonical Phase 7
+history or outcome provenance, and may not admit CRM rows, create an export,
+deliver an archive, authorize a restore, satisfy a plan dependency, create a
+Phase 7 summary, or earn plan/phase credit.
+
+The integrated LOCAL_DEMO scenario may render fictional CRM field names,
+row-shaped values, counts, and refusal reasons only. It may not call the CSV
+codec or materialize CSV text/bytes. The earlier standalone in-memory preview
+exception is not broadened into this track and remains independently bounded.
+
 ## Stop condition
 
 Stop before runtime composition, persistence, CSV materialization/delivery,
 archive/restore code, crypto or provider selection, credential handling,
 hosted action, production data, real prospecting, schedule/runner work,
 outbound communication, or any external effect. Each remains separately gated.
+The fictional in-memory CRM preview and the dedicated bounded demo-metadata
+repository are the only expressly authorized LOCAL_DEMO exceptions. Neither
+changes this stop for application persistence, production composition,
+delivery, or restoration.

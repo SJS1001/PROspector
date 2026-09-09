@@ -2,8 +2,8 @@
 
 **Created:** 2026-07-30  
 **Repository:** `https://github.com/SJS1001/PROspector.git`  
-**Branch:** `codex/generic-prospector-pilot`  
-**Portable checkpoint:** use the latest `origin/codex/generic-prospector-pilot` commit  
+**Branch:** `main`
+**Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
 ## Current planning reconciliation — 2026-09-09
@@ -19,30 +19,32 @@ remain pending exactly as checked.
 The remaining local end-to-end gap is one coherent supported-screen browser
 journey across those already-merged later-phase UX seams. The bounded authority
 for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It permits only fixed
-fictional/disposable, non-durable projections behind the existing development,
-exact `LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
+fictional/disposable projections behind the existing development, exact
+`LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
 the dependency order: Phase 4 ready Profile/qualified Prospect/review → Phase 5
 fictional contact/enrichment review → Phase 6 Package before Message and
 suppression rechecks → Phase 7 morning/weekly/CRM/portability previews. Real
 decisions stay refused, effect counters stay zero, production bundles exclude
 the fixtures/routes, and no summary or formal credit may result.
 
-That amendment grants no hosted/provider/credential/real-data/persistence/
-export/outbound authority. Stop rather than widening a checked plan, composing
-a real port, writing durable state, delivering bytes, or fabricating evidence.
+That amendment grants no hosted/provider/credential/real-data/application-or-
+external-persistence/export/outbound authority. Its only persistence exception
+is a dedicated, resettable, production-excluded demo metadata repository for
+bounded fictional weekly-transition references. Stop rather than widening a
+checked plan, composing a real port, delivering bytes, or fabricating evidence.
 
-## Current Claude Cloud transfer — 2026-09-06
+## Historical Claude Cloud transfer — 2026-09-06
 
 Local Codex implementation and its transfer record are clean and pushed at
 checkpoint `8b0a95b8385fb130b9b6627b4d12664c2263c018` on
 `codex/generic-onboarding-integration`. Work units A and B and person-discovery
 units C1 through C3 are integrated. Their focused authority gates and the real
 Chromium onboarding/restart/zero-effect journey are green. C4 synthetic
-person-discovery acceptance is integrated; Work Unit D operator interface is
-the active local unit. Continue through
+person-discovery acceptance was integrated; Work Unit D operator interface was
+the active local unit at that checkpoint. Historical detail remains in
 [`implementation-lanes/2026-09-06-claude-cloud-transfer.md`](implementation-lanes/2026-09-06-claude-cloud-transfer.md).
-That record supersedes older branch pointers for current implementation work;
-historical hosted evidence and external authority gates below remain unchanged.
+That record no longer controls current local work; historical hosted evidence
+and external authority gates below remain unchanged.
 
 ## Fresh isolated pilot ownership
 
