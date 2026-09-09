@@ -44,8 +44,14 @@ test("verification composition is a local adapter seam with no network or creden
   const source = await readFile(resolve(root, "domain/person-discovery-c4-verification.ts"), "utf8");
   for (const expected of [
     "createD1ContactsCommandService", "bindContactProviderPort", "bindContactEvidenceVerifier",
-    "persistCurrentContactEligibilitySnapshot", "contact_verification_intents", "ContactReady",
+    "persistPersonDiscoveryC4ContactEligibilitySnapshot", "contact_verification_intents", "ContactReady",
   ]) assert.match(source, new RegExp(expected));
+  assert.doesNotMatch(source, /DROP\s+TRIGGER|CREATE\s+TRIGGER|phase_activation_gates/i,
+    "the synthetic consumer must not mutate or fabricate activation evidence");
+  const persistence = await readFile(resolve(root, "domain/contact-eligibility-persistence.ts"), "utf8");
+  assert.match(persistence, /persistCurrentContactEligibilitySnapshot[\s\S]*controlledEnrichmentActivated/);
+  assert.match(persistence, /persistPersonDiscoveryC4ContactEligibilitySnapshot[\s\S]*import\.meta\.env\.DEV/);
+  assert.match(persistence, /validateSameOriginMutation\(request, PERSON_DISCOVERY_C4_VERIFICATION_INTENT, 1024\)/);
   for (const forbidden of ["fetch(", "http://", "https://", "process.env", "Authorization", "Bearer "])
     assert.equal(source.includes(forbidden), false, forbidden);
   assert.doesNotMatch(source, /INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:contact_eligibility_snapshots|contact_point_observations|contact_verification_receipts|enrichment_grants|enrichment_reservations)/i,

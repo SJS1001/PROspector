@@ -1,5 +1,5 @@
 import { bindContactEvidenceVerifier } from "./contact-evidence";
-import { persistCurrentContactEligibilitySnapshot } from "./contact-eligibility-persistence";
+import { persistPersonDiscoveryC4ContactEligibilitySnapshot } from "./contact-eligibility-persistence";
 import { bindContactProviderPort } from "./contact-provider-port";
 import { bindContactSettlementAttestor, type ContactSettlementAttestor } from "./contact-settlement-attestor";
 import { createD1ContactsCommandService } from "./contacts-command-service";
@@ -55,7 +55,6 @@ export async function consumePersonDiscoveryC4VerificationIntent(
   const now = Date.now();
   const attestor = await createPersonDiscoveryC4SettlementAttestor();
   const contentHash = await canonicalDigest({ schema: "c4-verification-content/v1", intentId: authority.intentId });
-  await enableSyntheticProjectionGate(database, scope.workspaceId, now);
   await ensureSyntheticQuote(database, scope.workspaceId, now);
 
   let providerCalls = 0;
@@ -122,7 +121,7 @@ export async function consumePersonDiscoveryC4VerificationIntent(
   await ensureReservationInputs(database, authority, grant.grantId, now);
   const operation = await service.runGrantedOperation(scope, { grantId: grant.grantId });
   if (!isSettled(operation) || providerCalls !== 1) return blocked("verification_unavailable");
-  const projected = await persistCurrentContactEligibilitySnapshot(database, attestor, {
+  const projected = await persistPersonDiscoveryC4ContactEligibilitySnapshot(request, bindings, database, attestor, {
     ownerSubject: scope.principalSubject,
     workspaceId: scope.workspaceId,
     reservationId: operation.operationId,
@@ -195,26 +194,6 @@ async function ensureReservationInputs(database: D1Database, authority: IntentAu
   }
 }
 
-async function enableSyntheticProjectionGate(database: D1Database, workspaceId: string, now: number) {
-  const fields = Object.freeze({
-    capability: "controlled_enrichment", authorization_reference: "synthetic-local-c4",
-    target_project_deployment: "synthetic-local-c4", reviewed_source_digest: "a".repeat(64),
-    migration_identity_status: "synthetic-local-c4", post_migration_evidence_reference: "synthetic-local-c4",
-    independent_review_reference: "synthetic-local-c4", deployed_boundary_proof_reference: "synthetic-local-c4",
-  });
-  const order = ["capability", "authorization_reference", "target_project_deployment", "reviewed_source_digest", "migration_identity_status", "post_migration_evidence_reference", "independent_review_reference", "deployed_boundary_proof_reference"] as const;
-  const tupleDigest = await sha256Text(order.map((field) => `${field}=${fields[field]}`).join("\n"));
-  await database.prepare("DROP TRIGGER IF EXISTS phase_gate_activation_disabled_insert").run();
-  try {
-    await database.prepare(`INSERT OR IGNORE INTO phase_activation_gates
-      (id,workspace_id,capability,authorization_reference,target_project_deployment,reviewed_source_digest,migration_identity_status,post_migration_evidence_reference,independent_review_reference,deployed_boundary_proof_reference,tuple_digest,accepted_at,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind("c4-controlled-enrichment", workspaceId, ...order.map((field) => fields[field]), tupleDigest, now, now).run();
-  } finally {
-    await database.prepare(`CREATE TRIGGER IF NOT EXISTS phase_gate_activation_disabled_insert BEFORE INSERT ON phase_activation_gates
-      BEGIN SELECT RAISE(ABORT, 'consensus_knowledge activation requires a future trusted server authorization anchor'); END`).run();
-  }
-}
-
 async function existingProjection(database: D1Database, scope: Scope, authority: IntentAuthority) {
   return database.prepare(`SELECT snapshot.id FROM contact_eligibility_snapshots snapshot
     JOIN contact_point_observations observation ON observation.id=json_extract(snapshot.observation_ids_json,'$[0]') AND observation.workspace_id=snapshot.workspace_id
@@ -229,9 +208,5 @@ function isGrant(value: unknown): value is { kind: "grant"; status: "created" | 
 }
 function isSettled(value: unknown): value is { kind: "operation"; status: "settled"; operationId: string } {
   return !!value && typeof value === "object" && (value as { kind?: unknown }).kind === "operation" && (value as { status?: unknown }).status === "settled" && typeof (value as { operationId?: unknown }).operationId === "string";
-}
-async function sha256Text(value: string) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function blocked(reason: string) { return Object.freeze({ kind: "blocked" as const, reason }); }

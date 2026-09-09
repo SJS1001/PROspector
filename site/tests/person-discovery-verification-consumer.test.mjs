@@ -7,13 +7,14 @@ import { createServer } from "vite";
 import { CANONICAL_MIGRATION_FILENAMES } from "../scripts/migration-chain.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const request = new Request("http://127.0.0.1:8788/api/local-demo/person-discovery-c4/verification");
+const request = verificationRequest();
 const bindings = Object.freeze({ PROSPECTOR_PERSON_DISCOVERY_C4: "synthetic-zero-network-c4-v1", TRUSTED_IDENTITY_PROVIDER: "local-demo", LOCAL_DEMO: "1" });
 
 test("the durable discovery intent drives canonical enrichment settlement and ContactReady projection", async () => {
   const fixture = await createLocalFixture();
   try {
     await applyCanonicalMigrations(fixture.database);
+    fixture.gateTriggerSql = await triggerSql(fixture.database);
     const acceptance = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-acceptance.ts"));
     const consumer = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-verification.ts"));
     await acceptance.seedPersonDiscoveryC4(fixture.database, "local-owner@prospector.invalid", "synthetic-browser-acceptance-pepper-32-bytes-minimum");
@@ -52,7 +53,8 @@ test("the durable discovery intent drives canonical enrichment settlement and Co
     assert.equal(await countRows(fixture.database, "contact_eligibility_snapshots"), 1);
     const snapshot = await fixture.database.prepare("SELECT state,eligible FROM contact_eligibility_snapshots").first();
     assert.deepEqual({ ...snapshot }, { state: "ContactReady", eligible: 1 });
-    assert.ok(await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='phase_gate_activation_disabled_insert'").first(), "the local gate insert must restore the fail-closed trigger");
+    assert.equal(await countRows(fixture.database, "phase_activation_gates"), 0);
+    assert.equal(await triggerSql(fixture.database), fixture.gateTriggerSql, "the local seam must never mutate the immutable gate trigger");
     for (const table of ["outreach_messages", "outreach_outbox_items", "outreach_sender_connections", "prospecting_schedules"]) assert.equal(await countRows(fixture.database, table), 0);
     assert.deepEqual((await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%export%' OR name LIKE '%archive%')").all()).results, []);
   } finally { await fixture.dispose(); }
@@ -62,6 +64,7 @@ test("the composer is absent off the exact local-demo loopback binding", async (
   const fixture = await createLocalFixture();
   try {
     await applyCanonicalMigrations(fixture.database);
+    fixture.gateTriggerSql = await triggerSql(fixture.database);
     const consumer = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-verification.ts"));
     const result = await consumer.consumePersonDiscoveryC4VerificationIntent(new Request("https://example.invalid/verify"), bindings, fixture.database, { workspaceId: "x", principalSubject: "x" }, { relevanceId: "x", channel: "email" });
     assert.deepEqual(result, { kind: "blocked", reason: "capability_unavailable" });
@@ -70,11 +73,56 @@ test("the composer is absent off the exact local-demo loopback binding", async (
   } finally { await fixture.dispose(); }
 });
 
+test("the local projection seam rejects malformed origins, non-loopback hosts, flags, and outsider scope without writes", async () => {
+  const fixture = await createLocalFixture();
+  try {
+    await applyCanonicalMigrations(fixture.database);
+    fixture.gateTriggerSql = await triggerSql(fixture.database);
+    const acceptance = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-acceptance.ts"));
+    const consumer = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-verification.ts"));
+    await acceptance.seedPersonDiscoveryC4(fixture.database, "local-owner@prospector.invalid", "synthetic-browser-acceptance-pepper-32-bytes-minimum");
+    const workspace = await fixture.database.prepare("SELECT id,owner_subject FROM workspaces LIMIT 1").first();
+    const attempts = [
+      [verificationRequest({ origin: "https://attacker.invalid" }), bindings, { workspaceId: workspace.id, principalSubject: workspace.owner_subject }],
+      [verificationRequest({ url: "https://prospector.example/verify", origin: "https://prospector.example" }), bindings, { workspaceId: workspace.id, principalSubject: workspace.owner_subject }],
+      [verificationRequest(), { ...bindings, LOCAL_DEMO: "true" }, { workspaceId: workspace.id, principalSubject: workspace.owner_subject }],
+      [verificationRequest(), bindings, { workspaceId: workspace.id, principalSubject: "outsider-subject" }],
+    ];
+    for (const [candidateRequest, candidateBindings, scope] of attempts) {
+      const result = await consumer.consumePersonDiscoveryC4VerificationIntent(candidateRequest, candidateBindings, fixture.database, scope, { relevanceId: "missing", channel: "email" });
+      assert.equal(result.kind, "blocked");
+    }
+    for (const table of ["phase_activation_gates", "provider_quotes", "enrichment_grants", "enrichment_reservations", "contact_point_observations", "contact_verification_receipts", "contact_eligibility_snapshots"]) {
+      assert.equal(await countRows(fixture.database, table), 0, `${table} must remain empty`);
+    }
+    assert.equal(await triggerSql(fixture.database), fixture.gateTriggerSql);
+  } finally { await fixture.dispose(); }
+});
+
+test("stale durable intent authority is rejected before quote, grant, provider, or ContactReady effects", async () => {
+  const fixture = await createLocalFixture();
+  try {
+    await applyCanonicalMigrations(fixture.database);
+    fixture.gateTriggerSql = await triggerSql(fixture.database);
+    const { consumer, scope, relevanceId } = await arrangeVerificationIntent(fixture);
+    await fixture.database.prepare("UPDATE profile_prospects SET revision=revision+1 WHERE id='c4-approved-prospect'").run();
+
+    const result = await consumer.consumePersonDiscoveryC4VerificationIntent(
+      verificationRequest(), bindings, fixture.database, scope, { relevanceId, channel: "email" },
+    );
+    assert.deepEqual(result, { kind: "blocked", reason: "verification_intent_unavailable" });
+    for (const table of ["phase_activation_gates", "provider_quotes", "enrichment_grants", "enrichment_reservations", "contact_point_observations", "contact_verification_receipts", "contact_eligibility_snapshots"]) {
+      assert.equal(await countRows(fixture.database, table), 0, `${table} must remain empty`);
+    }
+    assert.equal(await triggerSql(fixture.database), fixture.gateTriggerSql);
+  } finally { await fixture.dispose(); }
+});
+
 async function createLocalFixture() {
   const sqlite = new DatabaseSync(":memory:", { enableForeignKeyConstraints: true });
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   const database = d1Compatible(sqlite);
-  return { database, vite, async dispose() { await vite.close(); sqlite.close(); } };
+  return { database, vite, gateTriggerSql: null, async dispose() { await vite.close(); sqlite.close(); } };
 }
 
 function d1Compatible(sqlite) {
@@ -106,6 +154,41 @@ async function applyCanonicalMigrations(database) {
       if (statement.trim()) await database.prepare(statement.trim()).run();
     }
   }
+}
+
+async function arrangeVerificationIntent(fixture) {
+  const acceptance = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-acceptance.ts"));
+  const consumer = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-verification.ts"));
+  await acceptance.seedPersonDiscoveryC4(fixture.database, "local-owner@prospector.invalid", "synthetic-browser-acceptance-pepper-32-bytes-minimum");
+  const workspace = await fixture.database.prepare("SELECT id,owner_subject FROM workspaces LIMIT 1").first();
+  const scope = { workspaceId: workspace.id, principalSubject: workspace.owner_subject };
+  const service = acceptance.createPersonDiscoveryC4Service(verificationRequest(), bindings, fixture.database);
+  const authority = await fixture.database.prepare("SELECT p.revision prospect_revision,cfg.id configuration_id,cfg.digest configuration_digest,cfg.revision configuration_revision FROM profile_prospects p JOIN typed_configurations cfg ON cfg.owner_id=p.profile_id AND cfg.workspace_id=p.workspace_id AND cfg.kind='profile_effective' AND cfg.active=1 WHERE p.id='c4-approved-prospect'").first();
+  const started = await service.start(scope, {
+    prospectId: "c4-approved-prospect", expectedProspectRevision: Number(authority.prospect_revision),
+    expectedConfigurationId: authority.configuration_id, expectedConfigurationDigest: authority.configuration_digest,
+    expectedConfigurationRevision: Number(authority.configuration_revision), maxCandidates: 2, maxProvenancePerCandidate: 1,
+    idempotencyKey: "c4-stale-consumer-start",
+  });
+  assert.equal(started.kind, "accepted");
+  const decided = await service.decide(scope, { runId: started.run.id, expectedResultDigest: started.run.resultDigest, decision: "create_new", candidateId: started.run.candidates[0].id, idempotencyKey: "c4-stale-consumer-decision" });
+  assert.equal(decided.kind, "accepted");
+  const intent = await service.recordVerificationIntent(scope, {
+    relevanceId: decided.decision.relevanceId, intent: "initial_verification", channel: "email",
+    expectedProspectRevision: Number(authority.prospect_revision), expectedContactRevision: 1,
+    expectedConfigurationId: authority.configuration_id, expectedConfigurationDigest: authority.configuration_digest,
+    expectedConfigurationRevision: Number(authority.configuration_revision), idempotencyKey: "c4-stale-consumer-intent",
+  });
+  assert.equal(intent.kind, "accepted");
+  return { consumer, scope, relevanceId: decided.decision.relevanceId };
+}
+
+function verificationRequest({ url = "http://127.0.0.1:8788/api/local-demo/person-discovery-c4/verification", origin = "http://127.0.0.1:8788" } = {}) {
+  return new Request(url, { method: "POST", headers: { origin, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-prospector-intent": "person-discovery-c4-verification" }, body: "{}" });
+}
+
+async function triggerSql(database) {
+  return (await database.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='phase_gate_activation_disabled_insert'").first())?.sql ?? null;
 }
 
 async function countRows(database, table) {
