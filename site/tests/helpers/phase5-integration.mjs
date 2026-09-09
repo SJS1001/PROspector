@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { Miniflare } from "miniflare";
+import { createServer } from "vite";
+import { applyPersonDiscoveryMigrations } from "./d1.mjs";
 import { seedProfileAuthority } from "./phase4.mjs";
 
 export const NOW = 1_810_000_000_000;
@@ -9,6 +11,31 @@ export const OWNER = Object.freeze({
   displayName: "Phase 5 integration owner",
 });
 const RUNNER_SECRET = new TextEncoder().encode("phase5-integration-runner-secret-at-least-32-bytes");
+
+/** Apply the checked journal-derived chain through its current canonical head. */
+export async function applyCanonicalPhase5IntegrationMigrations(database) {
+  await applyPersonDiscoveryMigrations(database);
+}
+
+/** Phase 5 fixture with Miniflare telemetry explicitly disabled. */
+export async function createPhase5D1Fixture(name) {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  const miniflare = new Miniflare({
+    modules: true,
+    script: "export default { fetch() { return new Response('ok') } }",
+    d1Databases: { DB: name },
+    telemetry: { enabled: false },
+  });
+  return {
+    vite,
+    miniflare,
+    database: await miniflare.getD1Database("DB"),
+    async dispose() {
+      await vite.close();
+      await miniflare.dispose();
+    },
+  };
+}
 
 /** Cross the existing Phase 4 services to a persisted Approved Prospect. */
 export async function createApprovedProspectLifecycle(fixture) {
@@ -90,15 +117,6 @@ export async function snapshotLaterPhaseEffects(database) {
     result[name] = table ? Number((await database.prepare(`SELECT COUNT(*) count FROM ${name}`).first()).count) : null;
   }
   return result;
-}
-
-export async function applyEnrichmentLineageCandidate(database) {
-  for (const name of ["0010_governed_outreach.sql", "0011_enrichment_candidate_lineage.sql"]) {
-    const sql = await readFile(new URL(`../../drizzle/${name}`, import.meta.url), "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      if (statement.trim()) await database.prepare(statement.trim()).run();
-    }
-  }
 }
 
 export async function seedSyntheticReservationInputs(database, lifecycle, grant) {

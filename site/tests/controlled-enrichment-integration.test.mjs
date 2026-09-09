@@ -1,22 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile } from "node:fs/promises";
-import { applyMigrations, countRows, createD1Fixture } from "./helpers/d1.mjs";
+import { readFile, readdir } from "node:fs/promises";
+import { countRows } from "./helpers/d1.mjs";
 import {
   NOW,
-  applyEnrichmentLineageCandidate,
+  applyCanonicalPhase5IntegrationMigrations,
   createApprovedProspectLifecycle,
+  createPhase5D1Fixture as createD1Fixture,
   createSyntheticContactSettlementAttestor,
   seedSyntheticReservationInputs,
   snapshotLaterPhaseEffects,
 } from "./helpers/phase5-integration.mjs";
 
-async function applyContactsPaginationMigration(database) { const sql = await readFile(new URL("../drizzle/0018_massive_blizzard.sql", import.meta.url), "utf8"); for (const statement of sql.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) await database.prepare(statement).run(); }
-
-test("forward candidate repairs real Approved Prospect issuance and reservation without rewriting prior authority", async () => {
+test("the canonical migration head supports Approved Prospect issuance and reservation without manual migration subsets", async () => {
   const fixture = await createD1Fixture("phase5-controlled-enrichment-lifecycle");
   try {
-    await applyMigrations(fixture.database);
+    await applyCanonicalPhase5IntegrationMigrations(fixture.database);
     const lifecycle = await createApprovedProspectLifecycle(fixture);
     await fixture.database.prepare(`INSERT INTO provider_quotes
       (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
@@ -37,13 +36,6 @@ test("forward candidate repairs real Approved Prospect issuance and reservation 
     const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
     const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
     const request = { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision:snapshot.revision,idempotencyKey:"p5i-grant",now:NOW+5 };
-    await assert.rejects(issuance.issueEnrichmentGrant(repository,request),
-      /enrichment_grant_commit_failed/, "the old trigger still rejects the actual observed candidate");
-    assert.equal(await countRows(fixture.database,"enrichment_grants"),0);
-    assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
-    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
-
-    await applyEnrichmentLineageCandidate(fixture.database);
     const laterEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
     const issued = await issuance.issueEnrichmentGrant(repository,request);
     assert.equal(issued.kind,"issued");
@@ -63,7 +55,6 @@ test("forward candidate repairs real Approved Prospect issuance and reservation 
     await fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id=?").bind(lifecycle.configurationId).run();
     assert.equal(await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]),null,"deactivated configuration still denies authority");
 
-    await applyContactsPaginationMigration(fixture.database);
     const contacts = await fixture.vite.ssrLoadModule(new URL("../domain/contacts-handler.ts", import.meta.url).pathname);
     const identity = { email:"phase5-integration-owner@example.invalid", displayName:"Phase 5 integration owner" };
     const subjectPepper = "phase5-integration-owner-pepper-at-least-thirty-two-bytes";
@@ -122,8 +113,7 @@ test("candidate lineage invalidated after issuance blocks reservation without ob
 test("actual services settle one synthetic provider result into current ContactReady without later effects", async () => {
   const fixture = await createD1Fixture("phase5-controlled-enrichment-success");
   try {
-    await applyMigrations(fixture.database);
-    await applyEnrichmentLineageCandidate(fixture.database);
+    await applyCanonicalPhase5IntegrationMigrations(fixture.database);
     const lifecycle = await createApprovedProspectLifecycle(fixture);
     await fixture.database.prepare(`INSERT INTO provider_quotes
       (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
@@ -418,8 +408,128 @@ test("actual services settle one synthetic provider result into current ContactR
   } finally { await fixture.dispose(); }
 });
 
+test("concurrent reservation attempts enforce the committed cap and never invoke a provider", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-cap-race");
+  try {
+    const { lifecycle, repository, issuance, authority } = await readyObservedCandidate(fixture);
+    const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
+    const issued = await issuance.issueEnrichmentGrant(repository,grantRequest(lifecycle,snapshot.revision,"p5i-cap-race"));
+    await seedSyntheticReservationInputs(fixture.database,lifecycle,issued.grant);
+    const request = {grantId:issued.grant.id,principalSubject:lifecycle.owner.subject,operationKey:issued.grant.tuple.operationKey,now:NOW+6};
+    const before = await snapshotLaterPhaseEffects(fixture.database);
+    const results = await Promise.all([
+      authority.reserveEnrichmentOperation(repository,request),
+      authority.reserveEnrichmentOperation(repository,request),
+    ]);
+    assert.ok(results.every((result) => result.kind==="reserved"));
+    assert.deepEqual(results.map((result) => result.replayed).sort(),[false,true],"the race converges on one committed reservation");
+    assert.equal(await countRows(fixture.database,"enrichment_reservations"),1);
+    const budgets = (await fixture.database.prepare(
+      "SELECT actual_units,reserved_units,actual_cost_minor,reserved_cost_minor FROM enrichment_budget_accounts WHERE workspace_id=? ORDER BY scope",
+    ).bind(lifecycle.workspaceId).all()).results;
+    assert.equal(budgets.length,4);
+    assert.ok(budgets.every((row) => Number(row.actual_units)===0 && Number(row.reserved_units)===1 && Number(row.actual_cost_minor)===0 && Number(row.reserved_cost_minor)===10));
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+    assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),before);
+  } finally { await fixture.dispose(); }
+});
+
+test("partial results settle only documented units while preserving literal zero downstream effects", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-partial");
+  try {
+    const prepared = await prepareReservedOperation(fixture,"p5i-partial");
+    const [operation,providerPort,contactEvidence] = await loadDomain(fixture,["enrichment-operation","contact-provider-port","contact-evidence"]);
+    const evidence = syntheticEvidence(prepared.binding,"p5i-partial-observation");
+    let providerCalls=0;
+    const port = providerPort.bindContactProviderPort(providerBinding(prepared.issued),async (assignment) => {
+      providerCalls+=1;
+      return Object.freeze({kind:"partial",reservationId:assignment.reservationId,operationKey:assignment.operationKey,documentedUnits:1,documentedCostMinor:10,evidence:Object.freeze([evidence])});
+    });
+    const before = await snapshotLaterPhaseEffects(fixture.database);
+    const result = await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+7},syntheticVerifier(contactEvidence,evidence,prepared.issued));
+    assert.deepEqual(result,{kind:"settled",outcome:"partial"});
+    assert.equal(providerCalls,1);
+    const terminal = await terminalReservation(fixture.database,prepared.reserved.reservation.id);
+    assert.deepEqual(terminal,{state:"settled",terminal_reason:"partial",documented_units:1,documented_cost_minor:10});
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),1);
+    assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),before);
+  } finally { await fixture.dispose(); }
+});
+
+test("DeliveryUnknown-equivalent ambiguous acceptance stays reserved and cannot be retried", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-uncertain");
+  try {
+    const prepared = await prepareReservedOperation(fixture,"p5i-uncertain");
+    const [operation,providerPort] = await loadDomain(fixture,["enrichment-operation","contact-provider-port"]);
+    let providerCalls=0;
+    const port = providerPort.bindContactProviderPort(providerBinding(prepared.issued),async (assignment) => {
+      providerCalls+=1;
+      return Object.freeze({kind:"ambiguous",reservationId:assignment.reservationId,operationKey:assignment.operationKey});
+    });
+    const before = await snapshotLaterPhaseEffects(fixture.database);
+    assert.deepEqual(await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+7}),{kind:"needs_reconciliation"});
+    assert.deepEqual(await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+8}),{kind:"blocked"});
+    assert.equal(providerCalls,1,"an uncertain provider acceptance is never retried");
+    const terminal = await terminalReservation(fixture.database,prepared.reserved.reservation.id);
+    assert.deepEqual(terminal,{state:"needs_reconciliation",terminal_reason:"ambiguous",documented_units:0,documented_cost_minor:0});
+    const budgets = (await fixture.database.prepare("SELECT actual_cost_minor,reserved_cost_minor FROM enrichment_budget_accounts WHERE workspace_id=?").bind(prepared.lifecycle.workspaceId).all()).results;
+    assert.ok(budgets.every((row) => Number(row.actual_cost_minor)===0 && Number(row.reserved_cost_minor)===10));
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+    assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),before);
+  } finally { await fixture.dispose(); }
+});
+
+test("merge and split decisions preserve suppression reach and invalidate every moved association", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-identity");
+  try {
+    const identity = await load(fixture,"identity-resolution");
+    const owner={subject:"fictional-owner",admittedOwner:true};
+    const workspaceId="fictional-workspace";
+    const mergeRepository=createIdentityRepository(workspaceId,[fictionalIdentity(workspaceId,"identity-a",["association-a"]),fictionalIdentity(workspaceId,"identity-b",["association-b"])]);
+    const mergeSuggestion=await identity.planIdentitySuggestion(mergeRepository,owner,{workspaceId,kind:"merge",candidateIds:["identity-a","identity-b"]});
+    const merged=await identity.applyIdentityResolution(mergeRepository,owner,{workspaceId,suggestionId:mergeSuggestion.id,decision:{kind:"merge",primaryId:"identity-a",secondaryIds:["identity-b"]},expectedRevision:mergeSuggestion.revision,idempotencyKey:"p5i-merge"});
+    assert.deepEqual(merged.retainedSuppressionSubjectRefs,["suppression-identity-a","suppression-identity-b"]);
+    assert.deepEqual(merged.invalidations.map((item) => item.projection),["NeedsReview","NeedsReview"]);
+
+    const splitRepository=createIdentityRepository(workspaceId,[fictionalIdentity(workspaceId,"identity-c",["association-c1","association-c2"])]);
+    const splitSuggestion=await identity.planIdentitySuggestion(splitRepository,owner,{workspaceId,kind:"split",sourceId:"identity-c",moveAssociationIds:["association-c2"]});
+    const split=await identity.applyIdentityResolution(splitRepository,owner,{workspaceId,suggestionId:splitSuggestion.id,decision:{kind:"split",sourceId:"identity-c",moveAssociationIds:["association-c2"]},expectedRevision:splitSuggestion.revision,idempotencyKey:"p5i-split"});
+    assert.deepEqual(split.retainedSuppressionSubjectRefs,["suppression-identity-c"]);
+    assert.deepEqual(split.invalidations,[{associationId:"association-c2",projection:"NonContactable"}]);
+    assert.equal(mergeRepository.mutations,1);
+    assert.equal(splitRepository.mutations,1);
+  } finally { await fixture.dispose(); }
+});
+
+test("cross-tenant authority is rejected and legacy Python enrichment is runtime-unreachable", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-tenant-and-legacy");
+  try {
+    await applyCanonicalPhase5IntegrationMigrations(fixture.database);
+    const lifecycle=await createApprovedProspectLifecycle(fixture);
+    await fixture.database.prepare("INSERT INTO workspaces (id,company_name,owner_subject,created_at,updated_at,revision) VALUES ('foreign-workspace','Fictional foreign tenant','foreign-owner',?,?,1)").bind(NOW,NOW).run();
+    const [repositoryModule,issuance]=await loadDomain(fixture,["enrichment-repository","enrichment-grant-issuance"]);
+    const foreignRepository=repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:"foreign-workspace",ownerSubject:"foreign-owner",now:()=>NOW});
+    const before=await snapshotLaterPhaseEffects(fixture.database);
+    const result=await issuance.issueEnrichmentGrant(foreignRepository,{...grantRequest(lifecycle,1,"p5i-cross-tenant"),principalSubject:"foreign-owner"});
+    assert.equal(result.kind,"blocked");
+    assert.equal(await countRows(fixture.database,"enrichment_grants"),0);
+    assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
+    assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),before);
+
+    const legacy = await readFile(new URL("../../enrichment/mcp_server.py",import.meta.url),"utf8");
+    assert.ok(legacy.length>0,"the retained legacy file is deliberately inspected, never executed");
+    const runtimeFiles=await collectRuntimeFiles(new URL("../",import.meta.url));
+    const reachable=[];
+    for (const url of runtimeFiles) {
+      const source=await readFile(url,"utf8");
+      if (/enrichment\/mcp_server|mcp_server\.py/u.test(source)) reachable.push(url.pathname);
+    }
+    assert.deepEqual(reachable,[],"no application/domain runtime source references the legacy Python enrichment process");
+  } finally { await fixture.dispose(); }
+});
+
 async function readyObservedCandidate(fixture) {
-  await applyMigrations(fixture.database); await applyEnrichmentLineageCandidate(fixture.database);
+  await applyCanonicalPhase5IntegrationMigrations(fixture.database);
   const lifecycle = await createApprovedProspectLifecycle(fixture);
   await fixture.database.prepare(`INSERT INTO provider_quotes
     (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
@@ -428,9 +538,43 @@ async function readyObservedCandidate(fixture) {
   const [repositoryModule,issuance,authority] = await loadDomain(fixture, [
     "enrichment-repository", "enrichment-grant-issuance", "enrichment-authority",
   ]);
-  const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:()=>NOW});
+  const contactSettlementAttestor=await createSyntheticContactSettlementAttestor(fixture);
+  const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:()=>NOW,contactSettlementAttestor});
   return { lifecycle, repository, issuance, authority };
 }
+
+async function prepareReservedOperation(fixture,idempotencyKey) {
+  const ready=await readyObservedCandidate(fixture);
+  const snapshot=await ready.repository.loadIssuanceSnapshot(ready.lifecycle.owner.subject,[ready.lifecycle.prospectId]);
+  const issued=await ready.issuance.issueEnrichmentGrant(ready.repository,grantRequest(ready.lifecycle,snapshot.revision,idempotencyKey));
+  await seedSyntheticReservationInputs(fixture.database,ready.lifecycle,issued.grant);
+  const reserved=await ready.authority.reserveEnrichmentOperation(ready.repository,{grantId:issued.grant.id,principalSubject:ready.lifecycle.owner.subject,operationKey:issued.grant.tuple.operationKey,now:NOW+6});
+  assert.equal(reserved.kind,"reserved");
+  return {...ready,issued,reserved,binding:reserved.reservation.assignment.evidenceAssignments[0]};
+}
+
+function syntheticEvidence(binding,id) { return Object.freeze({id,assignmentId:binding.assignmentId,prospectId:binding.prospectId,workspaceId:binding.workspaceId,contactId:binding.contactId,profileConfigurationId:binding.profileConfigurationId,profileConfigurationDigest:binding.profileConfigurationDigest,kind:"email",value:`${id}@example.invalid`,confidence:1,provenance:Object.freeze({sourceReference:`source:${id}`,excerpt:"Fictional mailbox evidence.",objectReference:`object:${id}`,contentHash:"e".repeat(64),retrievedAt:NOW+1}),observedAt:NOW+3}); }
+function providerBinding(issued) { return {providerId:issued.grant.tuple.providerId,providerVersion:issued.grant.tuple.providerVersion,catalogRef:issued.grant.tuple.catalogRef}; }
+function syntheticVerifier(contactEvidence,evidence,issued) { return contactEvidence.bindContactEvidenceVerifier({verifierId:"phase5-fictional-verifier",verifierVersion:"v1"},async()=>Object.freeze({observationId:evidence.id,workspaceId:evidence.workspaceId,contactId:evidence.contactId,profileConfigurationId:evidence.profileConfigurationId,profileConfigurationDigest:evidence.profileConfigurationDigest,kind:evidence.kind,normalizedValue:evidence.value,contentHash:evidence.provenance.contentHash,verificationClass:"mailbox_verified",method:"mailbox_verification",verifiedAt:NOW+2,providerId:issued.grant.tuple.providerId,providerVersion:issued.grant.tuple.providerVersion,catalogRef:issued.grant.tuple.catalogRef,verdictReference:`verdict:${evidence.id}`,verdictDigest:"f".repeat(64)})); }
+async function terminalReservation(database,reservationId) { return database.prepare("SELECT state,terminal_reason,documented_units,documented_cost_minor FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1").bind(reservationId).first(); }
+
+function fictionalIdentity(workspaceId,id,associationIds) { return {id,workspaceId,revision:1,aliases:[`alias-${id}`],sourceLineageIds:[`source-${id}`],identityLineageIds:[`lineage-${id}`],suppressionSubjectRefs:[`suppression-${id}`],associations:associationIds.map((associationId)=>({id:associationId,workspaceId,scope:"market_play",relevanceId:`relevance-${associationId}`,subjectId:id}))}; }
+function createIdentityRepository(workspaceId,initialRows) {
+  const rows=new Map(initialRows.map((row)=>[row.id,structuredClone(row)])),suggestions=new Map(),applied=new Map();
+  const repository={mutations:0,
+    async readIdentitySnapshots(scope,ids){return ids.map((id)=>rows.get(id)).filter((row)=>row?.workspaceId===scope).map((row)=>structuredClone(row));},
+    async saveIdentitySuggestion(suggestion){suggestions.set(`${suggestion.workspaceId}:${suggestion.ownerSubject}:${suggestion.id}`,structuredClone(suggestion));return structuredClone(suggestion);},
+    async readIdentitySuggestion(scope,owner,id){return structuredClone(suggestions.get(`${scope}:${owner}:${id}`)??null);},
+    async transaction(scope,operation){return operation({
+      async findByIdempotencyKey(key){return structuredClone(applied.get(`${scope}:${key}`)??null);},
+      async readIdentitySnapshots(ids){return repository.readIdentitySnapshots(scope,ids);},
+      async applyResolution(resolution){repository.mutations+=1;applied.set(`${scope}:${resolution.idempotencyKey}`,structuredClone(resolution));if(resolution.decision.kind==="merge"){const sourceRows=[resolution.decision.primaryId,...resolution.decision.secondaryIds].map((id)=>rows.get(id));const primary=sourceRows[0];primary.revision+=1;primary.aliases=[...new Set(sourceRows.flatMap((row)=>row.aliases))].sort();primary.sourceLineageIds=[...new Set(sourceRows.flatMap((row)=>row.sourceLineageIds))].sort();primary.identityLineageIds=[...new Set(sourceRows.flatMap((row)=>[row.id,...row.identityLineageIds]))].sort();primary.suppressionSubjectRefs=[...new Set(sourceRows.flatMap((row)=>row.suppressionSubjectRefs))].sort();primary.associations=sourceRows.flatMap((row)=>row.associations).map((association)=>({...association,subjectId:primary.id}));}else{const source=rows.get(resolution.decision.sourceId),moved=new Set(resolution.decision.moveAssociationIds),associations=source.associations.filter((item)=>moved.has(item.id));source.associations=source.associations.filter((item)=>!moved.has(item.id));source.revision+=1;rows.set(resolution.decision.newIdentityId,{...structuredClone(source),id:resolution.decision.newIdentityId,revision:1,associations:associations.map((item)=>({...item,subjectId:resolution.decision.newIdentityId}))});}return structuredClone(resolution);},
+    });},
+  };return repository;
+}
+
+async function collectRuntimeFiles(root) { const output=[]; for (const name of ["app","domain"]){const start=new URL(`${name}/`,root);await walk(start,output);} return output; }
+async function walk(directory,output) { for (const entry of await readdir(directory,{withFileTypes:true})){const url=new URL(entry.name+(entry.isDirectory()?"/":""),directory);if(entry.isDirectory())await walk(url,output);else if(/\.(?:ts|tsx|mjs|js)$/u.test(entry.name))output.push(url);} }
 
 function grantRequest(lifecycle, expectedRevision, idempotencyKey) { return { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision,idempotencyKey,now:NOW+5 }; }
 
