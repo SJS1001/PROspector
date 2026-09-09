@@ -12,6 +12,22 @@ type Bindings = Readonly<{
   CLOUDFLARE_ACCESS_AUDIENCE?: unknown;
 }>;
 
+export type LocalDemoCompositionDependencies = Readonly<{
+  bindings: Bindings;
+  isLocalDemoRequest: typeof isLocalDemoRequest;
+  runtimeIdentity: typeof runtimeIdentity;
+  admitPilotOwner: typeof admitPilotOwner;
+  readLocalDemoComposition: typeof readLocalDemoComposition;
+}>;
+
+const productionDependencies: LocalDemoCompositionDependencies = {
+  bindings: env as unknown as Bindings,
+  isLocalDemoRequest,
+  runtimeIdentity,
+  admitPilotOwner,
+  readLocalDemoComposition,
+};
+
 function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return false;
@@ -23,21 +39,24 @@ function sameOrigin(request: Request) {
 }
 
 /** A read-only response: no request body is parsed and no storage is bound. */
-export async function handleLocalDemoComposition(request: Request) {
-  const bindings = env as unknown as Bindings;
-  if (!isLocalDemoRequest(request, bindings)) return notFound();
+export async function handleLocalDemoComposition(
+  request: Request,
+  dependencies: LocalDemoCompositionDependencies = productionDependencies,
+) {
+  const { bindings } = dependencies;
+  if (!dependencies.isLocalDemoRequest(request, bindings)) return notFound();
   if (!sameOrigin(request)) return notFound();
   if (!bindings.PILOT_OWNER_EMAIL || !bindings.OWNER_SUBJECT_PEPPER) return notFound();
   try {
-    await admitPilotOwner(
-      await runtimeIdentity(request, bindings),
+    await dependencies.admitPilotOwner(
+      await dependencies.runtimeIdentity(request, bindings),
       bindings.PILOT_OWNER_EMAIL,
       bindings.OWNER_SUBJECT_PEPPER,
     );
   } catch {
     return notFound();
   }
-  return Response.json(readLocalDemoComposition(), {
+  return Response.json(dependencies.readLocalDemoComposition(), {
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
   });
 }
