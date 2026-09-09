@@ -17,6 +17,18 @@ const root = resolve(import.meta.dirname, "..");
 const stateArgument = valueAfter("--state");
 if (!stateArgument) throw new Error("browser_state_required");
 const requireCompletion = !process.argv.includes("--allow-incomplete");
+// These rows record owner-authorized, local projected authority only. They are
+// not execution: each run/schedule must remain explicitly blocked below.
+const projectedAuthorityTables = new Set([
+  "product_discovery_configuration_prerequisites",
+  "product_discovery_runs",
+  "product_discovery_schedules",
+  "profile_configuration_candidates",
+  "profile_configuration_activations",
+  "prospecting_runs",
+  "prospecting_run_events",
+  "prospecting_schedules",
+]);
 const localRoot = resolve(root, ".local");
 const stateRoot = resolve(root, stateArgument);
 assertInside(localRoot, stateRoot);
@@ -47,7 +59,9 @@ for (const path of sqliteFiles) {
       if (!objects.tables.has(name) && !objects.views.has(name)) continue;
       const count = countRows(database, name);
       forbidden[name] = { present: true, count: forbidden[name].count + count };
-      if (count > 0) forbiddenSightings.push({ table: name, count, file: relative(resolvedState, path) });
+      if (count > 0 && !projectedAuthorityTables.has(name)) {
+        forbiddenSightings.push({ table: name, count, file: relative(resolvedState, path) });
+      }
     }
     if (objects.tables.has("workspaces")) {
       if (applicationDatabase) throw new Error("multiple_application_databases");
@@ -63,7 +77,9 @@ if (!applicationDatabase) throw new Error("application_database_not_found");
 try {
   assert.equal(objectRows, 0, "r2_objects_must_remain_empty");
   assert.equal(multipartRows, 0, "r2_multipart_uploads_must_remain_empty");
-  for (const [name, { count }] of Object.entries(forbidden)) assert.equal(count, 0, `${name}_must_remain_empty`);
+  for (const [name, { count }] of Object.entries(forbidden)) {
+    if (!projectedAuthorityTables.has(name)) assert.equal(count, 0, `${name}_must_remain_empty`);
+  }
 
   // Fail closed on the application schema itself. Anything present that the canonical
   // inventory does not classify is treated as a potential effect surface, so a table,
@@ -86,6 +102,10 @@ try {
     assert.ok(count <= LOCAL_STATE_ROW_CEILING, `${name}_exceeds_local_state_ceiling`);
     localState[name] = count;
   }
+  const projectedAuthority = {};
+  for (const name of projectedAuthorityTables) {
+    if (objects.tables.has(name)) projectedAuthority[name] = countRows(applicationDatabase.database, name);
+  }
 
   assert.ok(objects.tables.has("knowledge_versions"), "knowledge_versions_must_be_present");
   const workspaceCount = countRows(applicationDatabase.database, "workspaces");
@@ -98,6 +118,7 @@ try {
     assert.ok(workspaceCount >= 0 && workspaceCount <= 1, "bounded_synthetic_workspace_required");
     assert.ok(confirmedFitCount >= 0 && confirmedFitCount <= 1, "bounded_confirmed_fit_required");
   }
+  assertBlockedProjectedAuthority(applicationDatabase.database, objects.tables);
   process.stdout.write(`${JSON.stringify({
     status: requireCompletion ? "passed" : "zero-effects-only",
     synthetic: true,
@@ -111,6 +132,7 @@ try {
     unknownTriggers: [],
     triggerCount: objects.triggers.size,
     localState,
+    projectedAuthority,
     forbidden,
   })}\n`);
 } finally {
@@ -142,6 +164,27 @@ function readObjects(database) {
 function countRows(database, name) {
   assert.match(name, OBJECT_NAME_PATTERN);
   return Number(database.prepare(`SELECT COUNT(*) AS count FROM "${name}"`).get().count);
+}
+
+function assertBlockedProjectedAuthority(database, tables) {
+  for (const table of ["product_discovery_runs", "product_discovery_schedules", "prospecting_runs", "prospecting_schedules"]) {
+    if (!tables.has(table)) continue;
+    const nonBlocked = Number(database.prepare(
+      `SELECT COUNT(*) AS count FROM "${table}" WHERE execution_state IS NOT 'blocked_missing_capability'`,
+    ).get().count);
+    assert.equal(nonBlocked, 0, `${table}_must_remain_blocked_missing_capability`);
+  }
+  if (tables.has("prospecting_run_events")) {
+    const nonBlockedEvents = Number(database.prepare(
+      `SELECT COUNT(*) AS count FROM prospecting_run_events WHERE CASE
+        WHEN json_valid(event_json) IS NOT 1 THEN 1
+        WHEN json_type(event_json, '$.state') IS NOT 'text' THEN 1
+        WHEN json_extract(event_json, '$.state') IS NOT 'blocked_missing_capability' THEN 1
+        ELSE 0
+      END = 1`,
+    ).get().count);
+    assert.equal(nonBlockedEvents, 0, "prospecting_run_events_must_record_only_blocked_intent");
+  }
 }
 
 async function walk(directory) {

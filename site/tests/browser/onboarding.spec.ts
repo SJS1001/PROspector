@@ -21,7 +21,8 @@ test("acceptance runtime admits the fixed synthetic owner", async ({ request }) 
   expect((await admitted.json()).status).toBe("uninitialized");
 });
 
-test("blank generic onboarding reaches confirmed fit and survives a runtime restart", async ({ page, request }) => {
+test("blank generic onboarding reaches active Product and Profile authority with zero external effects", async ({ page, request, context }) => {
+  test.setTimeout(240_000);
   const deniedRequests: string[] = [];
   await page.route("**/*", async (route) => {
     const requested = new URL(route.request().url());
@@ -90,7 +91,11 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
 
   let reviewedSteps = 0;
   let confirmedFit = false;
-  while (!confirmedFit) {
+  let correctedProduct = false;
+  let exercisedRescope = false;
+  let exercisedReject = false;
+  let exercisedStaleFence = false;
+  while (true) {
     expect(reviewedSteps, "the authoritative onboarding queue exceeded the browser contract").toBeLessThan(MAX_SUPPORTED_ONBOARDING_STEPS);
     await expect(page.getByText("No recommendation was generated. Owner input is required.")).toBeVisible();
     const questionPrompt = await page.locator(".active-question-card h2").textContent();
@@ -102,29 +107,132 @@ test("blank generic onboarding reaches confirmed fit and survives a runtime rest
     await page.getByLabel("Reason").fill("Synthetic browser acceptance evidence only");
     await page.getByRole("button", { name: "Submit answer for confirmation" }).click();
     await expect(page.getByRole("heading", { name: "Confirm submitted answer" })).toBeVisible();
-    await page.getByLabel("Accept").check();
-    await page.getByRole("button", { name: "Accept", exact: true }).click();
+    const isCompanyQuestion = /^What should PROspector know about identity for the Company/.test(questionPrompt ?? "");
+    const isProductQuestion = / for the Product /.test(questionPrompt ?? "");
+    const decision = isCompanyQuestion && !exercisedRescope
+      ? "rescope"
+      : isCompanyQuestion && !exercisedReject
+        ? "reject"
+        : isProductQuestion && !correctedProduct
+          ? "correct"
+          : "accept";
+    await page.getByLabel(decision[0].toUpperCase() + decision.slice(1)).check();
+    if (decision === "rescope") {
+      const destination = page.getByLabel("Confirmed destination");
+      const productOption = destination.locator("option").filter({ hasText: "Product · Northstar / Harbor Pulse" });
+      const productId = await productOption.getAttribute("value");
+      assert.ok(productId, "the rendered rescope control must expose the exact Product destination");
+      await destination.selectOption(productId);
+      await page.getByLabel("Reason").fill("This synthetic identity belongs to the Product scope.");
+      exercisedRescope = true;
+    } else if (decision === "correct") {
+      await page.getByLabel("Corrected value").fill("Corrected synthetic Product authority");
+      await page.getByLabel("Reason").fill("The owner corrected this Product policy before confirmation.");
+      correctedProduct = true;
+    } else if (decision === "reject") {
+      exercisedReject = true;
+    }
+    const decisionButton = decision === "correct" ? "Record correction" : decision === "rescope" ? "Record rescope" : decision[0].toUpperCase() + decision.slice(1);
+    await page.getByRole("button", { name: decisionButton, exact: true }).click();
     reviewedSteps += 1;
     await expect(page.getByRole("heading", { name: "Confirmed result" })).toBeVisible();
+    confirmedFit ||= isFitQuestion;
+    const interviewComplete = await page.getByText(/Local interview complete: all \d+ hierarchy slots/).isVisible();
+    if (interviewComplete) break;
+
     const progress = await page.getByText(/\d+ of \d+ interview slots reviewed\./).textContent();
     const totalSlots = Number(/\d+ of (\d+) interview slots reviewed\./.exec(progress ?? "")?.[1]);
     expect(Number.isSafeInteger(totalSlots) && totalSlots > 0).toBe(true);
     expect(totalSlots, "queue expansion requires an explicit browser-bound review").toBeLessThanOrEqual(MAX_SUPPORTED_ONBOARDING_STEPS);
-    confirmedFit = isFitQuestion;
-    if (confirmedFit) break;
-    await page.getByRole("button", { name: "Continue interview" }).click();
+
+    if (isFitQuestion && !exercisedStaleFence) {
+      await page.reload();
+      await expect(page.getByRole("heading", { name: "Confirmed result" })).toBeVisible();
+      const secondTab = await context.newPage();
+      await secondTab.route("**/*", async (route) => {
+        const requested = new URL(route.request().url());
+        if (requested.origin === origin) return route.continue();
+        deniedRequests.push(requested.origin);
+        return route.abort("blockedbyclient");
+      });
+      await secondTab.goto("/?view=knowledge");
+      await expect(secondTab.getByRole("heading", { name: "Confirmed result" })).toBeVisible();
+      await Promise.all([
+        page.getByRole("button", { name: "Continue interview" }).click(),
+        secondTab.getByRole("button", { name: "Continue interview" }).click(),
+      ]);
+      await expect.poll(async () =>
+        (await page.locator(".active-question-card").count()) +
+        (await secondTab.locator(".active-question-card").count()),
+      ).toBe(1);
+      const mainLost = await page.getByText("This item changed in another tab. Your action was not applied.").isVisible();
+      const staleTab = mainLost ? page : secondTab;
+      await expect(staleTab.getByText("This item changed in another tab. Your action was not applied.")).toBeVisible();
+      if (mainLost) {
+        await page.getByRole("button", { name: "Load current version" }).click();
+        await expect(page.locator(".active-question-card")).toBeVisible();
+      }
+      await secondTab.close();
+      exercisedStaleFence = true;
+    } else {
+      await page.getByRole("button", { name: "Continue interview" }).click();
+    }
   }
 
   expect(reviewedSteps).toBeGreaterThan(0);
   expect(confirmedFit, "the rendered authoritative progression must reach confirmed Profile fit").toBe(true);
+  expect({ exercisedReject, exercisedRescope, correctedProduct, exercisedStaleFence }).toEqual({
+    exercisedReject: true,
+    exercisedRescope: true,
+    correctedProduct: true,
+    exercisedStaleFence: true,
+  });
   await expect(page.getByRole("heading", { name: "Consensus knowledge" })).toBeVisible();
   await expect(page.getByText("Northstar", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Bulk Terminal Operators", { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Commercial Model" }).click();
+  await expect(page.getByText("Synthetic owner answer", { exact: false }).last()).toBeVisible();
+  await assertAxe(page);
+  expect(deniedRequests).toEqual([]);
+
+  await page.goto("/?view=market-discovery");
+  await expect(page.getByRole("heading", { name: "Market Discovery" })).toBeVisible();
+  const productPicker = page.getByLabel("Product picker");
+  const productValue = await productPicker.locator("option").filter({ hasText: "Harbor Pulse" }).getAttribute("value");
+  assert.ok(productValue, "the rendered Product picker must expose the interviewed Product");
+  await productPicker.selectOption(productValue);
+  await expect(page.getByText("9 of 9 confirmed")).toBeVisible();
+  await page.getByRole("button", { name: "Make Product Ready" }).click();
+  await expect(page.getByRole("heading", { name: "Product Ready" })).toBeVisible();
+  await expect(page.getByText(/blocked missing capability/i).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Discover markets" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Latest Market Discovery run" }).locator("..").locator("code")).toBeVisible();
+  await expect(page.getByText(/blocked missing capability/i).first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Product Ready" })).toBeVisible();
+
+  await page.goto("/?view=prospects");
+  await expect(page.getByRole("heading", { name: "Profile Readiness and Prospect Workspace" })).toBeVisible();
+  const profilePicker = page.getByLabel("Customer Profile");
+  const profileValue = await profilePicker.locator("option").filter({ hasText: "Bulk Terminal Operators" }).getAttribute("value");
+  assert.ok(profileValue, "the rendered Profile picker must expose the interviewed Customer Profile");
+  await profilePicker.selectOption(profileValue);
+  await expect(page.getByText("All required predecessor references are current.")).toBeVisible();
+  await page.getByRole("button", { name: "Create Profile configuration candidate" }).click();
+  await expect(page.getByRole("heading", { name: "Candidate — not active" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Candidate — not active" })).toBeVisible();
+  await page.getByRole("button", { name: "Activate Profile configuration" }).click();
+  await expect(page.getByRole("heading", { name: "Active Profile Effective Configuration" })).toBeVisible();
+  await expect(page.getByText(/blocked missing capability/i).first()).toBeVisible();
   await assertAxe(page);
   expect(deniedRequests).toEqual([]);
 
   await stopServer(server);
   server = await startServer();
+  await page.goto("/?view=prospects");
+  await expect(page.getByRole("heading", { name: "Active Profile Effective Configuration" })).toBeVisible();
+  await expect(page.getByText(/blocked missing capability/i).first()).toBeVisible();
   await page.goto("/?view=knowledge");
   await expect(page.getByRole("heading", { name: "Consensus knowledge" })).toBeVisible();
   await expect(page.getByText("Northstar", { exact: true }).first()).toBeVisible();

@@ -225,6 +225,49 @@ test("ordinary synthetic local demo state passes and is reported", async () => {
   });
 });
 
+test("projected authority is admitted only while every execution marker remains blocked", async () => {
+  const cases = [
+    ["product_discovery_runs", "execution_state TEXT", "'blocked_missing_capability'", "'running'", "product_discovery_runs_must_remain_blocked_missing_capability"],
+    ["product_discovery_schedules", "execution_state TEXT", "'blocked_missing_capability'", "'enabled'", "product_discovery_schedules_must_remain_blocked_missing_capability"],
+    ["prospecting_runs", "execution_state TEXT", "'blocked_missing_capability'", "'running'", "prospecting_runs_must_remain_blocked_missing_capability"],
+    ["prospecting_schedules", "execution_state TEXT", "'blocked_missing_capability'", "'enabled'", "prospecting_schedules_must_remain_blocked_missing_capability"],
+    ["prospecting_run_events", "event_json TEXT", `'${JSON.stringify({ state: "blocked_missing_capability" })}'`, `'${JSON.stringify({ state: "running" })}'`, "prospecting_run_events_must_record_only_blocked_intent"],
+  ];
+  for (const [table, column, blocked, active, message] of cases) {
+    await withFixture(async ({ stateRoot, write }) => {
+      write(`CREATE TABLE "${table}" (id TEXT PRIMARY KEY, ${column}); INSERT INTO "${table}" VALUES ('projected', ${blocked});`);
+      const passed = verify(stateRoot);
+      assert.equal(passed.status, 0, `${table} blocked authority must pass: ${passed.stderr}`);
+      assert.equal(JSON.parse(passed.stdout).projectedAuthority[table], 1);
+    });
+    await withFixture(async ({ stateRoot, write }) => {
+      write(`CREATE TABLE "${table}" (id TEXT PRIMARY KEY, ${column}); INSERT INTO "${table}" VALUES ('active', ${active});`);
+      const denied = verify(stateRoot);
+      assert.notEqual(denied.status, 0, `${table} active authority must fail`);
+      assert.match(denied.stderr, new RegExp(message));
+    });
+  }
+});
+
+test("projected authority fails closed on absent, null, mistyped, or malformed execution markers", async () => {
+  const cases = [
+    ["product_discovery_runs", "execution_state TEXT", "NULL", "product_discovery_runs_must_remain_blocked_missing_capability"],
+    ["prospecting_schedules", "execution_state TEXT", "NULL", "prospecting_schedules_must_remain_blocked_missing_capability"],
+    ["prospecting_run_events", "event_json TEXT", `'${JSON.stringify({})}'`, "prospecting_run_events_must_record_only_blocked_intent"],
+    ["prospecting_run_events", "event_json TEXT", `'${JSON.stringify({ state: null })}'`, "prospecting_run_events_must_record_only_blocked_intent"],
+    ["prospecting_run_events", "event_json TEXT", `'${JSON.stringify({ state: 1 })}'`, "prospecting_run_events_must_record_only_blocked_intent"],
+    ["prospecting_run_events", "event_json TEXT", "'{malformed'", "prospecting_run_events_must_record_only_blocked_intent"],
+  ];
+  for (const [table, column, marker, message] of cases) {
+    await withFixture(async ({ stateRoot, write }) => {
+      write(`CREATE TABLE "${table}" (id TEXT PRIMARY KEY, ${column}); INSERT INTO "${table}" VALUES ('invalid', ${marker});`);
+      const denied = verify(stateRoot);
+      assert.notEqual(denied.status, 0, `${table} invalid authority must fail`);
+      assert.match(denied.stderr, new RegExp(message));
+    });
+  }
+});
+
 test("local state stays bounded so a bulk load cannot pass as demo state", async () => {
   await withFixture(async ({ stateRoot, write }) => {
     const rows = Array.from({ length: LOCAL_STATE_ROW_CEILING + 1 }, (unused, index) => `('bulk-${index}','draft','fit')`).join(",");
