@@ -10,6 +10,7 @@ import { ReviewQueue } from "./review-queue";
 import { prospectingUrl } from "./prospecting-transport";
 import { disambiguateOperatorLabels } from "../operator-context";
 import { TaskState } from "../task-state";
+import { chooseOperatorPreference, readOperatorPreference, writeOperatorPreference } from "../operator-preference";
 
 export type ProspectingProjection = {
   authority?: "owner" | "blocked" | "malformed";
@@ -53,18 +54,28 @@ export function ProspectingWorkspace({
   const [notice, setNotice] = useState<Notice>(initialNotice);
   const selectedProfileId = projection.readiness?.profile?.id ?? "";
   const initialProfileId = initial.readiness?.profile?.id;
+  const initialProfiles = initial.profiles;
+  const initialReadiness = initial.readiness;
   const reload = useCallback(async (profileId?: string) => {
-    const response = await fetch(prospectingUrl(profileId), {
+    let response = await fetch(prospectingUrl(profileId), {
       cache: "no-store",
       credentials: "same-origin",
     });
+    if (response.status === 404 && profileId) {
+      response = await fetch(prospectingUrl(), {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+    }
     if (response.status === 404) {
       onUnauthorized?.();
       throw Error("Private prospecting workspace unavailable.");
     }
     if (!response.ok)
       throw Error("Unable to reconcile the authoritative workspace.");
-    setProjection(await response.json());
+    const next = await response.json() as ProspectingProjection;
+    setProjection(next);
+    return next;
   }, [onUnauthorized]);
   const selectProfile = useCallback(
     async (profileId: string) => {
@@ -72,6 +83,7 @@ export function ProspectingWorkspace({
       setNotice("");
       try {
         await reload(profileId);
+        writeOperatorPreference("prospector.prospecting.profile", profileId);
         setNotice("loaded");
       } catch {
         setNotice("load_failed");
@@ -94,12 +106,19 @@ export function ProspectingWorkspace({
   }, [reload, selectedProfileId]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void reload(initialProfileId).catch(() =>
-        setNotice("load_failed"),
-      );
+      void (async () => {
+        const stored = readOperatorPreference("prospector.prospecting.profile");
+        let authority: ProspectingProjection = { profiles: initialProfiles, readiness: initialReadiness };
+        let profileId = chooseOperatorPreference(stored, (authority.profiles ?? []).map(({ id }) => id), initialProfileId);
+        if (!profileId) {
+          authority = await reload();
+          profileId = chooseOperatorPreference(stored, (authority.profiles ?? []).map(({ id }) => id), authority.readiness?.profile?.id);
+        }
+        if (profileId && authority.readiness?.profile?.id !== profileId) await reload(profileId);
+      })().catch(() => setNotice("load_failed"));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [initialProfileId, reload]);
+  }, [initialProfileId, initialProfiles, initialReadiness, reload]);
   const command = useCallback(
     async (body: Record<string, unknown>) => {
       setBusy(true);
