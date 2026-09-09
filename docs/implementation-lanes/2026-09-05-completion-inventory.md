@@ -10,6 +10,11 @@ authorization, hosted-evidence substitute, or permission to perform an external
 effect. The original private Sites project remains retired and inaccessible.
 Any future hosted environment must be greenfield.
 
+The explicitly unaccepted `LOCAL_DEMO` runtime-composition track is recorded in
+[`2026-09-09-local-demo-runtime-composition.md`](2026-09-09-local-demo-runtime-composition.md).
+It permits only owner-facing local composition over fictional disposable data
+with fake or reject-only adapters and changes no formal status or gate.
+
 ## Executive result
 
 The repository contains a guarded local owner runtime plus substantial Phase 4,
