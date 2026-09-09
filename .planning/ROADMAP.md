@@ -264,6 +264,14 @@ complete; do not extend it as a substitute for the gated Phase 7 plans.
 
 ## Progress
 
+**Terminal target rule:** Plans 04-11/04-12, 06-10/06-13, and 07-07/07-10
+require separately authorized greenfield Cloudflare targets and target-specific
+reviewed-source, configuration, migration, private-boundary, and zero-effect
+evidence. Retired Sites journal/schema/provider provenance cannot be inherited,
+and no original-project migration is claimed. This rule changes no completion
+count; every human/hosted checkpoint remains incomplete until its exact evidence
+is accepted.
+
 **Execution Order:** Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7
 
 | Phase | Plans Complete | Status | Completed |
