@@ -1,4 +1,5 @@
 import { issueRunnerAssignment } from "./runner-assignment";
+import { handleRunnerIngress } from "./prospecting-handler";
 
 /**
  * Explicit host bindings for the untrusted-runner boundary.  Assignment issue
@@ -57,6 +58,12 @@ export async function issueRuntimeRunnerAssignment(bindings: RunnerRuntimeBindin
   const capabilitySecret = enabledSecret(bindings.PROSPECTOR_RUNNER_ASSIGNMENT_ENABLED, bindings.RUNNER_CAPABILITY_SECRET);
   if (!bindings.DB || !capabilitySecret) throw new Error("runner_runtime_unavailable");
   return issueRunnerAssignment(bindings.DB, { ...input, capabilitySecret });
+}
+
+/** HTTP composition seam used by the route; it reads no ambient bindings. */
+export function handleRunnerRuntimeRequest(request: Request, bindings: RunnerRuntimeBindings, now?: () => number) {
+  const dependencies = composeRunnerIngress(bindings);
+  return handleRunnerIngress(request, dependencies && now ? { ...dependencies, now } : dependencies);
 }
 
 function enabledSecret(flag: string | undefined, value: string | undefined): Uint8Array | undefined {
