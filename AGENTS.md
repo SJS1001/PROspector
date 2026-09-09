@@ -10,6 +10,10 @@ Before changing this repository, read these committed sources of truth in order:
 6. The active Phase 2 `02-REVIEW.md`, `02-SECURITY.md`, and `02-UI-REVIEW.md`
 7. The current plan and every dependency summary named by that plan
 
+Before proposing or reviewing any local Phase 4–7 product-composition work,
+also read `.planning/LOCAL-DEMO-COMPOSITION.md`. It is an explicitly
+unaccepted dependency track and does not change plan credit or external gates.
+
 The original private Sites project is inaccessible and permanently retired from the execution path. Do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Future environments must be greenfield and require separate provisioning authority. Never display, copy, rotate, remove, or commit secret values or private hosted data.
 
 Plans that require a real principal, hosted control-plane action, database evidence, deployment authority, or an explicit owner decision remain incomplete until that exact evidence exists. Local tests, fixtures, prose, digests, and status rows cannot substitute for those checkpoints. Do not create a completion summary for a blocked plan.

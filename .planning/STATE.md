@@ -4,7 +4,7 @@ local_demo_track: proposed_unaccepted_docs_only
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 4-7 local implementation is substantially merged; formal acceptance remains pending, and the next bounded work is the guarded cross-phase LOCAL_DEMO UX composition track
+stopped_at: Phase 4-7 local implementation is substantially merged; formal acceptance remains pending, and the proposed guarded cross-phase LOCAL_DEMO UX composition track is unaccepted
 last_updated: "2026-09-09"
 last_activity: 2026-09-09
 progress:
@@ -23,20 +23,19 @@ This is implementation/readiness evidence only: the phase checkboxes, plan
 credit count, requirements, predecessor gates, and hosted/human/provider
 acceptance remain unchanged. The remaining local E2E gap is a single
 supported-screen browser journey that composes the already-merged remaining
-phase UX in authority order. `.planning/LOCAL-DEMO-COMPOSITION.md` authorizes
-only a guarded loopback `LOCAL_DEMO` story using fixed fictional/disposable
-projections. It grants no plan or phase credit and no hosted, provider,
+phase UX in authority order. `.planning/LOCAL-DEMO-COMPOSITION.md` is the
+single canonical record for a proposed, separate, and unaccepted guarded
+loopback `LOCAL_DEMO` story using fixed fictional/disposable projections. It
+grants no plan or phase credit and no hosted, provider,
 credential, real-data, persistence, export, or outbound authority.
 
-**Offline implementation update (2026-09-06):** Work units A, B, and C1 through C4 plus the
-prerequisite `0018` importer normalization are integrated on the
-generic-onboarding branch. The person-discovery 47-case focused gate, the
-Offer/interview 35-case focused gate, and the real two-case Chromium onboarding
-journey are green; independent integration/code/security reviews are clean.
-The full-chain C4 Chromium journey and exact zero-effect verifier are green;
-Work Unit D is next. This work earns no Phase 5 plan credit and changes no
-hosted/provider/effect authority. The current transfer ledger is
-`docs/implementation-lanes/2026-09-06-claude-cloud-transfer.md`.
+**Earlier offline checkpoint (2026-09-06):** Work units A, B, and C1 through C4
+plus the prerequisite `0018` importer normalization were integrated and
+verified as recorded in
+`docs/implementation-lanes/2026-09-06-claude-cloud-transfer.md`. The former
+Work-Unit-D-next pointer is superseded by the current planning reconciliation
+above. This historical evidence earns no Phase 5 plan credit and changes no
+hosted/provider/effect authority.
 
 ## Project Reference
 
@@ -92,7 +91,7 @@ Progress: [████░░░░░░] 35% of active plans (26/74 completion
 Decisions are logged in `PROJECT.md` and the six accepted ADRs. Recent decisions affecting current work:
 
 - Existing implementation is partial progress and must pass the owning phase's observable criteria before receiving credit.
-- [Guarded LOCAL_DEMO composition]: The 2026-09-09 planning amendment permits a bounded cross-Phase 4–7 supported-screen UX journey only behind the existing development + exact LOCAL_DEMO + loopback + same-origin + synthetic-owner fences. It must preserve Phase 4 → 5 → 6 → 7 authority ordering, use fixed fictional/disposable non-durable projections, keep real decisions refused and all effects zero, and remain absent from production bundles. It grants no formal credit and no hosted/provider/credential/real-data/persistence/export/outbound authority. See `.planning/LOCAL-DEMO-COMPOSITION.md`.
+- [Guarded LOCAL_DEMO composition]: The 2026-09-09 planning amendment proposes a bounded cross-Phase 4–7 supported-screen UX journey only behind the existing development + exact LOCAL_DEMO + loopback + same-origin + synthetic-owner fences. It remains unaccepted. If separately accepted, it must preserve Phase 4 → 5 → 6 → 7 authority ordering, use fixed fictional/disposable projections, keep real decisions refused and all effects zero, and remain absent from production bundles. It grants no formal credit and no hosted/provider/credential/real-data/persistence/export/outbound authority. See `.planning/LOCAL-DEMO-COMPOSITION.md`.
 - The current live exception is limited to the low-sensitivity historian-readiness Answer-to-Confirmation lifecycle.
 - Real leads, contacts, imports, schedules, exports, provider credentials, and outbound effects remain disabled until applicable gates pass.
 - Seven vertical phases own all 17 v1 requirements exactly once.

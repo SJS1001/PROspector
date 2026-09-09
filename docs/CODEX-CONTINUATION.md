@@ -2,8 +2,8 @@
 
 **Created:** 2026-07-30  
 **Repository:** `https://github.com/SJS1001/PROspector.git`  
-**Branch:** `codex/generic-prospector-pilot`  
-**Portable checkpoint:** use the latest `origin/codex/generic-prospector-pilot` commit  
+**Branch:** `main`
+**Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
 ## Current planning reconciliation — 2026-09-09
@@ -17,32 +17,33 @@ credential, real-principal, independent-review, and owner-acceptance gates
 remain pending exactly as checked.
 
 The remaining local end-to-end gap is one coherent supported-screen browser
-journey across those already-merged later-phase UX seams. The bounded authority
-for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It permits only fixed
-fictional/disposable, non-durable projections behind the existing development,
-exact `LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
+journey across those already-merged later-phase UX seams. The single canonical
+proposal for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It is separate
+and unaccepted, and defines only fixed
+fictional/disposable projections behind the existing development, exact
+`LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
 the dependency order: Phase 4 ready Profile/qualified Prospect/review → Phase 5
 fictional contact/enrichment review → Phase 6 Package before Message and
 suppression rechecks → Phase 7 morning/weekly/CRM/portability previews. Real
 decisions stay refused, effect counters stay zero, production bundles exclude
 the fixtures/routes, and no summary or formal credit may result.
 
-That amendment grants no hosted/provider/credential/real-data/persistence/
+That proposal grants no hosted/provider/credential/real-data/persistence/
 export/outbound authority. Stop rather than widening a checked plan, composing
 a real port, writing durable state, delivering bytes, or fabricating evidence.
 
-## Current Claude Cloud transfer — 2026-09-06
+## Historical Claude Cloud transfer — 2026-09-06
 
 Local Codex implementation and its transfer record are clean and pushed at
 checkpoint `8b0a95b8385fb130b9b6627b4d12664c2263c018` on
 `codex/generic-onboarding-integration`. Work units A and B and person-discovery
 units C1 through C3 are integrated. Their focused authority gates and the real
 Chromium onboarding/restart/zero-effect journey are green. C4 synthetic
-person-discovery acceptance is integrated; Work Unit D operator interface is
-the active local unit. Continue through
+person-discovery acceptance was integrated; Work Unit D operator interface was
+the active local unit at that checkpoint. Historical detail remains in
 [`implementation-lanes/2026-09-06-claude-cloud-transfer.md`](implementation-lanes/2026-09-06-claude-cloud-transfer.md).
-That record supersedes older branch pointers for current implementation work;
-historical hosted evidence and external authority gates below remain unchanged.
+That record no longer controls current local work; historical hosted evidence
+and external authority gates below remain unchanged.
 
 ## Fresh isolated pilot ownership
 
@@ -85,16 +86,18 @@ also pass. Stage 3A is complete and stopped before Access.
 ## Resume from another Codex account
 
 1. Confirm the other account has GitHub read/write access to `SJS1001/PROspector`.
-2. Clone the repository or open the saved project, fetch, and switch to `codex/generic-prospector-pilot`:
+2. Clone the repository or open the saved project, fetch, and switch to `main`:
 
    ```bash
    git clone https://github.com/SJS1001/PROspector.git
    cd PROspector
-   git fetch origin
-   git switch --track origin/codex/generic-prospector-pilot
+   git fetch origin main
+   git switch main
+   git pull --ff-only origin main
    ```
 
-   If the branch already exists locally, use `git switch codex/generic-prospector-pilot` followed by `git pull --ff-only`.
+   If `main` already exists locally, use `git switch main` followed by
+   `git pull --ff-only origin main`.
 3. Read this file, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the current phase's `*-PLAN.md`/`*-SUMMARY.md` files.
 4. Install and verify the application from `site/` with Node.js 22.13 or newer: `npm ci`, `npm test`, and `npm run lint`.
 5. Read `docs/GREENFIELD-BASELINE.md`, completed Plan `02-22` and its summary, and terminal Plan `02-99`. The forensic report, incident reconciliation, Plans 02-13 through 02-21, and the old recovery Plan 02-99 are retained only as retired history. Never resume them or attempt original-project access.
@@ -108,7 +111,7 @@ GSD skills and `gsd-sdk` are account-level tools, not repository dependencies. I
 
 Use Codex accounts sequentially, with Git as the shared memory. Do not run two writing accounts against this branch at the same time.
 
-1. Start every account by fetching and fast-forwarding `codex/generic-prospector-pilot`; require a clean worktree and read the committed state before selecting work.
+1. Start every account by fetching and fast-forwarding `main` from `origin/main`; require a clean worktree and read the committed state before selecting work.
 2. Do not inspect or resolve the original hosted project from any account. It has no remaining execution role.
 3. Treat all accounts as local-work accounts unless the owner separately authorizes that account for the provisioned greenfield target and the exact bounded stage. Never infer hosted evidence or continuing write authority from account access or the Stage 1 record.
 4. Take one bounded executable plan or maintenance unit per account. Use subagents only for independent implementation/review work with non-overlapping ownership.
@@ -120,17 +123,18 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 
 ## Paste-ready prompt for another Codex account
 
-> Continue PROspector from the latest `origin/codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `docs/GREENFIELD-BASELINE.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, completed Plan `02-22` and its summary, terminal Plan `02-99`, and the preparation contract for any local lane you select. The original hosted project is inaccessible and permanently retired: do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Its journal/schema/provenance evidence is intentionally waived because no old state will be reused; make no claim that a migration occurred. Use only the checked repository and a fresh empty local database as the authoritative baseline. Continue bounded local and synthetic preparation while providers, production data, credentials, prospecting, enrichment calls, Gmail, calling, external exports, schedules, and every hosted write remain separately gated. Never fabricate hosted evidence or create phase summaries for blocked checkpoints.
+> Continue PROspector from the latest `origin/main`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `docs/GREENFIELD-BASELINE.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, completed Plan `02-22` and its summary, terminal Plan `02-99`, and the preparation contract for any local lane you select. The original hosted project is inaccessible and permanently retired: do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Its journal/schema/provenance evidence is intentionally waived because no old state will be reused; make no claim that a migration occurred. Use only the checked repository and a fresh empty local database as the authoritative baseline. Continue bounded local and synthetic preparation while providers, production data, credentials, prospecting, enrichment calls, Gmail, calling, external exports, schedules, and every hosted write remain separately gated. Never fabricate hosted evidence or create phase summaries for blocked checkpoints.
 
 ## Current state
 
-- A separate proposed `LOCAL_DEMO` composition track is documented in
-  [`LOCAL-DEMO-AUTHORITY-TRACK.md`](LOCAL-DEMO-AUTHORITY-TRACK.md). It permits
-  only fictional disposable loopback composition of existing Phase 4–7
-  foundations, in dependency order, with exact verification and literal-zero
-  effect criteria. It grants no plan/phase, hosted, provider, data, export,
-  credential, or external-effect authority; the original Sites boundary stays
-  permanently retired.
+- The single canonical record for the separate proposed and unaccepted
+  `LOCAL_DEMO` composition track is
+  [`.planning/LOCAL-DEMO-COMPOSITION.md`](../.planning/LOCAL-DEMO-COMPOSITION.md).
+  It defines only fictional disposable loopback composition of existing Phase
+  4–7 foundations, in dependency order, with exact verification and
+  literal-zero-effect criteria. It grants no plan/phase, hosted, provider,
+  data, persistence, export, credential, or external-effect authority; the
+  original Sites boundary stays permanently retired.
 
 - Phase 1 automated build is complete. Its four Sites-version-10 human checks were never performed and are now explicitly superseded historical evidence because that release is retired; they are not passed or waived proof and must not be attempted against it. Equivalent real-principal, authenticated negative-mutation/zero-delta, secret/log, and exact-release review evidence remains non-substitutable under greenfield Plan 02-99.
 - Phase 2 retains Plans 02-01 through 02-12 completion credit. Plans 02-13 through 02-21 and the old recovery Plan 02-99 are retired incident history and earn no new credit. Plan 02-22 establishes the verified greenfield local baseline; the new terminal Plan 02-99 keeps future hosted acceptance separate.
