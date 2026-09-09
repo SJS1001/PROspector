@@ -20,6 +20,21 @@ async function load() {
 }
 
 const digest = (character) => character.repeat(64);
+const syntheticProvenance = (patch = {}) => ({
+  kind: "synthetic_disposable",
+  snapshotId: "snapshot-1",
+  snapshotDigest: digest("c"),
+  migrationLineageDigest: digest("d"),
+  ...patch,
+});
+const compatibilityExpectation = (patch = {}) => ({
+  workspaceId: "workspace-1",
+  schemaVersion: "prospector/portable-workspace-schema/v1",
+  snapshotId: "snapshot-1",
+  snapshotDigest: digest("c"),
+  migrationLineageDigest: digest("d"),
+  ...patch,
+});
 function row(patch = {}) {
   return {
     prospect_id: "prospect-1", company_id: "company-1", product_id: "product-1",
@@ -73,6 +88,7 @@ test("encrypted local backup restores atomically, idempotently, and keeps effect
   try {
     const source = {
       workspaceId: "workspace-1", createdAt: "2026-09-09T12:00:00.000Z",
+      provenance: syntheticProvenance(),
       records: [{ kind: "prospect", id: "prospect-1", value: { state: "ExportReady", label: "Synthetic" } }],
       objectDigests: [digest("a")],
       suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: { scopeDigest: digest("b") } }],
@@ -81,35 +97,95 @@ test("encrypted local backup restores atomically, idempotently, and keeps effect
     const envelope = await backup.createEncryptedLocalBackup(source, passphrase);
     assert.equal(JSON.stringify(envelope).includes(passphrase), false);
     const empty = { workspaceId: "workspace-1", archiveDigest: null, records: [], objectDigests: [], suppressionTombstones: [], effectsEnabled: false };
-    const restored = await backup.restoreEncryptedLocalBackup(envelope, passphrase, empty);
+    const expectation = compatibilityExpectation();
+    const restored = await backup.restoreEncryptedLocalBackup(envelope, passphrase, empty, expectation);
     assert.equal(restored.effectsEnabled, false);
     assert.equal(restored.suppressionTombstones.length, 1);
     assert.equal(restored.records.length, 1);
-    const replay = await backup.restoreEncryptedLocalBackup(envelope, passphrase, restored);
+    const replay = await backup.restoreEncryptedLocalBackup(envelope, passphrase, restored, expectation);
     assert.equal(replay, restored, "exact restore replay returns the prior immutable state");
 
     await assert.rejects(
-      () => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...restored, workspaceId: "workspace-2" }),
+      () => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...restored, workspaceId: "workspace-2" }, expectation),
       /portable_backup_untrusted/u,
       "a matching archive digest cannot bypass tenant isolation",
     );
     await assert.rejects(
-      () => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...restored, records: [] }),
+      () => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...restored, records: [] }, expectation),
       /portable_backup_untrusted/u,
       "a matching archive digest cannot bless divergent restored state",
     );
 
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, "wrong-passphrase-long-enough", empty), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, "wrong-passphrase-long-enough", empty, expectation), /portable_backup_untrusted/u);
     const corrupt = { ...envelope, ciphertext: `${envelope.ciphertext.slice(0, -4)}AAAA` };
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup(corrupt, passphrase, empty), /portable_backup_untrusted/u);
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, ciphertext: envelope.ciphertext.slice(0, -4) }, passphrase, empty), /portable_backup_untrusted/u);
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, salt: envelope.salt.replace(/=+$/u, "") }, passphrase, empty), /portable_backup_untrusted/u);
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, extra: true }, passphrase, empty), /portable_backup_untrusted/u);
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, iterations: 209_999 }, passphrase, empty), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup(corrupt, passphrase, empty, expectation), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, ciphertext: envelope.ciphertext.slice(0, -4) }, passphrase, empty, expectation), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, salt: envelope.salt.replace(/=+$/u, "") }, passphrase, empty, expectation), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, extra: true }, passphrase, empty, expectation), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup({ ...envelope, iterations: 209_999 }, passphrase, empty, expectation), /portable_backup_untrusted/u);
     const nonClean = { ...empty, records: [{ kind: "existing", id: "existing-1", value: {} }] };
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, passphrase, nonClean), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, passphrase, nonClean, expectation), /portable_backup_untrusted/u);
     assert.equal(nonClean.records.length, 1, "failed restore leaves caller state unchanged");
-    await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...empty, workspaceId: "workspace-2" }), /portable_backup_untrusted/u);
+    await assert.rejects(() => backup.restoreEncryptedLocalBackup(envelope, passphrase, { ...empty, workspaceId: "workspace-2" }, expectation), /portable_backup_untrusted/u);
+  } finally { await vite.close(); }
+});
+
+test("restore compatibility binds synthetic identity, provenance, schema, and authenticated bytes", async () => {
+  const { vite, backup } = await load();
+  try {
+    const source = {
+      workspaceId: "workspace-1",
+      createdAt: "2026-09-09T12:00:00.000Z",
+      provenance: syntheticProvenance(),
+      records: [{ kind: "prospect", id: "prospect-1", value: { label: "Fictional" } }],
+      objectDigests: [digest("a")],
+      suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: { scopeDigest: digest("b") } }],
+    };
+    const passphrase = "disposable-test-passphrase-only";
+    const envelope = await backup.createEncryptedLocalBackup(source, passphrase);
+    const expectation = compatibilityExpectation();
+    const receipt = await backup.verifyEncryptedLocalBackupCompatibility(envelope, passphrase, expectation);
+
+    assert.equal(receipt.compatibility, "synthetic_contract_match");
+    assert.equal(receipt.workspaceId, source.workspaceId);
+    assert.equal(receipt.snapshotId, source.provenance.snapshotId);
+    assert.equal(receipt.snapshotDigest, source.provenance.snapshotDigest);
+    assert.equal(receipt.migrationLineageDigest, source.provenance.migrationLineageDigest);
+    assert.match(receipt.archiveDigest, /^[a-f0-9]{64}$/u);
+    assert.equal(receipt.recordCount, 1);
+    assert.equal(receipt.objectDigestCount, 1);
+    assert.equal(receipt.suppressionTombstoneCount, 1);
+    assert.equal(receipt.restoreAuthority, false);
+    assert.equal(receipt.operationalAuthority, false);
+    assert.equal(Object.isFrozen(receipt), true);
+    assert.equal(JSON.stringify(receipt).includes(passphrase), false);
+
+    const failures = [
+      [envelope, passphrase, compatibilityExpectation({ workspaceId: "workspace-2" })],
+      [envelope, passphrase, compatibilityExpectation({ snapshotId: "snapshot-2" })],
+      [envelope, passphrase, compatibilityExpectation({ snapshotDigest: digest("e") })],
+      [envelope, passphrase, compatibilityExpectation({ migrationLineageDigest: digest("f") })],
+      [envelope, passphrase, compatibilityExpectation({ schemaVersion: "prospector/portable-workspace-schema/v2" })],
+      [envelope, "wrong-passphrase-long-enough", expectation],
+      [{ ...envelope, format: "prospector/local-portable-backup/v1" }, passphrase, expectation],
+      [{ ...envelope, ciphertext: `${envelope.ciphertext.slice(0, -8)}AAAAAAAA` }, passphrase, expectation],
+      [{ ...envelope, iv: envelope.salt }, passphrase, expectation],
+      [{ ...envelope, extra: true }, passphrase, expectation],
+    ];
+    for (const [candidateEnvelope, candidatePassphrase, candidateExpectation] of failures) {
+      await assert.rejects(
+        () => backup.verifyEncryptedLocalBackupCompatibility(candidateEnvelope, candidatePassphrase, candidateExpectation),
+        (error) => error instanceof Error && error.message === "portable_backup_untrusted",
+      );
+    }
+
+    const empty = { workspaceId: "workspace-1", archiveDigest: null, records: [], objectDigests: [], suppressionTombstones: [], effectsEnabled: false };
+    await assert.rejects(
+      () => backup.restoreEncryptedLocalBackup(envelope, passphrase, empty, compatibilityExpectation({ snapshotDigest: digest("e") })),
+      /portable_backup_untrusted/u,
+      "restore cannot bypass the compatibility contract",
+    );
+    assert.deepEqual(empty, { workspaceId: "workspace-1", archiveDigest: null, records: [], objectDigests: [], suppressionTombstones: [], effectsEnabled: false });
   } finally { await vite.close(); }
 });
 
@@ -118,13 +194,14 @@ test("backup canonicalization rejects ambiguous and malformed suppression identi
   try {
     const base = {
       workspaceId: "workspace-1", createdAt: "2026-09-09T12:00:00.000Z", objectDigests: [digest("b"), digest("a")],
+      provenance: syntheticProvenance(),
       records: [{ kind: "account", id: "account-2", value: { z: 1, a: 2 } }],
       suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: { scopeDigest: digest("c") } }],
     };
     const passphrase = "disposable-test-passphrase-only";
     const envelope = await backup.createEncryptedLocalBackup(base, passphrase);
     const empty = { workspaceId: "workspace-1", archiveDigest: null, records: [], objectDigests: [], suppressionTombstones: [], effectsEnabled: false };
-    const restored = await backup.restoreEncryptedLocalBackup(envelope, passphrase, empty);
+    const restored = await backup.restoreEncryptedLocalBackup(envelope, passphrase, empty, compatibilityExpectation());
     assert.deepEqual(restored.objectDigests, [digest("a"), digest("b")]);
     assert.deepEqual(restored.records[0].value, { a: 2, z: 1 });
 
@@ -141,6 +218,25 @@ test("backup canonicalization rejects ambiguous and malformed suppression identi
     await assert.rejects(() => backup.createEncryptedLocalBackup({
       ...base, suppressionTombstones: [{ kind: "suppression", id: "tombstone-1", value: { scopeDigest: "malformed" } }],
     }, passphrase), /portable_backup_invalid/u);
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, provenance: syntheticProvenance({ kind: "hosted" }),
+    }, passphrase), /portable_backup_invalid/u);
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, provenance: syntheticProvenance({ snapshotDigest: "malformed" }),
+    }, passphrase), /portable_backup_invalid/u);
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, provenance: { ...syntheticProvenance(), externalEvidence: true },
+    }, passphrase), /portable_backup_invalid/u);
+    let getterReads = 0;
+    const accessorProvenance = { ...syntheticProvenance() };
+    Object.defineProperty(accessorProvenance, "snapshotId", {
+      enumerable: true,
+      get() { getterReads += 1; return "snapshot-1"; },
+    });
+    await assert.rejects(() => backup.createEncryptedLocalBackup({
+      ...base, provenance: accessorProvenance,
+    }, passphrase), /portable_backup_invalid/u);
+    assert.equal(getterReads, 0, "provenance accessors reject before evaluation");
   } finally { await vite.close(); }
 });
 
@@ -149,6 +245,7 @@ test("backup creation rejects secret-shaped fields before encryption", async () 
   try {
     await assert.rejects(() => backup.createEncryptedLocalBackup({
       workspaceId: "workspace-1", createdAt: "2026-09-09T12:00:00.000Z", objectDigests: [], suppressionTombstones: [],
+      provenance: syntheticProvenance(),
       records: [{ kind: "account", id: "account-1", value: { oauthToken: "must-not-enter-archive" } }],
     }, "disposable-test-passphrase-only"), /portable_backup_invalid/u);
   } finally { await vite.close(); }

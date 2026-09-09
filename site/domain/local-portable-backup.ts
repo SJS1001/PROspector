@@ -1,14 +1,24 @@
 export type PortableRecord = Readonly<{ kind: string; id: string; value: unknown }>;
+export const PORTABLE_WORKSPACE_SCHEMA_VERSION = "prospector/portable-workspace-schema/v1" as const;
+
+export type SyntheticBackupProvenance = Readonly<{
+  kind: "synthetic_disposable";
+  snapshotId: string;
+  snapshotDigest: string;
+  migrationLineageDigest: string;
+}>;
+
 export type PortableBackupSource = Readonly<{
   workspaceId: string;
   createdAt: string;
+  provenance: SyntheticBackupProvenance;
   records: readonly PortableRecord[];
   objectDigests: readonly string[];
   suppressionTombstones: readonly PortableRecord[];
 }>;
 
 export type EncryptedPortableBackup = Readonly<{
-  format: "prospector/local-portable-backup/v1";
+  format: "prospector/local-portable-backup/v2";
   kdf: "PBKDF2-SHA-256";
   iterations: 210_000;
   cipher: "AES-256-GCM";
@@ -26,13 +36,40 @@ export type LocalRestoreState = Readonly<{
   effectsEnabled: false;
 }>;
 
+export type PortableRestoreCompatibilityExpectation = Readonly<{
+  workspaceId: string;
+  schemaVersion: typeof PORTABLE_WORKSPACE_SCHEMA_VERSION;
+  snapshotId: string;
+  snapshotDigest: string;
+  migrationLineageDigest: string;
+}>;
+
+export type PortableRestoreCompatibilityReceipt = Readonly<{
+  format: "prospector/local-restore-compatibility-receipt/v1";
+  compatibility: "synthetic_contract_match";
+  archiveDigest: string;
+  workspaceId: string;
+  schemaVersion: typeof PORTABLE_WORKSPACE_SCHEMA_VERSION;
+  snapshotId: string;
+  snapshotDigest: string;
+  migrationLineageDigest: string;
+  recordCount: number;
+  objectDigestCount: number;
+  suppressionTombstoneCount: number;
+  restoreAuthority: false;
+  operationalAuthority: false;
+}>;
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const DIGEST = /^[a-f0-9]{64}$/u;
+const ID = /^[\w.:-]{1,256}$/u;
 const FORBIDDEN_KEY = /(?:passphrase|password|secret|credential|oauth|bearer|token)/iu;
-const SOURCE_KEYS = ["workspaceId", "createdAt", "records", "objectDigests", "suppressionTombstones"] as const;
+const SOURCE_KEYS = ["workspaceId", "createdAt", "provenance", "records", "objectDigests", "suppressionTombstones"] as const;
+const PROVENANCE_KEYS = ["kind", "snapshotId", "snapshotDigest", "migrationLineageDigest"] as const;
+const EXPECTATION_KEYS = ["workspaceId", "schemaVersion", "snapshotId", "snapshotDigest", "migrationLineageDigest"] as const;
 const ENVELOPE_KEYS = ["format", "kdf", "iterations", "cipher", "salt", "iv", "ciphertext"] as const;
-const ARCHIVE_KEYS = ["format", "workspaceId", "createdAt", "records", "objectDigests", "suppressionTombstones", "effectsEnabled"] as const;
+const ARCHIVE_KEYS = ["format", "schemaVersion", "workspaceId", "createdAt", "provenance", "records", "objectDigests", "suppressionTombstones", "effectsEnabled"] as const;
 
 export async function createEncryptedLocalBackup(source: PortableBackupSource, passphrase: string): Promise<EncryptedPortableBackup> {
   validatePassphrase(passphrase);
@@ -40,9 +77,9 @@ export async function createEncryptedLocalBackup(source: PortableBackupSource, p
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(passphrase, salt, ["encrypt"]);
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode("prospector/local-portable-backup/v1") }, key, encoder.encode(canonical));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode("prospector/local-portable-backup/v2") }, key, encoder.encode(canonical));
   return Object.freeze({
-    format: "prospector/local-portable-backup/v1",
+    format: "prospector/local-portable-backup/v2",
     kdf: "PBKDF2-SHA-256",
     iterations: 210_000,
     cipher: "AES-256-GCM",
@@ -56,27 +93,10 @@ export async function restoreEncryptedLocalBackup(
   envelope: EncryptedPortableBackup,
   passphrase: string,
   current: LocalRestoreState,
+  expectation: PortableRestoreCompatibilityExpectation,
 ): Promise<LocalRestoreState> {
   try {
-    validateEnvelope(envelope);
-    validatePassphrase(passphrase);
-    const salt = unbase64(envelope.salt, 16);
-    const iv = unbase64(envelope.iv, 12);
-    const ciphertext = unbase64(envelope.ciphertext);
-    const key = await deriveKey(passphrase, salt, ["decrypt"]);
-    const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(envelope.format) }, key, ciphertext);
-    const canonical = decoder.decode(clear);
-    const payload = JSON.parse(canonical) as unknown;
-    if (!plainExact(payload, ARCHIVE_KEYS) || payload.format !== "prospector/portable-workspace/v1" || payload.effectsEnabled !== false) throw new Error("invalid");
-    const parsed: PortableBackupSource = {
-      workspaceId: payload.workspaceId,
-      createdAt: payload.createdAt,
-      records: payload.records,
-      objectDigests: payload.objectDigests,
-      suppressionTombstones: payload.suppressionTombstones,
-    } as PortableBackupSource;
-    if (canonicalArchive(parsed) !== canonical) throw new Error("invalid");
-    const archiveDigest = await sha256(encoder.encode(canonical));
+    const { source: parsed, archiveDigest } = await verifyArchive(envelope, passphrase, expectation);
     if (current.workspaceId !== parsed.workspaceId || current.effectsEnabled !== false) throw new Error("invalid");
     if (current.archiveDigest === archiveDigest) {
       const restored = restoredState(parsed, archiveDigest);
@@ -88,6 +108,72 @@ export async function restoreEncryptedLocalBackup(
   } catch {
     throw new Error("portable_backup_untrusted");
   }
+}
+
+/**
+ * Decrypts and checks only the synthetic archive contract. The receipt is not
+ * target authority, a dry run, an operational restore decision, or evidence
+ * that any hosted source or migration exists.
+ */
+export async function verifyEncryptedLocalBackupCompatibility(
+  envelope: EncryptedPortableBackup,
+  passphrase: string,
+  expectation: PortableRestoreCompatibilityExpectation,
+): Promise<PortableRestoreCompatibilityReceipt> {
+  try {
+    const { source, archiveDigest } = await verifyArchive(envelope, passphrase, expectation);
+    return deepFreeze({
+      format: "prospector/local-restore-compatibility-receipt/v1" as const,
+      compatibility: "synthetic_contract_match" as const,
+      archiveDigest,
+      workspaceId: source.workspaceId,
+      schemaVersion: PORTABLE_WORKSPACE_SCHEMA_VERSION,
+      snapshotId: source.provenance.snapshotId,
+      snapshotDigest: source.provenance.snapshotDigest,
+      migrationLineageDigest: source.provenance.migrationLineageDigest,
+      recordCount: source.records.length,
+      objectDigestCount: source.objectDigests.length,
+      suppressionTombstoneCount: source.suppressionTombstones.length,
+      restoreAuthority: false as const,
+      operationalAuthority: false as const,
+    });
+  } catch {
+    throw new Error("portable_backup_untrusted");
+  }
+}
+
+async function verifyArchive(
+  envelope: EncryptedPortableBackup,
+  passphrase: string,
+  expectation: PortableRestoreCompatibilityExpectation,
+) {
+  validateEnvelope(envelope);
+  validateExpectation(expectation);
+  validatePassphrase(passphrase);
+  const salt = unbase64(envelope.salt, 16);
+  const iv = unbase64(envelope.iv, 12);
+  const ciphertext = unbase64(envelope.ciphertext);
+  const key = await deriveKey(passphrase, salt, ["decrypt"]);
+  const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(envelope.format) }, key, ciphertext);
+  const canonical = decoder.decode(clear);
+  const payload = JSON.parse(canonical) as unknown;
+  if (!plainExact(payload, ARCHIVE_KEYS) || payload.format !== "prospector/portable-workspace/v2" || payload.schemaVersion !== PORTABLE_WORKSPACE_SCHEMA_VERSION || payload.effectsEnabled !== false) throw new Error("invalid");
+  const parsed: PortableBackupSource = {
+    workspaceId: payload.workspaceId,
+    createdAt: payload.createdAt,
+    provenance: payload.provenance,
+    records: payload.records,
+    objectDigests: payload.objectDigests,
+    suppressionTombstones: payload.suppressionTombstones,
+  } as PortableBackupSource;
+  if (canonicalArchive(parsed) !== canonical) throw new Error("invalid");
+  if (
+    expectation.workspaceId !== parsed.workspaceId
+    || expectation.snapshotId !== parsed.provenance.snapshotId
+    || expectation.snapshotDigest !== parsed.provenance.snapshotDigest
+    || expectation.migrationLineageDigest !== parsed.provenance.migrationLineageDigest
+  ) throw new Error("invalid");
+  return { source: parsed, archiveDigest: await sha256(encoder.encode(canonical)) };
 }
 
 function restoredState(source: PortableBackupSource, archiveDigest: string): LocalRestoreState {
@@ -102,22 +188,36 @@ function restoredState(source: PortableBackupSource, archiveDigest: string): Loc
 }
 
 function canonicalArchive(source: PortableBackupSource) {
-  if (!plainExact(source, SOURCE_KEYS) || !/^[\w.:-]{1,256}$/u.test(source.workspaceId) || !strictUtc(source.createdAt)) throw new Error("portable_backup_invalid");
+  if (!plainExact(source, SOURCE_KEYS) || !ID.test(source.workspaceId) || !strictUtc(source.createdAt)) throw new Error("portable_backup_invalid");
   if (!Array.isArray(source.records) || !Array.isArray(source.objectDigests) || !Array.isArray(source.suppressionTombstones)) throw new Error("portable_backup_invalid");
+  const provenance = canonicalProvenance(source.provenance);
   assertNoSecrets(source);
   if (!source.objectDigests.every((value) => typeof value === "string" && DIGEST.test(value))) throw new Error("portable_backup_invalid");
   const identityIndex = new Set<string>();
   const records = canonicalRecords(source.records, identityIndex, false);
   const tombstones = canonicalRecords(source.suppressionTombstones, identityIndex, true);
   return JSON.stringify({
-    format: "prospector/portable-workspace/v1",
+    format: "prospector/portable-workspace/v2",
+    schemaVersion: PORTABLE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: source.workspaceId,
     createdAt: source.createdAt,
+    provenance,
     records,
     objectDigests: [...new Set(source.objectDigests)].sort(),
     suppressionTombstones: tombstones,
     effectsEnabled: false,
   });
+}
+
+function canonicalProvenance(value: SyntheticBackupProvenance) {
+  if (!plainExact(value, PROVENANCE_KEYS) || value.kind !== "synthetic_disposable" || !ID.test(value.snapshotId)) throw new Error("portable_backup_invalid");
+  if (!DIGEST.test(value.snapshotDigest) || !DIGEST.test(value.migrationLineageDigest)) throw new Error("portable_backup_invalid");
+  return {
+    kind: value.kind,
+    snapshotId: value.snapshotId,
+    snapshotDigest: value.snapshotDigest,
+    migrationLineageDigest: value.migrationLineageDigest,
+  };
 }
 
 function canonicalRecords(records: readonly PortableRecord[], identityIndex: Set<string>, tombstones: boolean) {
@@ -154,7 +254,11 @@ async function deriveKey(passphrase: string, salt: Uint8Array, usages: KeyUsage[
 
 function validatePassphrase(value: string) { if (typeof value !== "string" || value.length < 16 || value.length > 1024) throw new Error("portable_backup_invalid"); }
 function validateEnvelope(value: EncryptedPortableBackup) {
-  if (!plainExact(value, ENVELOPE_KEYS) || value.format !== "prospector/local-portable-backup/v1" || value.kdf !== "PBKDF2-SHA-256" || value.iterations !== 210_000 || value.cipher !== "AES-256-GCM") throw new Error("invalid");
+  if (!plainExact(value, ENVELOPE_KEYS) || value.format !== "prospector/local-portable-backup/v2" || value.kdf !== "PBKDF2-SHA-256" || value.iterations !== 210_000 || value.cipher !== "AES-256-GCM") throw new Error("invalid");
+}
+function validateExpectation(value: PortableRestoreCompatibilityExpectation) {
+  if (!plainExact(value, EXPECTATION_KEYS) || !ID.test(value.workspaceId) || value.schemaVersion !== PORTABLE_WORKSPACE_SCHEMA_VERSION) throw new Error("invalid");
+  if (!ID.test(value.snapshotId) || !DIGEST.test(value.snapshotDigest) || !DIGEST.test(value.migrationLineageDigest)) throw new Error("invalid");
 }
 function base64(value: Uint8Array) { return btoa(String.fromCharCode(...value)); }
 function unbase64(value: string, exactLength?: number) {
