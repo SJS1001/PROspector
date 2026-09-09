@@ -85,16 +85,18 @@ also pass. Stage 3A is complete and stopped before Access.
 ## Resume from another Codex account
 
 1. Confirm the other account has GitHub read/write access to `SJS1001/PROspector`.
-2. Clone the repository or open the saved project, fetch, and switch to `codex/generic-prospector-pilot`:
+2. Clone the repository or open the saved project, fetch, and switch to `main`:
 
    ```bash
    git clone https://github.com/SJS1001/PROspector.git
    cd PROspector
-   git fetch origin
-   git switch --track origin/codex/generic-prospector-pilot
+   git fetch origin main
+   git switch main
+   git pull --ff-only origin main
    ```
 
-   If the branch already exists locally, use `git switch codex/generic-prospector-pilot` followed by `git pull --ff-only`.
+   If `main` already exists locally, use `git switch main` followed by
+   `git pull --ff-only origin main`.
 3. Read this file, `.planning/STATE.md`, `.planning/ROADMAP.md`, and the current phase's `*-PLAN.md`/`*-SUMMARY.md` files.
 4. Install and verify the application from `site/` with Node.js 22.13 or newer: `npm ci`, `npm test`, and `npm run lint`.
 5. Read `docs/GREENFIELD-BASELINE.md`, completed Plan `02-22` and its summary, and terminal Plan `02-99`. The forensic report, incident reconciliation, Plans 02-13 through 02-21, and the old recovery Plan 02-99 are retained only as retired history. Never resume them or attempt original-project access.
@@ -108,7 +110,7 @@ GSD skills and `gsd-sdk` are account-level tools, not repository dependencies. I
 
 Use Codex accounts sequentially, with Git as the shared memory. Do not run two writing accounts against this branch at the same time.
 
-1. Start every account by fetching and fast-forwarding `codex/generic-prospector-pilot`; require a clean worktree and read the committed state before selecting work.
+1. Start every account by fetching and fast-forwarding `main` from `origin/main`; require a clean worktree and read the committed state before selecting work.
 2. Do not inspect or resolve the original hosted project from any account. It has no remaining execution role.
 3. Treat all accounts as local-work accounts unless the owner separately authorizes that account for the provisioned greenfield target and the exact bounded stage. Never infer hosted evidence or continuing write authority from account access or the Stage 1 record.
 4. Take one bounded executable plan or maintenance unit per account. Use subagents only for independent implementation/review work with non-overlapping ownership.
@@ -120,7 +122,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 
 ## Paste-ready prompt for another Codex account
 
-> Continue PROspector from the latest `origin/codex/generic-prospector-pilot`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `docs/GREENFIELD-BASELINE.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, completed Plan `02-22` and its summary, terminal Plan `02-99`, and the preparation contract for any local lane you select. The original hosted project is inaccessible and permanently retired: do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Its journal/schema/provenance evidence is intentionally waived because no old state will be reused; make no claim that a migration occurred. Use only the checked repository and a fresh empty local database as the authoritative baseline. Continue bounded local and synthetic preparation while providers, production data, credentials, prospecting, enrichment calls, Gmail, calling, external exports, schedules, and every hosted write remain separately gated. Never fabricate hosted evidence or create phase summaries for blocked checkpoints.
+> Continue PROspector from the latest `origin/main`. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, `docs/GREENFIELD-BASELINE.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`, completed Plan `02-22` and its summary, terminal Plan `02-99`, and the preparation contract for any local lane you select. The original hosted project is inaccessible and permanently retired: do not resolve, inspect, access, migrate, restore, modify, clone, or depend on it. Its journal/schema/provenance evidence is intentionally waived because no old state will be reused; make no claim that a migration occurred. Use only the checked repository and a fresh empty local database as the authoritative baseline. Continue bounded local and synthetic preparation while providers, production data, credentials, prospecting, enrichment calls, Gmail, calling, external exports, schedules, and every hosted write remain separately gated. Never fabricate hosted evidence or create phase summaries for blocked checkpoints.
 
 ## Current state
 
