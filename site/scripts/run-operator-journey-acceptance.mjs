@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
 import { browserAcceptanceStatePath, createBrowserAcceptanceRuntimeRoot, scrubbedBrowserEnvironment } from "./browser-acceptance-boundary.mjs";
@@ -18,6 +18,12 @@ const isolatedHome = resolve(stateRoot, "home"), isolatedConfig = resolve(stateR
 await Promise.all([isolatedHome, isolatedConfig, isolatedCache, isolatedTemp, browserCache].map((path) => mkdir(path, { recursive: true })));
 const hostingConfig = JSON.parse(await readFile(resolve(root, ".openai", "hosting.json"), "utf8"));
 const runtimeRoot = await createBrowserAcceptanceRuntimeRoot(root, stateRoot, hostingConfig, operatorJourneyE1Bindings());
+// This exact lane owns local-demo browser evidence. Materialize the dev-only
+// route inside its disposable runtime; the production source tree intentionally
+// has no discoverable route.ts for this endpoint.
+await rm(resolve(runtimeRoot, "app"));
+await cp(resolve(root, "app"), resolve(runtimeRoot, "app"), { recursive: true });
+await copyFile(resolve(runtimeRoot, "app/api/local-demo/composition/route.localdemo"), resolve(runtimeRoot, "app/api/local-demo/composition/route.ts"));
 const state = browserAcceptanceStatePath(stateRoot);
 const config = resolve(runtimeRoot, "wrangler.browser-acceptance.json");
 const port = await reservePort();

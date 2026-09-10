@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { readdir } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { relative, resolve } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
@@ -112,71 +114,36 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
  * no row is ever admitted. A preview that merely rendered would prove nothing —
  * this asserts the empty admission, the unadmitted framing, and the absence of
  * every export affordance. */
-test("the fictional CRM handoff preview admits nothing, offers no download, and persists nothing", async ({ page, context }) => {
+test("the operator advances the guarded Phase 4–7 journey, reloads it, and creates zero effects", async ({ page, context }) => {
   const external: string[] = [];
+  const requests: Array<{ method: string; origin: string; path: string; resourceType: string }> = [];
   await denyExternal(context, external);
-
-  const posts: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
-  });
-
+  context.on("request", (request) => { const url = new URL(request.url()); requests.push({ method: request.method(), origin: url.origin, path: url.pathname, resourceType: request.resourceType() }); });
+  const before = await snapshotAllPersistentStores();
   await page.goto("/local-demo");
-  const section = page.getByRole("region", { name: "CRM handoff CSV preview" });
-  await expect(section).toBeVisible();
-  // The screen must say what this is before it is run, not only afterwards.
-  await expect(section.getByText("FICTIONAL · NOT APPROVED FOR EXPORT")).toBeVisible();
-
-  const response = page.waitForResponse((entry) =>
-    entry.request().method() === "POST" && entry.url().includes("/api/local-demo/crm-handoff-preview"));
-  await section.getByRole("button", { name: "Preview fictional CSV rows" }).click();
-  const preview = await response;
-
-  expect(preview.status()).toBe(200);
-  const headers = preview.headers();
-  expect(headers["cache-control"]).toBe("no-store");
-  // A handoff that offered a file would be an export. It must not even be shaped
-  // like one.
-  expect(headers["content-disposition"]).toBeUndefined();
-
-  // The real decision. Zero rows are admitted, and the refused count accounts
-  // for every demo row — asserted from the screen, not from the payload.
-  const summary = section.getByText(/demo rows would be admitted for a real export/);
-  await expect(summary).toBeVisible();
-  const counts = (await summary.innerText()).replace(/\s+/gu, " ");
-  const parsed = counts.match(/(\d+) of (\d+) demo rows would be admitted for a real export; (\d+) are refused/u);
-  expect(parsed, `unexpected admission summary: ${counts}`).not.toBeNull();
-  const [, admitted, total, refused] = parsed!;
-  expect(admitted, counts).toBe("0");
-  expect(refused, counts).toBe(total);
-  expect(Number(total)).toBeGreaterThan(0);
-  await expect(section.getByText("Fictional and unapproved.")).toBeVisible();
-
-  // The bytes shown are the fictional rows, and they are visibly the preview
-  // rather than an approved export.
-  await expect(section.getByLabel("Fictional CSV preview bytes")).toContainText("fictional.buyer@example.test");
-
-  // No export affordance anywhere on the screen: nothing to save, nothing to
-  // open, nothing that would leave the browser.
+  await expect(page.getByText("Journey progress: 0 of 4 operator steps complete.")).toBeVisible();
+  for (const [button, heading] of [["Begin Phase 4 review", "Phase 4 · Profile and Prospect review"], ["Continue to Phase 5", "Phase 5 · Fictional contact review"], ["Continue to Phase 6", "Phase 6 · Package, Message, and current-state checks"], ["Continue to Phase 7", "Phase 7 · Morning Brief"]] as const) {
+    await page.getByRole("button", { name: button }).click();
+    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+  }
+  await expect(page.getByText("Journey complete. No external effect was authorized.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Journey progress: 4 of 4 operator steps complete.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Phase 7 · Portability compatibility" })).toBeVisible();
   await expect(page.locator('a[download], [download], a[href^="blob:"], a[href^="data:"]')).toHaveCount(0);
-  expect(posts).toEqual(["/api/local-demo/crm-handoff-preview"]);
-
   await assertNoOverlay(page);
   await assertAxe(page);
   await page.setViewportSize({ width: 320, height: 900 });
-  await expect(section).toBeVisible();
   const reflow = await measureReflow(page);
   expect(reflow.scrollWidth, `320px: ${JSON.stringify(reflow)}`).toBeLessThanOrEqual(reflow.clientWidth + 1);
-  await page.setViewportSize({ width: 1280, height: 900 });
-
-  // Nothing was persisted: after a runtime restart the screen is back to its
-  // pre-run state and no preview survives. The lane's zero-effect verifier
-  // proves the same at the database and object-store level.
+  expect(await snapshotAllPersistentStores()).toEqual(before);
+  const scenarioRequests = requests.filter((request) => request.path === "/api/local-demo/composition");
+  expect(scenarioRequests.map(({ method }) => method)).toEqual(["GET", "POST", "POST", "POST", "POST", "GET"]);
+  expect(requests.every((request) => request.origin === origin)).toBe(true);
+  process.stdout.write(`${JSON.stringify({ localDemoCompositionRequestCount: scenarioRequests.length, totalCapturedRequestCount: requests.length, scenarioMethods: scenarioRequests.map(({ method }) => method), persistenceDelta: 0, externalEffects: external.length })}\n`);
   await stopServer(server); server = await startServer();
   await page.goto("/local-demo");
-  await expect(page.getByRole("region", { name: "CRM handoff CSV preview" })).toBeVisible();
-  await expect(page.getByText("Fictional and unapproved.")).toHaveCount(0);
-  await expect(page.getByLabel("Fictional CSV preview bytes")).toHaveCount(0);
+  await expect(page.getByText("Journey progress: 0 of 4 operator steps complete.")).toBeVisible();
   expect(external).toEqual([]);
 });
 
@@ -326,6 +293,22 @@ async function measureReflow(page: Page) {
 }
 async function assertNoOverlay(page: Page) { await expect(page.locator("vite-error-overlay")).toHaveCount(0); await expect(page.getByText(/Hydration failed|UNHANDLED SCRIPT ERROR/)).toHaveCount(0); }
 async function assertAxe(page: Page) { const result = await new AxeBuilder({ page }).analyze(); expect(result.violations.filter((entry) => ["critical", "serious"].includes(entry.impact ?? ""))).toEqual([]); }
+async function snapshotAllPersistentStores() {
+  const snapshot: Record<string, Record<string, number>> = {};
+  for (const path of await walk(state)) {
+    if (!path.endsWith(".sqlite")) continue;
+    const database = new DatabaseSync(path, { readOnly: true });
+    try {
+      const tables = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((row) => String(row.name));
+      snapshot[relative(state, path)] = Object.fromEntries(tables.map((table) => {
+        assert.match(table, /^[a-zA-Z_][a-zA-Z0-9_]*$/u);
+        return [table, Number(database.prepare(`SELECT COUNT(*) count FROM ${table}`).get()?.count)];
+      }));
+    } finally { database.close(); }
+  }
+  return snapshot;
+}
+async function walk(directory: string): Promise<string[]> { const paths: string[] = []; for (const entry of await readdir(directory, { withFileTypes: true })) { const path = resolve(directory, entry.name); if (entry.isDirectory()) paths.push(...await walk(path)); else if (entry.isFile()) paths.push(path); } return paths; }
 async function startServer() { serverOutput = ""; const child = spawn(process.execPath,[resolve(process.cwd(),"node_modules","vite","bin","vite.js"),"--config","vite.config.ts","--port",port,"--host","127.0.0.1","--strictPort"],{cwd:process.cwd(),env:{...process.env,PROSPECTOR_LOCAL_STATE_PATH:state,PROSPECTOR_BROWSER_RUNTIME_ROOT:runtimeRoot},detached:true,stdio:["ignore","pipe","pipe"]}); child.stdout?.on("data",(chunk)=>{serverOutput+=chunk}); child.stderr?.on("data",(chunk)=>{serverOutput+=chunk}); try { for(let attempt=0;attempt<160;attempt+=1){ if(child.exitCode!==null)throw new Error(`e1_server_exited:${serverOutput}`); try{const response=await fetch(`${origin}${REVIEW}`);if(response.status===200)return child}catch{} await new Promise((done)=>setTimeout(done,100)); } throw new Error(`e1_server_not_ready:${serverOutput}`); } catch(error){await stopServer(child);throw error;} }
 async function stopServer(child?:ChildProcess){if(!child||child.exitCode!==null||child.pid===undefined)return;try{process.kill(-child.pid,"SIGTERM")}catch(error){if((error as NodeJS.ErrnoException).code!=="ESRCH")throw error}const closed=await Promise.race([new Promise<void>((done)=>child.once("close",()=>done())),new Promise<"timeout">((done)=>setTimeout(()=>done("timeout"),2000))]);if(closed==="timeout"&&child.exitCode===null){try{process.kill(-child.pid,"SIGKILL")}catch(error){if((error as NodeJS.ErrnoException).code!=="ESRCH")throw error}await new Promise<void>((done)=>child.once("close",()=>done()));}}
 function required(name:string){const value=process.env[name];assert.ok(value,`${name}_required`);return value;}

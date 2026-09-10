@@ -1,12 +1,14 @@
 export const dynamic = "force-dynamic";
 
 /** Development-discovered, explicitly non-admitting scenario read. */
-export async function POST(request) {
+async function dispatch(request: Request) {
   if (import.meta.env.DEV) {
-    const { admitLocalDemoCompositionRead } = await import("../../../local-demo/_admission");
-    if (await admitLocalDemoCompositionRead(request)) {
-      const { handleLocalDemoCompositionRead } = await import("./_handler");
-      return handleLocalDemoCompositionRead();
+    const { admitLocalDemoScenarioRequest } = await import("../../../local-demo/_admission");
+    const admission = await admitLocalDemoScenarioRequest(request);
+    if (admission instanceof Response) return admission;
+    if (admission) {
+      const { handleLocalDemoScenario } = await import("./_handler");
+      return handleLocalDemoScenario(admission);
     }
   }
   return Response.json({ error: "not_found" }, {
@@ -14,3 +16,6 @@ export async function POST(request) {
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
   });
 }
+
+export function GET(request: Request) { return dispatch(request); }
+export function POST(request: Request) { return dispatch(request); }
