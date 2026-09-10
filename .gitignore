@@ -18,3 +18,4 @@ site/.wrangler/
 
 # OS
 .DS_Store
+node_modules/

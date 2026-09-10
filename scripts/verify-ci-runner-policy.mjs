@@ -3,59 +3,90 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isAlias, isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
 
-const githubHostedLabel = /(?:^|[\s[,'"])(?:ubuntu-(?:latest|slim|[0-9.]+(?:-arm)?)|windows-(?:latest|[0-9]+)|macos-(?:latest|[0-9]+(?:-(?:large|xlarge|intel))?)|github-hosted)(?=$|[\s\],}'"])/i;
+const githubHostedLabels = /^(?:ubuntu-(?:latest|slim|[0-9.]+(?:-arm)?)|windows-(?:latest|[0-9]+)|macos-(?:latest|[0-9]+(?:-(?:large|xlarge|intel))?)|github-hosted)$/i;
 
-function stripYamlComment(line) {
-  let singleQuoted = false;
-  let doubleQuoted = false;
+function keyValue(pair) {
+  return isScalar(pair.key) && typeof pair.key.value === "string" ? pair.key.value : undefined;
+}
 
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (character === "'" && !doubleQuoted) singleQuoted = !singleQuoted;
-    if (character === '"' && !singleQuoted && line[index - 1] !== "\\") {
-      doubleQuoted = !doubleQuoted;
-    }
-    if (character === "#" && !singleQuoted && !doubleQuoted) {
-      return line.slice(0, index);
-    }
-  }
+function pairFor(mapping, key) {
+  return mapping.items.find((pair) => keyValue(pair) === key);
+}
 
-  return line;
+function lineFor(node, lineCounter) {
+  return node?.range ? lineCounter.linePos(node.range[0]).line : 1;
+}
+
+function rawScalarIsLiteral(node, source) {
+  if (!isScalar(node) || typeof node.value !== "string" || node.anchor) return false;
+  if (node.value.includes("${{")) return false;
+  const raw = source.slice(node.range[0], node.range[1]);
+  if (node.type === "QUOTE_DOUBLE") return raw === `"${node.source}"`;
+  if (node.type === "QUOTE_SINGLE") return raw === `'${node.source}'`;
+  return node.type === "PLAIN" && raw === node.source;
+}
+
+function staticRunnerLabels(node, source) {
+  if (isAlias(node) || node?.anchor) return undefined;
+  const values = isSeq(node) ? node.items : [node];
+  if (values.length === 0) return undefined;
+  if (values.some((value) => !rawScalarIsLiteral(value, source))) return undefined;
+  return values.map((value) => value.value);
 }
 
 export function inspectWorkflow(source, filename = "workflow") {
-  const lines = source.split(/\r?\n/);
-  const violations = [];
+  const lineCounter = new LineCounter();
+  const document = parseDocument(source, {
+    lineCounter,
+    merge: false,
+    schema: "core",
+    uniqueKeys: true,
+  });
+  const violations = document.errors.map(
+    (error) => `${filename}:${error.linePos?.[0]?.line ?? 1}: invalid YAML: ${error.message.split(" at line ")[0]}`,
+  );
+  if (violations.length > 0) return violations;
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const uncommented = stripYamlComment(lines[index]);
-    const match = uncommented.match(/^(\s*)(.*?)(?:["']runs-on["']|\bruns-on)\s*:\s*(.*)$/);
-    if (!match) continue;
+  if (!isMap(document.contents)) return [`${filename}:1: workflow must be a YAML mapping`];
+  const jobsPair = pairFor(document.contents, "jobs");
+  if (!jobsPair || !isMap(jobsPair.value)) {
+    return [`${filename}:${lineFor(jobsPair?.value, lineCounter)}: workflow jobs must be a YAML mapping`];
+  }
 
-    const indentation = match[1].length;
-    const inlineKey = match[2].trim() !== "";
-    const declaration = [match[3]];
-    let cursor = index + 1;
-
-    while (!inlineKey && cursor < lines.length) {
-      const continuation = stripYamlComment(lines[cursor]);
-      if (continuation.trim() === "") {
-        cursor += 1;
-        continue;
-      }
-      const continuationIndent = continuation.match(/^\s*/)[0].length;
-      if (continuationIndent <= indentation) break;
-      declaration.push(continuation.trim());
-      cursor += 1;
+  for (const jobPair of jobsPair.value.items) {
+    const jobName = keyValue(jobPair) ?? "<invalid-job-name>";
+    const job = jobPair.value;
+    const jobLine = lineFor(job, lineCounter);
+    if (!isMap(job)) {
+      violations.push(`${filename}:${jobLine}: job ${jobName} must be a YAML mapping`);
+      continue;
     }
 
-    const runnerDeclaration = declaration.join(" ");
-    if (!/\bself-hosted\b/i.test(runnerDeclaration)) {
-      violations.push(`${filename}:${index + 1}: runs-on must statically include self-hosted`);
+    const usesPair = pairFor(job, "uses");
+    if (usesPair) {
+      violations.push(`${filename}:${lineFor(usesPair.value, lineCounter)}: reusable-workflow job ${jobName} is prohibited`);
+      continue;
     }
-    if (githubHostedLabel.test(runnerDeclaration)) {
-      violations.push(`${filename}:${index + 1}: GitHub-hosted runner label is prohibited`);
+
+    const runsOnPair = pairFor(job, "runs-on");
+    if (!runsOnPair) {
+      violations.push(`${filename}:${jobLine}: job ${jobName} must declare runs-on`);
+      continue;
+    }
+
+    const runnerLine = lineFor(runsOnPair.value, lineCounter);
+    const labels = staticRunnerLabels(runsOnPair.value, source);
+    if (!labels) {
+      violations.push(`${filename}:${runnerLine}: runs-on must be a static literal label or label list`);
+      continue;
+    }
+    if (!labels.includes("self-hosted")) {
+      violations.push(`${filename}:${runnerLine}: runs-on must contain the exact self-hosted label`);
+    }
+    if (labels.some((label) => githubHostedLabels.test(label))) {
+      violations.push(`${filename}:${runnerLine}: GitHub-hosted runner label is prohibited`);
     }
   }
 
@@ -65,7 +96,6 @@ export function inspectWorkflow(source, filename = "workflow") {
 export async function verifyRepository(repositoryRoot) {
   const workflowDirectory = path.join(repositoryRoot, ".github", "workflows");
   let entries;
-
   try {
     entries = await readdir(workflowDirectory, { withFileTypes: true });
   } catch (error) {
@@ -86,15 +116,13 @@ export async function verifyRepository(repositoryRoot) {
 async function main() {
   const repositoryRoot = process.argv[2] ? path.resolve(process.argv[2]) : process.cwd();
   const violations = await verifyRepository(repositoryRoot);
-
   if (violations.length > 0) {
     console.error("CI runner policy violation:");
     for (const violation of violations) console.error(`- ${violation}`);
     process.exitCode = 1;
     return;
   }
-
-  console.log("CI runner policy verified: no GitHub-hosted runs-on declarations found.");
+  console.log("CI runner policy verified: no GitHub-hosted workflow jobs found.");
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

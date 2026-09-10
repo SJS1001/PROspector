@@ -22,17 +22,19 @@ a GitHub-hosted runner. Before committing any change under
 `.github/workflows/`, run:
 
 ```bash
+npm ci --ignore-scripts
 node scripts/verify-ci-runner-policy.mjs
 node --test tests/ci-runner-policy.test.mjs
 ```
 
 The verifier examines every `runs-on` declaration in `.github/workflows/*.yml`
-and `.yaml`. It fails unless the declaration contains a literal `self-hosted`
-label, and it rejects known GitHub-hosted labels even when mixed with
-`self-hosted`. Dynamic-only runner selection fails closed. Reusable workflow
-calls that have no `runs-on` key are outside this check because the called
-workflow owns runner selection and must satisfy this same policy if it lives in
-this repository.
+and `.yaml` by parsing the YAML structure. Each job must declare a static
+literal label or label list containing the exact `self-hosted` label. Known
+GitHub-hosted labels are rejected even when mixed with `self-hosted`.
+Expressions, matrices, inputs, format calls, YAML aliases/anchors, escaped
+labels, and other dynamic constructs fail closed. Reusable-workflow jobs are
+prohibited because their complete runner-selection chain is not locally
+provable by this verifier.
 
 Approved non-GitHub cloud CI should invoke the same verifier directly from its
 own execution configuration. Do not add a GitHub Actions workflow merely to run
