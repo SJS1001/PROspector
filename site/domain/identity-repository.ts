@@ -76,12 +76,7 @@ type SnapshotLineageRow = LineageRow & {
   id: string;
   decision_id: string;
   lineage_digest: string;
-  decision_subject_kind: string;
-  decision_json: string;
-  decision_retained_source_lineage_ids_json: string;
-  decision_retained_identity_lineage_ids_json: string;
-  decision_retained_aliases_json: string;
-  decision_retained_suppression_subject_refs_json: string;
+  decision_idempotency_key: string;
 };
 
 type DecisionRow = {
@@ -336,11 +331,7 @@ async function readIdentitySnapshots(
       lineage.retained_source_lineage_ids_json,
       lineage.retained_identity_lineage_ids_json,lineage.retained_aliases_json,
       lineage.retained_suppression_subject_refs_json,lineage.lineage_digest,
-      decision.subject_kind decision_subject_kind,decision.decision_json,
-      decision.retained_source_lineage_ids_json decision_retained_source_lineage_ids_json,
-      decision.retained_identity_lineage_ids_json decision_retained_identity_lineage_ids_json,
-      decision.retained_aliases_json decision_retained_aliases_json,
-      decision.retained_suppression_subject_refs_json decision_retained_suppression_subject_refs_json
+      decision.idempotency_key decision_idempotency_key
      FROM identity_lineage lineage
      JOIN identity_decisions decision
        ON decision.id=lineage.decision_id AND decision.workspace_id=lineage.workspace_id
@@ -374,8 +365,24 @@ async function readIdentitySnapshots(
   const digestByEndpoint = new Map(endpointDigests.map(
     (endpoint) => [endpoint.id, endpoint.identity_digest],
   ));
+  const validatedDecisions = new Map<string, AppliedResolution>();
+  for (const lineage of lineageRows) {
+    if (validatedDecisions.has(lineage.decision_id)) continue;
+    const resolution = await readAppliedResolution(
+      database,
+      scope,
+      lineage.decision_idempotency_key,
+    );
+    if (!resolution || resolution.id !== lineage.decision_id) return Object.freeze([]);
+    validatedDecisions.set(lineage.decision_id, resolution);
+  }
   const parsedWorkspaceLineage = await Promise.all(lineageRows.map(
-    (lineage) => parseExactLineageRetention(lineage, scope, digestByEndpoint),
+    (lineage) => parseExactLineageRetention(
+      lineage,
+      validatedDecisions.get(lineage.decision_id),
+      scope,
+      digestByEndpoint,
+    ),
   ));
   if (parsedWorkspaceLineage.some((entry) => entry === null)) return Object.freeze([]);
 
@@ -438,7 +445,12 @@ async function readIdentitySnapshots(
       ),
     );
     const parsedLineage = await Promise.all(related.map(
-      (lineage) => parseExactLineageRetention(lineage, scope, digestByEndpoint),
+      (lineage) => parseExactLineageRetention(
+        lineage,
+        validatedDecisions.get(lineage.decision_id),
+        scope,
+        digestByEndpoint,
+      ),
     ));
     if (parsedLineage.some((entry) => entry === null)) return Object.freeze([]);
     const exactLineage = parsedLineage.filter(
@@ -1408,26 +1420,25 @@ function parseLineageRetention(row: LineageRow) {
 
 async function parseExactLineageRetention(
   row: SnapshotLineageRow,
+  resolution: AppliedResolution | undefined,
   scope: RepositoryScope,
   digestByEndpoint: ReadonlyMap<string, string>,
 ) {
   const retention = parseLineageRetention(row);
-  const decision = parseCanonicalJson<AppliedResolution["decision"]>(
-    row.decision_json,
-  );
   if (
     !retention
-    || row.decision_subject_kind !== scope.subjectKind
-    || row.retained_source_lineage_ids_json
-      !== row.decision_retained_source_lineage_ids_json
-    || row.retained_identity_lineage_ids_json
-      !== row.decision_retained_identity_lineage_ids_json
-    || row.retained_aliases_json !== row.decision_retained_aliases_json
-    || row.retained_suppression_subject_refs_json
-      !== row.decision_retained_suppression_subject_refs_json
-    || !decision
-    || !decisionBindsLineageRow(decision, row)
+    || !resolution
+    || row.decision_id !== resolution.id
+    || !sameCanonical(retention.sourceLineageIds, resolution.retainedSourceLineageIds)
+    || !sameCanonical(retention.identityLineageIds, resolution.retainedIdentityLineageIds)
+    || !sameCanonical(retention.aliases, resolution.retainedAliases)
+    || !sameCanonical(
+      retention.suppressionSubjectRefs,
+      resolution.retainedSuppressionSubjectRefs,
+    )
+    || !decisionBindsLineageRow(resolution.decision, row)
   ) return null;
+  const decision = resolution.decision;
   const decisionSubjectIds = decision.kind === "merge"
     ? [decision.primaryId, ...(Array.isArray(decision.secondaryIds) ? decision.secondaryIds : [])]
     : [decision.sourceId, decision.newIdentityId];

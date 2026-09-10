@@ -527,7 +527,17 @@ test("suppression binding rejects invalid lineage digests and unrelated contact 
     const lineage = await fixture.database.prepare("SELECT * FROM identity_lineage WHERE workspace_id=? LIMIT 1").bind(lifecycle.workspaceId).first();
     const durableBefore = await identityDurableSnapshot(fixture.database,lifecycle.workspaceId);
 
-    await fixture.database.exec("DROP TRIGGER immutable_identity_lineage_update; DROP TRIGGER immutable_identity_decisions_update;");
+    await fixture.database.exec("DROP TRIGGER immutable_identity_lineage_update; DROP TRIGGER immutable_identity_lineage_delete; DROP TRIGGER immutable_identity_decisions_update;");
+    await fixture.database.prepare("DELETE FROM identity_lineage WHERE id=?").bind(lineage.id).run();
+    const missingEdgeBefore = await identityDurableSnapshot(fixture.database,lifecycle.workspaceId);
+    await assert.rejects(
+      () => identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"split",sourceId:"p5i-identity-alpha",moveAssociationIds:["p5i-identity-relevance-beta"]}),
+      /identity_resolution_rejected/,
+      "a decision missing its complete expected lineage edge set cannot exempt retained suppression",
+    );
+    assert.deepEqual(await identityDurableSnapshot(fixture.database,lifecycle.workspaceId),missingEdgeBefore,"missing decision lineage cannot create a suggestion or mutate identity state");
+    await fixture.database.prepare("INSERT INTO identity_lineage (id,workspace_id,decision_id,subject_kind,source_subject_id,target_subject_id,relationship,retained_source_lineage_ids_json,retained_identity_lineage_ids_json,retained_aliases_json,retained_suppression_subject_refs_json,lineage_digest,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .bind(lineage.id,lineage.workspace_id,lineage.decision_id,lineage.subject_kind,lineage.source_subject_id,lineage.target_subject_id,lineage.relationship,lineage.retained_source_lineage_ids_json,lineage.retained_identity_lineage_ids_json,lineage.retained_aliases_json,lineage.retained_suppression_subject_refs_json,lineage.lineage_digest,lineage.created_at).run();
     await fixture.database.prepare("UPDATE identity_lineage SET lineage_digest=? WHERE id=?").bind("0".repeat(64),lineage.id).run();
     await assert.rejects(
       () => identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"split",sourceId:"p5i-identity-alpha",moveAssociationIds:["p5i-identity-relevance-beta"]}),
@@ -540,6 +550,12 @@ test("suppression binding rejects invalid lineage digests and unrelated contact 
     await fixture.database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'p5i-identity-unrelated',?,?,?,1,id,?,'Unrelated Fictional Contact' FROM companies WHERE workspace_id=?")
       .bind(lifecycle.workspaceId,NOW,NOW,unrelatedDigest,lifecycle.workspaceId).run();
     const retainedSuppressionSubjectRefs=["a".repeat(64),"b".repeat(64),unrelatedDigest];
+    const decisionRow=await fixture.database.prepare("SELECT * FROM identity_decisions WHERE id=?").bind(lineage.decision_id).first();
+    const suggestionRow=await fixture.database.prepare("SELECT suggestion_digest,revision FROM identity_suggestions WHERE id=?").bind(decisionRow.suggestion_id).first();
+    const tamperedDecision={kind:"merge",primaryId:"p5i-identity-alpha",secondaryIds:["p5i-identity-beta","p5i-identity-unrelated"]};
+    const operationDigest=phase5Digest({workspaceId:lifecycle.workspaceId,suggestionId:decisionRow.suggestion_id,suggestionDigest:suggestionRow.suggestion_digest,suggestionRevision:Number(suggestionRow.revision),decision:tamperedDecision,actor:owner.subject});
+    const resultMaterial={workspaceId:lifecycle.workspaceId,ownerSubject:owner.subject,suggestionId:decisionRow.suggestion_id,suggestionDigest:suggestionRow.suggestion_digest,idempotencyKey:decisionRow.idempotency_key,decision:tamperedDecision,operationDigest,retainedSourceLineageIds:JSON.parse(decisionRow.retained_source_lineage_ids_json),retainedIdentityLineageIds:JSON.parse(decisionRow.retained_identity_lineage_ids_json),retainedAliases:JSON.parse(decisionRow.retained_aliases_json),retainedSuppressionSubjectRefs,rePointedAssociationIds:JSON.parse(decisionRow.repointed_association_ids_json),invalidations:JSON.parse(decisionRow.invalidations_json)};
+    const resultDigest=phase5Digest({schema:"identity-resolution-result/v1",...resultMaterial});
     const lineageDigest=phase5Digest({
       schema:"identity-lineage/v1",
       decisionId:lineage.decision_id,
@@ -553,14 +569,14 @@ test("suppression binding rejects invalid lineage digests and unrelated contact 
       retainedSuppressionSubjectRefs,
     });
     await fixture.database.batch([
-      fixture.database.prepare("UPDATE identity_decisions SET retained_suppression_subject_refs_json=? WHERE id=?").bind(JSON.stringify(retainedSuppressionSubjectRefs),lineage.decision_id),
+      fixture.database.prepare("UPDATE identity_decisions SET decision_json=?,retained_suppression_subject_refs_json=?,operation_digest=?,result_digest=? WHERE id=?").bind(phase5Canonical(tamperedDecision),JSON.stringify(retainedSuppressionSubjectRefs),operationDigest,resultDigest,lineage.decision_id),
       fixture.database.prepare("UPDATE identity_lineage SET id=?,retained_suppression_subject_refs_json=?,lineage_digest=? WHERE decision_id=?").bind(`il_${lineageDigest.slice(0,24)}`,JSON.stringify(retainedSuppressionSubjectRefs),lineageDigest,lineage.decision_id),
     ]);
     const unrelatedBefore = await identityDurableSnapshot(fixture.database,lifecycle.workspaceId);
     await assert.rejects(
       () => identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"split",sourceId:"p5i-identity-alpha",moveAssociationIds:["p5i-identity-relevance-beta"]}),
       /identity_resolution_rejected/,
-      "a valid lineage digest cannot bind suppression belonging to an unrelated contact",
+      "coherent decision, retention, operation/result, and lineage tampering cannot add an unrelated contact",
     );
     assert.deepEqual(await identityDurableSnapshot(fixture.database,lifecycle.workspaceId),unrelatedBefore,"unrelated contact lineage cannot create a suggestion or mutate identity state");
   } finally { await fixture.dispose(); }
@@ -591,13 +607,13 @@ test("cross-tenant authority is rejected and the JavaScript enrichment graph can
     assert.equal(resourcesAfter.has("ChildProcess"),false,"loading the JavaScript enrichment graph cannot start a child process");
     assert.equal(resourcesBefore.has("ChildProcess"),false,"the test began with no provider process");
     const productionSources = await productionTypeScriptSources();
-    assert.ok(productionSources.some(([path]) => path.endsWith("/app/api/contacts/route.ts")),"the production Contacts route is included in the static proof");
+    assert.ok(productionSources.some(([path]) => path.endsWith("/app/api/contacts/route.ts")),"the production Contacts route is included in the static regression check");
     for (const [path,source] of productionSources) {
       assert.doesNotMatch(source,/mcp_server|child_process|python(?:3)?/iu,`${path} cannot reach the legacy Python adapter`);
     }
     const contactsRoute = productionSources.find(([path]) => path.endsWith("/app/api/contacts/route.ts"))?.[1] ?? "";
     assert.doesNotMatch(contactsRoute,/commandService|executeEnrichmentOperation|bindContactProviderPort/u,"the production Contacts route cannot compose grant execution or a provider port");
-    assert.match(await readFile(new URL("../../enrichment/mcp_server.py",import.meta.url),"utf8"),/FastMCP/u,"the legacy file remains only as an unreachable artifact covered by the static proof");
+    assert.match(await readFile(new URL("../../enrichment/mcp_server.py",import.meta.url),"utf8"),/FastMCP/u,"the legacy file remains covered by the focused non-reference regression check");
   } finally { await fixture.dispose(); }
 });
 
