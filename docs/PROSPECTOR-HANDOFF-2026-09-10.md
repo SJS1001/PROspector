@@ -170,4 +170,3 @@ as an incidental part of these proofs.
    that external action.
 5. Maintain the original-project prohibition and every provider, credential,
    real-data, export, outbound, protected-governance, and production gate.
-
