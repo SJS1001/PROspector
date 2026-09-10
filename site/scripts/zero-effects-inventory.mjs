@@ -165,6 +165,8 @@ export const CANONICAL_TRIGGERS = Object.freeze([
   "person_discovery_run_immutable_delete", "person_discovery_run_immutable_update",
   "person_discovery_run_scope_guard", "phase_gate_activation_disabled_insert", "phase_gate_immutable_update",
   "private_synthetic_proof_authorization_immutable_delete", "private_synthetic_proof_authorization_immutable_update",
+  "private_synthetic_proof_authorization_migration_identity_immutable",
+  "private_synthetic_proof_authorization_migration_identity_insert",
   "private_synthetic_proof_authorization_run_binding_insert", "private_synthetic_proof_authorization_scope_insert",
   "private_synthetic_proof_consumption_immutable_delete", "private_synthetic_proof_consumption_immutable_update",
   "private_synthetic_proof_consumption_run_binding_insert", "private_synthetic_proof_consumption_scope_insert",

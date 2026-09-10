@@ -119,9 +119,18 @@ test("LOCAL_DEMO uses a Safari-compatible HTTP cookie only inside the guarded lo
     await vite.close();
   }
 
-  const route = await readFile(resolve(root, "app/api/interview/route.ts"), "utf8");
-  assert.match(route, /isLocalDemoRequest/);
-  assert.match(route, /csrfCookieMode:[\s\S]*\? "local-demo"[\s\S]*: "secure"/);
+  const routes = await Promise.all(["interview", "knowledge", "discovery", "prospecting", "contacts"].map(async (name) => [
+    name,
+    await readFile(resolve(root, `app/api/${name}/route.ts`), "utf8"),
+  ]));
+  for (const [name, route] of routes) {
+    assert.match(route, /isLocalDemoRequest/, `${name} must use the exact loopback demo fence`);
+    assert.match(route, /csrfCookieMode:\s*(?:isLocalDemoRequest\([^)]*\)|localDemo)\s*\? "local-demo"\s*: "secure"/, `${name} must issue only the loopback HTTP cookie`);
+  }
+  const discovery = routes.find(([name]) => name === "discovery")[1];
+  assert.match(discovery, /const localDemo = isLocalDemoRequest\(request, bindings\)/);
+  assert.match(discovery, /releaseEvidence:\s*localDemo\s*\?\s*LOCAL_SYNTHETIC_RELEASE_EVIDENCE/);
+  assert.match(discovery, /parseReleaseEvidenceConfig\(/);
 });
 
 test("local demo routes only interview authority commands through the dedicated loopback boundary", async () => {

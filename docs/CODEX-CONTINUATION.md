@@ -6,6 +6,16 @@
 **Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
+## Phase 3 release-evidence contract repair — 2026-09-09
+
+The repaired PR #111 candidate makes the private synthetic-proof release tuple explicit, adds immutable migration identity at checked migration `0020`, keeps legacy rows neutral and non-consumable, and restricts the disposable tuple to the complete `LOCAL_DEMO` fence. The offline preflight now binds the authorization to the exact migration and fixture tuple. See [`implementation-lanes/2026-09-09-phase3-release-evidence-contract.md`](implementation-lanes/2026-09-09-phase3-release-evidence-contract.md). This is local preparation only: it provides no hosted evidence and earns no plan or phase credit.
+
+The repaired candidate passed canonical `npm test` (including the production
+build), canonical `npm run lint`, and the focused 34-case migration/repository/
+handler regression on 2026-09-10. Work is paused after this checkpoint. Resume
+from [`PROSPECTOR-HANDOFF-2026-09-10.md`](PROSPECTOR-HANDOFF-2026-09-10.md);
+do not infer authority from the passing local evidence.
+
 ## Current planning reconciliation — 2026-09-09
 
 Current `main` contains substantial merged Phase 4–7 local implementation:

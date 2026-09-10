@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
-import { runtimeIdentity } from "../../runtime-identity";
-import { parseReleaseEvidenceConfig } from "../../../domain/release-evidence";
+import { isLocalDemoRequest, runtimeIdentity } from "../../runtime-identity";
+import { LOCAL_SYNTHETIC_RELEASE_EVIDENCE, parseReleaseEvidenceConfig } from "../../../domain/release-evidence";
 import {
   handleDiscoveryGet,
   handleDiscoveryPost,
@@ -34,17 +34,24 @@ function dependencies(request: Request): DiscoveryHandlerDependencies {
   };
   if (!bindings.DB || !bindings.OWNER_SUBJECT_PEPPER || !bindings.PILOT_OWNER_EMAIL)
     throw new Error("Secure discovery bindings are unavailable");
+  const localDemo = isLocalDemoRequest(request, bindings);
   return {
     database: bindings.DB,
     subjectPepper: bindings.OWNER_SUBJECT_PEPPER,
     pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
-    releaseEvidence: parseReleaseEvidenceConfig({
-      sourceRevision: bindings.PROSPECTOR_RELEASE_SOURCE_SHA,
-      migrationIdentity: bindings.PROSPECTOR_RELEASE_MIGRATION_IDENTITY,
-      migrationDigest: bindings.PROSPECTOR_RELEASE_MIGRATION_DIGEST,
-      fixtureDigest: bindings.PROSPECTOR_RELEASE_FIXTURE_DIGEST,
-      fixtureProvenance: bindings.PROSPECTOR_RELEASE_FIXTURE_PROVENANCE,
-    }),
+    // The synthetic release tuple is available only behind the complete local
+    // demo fence.  Every other request still parses (and therefore requires)
+    // the hosted release bindings before it can reach the domain.
+    releaseEvidence: localDemo
+      ? LOCAL_SYNTHETIC_RELEASE_EVIDENCE
+      : parseReleaseEvidenceConfig({
+          sourceRevision: bindings.PROSPECTOR_RELEASE_SOURCE_SHA,
+          migrationIdentity: bindings.PROSPECTOR_RELEASE_MIGRATION_IDENTITY,
+          migrationDigest: bindings.PROSPECTOR_RELEASE_MIGRATION_DIGEST,
+          fixtureDigest: bindings.PROSPECTOR_RELEASE_FIXTURE_DIGEST,
+          fixtureProvenance: bindings.PROSPECTOR_RELEASE_FIXTURE_PROVENANCE,
+        }),
+    csrfCookieMode: localDemo ? "local-demo" : "secure",
     getIdentity: async () => {
       return runtimeIdentity(request, bindings);
     },

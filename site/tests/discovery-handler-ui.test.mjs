@@ -39,11 +39,13 @@ test("D-12 discovery HTTP boundary admits the configured owner before parsing an
     const handler = await fixture.vite.ssrLoadModule(new URL("../domain/discovery-handler.ts", import.meta.url).pathname);
     const pilot = await fixture.vite.ssrLoadModule(new URL("../domain/pilot-access.ts", import.meta.url).pathname);
     const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    const releaseEvidence = await fixture.vite.ssrLoadModule(new URL("../domain/release-evidence.ts", import.meta.url).pathname);
     const ownerIdentity = { email: "owner@example.com", displayName: "Owner" };
     const dependencies = (identity) => ({
       database: fixture.database,
       subjectPepper: "test-only-discovery-handler-pepper-at-least-32-bytes",
       pilotOwnerEmail: "owner@example.com",
+      releaseEvidence: releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
       getIdentity: async () => identity,
     });
     const request = (body, csrf = "", headers = {}) => new Request("https://prospector.example/api/discovery", {
@@ -136,10 +138,16 @@ test("D-12 route is trusted-binding wiring only", async () => {
 });
 
 test("D-12 private synthetic proof binds immutable server authority and one consumption winner", async () => {
-  const source = await productionSource(
-    "../domain/discovery-handler.ts",
-    "the private synthetic-proof authorization boundary does not exist",
-  );
+  const [source, evidenceSource] = await Promise.all([
+    productionSource(
+      "../domain/discovery-handler.ts",
+      "the private synthetic-proof authorization boundary does not exist",
+    ),
+    productionSource(
+      "../domain/release-evidence.ts",
+      "the server-derived release-evidence contract does not exist",
+    ),
+  ]);
   for (const boundField of [
     "workspace",
     "product",
@@ -152,6 +160,11 @@ test("D-12 private synthetic proof binds immutable server authority and one cons
     "expiresAt",
     "private-hosted-synthetic-proposal-proof",
   ]) assert.match(source, new RegExp(boundField, "i"), `authorization must bind ${boundField}`);
+  assert.match(evidenceSource, /migrationIdentity\s*:\s*string/);
+  assert.match(source, /releaseEvidence\s*:\s*ReleaseEvidenceConfig/);
+  assert.match(source, /dispatch\([\s\S]{0,300}dependencies\.releaseEvidence\)/);
+  assert.match(source, /activatePrivateSyntheticProofAuthorization\([\s\S]{0,200}\{\s*\.\.\.input,\s*releaseEvidence\s*\}/);
+  assert.match(source, /submitPrivateSyntheticProof\([\s\S]{0,200}\{\s*\.\.\.input,\s*releaseEvidence\s*\}/);
   assert.match(source, /operationDigest/i);
   assert.match(source, /consum/i);
   assert.doesNotMatch(source, /body\.(owner|workspace|fixtureDigest|migrationDigest|evidenceReference)|fetch\(|https?:\/\//i);

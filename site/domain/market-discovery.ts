@@ -6,11 +6,10 @@ import {
   normalizeDiscoverySubmission,
   PRIVATE_SYNTHETIC_PROOF_CAPABILITY,
   PRIVATE_SYNTHETIC_PROOF_FINDINGS,
-  PRIVATE_SYNTHETIC_PROOF_FIXTURE_DIGEST,
   type NormalizedDiscoveryFinding,
   type NormalizedDiscoverySubmission,
 } from "./discovery-submission";
-import { LOCAL_SYNTHETIC_RELEASE_EVIDENCE, type ReleaseEvidenceConfig } from "./release-evidence";
+import type { ReleaseEvidenceConfig } from "./release-evidence";
 
 const DAY = 24 * 60 * 60 * 1_000;
 
@@ -65,7 +64,7 @@ type PrivateProofInput = {
   productId: string;
   expectedProductRevision: number;
   idempotencyKey: string;
-  releaseEvidence?: ReleaseEvidenceConfig;
+  releaseEvidence: ReleaseEvidenceConfig;
 };
 
 type Workspace = { id: string };
@@ -130,6 +129,7 @@ type PrivateProofAuthorizationRow = {
   configuration_id: string;
   configuration_digest: string;
   reviewed_source_revision: string;
+  migration_identity: string;
   migration_digest: string;
   fixture_digest: string;
   fixture_provenance: string;
@@ -257,7 +257,7 @@ export async function readMarketDiscoveryState(
   database: D1Database,
   principal: InterviewPrincipal,
   productId: string,
-  releaseEvidence: ReleaseEvidenceConfig = LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
+  releaseEvidence: ReleaseEvidenceConfig,
 ) {
   const workspace = await ownedWorkspace(database, principal);
   const readiness = await readProductReadiness(database, principal, productId);
@@ -280,8 +280,8 @@ export async function readMarketDiscoveryState(
     };
   }));
   const authorization = await privateProofAuthorizationForConsumption(database, workspace.id, productId);
-  if (authorization) assertStoredReleaseEvidence(authorization, releaseEvidence);
-  const consumption = authorization
+  const currentAuthorization = authorization !== null && storedReleaseEvidenceMatches(authorization, releaseEvidence);
+  const consumption = currentAuthorization
     ? await database.prepare(
       "SELECT result_json, operation_digest, consumed_at FROM private_synthetic_proof_consumptions WHERE authorization_id = ? LIMIT 1",
     ).bind(authorization.id).first<{ result_json: string; operation_digest: string; consumed_at: number }>()
@@ -291,12 +291,12 @@ export async function readMarketDiscoveryState(
     readiness,
     latestRun: latestRun ? runProjection(latestRun) : null,
     proposals,
-    privateProof: authorization
+    privateProof: authorization && currentAuthorization
       ? {
           capability: authorization.capability,
           authorizationId: authorization.id,
           reviewedSourceRevision: authorization.reviewed_source_revision,
-          migrationIdentity: releaseEvidence.migrationIdentity,
+          migrationIdentity: authorization.migration_identity,
           migrationDigest: authorization.migration_digest,
           fixtureDigest: authorization.fixture_digest,
           fixtureProvenance: authorization.fixture_provenance,
@@ -314,7 +314,7 @@ export async function activatePrivateSyntheticProofAuthorization(
   principal: InterviewPrincipal,
   input: PrivateProofInput,
 ) {
-  const evidence = input.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE;
+  const evidence = requireReleaseEvidence(input.releaseEvidence);
   validateKey(input.idempotencyKey);
   const workspace = await ownedWorkspace(database, principal);
   const product = await database.prepare(
@@ -378,9 +378,9 @@ export async function activatePrivateSyntheticProofAuthorization(
       database.prepare(
         `INSERT INTO private_synthetic_proof_authorizations
          (id, workspace_id, owner_subject_id, product_id, expected_product_revision, interview_confirmation_id,
-          confirmed_knowledge_version_id, run_id, configuration_id, configuration_digest, reviewed_source_revision, migration_digest, fixture_digest,
+          confirmed_knowledge_version_id, run_id, configuration_id, configuration_digest, reviewed_source_revision, migration_identity, migration_digest, fixture_digest,
           fixture_provenance, evidence_reference, capability, authorization_digest, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         authorizationId,
         workspace.id,
@@ -393,6 +393,7 @@ export async function activatePrivateSyntheticProofAuthorization(
         run.configuration_id,
         run.configuration_digest,
         evidence.sourceRevision,
+        evidence.migrationIdentity,
         evidence.migrationDigest,
         evidence.fixtureDigest,
         evidence.fixtureProvenance,
@@ -426,7 +427,7 @@ export async function submitPrivateSyntheticProof(
   principal: InterviewPrincipal,
   input: PrivateProofInput,
 ) {
-  const evidence = input.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE;
+  const evidence = requireReleaseEvidence(input.releaseEvidence);
   validateKey(input.idempotencyKey);
   const workspace = await ownedWorkspace(database, principal);
   const product = await database.prepare(
@@ -613,7 +614,7 @@ async function commitSuccessfulSubmission(
         submissionId,
         runId: run.id,
         operationDigest,
-        fixtureDigest: PRIVATE_SYNTHETIC_PROOF_FIXTURE_DIGEST,
+        fixtureDigest: privateProofAuthorization.fixture_digest,
       })
     : null;
   try {
@@ -1165,6 +1166,7 @@ function validatePrivateProofAuthorization(
     authorization.product_id !== product.id ||
     Number(authorization.expected_product_revision) !== Number(product.revision) ||
     authorization.reviewed_source_revision !== evidence.sourceRevision ||
+    authorization.migration_identity !== evidence.migrationIdentity ||
     authorization.migration_digest !== evidence.migrationDigest ||
     authorization.fixture_digest !== evidence.fixtureDigest ||
     authorization.fixture_provenance !== evidence.fixtureProvenance ||
@@ -1176,12 +1178,23 @@ function validatePrivateProofAuthorization(
 }
 
 function assertStoredReleaseEvidence(row: PrivateProofAuthorizationRow, evidence: ReleaseEvidenceConfig) {
-  if (row.reviewed_source_revision !== evidence.sourceRevision
-      || row.migration_digest !== evidence.migrationDigest
-      || row.fixture_digest !== evidence.fixtureDigest
-      || row.fixture_provenance !== evidence.fixtureProvenance) {
+  if (!storedReleaseEvidenceMatches(row, evidence)) {
     throw conflict("Stored private synthetic-proof evidence does not match current release configuration");
   }
+}
+
+function storedReleaseEvidenceMatches(row: PrivateProofAuthorizationRow, evidence: ReleaseEvidenceConfig) {
+  return row.migration_identity !== "legacy-unbound"
+    && row.reviewed_source_revision === evidence.sourceRevision
+    && row.migration_identity === evidence.migrationIdentity
+    && row.migration_digest === evidence.migrationDigest
+    && row.fixture_digest === evidence.fixtureDigest
+    && row.fixture_provenance === evidence.fixtureProvenance;
+}
+
+function requireReleaseEvidence(evidence: ReleaseEvidenceConfig | undefined) {
+  if (!evidence) throw conflict("Explicit release evidence is required");
+  return evidence;
 }
 
 function privateProofAuthorizationProjection(row: PrivateProofAuthorizationRow, evidence: ReleaseEvidenceConfig) {
@@ -1195,7 +1208,7 @@ function privateProofAuthorizationProjection(row: PrivateProofAuthorizationRow, 
     runId: row.run_id,
     configuration: { id: row.configuration_id, digest: row.configuration_digest },
     reviewedSourceRevision: row.reviewed_source_revision,
-    migrationIdentity: evidence.migrationIdentity,
+    migrationIdentity: row.migration_identity,
     migrationDigest: row.migration_digest,
     fixtureDigest: row.fixture_digest,
     provenance: row.fixture_provenance,

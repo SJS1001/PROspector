@@ -3,7 +3,7 @@ import {
   readCommercialModel,
   CommercialModelConflictError,
 } from "./commercial-model";
-import { consumeCsrfToken, csrfTokenFromRequest, CsrfTokenError, issueCsrfToken, withCsrfCookie } from "./csrf";
+import { consumeCsrfToken, csrfCookieName, csrfTokenFromRequest, CsrfTokenError, issueCsrfToken, withCsrfCookie, type CsrfCookieMode } from "./csrf";
 import { readInterviewState, recordInterviewDecision, submitInterviewAnswer, InterviewConflictError, type InterviewPrincipal, type InterviewSelection } from "./interview";
 import {
   importPlainText,
@@ -40,6 +40,7 @@ export type KnowledgeHandlerDependencies = {
   enableLocalDemoProgression?: boolean;
   runtimeIsDevelopment?: boolean;
   interviewSelection?: InterviewSelection;
+  csrfCookieMode?: CsrfCookieMode;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
 };
 
@@ -47,7 +48,7 @@ export async function handleKnowledgeGet(dependencies: KnowledgeHandlerDependenc
   try {
     const principal = await authenticatedPrincipal(dependencies);
     if (!await phase2SchemaAvailable(dependencies.database)) return json({ error: OLD_SCHEMA_PROJECTION });
-    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection);
+    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isKnownDomainError(error)) return json({ error: "knowledge_unavailable" }, 409);
@@ -62,7 +63,7 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
     if (!await phase2SchemaAvailable(dependencies.database)) return json({ error: OLD_SCHEMA_PROJECTION }, 503);
     const rejected = validateSameOriginMutation(request, KNOWLEDGE_MUTATION_INTENT, MAX_KNOWLEDGE_BODY_BYTES);
     if (rejected) return json({ error: rejected.error }, rejected.status);
-    await consumeCsrfToken(dependencies.database, principal.subject, csrfTokenFromRequest(request));
+    await consumeCsrfToken(dependencies.database, principal.subject, csrfTokenFromRequest(request, csrfCookieName(dependencies.csrfCookieMode)));
     const localOnboardingSeam=dependencies.enableLocalDemoProgression===true&&dependencies.runtimeIsDevelopment===true&&exactLoopbackMutation(request);
     const activated=localOnboardingSeam?null:await writesActivated(dependencies.database,principal);
     if(activated===false)return json({error:INACTIVE_WRITES_PROJECTION},503);
@@ -73,7 +74,7 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
     const onboardingAction = body.action === "initialize_owner_workspace" || body.action === "create_onboarding_draft" || body.action === "start_onboarding_interview";
     if(localOnboardingSeam&&!onboardingAction&&!await writesActivated(dependencies.database,principal))return json({error:INACTIVE_WRITES_PROJECTION},503);
     await dispatch(body, dependencies.database, principal, dependencies.interviewSelection);
-    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection);
+    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
@@ -152,9 +153,9 @@ function assertClosedCommand(body: Record<string, unknown>) {
   }
 }
 
-async function projectionResponse(database: D1Database, principal: InterviewPrincipal, selection?: InterviewSelection) {
+async function projectionResponse(database: D1Database, principal: InterviewPrincipal, selection?: InterviewSelection, csrfCookieMode?: CsrfCookieMode) {
   const onboarding = await readOnboardingProjection(database, principal);
-  if (!selection && (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await interviewHasStarted(database, principal)))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject));
+  if (!selection && (onboarding.status === "company_product_required" || onboarding.status === "market_play_required" || onboarding.status === "customer_profile_required" || (onboarding.status === "profile_fit_required" && !await interviewHasStarted(database, principal)))) return withCsrfCookie(json({ onboarding }), await issueCsrfToken(database, principal.subject), csrfCookieMode);
   // Reads are projection-only. The generalized queue composer is safe for
   // any authenticated owner of their own workspace -- it is not demo-only;
   // gating it behind enableLocalDemoProgression left ordinary secure
@@ -168,7 +169,7 @@ async function projectionResponse(database: D1Database, principal: InterviewPrin
   const activeOnboarding = onboarding.status === "profile_fit_required"
     ? { ...onboarding, interviewQueueDigest: null }
     : onboarding;
-  return withCsrfCookie(json({ onboarding: activeOnboarding, commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject));
+  return withCsrfCookie(json({ onboarding: activeOnboarding, commercial: commercialWithDriftTruth(commercial, drift), interview, library, drift, replacements }), await issueCsrfToken(database, principal.subject), csrfCookieMode);
 }
 
 function exactLoopbackMutation(request: Request) {
