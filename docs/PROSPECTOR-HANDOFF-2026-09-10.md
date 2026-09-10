@@ -4,6 +4,8 @@
 
 - Status: **paused by owner direction** after the current task.
 - Repair commit: `95b3d5529fca15ee65fd009ec1447f3ef40c8ffb`.
+- Exact-head review checkpoint before this handoff update:
+  `5c46d78424fffe1127771986578db826432e5d94`.
 - Review vehicle: PR #111, remote branch
   `codex/phase3-release-evidence-contract`. The local integration-branch name is
   not a portable remote reference.
@@ -34,6 +36,40 @@ Local evidence on the final repair tree:
 This evidence proves local preparation only. It grants no plan, phase, hosted,
 provider, export, or effect authority.
 
+Three independent read-only reviews were subsequently run against exact clean
+HEAD `5c46d78424fffe1127771986578db826432e5d94`. They found no blocker, but the
+code review found two high-severity correctness defects, so Phase 4 is **REVISE**
+and must not be represented as accepted:
+
+- **High:** `site/domain/prospect-review.ts` checks mutable prospect state before
+  checking the persisted idempotency result. Retrying an already-successful exact
+  owner decision therefore fails as stale instead of replaying safely. Move the
+  operation-digest/idempotency lookup ahead of mutable-state validation and add
+  exact-replay plus changed-payload/reused-key tests.
+- **High:** rejected prospects cannot re-enter after the 90-day cooldown or on a
+  Material Signal because the service incorrectly applies the sourced-disproof
+  requirement to rejection. Implement the Plan `04-07` rule and add service-level
+  cooldown-expiry and Material-Signal tests.
+- **Medium:** candidate creation and activation return an existing resource before
+  proving that the supplied idempotency key belongs to the same operation. Define
+  deduplication separately from replay and enforce key + digest binding.
+- **Medium:** Phase 4 integration tests use direct SQL to move a run from
+  `blocked_missing_capability` to `queued`; no trusted application seam performs
+  that transition. Add an audited injected scheduler/transport-admission seam, or
+  accurately mark the end-to-end lifecycle unavailable until that boundary exists.
+- **Medium security:** multiple valid assignments/submissions can race for one run
+  because assignment and ingestion leasing are not run-scoped. Add a run-scoped
+  uniqueness/lease invariant and an interleaved two-capability regression.
+- **Medium UI:** stale readiness lacks the specified recovery action/copy; pending
+  review status is not action-specific; and responsive/accessibility/card-local
+  behavior needs real component/browser interaction coverage rather than only SSR
+  and style-string assertions.
+
+Read-only review evidence included `node --test
+tests/profile-prospecting-ui.test.mjs` at 10/10. The prior independent Phase 4
+focused audit passed 40/40. Neither result substitutes for the canonical suite
+after the required fixes or for human/hosted acceptance.
+
 ## Formal completion ledger
 
 The formal checked-plan ledger remains:
@@ -50,10 +86,12 @@ Do not convert local modules, fixtures, tests, or prose into completion credit.
 
 ### 1. Land the current repair safely
 
-1. Obtain normal independent/trusted review for PR #111.
-2. Run required checks using only local/self-hosted or approved cloud runners.
-3. Resolve findings without weakening fail-closed boundaries.
-4. Merge only when repository governance permits it; do not self-attest or bypass
+1. Fix the two high and six medium Phase 4 correctness/security/UI findings
+   recorded above, using focused regressions first.
+2. Run the canonical suite using only local/self-hosted or approved cloud runners.
+3. Obtain normal independent/trusted exact-head review for PR #111.
+4. Resolve any new findings without weakening fail-closed boundaries.
+5. Merge only when repository governance permits it; do not self-attest or bypass
    required review.
 
 ### 2. Finish Phase 2 terminal acceptance (`02-99`)
@@ -167,9 +205,11 @@ as an incidental part of these proofs.
    the Phase 2 activation/review/security/UI records, and the dependencies named
    by the active plan.
 3. Require a clean worktree and verify the remote PR/branch state.
-4. First executable action: finish trusted review and governance checks for PR
-   #111. If it is already merged, begin the evidence checklist for Plan `02-99`
-   but stop before the Access attachment until the owner explicitly authorizes
-   that external action.
+4. First executable action: implement and test the two high-severity Phase 4
+   defects recorded above, followed by the medium run-scoped lease and command-
+   replay defects. Then complete exact-head trusted review and governance checks
+   for PR #111. If it is already merged, begin the evidence checklist for Plan
+   `02-99`, but stop before the Access attachment until the owner explicitly
+   authorizes that external action.
 5. Maintain the original-project prohibition and every provider, credential,
    real-data, export, outbound, protected-governance, and production gate.
