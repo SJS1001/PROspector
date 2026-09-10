@@ -45,8 +45,10 @@ test("workspace navigation is server-seeded, history-aware, and demo-directed to
   assert.match(app, /aria-current=\{current \? "page" : undefined\}/);
   assert.match(demo, /href="\/\?view=knowledge"/);
   assert.match(demo, /Open Consensus Knowledge/);
+  assert.match(demo, /Supported Phase 4–7 local journey/);
   // The route itself must stay a development-only boundary that renders nothing
   // in production, so the screen is reachable only behind the folded branch.
   assert.match(demoRoute, /import\.meta\.env\.DEV/u);
+  assert.ok(demoRoute.indexOf("await admitLocalDemoPage()") < demoRoute.indexOf("await import(\"./_screen\")"));
   assert.match(demoRoute, /notFound\(\)/u);
 });

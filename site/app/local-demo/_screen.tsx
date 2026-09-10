@@ -2,207 +2,93 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type DemoState = "checking" | "uninitialized" | "active" | "unavailable" | "rejected";
+type DemoState = "checking" | "ready" | "unavailable";
+type Stage = Readonly<{ id: string; immutableDigest: string; predecessorId?: string; predecessorDigest?: string }>;
+type Composition = Readonly<{
+  kind: "local_demo_composition";
+  fictional: true;
+  disposable: true;
+  prospect: Stage & { qualification: "qualified" };
+  ownerProspectApproval: Stage & { decision: "approved" };
+  contactSuggestion: Stage & { state: "ContactSuggestion" };
+  verificationIntent: Stage & { providerInvocation: false; verified: false };
+  contactReady: Stage & { state: "ContactReady"; admitted: false };
+  package: Stage & { exact: true; admitted: false };
+  message: Stage & { exact: true; admitted: false };
+  suppression: Stage & { outcome: "blocked" };
+  manualCallOutcome: Stage & { outcome: "not_attempted"; phoneTargetPresent: false };
+  morningBrief: Stage & { actionableCount: 0 };
+  weeklyPreview: Stage & { realAdmissionCount: 0 };
+  crmPreview: Stage & { realAdmissionCount: 0; materializationAuthorized: false; fieldCount: 7 };
+  portabilityPreview: Stage & { compatibility: "synthetic_contract_match"; restoreAuthorized: false };
+  effects: { persistence: false; browserStorage: false; network: false; providerInvocation: false; outbound: false; export: false; effectCount: 0 };
+}>;
 
-const statusCopy: Record<DemoState, string> = {
-  checking: "Checking the disposable local interview…",
-  uninitialized: "Local demo is ready for your company setup.",
-  active: "Interview is ready with disposable local data.",
-  unavailable: "Local demo unavailable. Check that the local development server is running, then retry.",
-  rejected: "Initialization was rejected. Refresh the local server and retry.",
-};
+const orderedKeys = ["contactSuggestion", "verificationIntent", "contactReady", "package", "message", "suppression", "manualCallOutcome", "morningBrief", "weeklyPreview", "crmPreview", "portabilityPreview"] as const;
 
-async function readInterview() {
-  const response = await fetch("/api/interview", {
-    cache: "no-store",
-    credentials: "same-origin",
-  });
-  const body = response.ok
-    ? await response.json() as { status?: string }
-    : null;
-  return { response, body };
-}
-
-type CrmPreviewState = "idle" | "loading" | "ready" | "unavailable";
-type CrmPreviewResult = {
-  admittedRowCount: number;
-  refusedCount: number;
-  schemaVersion: string;
-  encoding: string;
-  byteLength: number;
-  sha256: string;
-  text: string;
-};
-
-function nonNegativeSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-/** This UI is authorized only for a zero-admission fictional preview: the
- * live eligibility check must refuse every demo row. A response claiming any
- * admission -- a nonzero count or a nonempty `admitted` array, even if the
- * other agrees -- is rejected rather than rendered, so a malformed or
- * unexpectedly permissive response can never display a real-export claim. */
-export function normalizeCrmPreview(value: unknown): CrmPreviewResult | null {
+export function normalizeLocalDemoComposition(value: unknown): Composition | null {
   if (!value || typeof value !== "object") return null;
   const body = value as Record<string, unknown>;
-  if (body.kind !== "crm_handoff_local_demo_preview" || body.fictional !== true) return null;
-  if (body.exportAuthorized !== false || body.deliveryAuthorized !== false || body.downloadAuthorized !== false || body.persistenceAuthorized !== false || body.providerInvocationAuthorized !== false) return null;
-  const decision = body.decision;
-  const preview = body.preview;
-  if (!decision || typeof decision !== "object" || !preview || typeof preview !== "object") return null;
-  const d = decision as Record<string, unknown>;
-  const p = preview as Record<string, unknown>;
-  if (p.previewRowsAreFictionalAndUnadmitted !== true) return null;
-  if (
-    d.admittedRowCount !== 0 ||
-    !Array.isArray(d.admitted) ||
-    d.admitted.length !== 0 ||
-    !nonNegativeSafeInteger(d.refusedCount) ||
-    typeof p.schemaVersion !== "string" ||
-    typeof p.encoding !== "string" ||
-    typeof p.byteLength !== "number" ||
-    typeof p.sha256 !== "string" ||
-    typeof p.text !== "string"
-  ) return null;
-  return {
-    admittedRowCount: d.admittedRowCount,
-    refusedCount: d.refusedCount,
-    schemaVersion: p.schemaVersion,
-    encoding: p.encoding,
-    byteLength: p.byteLength,
-    sha256: p.sha256,
-    text: p.text,
-  };
+  if (body.kind !== "local_demo_composition" || body.fictional !== true || body.disposable !== true) return null;
+  const prospect = body.prospect as Stage | undefined;
+  if (!prospect || typeof prospect.id !== "string" || typeof prospect.immutableDigest !== "string") return null;
+  const approval = body.ownerProspectApproval as Stage & { reviewedProspectId?: string; reviewedProspectDigest?: string } | undefined;
+  if (!approval || approval.reviewedProspectId !== prospect.id || approval.reviewedProspectDigest !== prospect.immutableDigest) return null;
+  let predecessor = approval;
+  for (const key of orderedKeys) {
+    const stage = body[key] as Stage | undefined;
+    if (!stage || stage.predecessorId !== predecessor.id || stage.predecessorDigest !== predecessor.immutableDigest) return null;
+    predecessor = stage;
+  }
+  const effects = body.effects as Record<string, unknown> | undefined;
+  if (!effects || effects.effectCount !== 0 || Object.entries(effects).some(([key, state]) => key !== "effectCount" && state !== false)) return null;
+  const crm = body.crmPreview as Record<string, unknown>;
+  if (crm.materializationAuthorized !== false || crm.realAdmissionCount !== 0) return null;
+  return body as Composition;
 }
 
 export function LocalDemoScreen() {
-  const [demoState, setDemoState] = useState<DemoState>("checking");
-  const [crmPreviewState, setCrmPreviewState] = useState<CrmPreviewState>("idle");
-  const [crmPreview, setCrmPreview] = useState<CrmPreviewResult | null>(null);
-
-  async function runCrmHandoffPreview() {
-    setCrmPreviewState("loading");
-    setCrmPreview(null);
-    try {
-      const response = await fetch("/api/local-demo/crm-handoff-preview", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      if (!response.ok) {
-        setCrmPreviewState("unavailable");
-        return;
-      }
-      const normalized = normalizeCrmPreview(await response.json());
-      if (!normalized) {
-        setCrmPreviewState("unavailable");
-        return;
-      }
-      setCrmPreview(normalized);
-      setCrmPreviewState("ready");
-    } catch {
-      setCrmPreviewState("unavailable");
-    }
-  }
+  const [state, setState] = useState<DemoState>("checking");
+  const [composition, setComposition] = useState<Composition | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    void readInterview()
-      .then(({ response, body }) => {
+    void fetch("/api/local-demo/composition", { method: "POST", cache: "no-store", credentials: "same-origin" })
+      .then(async (response) => response.ok ? normalizeLocalDemoComposition(await response.json()) : null)
+      .then((result) => {
         if (!mounted) return;
-        setDemoState(response.ok && body?.status === "active"
-          ? "active"
-          : response.ok
-            ? "uninitialized"
-            : "unavailable");
+        setComposition(result);
+        setState(result ? "ready" : "unavailable");
       })
-      .catch(() => {
-        if (mounted) setDemoState("unavailable");
-      })
-    return () => {
-      mounted = false;
-    };
+      .catch(() => { if (mounted) setState("unavailable"); });
+    return () => { mounted = false; };
   }, []);
 
   return (
-    <main className="local-demo-screen" data-local-demo-visible="true" data-demo-state={demoState}>
-      <section aria-labelledby="local-demo-title">
-        <span>LOCAL_DEMO</span>
-        <h1 id="local-demo-title">Local demo interview</h1>
-        <p>Development-only, disposable, and unable to activate providers, prospecting, outreach, or external effects.</p>
-        <ol className="local-demo-steps" aria-label="Local demo setup steps">
-          <li className={demoState === "active" ? "complete" : "current"}>
-            <b>Enter your Company and first Product</b>
-            <small>Creates only the private commercial model you provide.</small>
-          </li>
-          <li className={demoState === "active" ? "current" : "pending"}>
-            <b>Open Consensus Knowledge</b>
-            <small>Continue with the disposable interview in the owner workspace.</small>
-          </li>
-        </ol>
-        <div className="local-demo-actions">
-          {demoState === "active" ? (
-            <Link className="local-demo-primary" href="/?view=knowledge">Open Consensus Knowledge <span aria-hidden="true">→</span></Link>
-          ) : (
-            <Link className="local-demo-primary" href="/?view=knowledge">Start company setup <span aria-hidden="true">→</span></Link>
-          )}
-        </div>
-        <p className="local-demo-status" role="status" aria-live="polite">{statusCopy[demoState]}</p>
-      </section>
-
-      <section aria-labelledby="crm-handoff-preview-title" className="local-demo-crm-preview">
-        <span>FICTIONAL · NOT APPROVED FOR EXPORT</span>
-        <h2 id="crm-handoff-preview-title">CRM handoff CSV preview</h2>
-        <p>
-          Shows the CSV byte policy applied to two made-up demo rows only. This
-          is not a real export: every row here is refused by the actual
-          eligibility check, nothing is written to disk, downloaded, or sent
-          anywhere, and no real prospect or contact data is read.
-        </p>
-        <p>
-          <button
-            type="button"
-            disabled={crmPreviewState === "loading"}
-            onClick={() => void runCrmHandoffPreview()}
-          >
-            {crmPreviewState === "loading" ? "Building fictional preview…" : "Preview fictional CSV rows"}
-          </button>
-        </p>
-        {crmPreviewState === "unavailable" ? (
-          <p role="alert">
-            Preview unavailable. This demo-only trigger needs the local
-            development server, the disposable local-demo identity, and the
-            CRM handoff preview route; retry once all three are ready.
-          </p>
-        ) : null}
-        {crmPreviewState === "ready" && crmPreview ? (
-          <div role="status" aria-live="polite">
-            <p>
-              <strong>Fictional and unapproved.</strong> {crmPreview.admittedRowCount} of{" "}
-              {crmPreview.admittedRowCount + crmPreview.refusedCount} demo rows would be
-              admitted for a real export; {crmPreview.refusedCount} are refused by the
-              live eligibility check. This preview cannot change that.
-            </p>
-            <details>
-              <summary>Byte policy details</summary>
-              <dl>
-                <dt>Schema version</dt>
-                <dd>{crmPreview.schemaVersion}</dd>
-                <dt>Encoding</dt>
-                <dd>{crmPreview.encoding}</dd>
-                <dt>Byte length</dt>
-                <dd>{crmPreview.byteLength}</dd>
-                <dt>SHA-256</dt>
-                <dd style={{ overflowWrap: "anywhere" }}>{crmPreview.sha256}</dd>
-              </dl>
-            </details>
-            <pre className="local-demo-crm-preview-bytes" aria-label="Fictional CSV preview bytes">
-              <code>{crmPreview.text}</code>
-            </pre>
-          </div>
-        ) : null}
-      </section>
+    <main className="local-demo-screen" data-local-demo-visible="true" data-demo-state={state}>
+      <header>
+        <span>LOCAL_DEMO · FICTIONAL · ZERO EFFECT</span>
+        <h1>Supported Phase 4–7 local journey</h1>
+        <p>One deterministic, disposable composition. It grants no production, provider, persistence, outbound, export, or restore authority.</p>
+        <Link href="/?view=knowledge">Open Consensus Knowledge <span aria-hidden="true">→</span></Link>
+        <p role="status" aria-live="polite">{state === "checking" ? "Checking the guarded composition…" : state === "ready" ? "Guarded composition ready." : "Local demo unavailable."}</p>
+      </header>
+      {composition ? <CompositionJourney composition={composition} /> : null}
     </main>
+  );
+}
+
+function CompositionJourney({ composition }: Readonly<{ composition: Composition }>) {
+  return (
+    <div data-composition-id="local-demo-phase4-through-phase7-v1">
+      <section><h2>Phase 4 · Profile and Prospect review</h2><p>Qualified fictional Prospect; owner review: {composition.ownerProspectApproval.decision}.</p></section>
+      <section><h2>Phase 5 · Fictional contact review</h2><p>{composition.contactSuggestion.state} → {composition.contactReady.state}-shaped only. Provider invoked: no; admitted: no.</p></section>
+      <section><h2>Phase 6 · Package, Message, and current-state checks</h2><ol><li>Exact Package reviewed before Message.</li><li>Exact Message reviewed after Package.</li><li>Suppression result: blocked.</li><li>Manual-call outcome: not attempted; no phone target exists.</li></ol></section>
+      <section><h2>Phase 7 · Morning Brief</h2><p>Actionable real items: {composition.morningBrief.actionableCount}. Fictional projection only.</p></section>
+      <section><h2>Phase 7 · Weekly result</h2><p>Real admissions: {composition.weeklyPreview.realAdmissionCount}. All displayed outcomes are synthetic metadata.</p></section>
+      <section><h2>Phase 7 · CRM handoff precondition</h2><dl><dt>Eligible rows</dt><dd>{composition.crmPreview.realAdmissionCount}</dd><dt>Field count</dt><dd>{composition.crmPreview.fieldCount}</dd><dt>Materialization</dt><dd>refused</dd></dl><p>Only synthetic schema metadata is shown; no export payload is created.</p></section>
+      <section><h2>Phase 7 · Portability compatibility</h2><dl><dt>Compatibility</dt><dd>{composition.portabilityPreview.compatibility}</dd><dt>Restore authority</dt><dd>{String(composition.portabilityPreview.restoreAuthorized)}</dd></dl></section>
+      <footer><p>Effects: {composition.effects.effectCount}. No writes, network calls, provider invocations, outbound actions, exports, browser storage, or durable state.</p></footer>
+    </div>
   );
 }

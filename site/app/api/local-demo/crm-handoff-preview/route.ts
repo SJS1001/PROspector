@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
  * The preview handler lives in the sibling `_handler` module, which vinext never
  * treats as a route, and is reached only through a dynamic import inside a
  * branch that folds away in a production build. Rollup then drops the chunk,
- * taking the fictional fixture and the CSV preview with it. In production this
+ * taking the fictional metadata-only precondition with it. In production this
  * route answers 404 like any unknown path.
  *
  * POST rather than GET so the handler's same-origin check applies to a

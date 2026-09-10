@@ -1,6 +1,6 @@
 # Guarded LOCAL_DEMO composition track
 
-**Status:** proposed, separate, and unaccepted
+**Status:** accepted only for the strictly local, zero-effect composition track
 
 **Recorded:** 2026-09-09
 
@@ -30,7 +30,7 @@ journey.
 
 ## Exact proposed boundary
 
-If accepted for execution, this track may add or adjust only development-gated
+The owner's repeated authorization accepts this track only for development-gated
 `LOCAL_DEMO` composition, fictional fixtures/projections, supported-screen UI,
 and local automated or browser acceptance evidence needed for that journey.
 Every entry point must
@@ -53,7 +53,7 @@ that any external event occurred. Where an underlying real boundary is still
 blocked, the UX must say so and keep the fictional preview visibly separate
 from an empty/refused real decision.
 
-This proposal grants **no**:
+This limited acceptance grants **no**:
 
 - Phase 4, 5, 6, or 7 plan, requirement, phase, or milestone completion credit;
 - satisfaction of any `depends_on`, hosted, provider, credential,
@@ -75,7 +75,7 @@ substitute evidence.
 
 ## Dependency order
 
-If separately accepted, work within this proposed track must preserve the
+Work within this accepted local-only track must preserve the
 product authority order even though every record is fictional and non-durable:
 
 1. Reuse the accepted local identity/onboarding/Knowledge and Product/Offer

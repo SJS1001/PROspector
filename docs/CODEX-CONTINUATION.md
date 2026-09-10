@@ -18,8 +18,8 @@ remain pending exactly as checked.
 
 The remaining local end-to-end gap is one coherent supported-screen browser
 journey across those already-merged later-phase UX seams. The single canonical
-proposal for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. It is separate
-and unaccepted, and defines only fixed
+record for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. The owner has
+accepted it only for strictly local, zero-effect composition, and it defines only fixed
 fictional/disposable projections behind the existing development, exact
 `LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
 the dependency order: Phase 4 ready Profile/qualified Prospect/review → Phase 5
@@ -127,7 +127,7 @@ Accounts may handle authorized local implementation, tests, documentation, and i
 
 ## Current state
 
-- The single canonical record for the separate proposed and unaccepted
+- The single canonical record for the separately accepted, strictly local and zero-effect
   `LOCAL_DEMO` composition track is
   [`.planning/LOCAL-DEMO-COMPOSITION.md`](../.planning/LOCAL-DEMO-COMPOSITION.md).
   It defines only fictional disposable loopback composition of existing Phase

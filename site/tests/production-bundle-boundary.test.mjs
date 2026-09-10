@@ -83,7 +83,11 @@ test("the production build does not emit the local-demo routes", async () => {
   // served 200 with LOCAL_DEMO-branded HTML and no identity check at all.
   assertAbsent(files, [
     { pattern: "data-local-demo-visible", label: "app/local-demo/_screen.tsx:49" },
-    { pattern: "Local demo interview", label: "app/local-demo/_screen.tsx:52" },
+    { pattern: "Supported Phase 4–7 local journey", label: "integrated local-demo screen" },
+    { pattern: "local-demo-morning-brief-v1", label: "Phase 7 morning brief contract marker" },
+    { pattern: "local-demo-manual-call-outcome-v1", label: "manual-call outcome contract marker" },
+    { pattern: "local-demo-portability-preview-v1", label: "Phase 7 portability contract marker" },
+    { pattern: "crm-handoff-fields/v1", label: "Phase 7 metadata-only CRM preview marker" },
     { pattern: "Outreach approval and suppression preview", label: "app/local-demo/_outreach-approval-preview.tsx presentation-only component" },
     { pattern: "synthetic_seed_failed", label: "app/api/local-demo/person-discovery-c4/_handler.ts:17" },
   ], "a local-demo route module reached the deployed artifact");
