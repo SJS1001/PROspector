@@ -72,6 +72,18 @@ type LineageRow = {
   retained_suppression_subject_refs_json: string;
 };
 
+type SnapshotLineageRow = LineageRow & {
+  id: string;
+  decision_id: string;
+  lineage_digest: string;
+  decision_subject_kind: string;
+  decision_json: string;
+  decision_retained_source_lineage_ids_json: string;
+  decision_retained_identity_lineage_ids_json: string;
+  decision_retained_aliases_json: string;
+  decision_retained_suppression_subject_refs_json: string;
+};
+
 type DecisionRow = {
   id: string;
   workspace_id: string;
@@ -319,24 +331,52 @@ async function readIdentitySnapshots(
   ) return Object.freeze([]);
 
   const lineageRows = (await database.prepare(
-    `SELECT source_subject_id,target_subject_id,relationship,
-      retained_source_lineage_ids_json,retained_identity_lineage_ids_json,
-      retained_aliases_json,retained_suppression_subject_refs_json
-     FROM identity_lineage
-     WHERE workspace_id=? AND subject_kind=?
-       AND (source_subject_id IN (${placeholders}) OR target_subject_id IN (${placeholders}))
-     ORDER BY created_at,id`,
+    `SELECT lineage.id,lineage.decision_id,lineage.source_subject_id,
+      lineage.target_subject_id,lineage.relationship,
+      lineage.retained_source_lineage_ids_json,
+      lineage.retained_identity_lineage_ids_json,lineage.retained_aliases_json,
+      lineage.retained_suppression_subject_refs_json,lineage.lineage_digest,
+      decision.subject_kind decision_subject_kind,decision.decision_json,
+      decision.retained_source_lineage_ids_json decision_retained_source_lineage_ids_json,
+      decision.retained_identity_lineage_ids_json decision_retained_identity_lineage_ids_json,
+      decision.retained_aliases_json decision_retained_aliases_json,
+      decision.retained_suppression_subject_refs_json decision_retained_suppression_subject_refs_json
+     FROM identity_lineage lineage
+     JOIN identity_decisions decision
+       ON decision.id=lineage.decision_id AND decision.workspace_id=lineage.workspace_id
+     WHERE lineage.workspace_id=? AND lineage.subject_kind=?
+       AND (lineage.source_subject_id IN (${placeholders}) OR lineage.target_subject_id IN (${placeholders}))
+     ORDER BY lineage.created_at,lineage.id`,
   ).bind(
     scope.workspaceId,
     scope.subjectKind,
     ...orderedIds,
     ...orderedIds,
-  ).all<LineageRow>()).results;
+  ).all<SnapshotLineageRow>()).results;
   if (lineageRows.some((lineage) => (
     lineage.relationship === "merged_into"
     && orderedIds.includes(lineage.source_subject_id)
   ))) return Object.freeze([]);
-  const parsedWorkspaceLineage = lineageRows.map(parseLineageRetention);
+  const endpointIds = sortedUnique(lineageRows.flatMap((lineage) => [
+    lineage.source_subject_id,
+    lineage.target_subject_id,
+  ]));
+  const endpointDigests = endpointIds.length === 0
+    ? []
+    : (await database.prepare(
+      `SELECT id,identity_digest FROM ${identityTable}
+       WHERE workspace_id=? AND id IN (${endpointIds.map(() => "?").join(",")})
+       ORDER BY id`,
+    ).bind(scope.workspaceId, ...endpointIds).all<{
+      id: string;
+      identity_digest: string;
+    }>()).results;
+  const digestByEndpoint = new Map(endpointDigests.map(
+    (endpoint) => [endpoint.id, endpoint.identity_digest],
+  ));
+  const parsedWorkspaceLineage = await Promise.all(lineageRows.map(
+    (lineage) => parseExactLineageRetention(lineage, scope, digestByEndpoint),
+  ));
   if (parsedWorkspaceLineage.some((entry) => entry === null)) return Object.freeze([]);
 
   // The current schema has no contact-to-email/phone suppression binding. Do
@@ -397,7 +437,9 @@ async function readIdentitySnapshots(
         lineage.source_subject_id === row.id || lineage.target_subject_id === row.id
       ),
     );
-    const parsedLineage = related.map(parseLineageRetention);
+    const parsedLineage = await Promise.all(related.map(
+      (lineage) => parseExactLineageRetention(lineage, scope, digestByEndpoint),
+    ));
     if (parsedLineage.some((entry) => entry === null)) return Object.freeze([]);
     const exactLineage = parsedLineage.filter(
       (entry): entry is NonNullable<typeof entry> => entry !== null,
@@ -1362,6 +1404,79 @@ function parseLineageRetention(row: LineageRow) {
       aliases,
       suppressionSubjectRefs,
     } : null;
+}
+
+async function parseExactLineageRetention(
+  row: SnapshotLineageRow,
+  scope: RepositoryScope,
+  digestByEndpoint: ReadonlyMap<string, string>,
+) {
+  const retention = parseLineageRetention(row);
+  const decision = parseCanonicalJson<AppliedResolution["decision"]>(
+    row.decision_json,
+  );
+  if (
+    !retention
+    || row.decision_subject_kind !== scope.subjectKind
+    || row.retained_source_lineage_ids_json
+      !== row.decision_retained_source_lineage_ids_json
+    || row.retained_identity_lineage_ids_json
+      !== row.decision_retained_identity_lineage_ids_json
+    || row.retained_aliases_json !== row.decision_retained_aliases_json
+    || row.retained_suppression_subject_refs_json
+      !== row.decision_retained_suppression_subject_refs_json
+    || !decision
+    || !decisionBindsLineageRow(decision, row)
+  ) return null;
+  const decisionSubjectIds = decision.kind === "merge"
+    ? [decision.primaryId, ...(Array.isArray(decision.secondaryIds) ? decision.secondaryIds : [])]
+    : [decision.sourceId, decision.newIdentityId];
+  const endpointSuppressionDigests = new Set(decisionSubjectIds.map(
+    (subjectId) => digestByEndpoint.get(subjectId),
+  ).filter((value): value is string => Boolean(value)));
+  if (
+    endpointSuppressionDigests.size === 0
+    || retention.suppressionSubjectRefs.some(
+      (reference) => !endpointSuppressionDigests.has(reference),
+    )
+  ) return null;
+  const lineageDigest = await digest({
+    schema: "identity-lineage/v1",
+    decisionId: row.decision_id,
+    subjectKind: scope.subjectKind,
+    sourceSubjectId: row.source_subject_id,
+    targetSubjectId: row.target_subject_id,
+    relationship: row.relationship,
+    retainedSourceLineageIds: retention.sourceLineageIds,
+    retainedIdentityLineageIds: retention.identityLineageIds,
+    retainedAliases: retention.aliases,
+    retainedSuppressionSubjectRefs: retention.suppressionSubjectRefs,
+  });
+  return row.lineage_digest === lineageDigest
+    && row.id === `il_${lineageDigest.slice(0, 24)}`
+    ? retention
+    : null;
+}
+
+function decisionBindsLineageRow(
+  decision: AppliedResolution["decision"],
+  row: SnapshotLineageRow,
+): boolean {
+  if (decision.kind === "merge") {
+    return validId(decision.primaryId)
+      && Array.isArray(decision.secondaryIds)
+      && validSortedIds(decision.secondaryIds, 1, 15)
+      && row.target_subject_id === decision.primaryId
+      && decision.secondaryIds.includes(row.source_subject_id)
+      && row.relationship === "merged_into";
+  }
+  return validId(decision.sourceId)
+    && validId(decision.newIdentityId)
+    && Array.isArray(decision.moveAssociationIds)
+    && validSortedIds(decision.moveAssociationIds, 1, 128)
+    && row.source_subject_id === decision.sourceId
+    && row.target_subject_id === decision.newIdentityId
+    && row.relationship === "split_from";
 }
 
 function suggestionEvidence(suggestion: IdentitySuggestion) {
