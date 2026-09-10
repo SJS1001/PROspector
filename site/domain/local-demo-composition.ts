@@ -36,8 +36,11 @@ export type LocalDemoComposition = Readonly<{
   package: ImmutableStage & Readonly<{ id: "local-demo-package-v1"; predecessorId: "local-demo-contact-ready-v1"; exact: true; admitted: false }>;
   message: ImmutableStage & Readonly<{ id: "local-demo-message-v1"; predecessorId: "local-demo-package-v1"; exact: true; admitted: false }>;
   suppression: ImmutableStage & Readonly<{ id: "local-demo-suppression-v1"; predecessorId: "local-demo-message-v1"; outcome: "blocked" }>;
-  weeklyPreview: ImmutableStage & Readonly<{ id: "local-demo-weekly-preview-v1"; predecessorId: "local-demo-suppression-v1"; source: "fictional projections"; realAdmissionCount: 0 }>;
-  crmPreview: ImmutableStage & Readonly<{ id: "local-demo-crm-preview-v1"; predecessorId: "local-demo-weekly-preview-v1"; source: "fictional projections"; realAdmissionCount: 0; downloadAuthorized: false }>;
+  manualCallOutcome: ImmutableStage & Readonly<{ id: "local-demo-manual-call-outcome-v1"; predecessorId: "local-demo-suppression-v1"; outcome: "not_attempted"; phoneTargetPresent: false }>;
+  morningBrief: ImmutableStage & Readonly<{ id: "local-demo-morning-brief-v1"; predecessorId: "local-demo-manual-call-outcome-v1"; source: "fictional projections"; actionableCount: 0 }>;
+  weeklyPreview: ImmutableStage & Readonly<{ id: "local-demo-weekly-preview-v1"; predecessorId: "local-demo-morning-brief-v1"; source: "fictional projections"; realAdmissionCount: 0 }>;
+  crmPreview: ImmutableStage & Readonly<{ id: "local-demo-crm-preview-v1"; predecessorId: "local-demo-weekly-preview-v1"; source: "fictional metadata only"; realAdmissionCount: 0; materializationAuthorized: false; fieldCount: 7 }>;
+  portabilityPreview: ImmutableStage & Readonly<{ id: "local-demo-portability-preview-v1"; predecessorId: "local-demo-crm-preview-v1"; compatibility: "synthetic_contract_match"; restoreAuthorized: false }>;
   effects: Readonly<{ persistence: false; browserStorage: false; network: false; providerInvocation: false; outbound: false; export: false; effectCount: 0 }>;
 }>;
 
@@ -62,8 +65,11 @@ async function buildComposition(): Promise<LocalDemoComposition> {
   const outreachPackage = await stage({ id: "local-demo-package-v1" as const, predecessorId: contactReady.id, predecessorDigest: contactReady.immutableDigest, exact: true as const, admitted: false as const });
   const message = await stage({ id: "local-demo-message-v1" as const, predecessorId: outreachPackage.id, predecessorDigest: outreachPackage.immutableDigest, exact: true as const, admitted: false as const });
   const suppression = await stage({ id: "local-demo-suppression-v1" as const, predecessorId: message.id, predecessorDigest: message.immutableDigest, outcome: "blocked" as const });
-  const weeklyPreview = await stage({ id: "local-demo-weekly-preview-v1" as const, predecessorId: suppression.id, predecessorDigest: suppression.immutableDigest, source: "fictional projections" as const, realAdmissionCount: 0 as const });
-  const crmPreview = await stage({ id: "local-demo-crm-preview-v1" as const, predecessorId: weeklyPreview.id, predecessorDigest: weeklyPreview.immutableDigest, source: "fictional projections" as const, realAdmissionCount: 0 as const, downloadAuthorized: false as const });
+  const manualCallOutcome = await stage({ id: "local-demo-manual-call-outcome-v1" as const, predecessorId: suppression.id, predecessorDigest: suppression.immutableDigest, outcome: "not_attempted" as const, phoneTargetPresent: false as const });
+  const morningBrief = await stage({ id: "local-demo-morning-brief-v1" as const, predecessorId: manualCallOutcome.id, predecessorDigest: manualCallOutcome.immutableDigest, source: "fictional projections" as const, actionableCount: 0 as const });
+  const weeklyPreview = await stage({ id: "local-demo-weekly-preview-v1" as const, predecessorId: morningBrief.id, predecessorDigest: morningBrief.immutableDigest, source: "fictional projections" as const, realAdmissionCount: 0 as const });
+  const crmPreview = await stage({ id: "local-demo-crm-preview-v1" as const, predecessorId: weeklyPreview.id, predecessorDigest: weeklyPreview.immutableDigest, source: "fictional metadata only" as const, realAdmissionCount: 0 as const, materializationAuthorized: false as const, fieldCount: 7 as const });
+  const portabilityPreview = await stage({ id: "local-demo-portability-preview-v1" as const, predecessorId: crmPreview.id, predecessorDigest: crmPreview.immutableDigest, compatibility: "synthetic_contract_match" as const, restoreAuthorized: false as const });
 
   return Object.freeze({
     kind: "local_demo_composition",
@@ -77,9 +83,10 @@ async function buildComposition(): Promise<LocalDemoComposition> {
     contactReady,
     package: outreachPackage,
     message,
-    suppression,
+    suppression, manualCallOutcome, morningBrief,
     weeklyPreview,
     crmPreview,
+    portabilityPreview,
     effects: Object.freeze({ persistence: false, browserStorage: false, network: false, providerInvocation: false, outbound: false, export: false, effectCount: 0 }),
   });
 }

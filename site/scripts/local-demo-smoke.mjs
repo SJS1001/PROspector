@@ -29,9 +29,29 @@ try {
   await waitFor(() => fetch(`${base}/local-demo`).then((response) => response.ok ? response : Promise.reject(new Error(`status_${response.status}`))));
   const page = await fetch(`${base}/local-demo`);
   const pageHtml = await page.text();
-  assert.match(pageHtml, /Local demo interview/);
+  assert.match(pageHtml, /Supported Phase 4–7 local journey/);
   assert.match(pageHtml, /data-local-demo-visible="true"/);
-  assert.match(pageHtml, /Local demo setup steps/);
+
+  const compositionResponse = await fetch(`${base}/api/local-demo/composition`, {
+    method: "POST",
+    headers: { origin: base },
+  });
+  assert.equal(compositionResponse.status, 200);
+  const compositionText = await compositionResponse.text();
+  const composition = JSON.parse(compositionText);
+  assert.equal(composition.manualCallOutcome.outcome, "not_attempted");
+  assert.equal(composition.morningBrief.actionableCount, 0);
+  assert.equal(composition.crmPreview.materializationAuthorized, false);
+  assert.equal(composition.portabilityPreview.restoreAuthorized, false);
+  assert.equal(composition.effects.effectCount, 0);
+  assert.ok(Object.values(composition.effects).every((effect) => effect === false || effect === 0));
+  assert.doesNotMatch(compositionText, /csvText|csvBytes|encodedBytes|decodedText/);
+
+  const foreignComposition = await fetch(`${base}/api/local-demo/composition`, {
+    method: "POST",
+    headers: { origin: "http://attacker.invalid" },
+  });
+  assert.equal(foreignComposition.status, 403);
 
   const initial = await fetch(`${base}/api/interview`);
   assert.equal(initial.status, 200);

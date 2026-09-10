@@ -1,7 +1,16 @@
 export const dynamic = "force-dynamic";
 
-/** Development-only route; production does not discover this module. */
-export async function GET(request) {
-  const { handleLocalDemoComposition } = await import("./_handler");
-  return handleLocalDemoComposition(request);
+/** Development-discovered, explicitly non-admitting scenario read. */
+export async function POST(request) {
+  if (import.meta.env.DEV) {
+    const { admitLocalDemoCompositionRead } = await import("../../../local-demo/_admission");
+    if (await admitLocalDemoCompositionRead(request)) {
+      const { handleLocalDemoCompositionRead } = await import("./_handler");
+      return handleLocalDemoCompositionRead();
+    }
+  }
+  return Response.json({ error: "not_found" }, {
+    status: 404,
+    headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
+  });
 }

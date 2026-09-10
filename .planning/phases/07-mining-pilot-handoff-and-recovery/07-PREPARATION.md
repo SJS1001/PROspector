@@ -463,7 +463,7 @@ including the production build, was not run in this lane and the preflight lane
 was not used. This supersedes an earlier record in commit `9bf5a4a`, which
 correctly stated at the time that the suite had not been executed.
 
-## Local-demo CRM handoff preview exception (owner-authorized 2026-09-08)
+## Local-demo CRM handoff preview exception (superseded 2026-09-09)
 
 The stop condition below otherwise forbids runtime composition and CSV
 materialization. The owner explicitly authorized one narrow exception on
@@ -490,7 +490,16 @@ The preview does not loosen production rejection, and no admitted row may be
 produced by routing around that boundary. Production composition remains
 reject-only.
 
-This grant is bounded to the preview seam. It is not production runtime
+The broader strictly local, zero-effect composition acceptance recorded in
+`.planning/LOCAL-DEMO-COMPOSITION.md` supersedes the byte-preview portion of
+this exception. The reachable local-demo UI and legacy preview URL now expose
+only fixed fictional schema metadata and the blocked materialization
+precondition: they do not call the CSV codec or create text, bytes, encoding,
+checksum, file, clipboard, or download payloads. The historical grant remains
+recorded here as provenance; it is not current authority to restore byte
+materialization.
+
+This grant was bounded to the preview seam. It is not production runtime
 authority, not general Phase 7 execution, and it earns no plan or phase
 completion credit. Plans 07-01 through 07-10 remain unexecuted.
 

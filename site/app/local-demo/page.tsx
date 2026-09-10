@@ -12,8 +12,11 @@ import { notFound } from "next/navigation";
  */
 export default async function LocalDemo() {
   if (import.meta.env.DEV) {
-    const { LocalDemoScreen } = await import("./_screen");
-    return <LocalDemoScreen />;
+    const { admitLocalDemoPage } = await import("./_admission");
+    if (await admitLocalDemoPage()) {
+      const { LocalDemoScreen } = await import("./_screen");
+      return <LocalDemoScreen />;
+    }
   }
   notFound();
 }
