@@ -13,6 +13,12 @@ export const OWNER = Object.freeze({
 });
 const RUNNER_SECRET = new TextEncoder().encode("phase5-integration-runner-secret-at-least-32-bytes");
 
+/** Deterministic monotonic time for repositories whose D1 guards reject ties. */
+export function advancingClock(start = NOW) {
+  let current = start;
+  return () => current++;
+}
+
 /** Apply the checked journal-derived chain through its current canonical head. */
 export async function applyCanonicalPhase5IntegrationMigrations(database) {
   await applyPersonDiscoveryMigrations(database);
@@ -127,18 +133,21 @@ export async function applyEnrichmentLineageCandidate(database) {
 
 function isLaterPhasePersistedEffectTable(name) {
   return name === "suppressions"
+    || name === "contact_eligibility_snapshots"
     || /^(?:outreach_|message_|export_|workspace_archives$|archive_|delivery_|dispatch_|call_)/u.test(name);
 }
 
 export async function seedSyntheticReservationInputs(database, lifecycle, grant, suffix = "default") {
   const contactId = `p5i-contact-${suffix}`;
   const assignmentId = `p5i-contact-assignment-${suffix}`;
+  const identityDigest = await sha256Hex(`phase5-integration-contact:${suffix}`);
+  const assignmentDigest = await sha256Hex(`phase5-integration-assignment:${suffix}`);
   await database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT ?,?,?,?,1,id,?,'Synthetic contact' FROM companies WHERE workspace_id=?")
-    .bind(contactId,lifecycle.workspaceId,NOW,NOW,"c".repeat(64),lifecycle.workspaceId).run();
+    .bind(contactId,lifecycle.workspaceId,NOW,NOW,identityDigest,lifecycle.workspaceId).run();
   await database.prepare(`INSERT INTO contact_evidence_assignments
     (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
     VALUES (?, ?,NULL,?,?,?,'champion',?,?,?,?,?,1,?,?)`)
-    .bind(assignmentId,lifecycle.workspaceId,grant.id,lifecycle.prospectId,contactId,grant.tuple.configurationId,grant.tuple.configurationDigest,grant.tuple.providerId,grant.tuple.providerVersion,grant.tuple.catalogRef,"d".repeat(64),NOW).run();
+    .bind(assignmentId,lifecycle.workspaceId,grant.id,lifecycle.prospectId,contactId,grant.tuple.configurationId,grant.tuple.configurationDigest,grant.tuple.providerId,grant.tuple.providerVersion,grant.tuple.catalogRef,assignmentDigest,NOW).run();
   for (const [scope, entityId] of Object.entries({ grant:grant.id,profile:grant.tuple.configurationId,workspace:lifecycle.workspaceId,provider:grant.tuple.providerId })) {
     const accountId = `enrichment:${lifecycle.workspaceId.length}:${lifecycle.workspaceId}:${scope}:${entityId.length}:${entityId}`;
     await database.prepare(`INSERT INTO enrichment_budget_accounts
@@ -148,9 +157,15 @@ export async function seedSyntheticReservationInputs(database, lifecycle, grant,
   }
 }
 
+async function sha256Hex(value) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /** Test-only attestor for durable synthetic settlement replay. */
 export async function createSyntheticContactSettlementAttestor(fixture) {
-  const attestor = await load(fixture, "contact-settlement-attestor");
+  const domain = await loadPhase5Domain(fixture);
+  const attestor = domain.contactSettlementAttestor;
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode("phase5-integration-attestation-key-at-least-thirty-two-bytes"),
@@ -168,4 +183,9 @@ export async function createSyntheticContactSettlementAttestor(fixture) {
 
 async function load(fixture, name) {
   return fixture.vite.ssrLoadModule(new URL(`../../domain/${name}.ts`, import.meta.url).pathname);
+}
+
+export function loadPhase5Domain(fixture) {
+  fixture.phase5Domain ??= fixture.vite.ssrLoadModule(new URL("./phase5-domain.ts", import.meta.url).pathname);
+  return fixture.phase5Domain;
 }

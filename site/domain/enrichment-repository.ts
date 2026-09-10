@@ -386,7 +386,7 @@ export function createD1EnrichmentRepository(database: D1Database, scope: Reposi
             (id, workspace_id, reservation_id, durable_revision, state, observation_ids_json, acknowledgement_digest, claimed_at, created_at)
            VALUES (?, ?, ?, ?, 'invoking', '[]', ?, ?, ?)`,
         ).bind(`ere_${acknowledgementDigest.slice(0, 24)}`, scope.workspaceId, reservationId, revision, acknowledgementDigest, trustedNow, trustedNow).run();
-        if (Number(result.meta?.changes) !== 1) return { kind: "blocked", reason: "unavailable" };
+        if (Number(result.meta?.changes) < 1) return { kind: "blocked", reason: "unavailable" };
       } catch {
         return { kind: "blocked", reason: "unavailable" };
       }
@@ -1707,7 +1707,7 @@ async function appendReconciliation(database: D1Database, workspaceId: string, r
     }
     throw new Error("enrichment_reconciliation_commit_failed");
   }
-  if (Number(result.meta?.changes) !== 1) throw new Error("enrichment_reconciliation_commit_failed");
+  if (Number(result.meta?.changes) < 1) throw new Error("enrichment_reconciliation_commit_failed");
   const committed = await latestReservationEvent(database, workspaceId, reservationId);
   if (
     !committed || committed.durable_revision !== durableRevision || committed.state !== "needs_reconciliation"

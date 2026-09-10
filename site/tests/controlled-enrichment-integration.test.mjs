@@ -3,10 +3,12 @@ import test from "node:test";
 import { countRows } from "./helpers/d1.mjs";
 import {
   NOW,
+  advancingClock,
   applyCanonicalPhase5IntegrationMigrations,
   createApprovedProspectLifecycle,
   createPhase5D1Fixture as createD1Fixture,
   createSyntheticContactSettlementAttestor,
+  loadPhase5Domain,
   seedSyntheticReservationInputs,
   snapshotLaterPhaseEffects,
 } from "./helpers/phase5-integration.mjs";
@@ -20,9 +22,9 @@ test("the canonical migration head supports Approved Prospect issuance and reser
       (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
       VALUES ('p5i-quote',?,'synthetic-contact-provider','v1','synthetic-catalog',1,'business_contact_lookup/v1','CAD',10,?,?,?)`)
       .bind(lifecycle.workspaceId,"b".repeat(64),NOW+20_000,NOW).run();
-    const repositoryModule = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-repository.ts", import.meta.url).pathname);
+    const [authority,repositoryModule,issuance] = await loadDomain(fixture,["enrichment-authority","enrichment-repository","enrichment-grant-issuance"]);
     const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
-      workspaceId: lifecycle.workspaceId, ownerSubject: lifecycle.owner.subject, now: () => NOW,
+      workspaceId: lifecycle.workspaceId, ownerSubject: lifecycle.owner.subject, now: advancingClock(NOW + 5),
     });
     const persisted = await fixture.database.prepare(`SELECT p.state,p.active,pc.status candidate_status,qa.outcome,c.active configuration_active
       FROM profile_prospects p JOIN prospecting_candidates pc ON pc.id=p.candidate_id AND pc.workspace_id=p.workspace_id
@@ -32,8 +34,6 @@ test("the canonical migration head supports Approved Prospect issuance and reser
     assert.deepEqual(persisted, { state:"approved", active:1, candidate_status:"observed", outcome:"Passed", configuration_active:1 });
     const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
     assert.equal(snapshot?.admitted, true);
-    const issuance = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname);
-    const authority = await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-authority.ts", import.meta.url).pathname);
     const request = { principalSubject:lifecycle.owner.subject,prospectIds:[lifecycle.prospectId],operation:"business_contact_lookup/v1",maxUnits:1,maxCostMinor:10,currency:"CAD",expiresAt:NOW+5_000,expectedRevision:snapshot.revision,idempotencyKey:"p5i-grant",now:NOW+5 };
     const laterEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
     const issued = await issuance.issueEnrichmentGrant(repository,request);
@@ -133,7 +133,7 @@ test("actual services settle one synthetic provider result into current ContactR
     const repository = repositoryModule.createD1EnrichmentRepository(fixture.database, {
       workspaceId:lifecycle.workspaceId,
       ownerSubject:lifecycle.owner.subject,
-      now:()=>NOW+10,
+      now:advancingClock(NOW+10),
       contactSettlementAttestor:settlementAttestor,
     });
     const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
@@ -207,7 +207,7 @@ test("actual services settle one synthetic provider result into current ContactR
       verdictDigest:"f".repeat(64),
     }));
     const laterEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
-    const execution = await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+7},verifier);
+    const execution = await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+100},verifier);
     assert.deepEqual(execution,{kind:"settled",outcome:"completed"});
     assert.equal(providerCalls,1);
     assert.equal(await countRows(fixture.database,"contact_point_observations"),1);
@@ -349,7 +349,7 @@ test("actual services settle one synthetic provider result into current ContactR
       {kind:"blocked",reason:"contact_capability_unavailable"},
       "the immutable activation boundary wins before any caller-controlled identity input",
     );
-    assert.equal((await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+10},verifier)).kind,"blocked");
+    assert.equal((await operation.executeEnrichmentOperation(repository,port,{reservationId:reserved.reservation.id,now:NOW+101},verifier)).kind,"blocked");
     assert.equal(providerCalls,1,"settled operations cannot be invoked twice");
     assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),laterEffectsBefore);
   } finally { await fixture.dispose(); }
@@ -401,7 +401,7 @@ test("partial results settle only documented units while preserving literal zero
       return Object.freeze({kind:"partial",reservationId:assignment.reservationId,operationKey:assignment.operationKey,documentedUnits:1,documentedCostMinor:10,evidence:Object.freeze([evidence])});
     });
     const before = await snapshotLaterPhaseEffects(fixture.database);
-    const result = await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+7},syntheticVerifier(contactEvidence,evidence,prepared.issued));
+    const result = await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+100},syntheticVerifier(contactEvidence,evidence,prepared.issued));
     assert.deepEqual(result,{kind:"settled",outcome:"partial"});
     assert.equal(providerCalls,1);
     const terminal = await terminalReservation(fixture.database,prepared.reserved.reservation.id);
@@ -422,11 +422,11 @@ test("DeliveryUnknown-equivalent ambiguous acceptance stays reserved and cannot 
       return Object.freeze({kind:"ambiguous",reservationId:assignment.reservationId,operationKey:assignment.operationKey});
     });
     const before = await snapshotLaterPhaseEffects(fixture.database);
-    assert.deepEqual(await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+7}),{kind:"needs_reconciliation"});
-    assert.deepEqual(await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+8}),{kind:"blocked"});
+    assert.deepEqual(await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+100}),{kind:"needs_reconciliation"});
+    assert.deepEqual(await operation.executeEnrichmentOperation(prepared.repository,port,{reservationId:prepared.reserved.reservation.id,now:NOW+101}),{kind:"blocked"});
     assert.equal(providerCalls,1,"an uncertain provider acceptance is never retried");
     const terminal = await terminalReservation(fixture.database,prepared.reserved.reservation.id);
-    assert.deepEqual(terminal,{state:"needs_reconciliation",terminal_reason:"ambiguous",documented_units:0,documented_cost_minor:0});
+    assert.deepEqual(terminal,{state:"needs_reconciliation",terminal_reason:"ambiguous",documented_units:null,documented_cost_minor:null});
     const budgets = (await fixture.database.prepare("SELECT actual_cost_minor,reserved_cost_minor FROM enrichment_budget_accounts WHERE workspace_id=?").bind(prepared.lifecycle.workspaceId).all()).results;
     assert.ok(budgets.every((row) => Number(row.actual_cost_minor)===0 && Number(row.reserved_cost_minor)===10));
     assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
@@ -457,6 +457,13 @@ test("D1 merge and split decisions preserve suppression reach, scope, and moved 
     assert.equal(await countRows(fixture.database,"identity_decisions"),2);
     assert.equal(await countRows(fixture.database,"identity_lineage"),2);
     assert.deepEqual((await fixture.database.prepare("SELECT contact_id FROM contact_relevance WHERE id='p5i-identity-relevance-beta'").first()).contact_id,split.decision.newIdentityId);
+    await fixture.database.prepare("INSERT INTO suppressions (id,workspace_id,subject_type,subject_digest,channel,reason,created_at) VALUES ('p5i-identity-unbound-email',?,'email',?,'email','synthetic',?)")
+      .bind(lifecycle.workspaceId,"f".repeat(64),NOW).run();
+    await assert.rejects(
+      () => identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"split",sourceId:split.decision.newIdentityId,moveAssociationIds:["p5i-identity-relevance-beta"]}),
+      /identity_resolution_rejected/,
+      "a genuinely unbound contact-point tombstone remains fail-closed",
+    );
     const foreign=persistence.createD1IdentityResolutionRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:"foreign-owner",subjectKind:"contact",now:()=>NOW});
     assert.deepEqual(await foreign.readIdentitySnapshots(lifecycle.workspaceId,["p5i-identity-alpha"]),[],"owner scope is enforced at the D1 repository boundary");
   } finally { await fixture.dispose(); }
@@ -496,11 +503,11 @@ async function readyObservedCandidate(fixture) {
     (id,workspace_id,provider_id,provider_version,catalog_ref,revision,operation,currency,unit_cost_minor,quote_digest,expires_at,created_at)
     VALUES ('p5i-quote',?,'synthetic-contact-provider','v1','synthetic-catalog',1,'business_contact_lookup/v1','CAD',10,?,?,?)`)
     .bind(lifecycle.workspaceId,"b".repeat(64),NOW+20_000,NOW).run();
-  const [repositoryModule,issuance,authority] = await loadDomain(fixture, [
-    "enrichment-repository", "enrichment-grant-issuance", "enrichment-authority",
+  const [authority,repositoryModule,issuance] = await loadDomain(fixture, [
+    "enrichment-authority", "enrichment-repository", "enrichment-grant-issuance",
   ]);
   const contactSettlementAttestor=await createSyntheticContactSettlementAttestor(fixture);
-  const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:()=>NOW,contactSettlementAttestor});
+  const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:advancingClock(NOW+5),contactSettlementAttestor});
   return { lifecycle, repository, issuance, authority };
 }
 
@@ -520,13 +527,15 @@ function syntheticVerifier(contactEvidence,evidence,issued) { return contactEvid
 async function terminalReservation(database,reservationId) { return database.prepare("SELECT state,terminal_reason,documented_units,documented_cost_minor FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1").bind(reservationId).first(); }
 
 async function seedD1IdentityContacts(database,lifecycle) {
-  const play = await database.prepare("SELECT play_id FROM customer_profiles WHERE id=? AND workspace_id=?").bind(lifecycle.profileId,lifecycle.workspaceId).first();
-  assert.ok(play?.play_id);
+  const play = await database.prepare("SELECT p.play_id,m.product_id FROM customer_profiles p JOIN market_plays m ON m.id=p.play_id AND m.workspace_id=p.workspace_id WHERE p.id=? AND p.workspace_id=?").bind(lifecycle.profileId,lifecycle.workspaceId).first();
+  assert.ok(play?.play_id && play?.product_id);
+  await database.prepare("INSERT INTO market_plays (id,workspace_id,created_at,updated_at,revision,product_id,name,lifecycle) VALUES ('p5i-identity-play-beta',?,?,?,1,?,'Synthetic identity beta','active')")
+    .bind(lifecycle.workspaceId,NOW,NOW,play.product_id).run();
   await database.batch([
     database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'p5i-identity-alpha',?,?,?,2,id,?,'Synthetic Alpha' FROM companies WHERE workspace_id=?").bind(lifecycle.workspaceId,NOW,NOW,"a".repeat(64),lifecycle.workspaceId),
     database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'p5i-identity-beta',?,?,?,3,id,?,'Synthetic Beta' FROM companies WHERE workspace_id=?").bind(lifecycle.workspaceId,NOW,NOW,"b".repeat(64),lifecycle.workspaceId),
     database.prepare("INSERT INTO contact_relevance (id,workspace_id,created_at,updated_at,revision,play_id,contact_id,relevance_json) VALUES ('p5i-identity-relevance-alpha',?,?,?,1,?,'p5i-identity-alpha','{}')").bind(lifecycle.workspaceId,NOW,NOW,play.play_id),
-    database.prepare("INSERT INTO contact_relevance (id,workspace_id,created_at,updated_at,revision,play_id,contact_id,relevance_json) VALUES ('p5i-identity-relevance-beta',?,?,?,1,?,'p5i-identity-beta','{}')").bind(lifecycle.workspaceId,NOW,NOW,play.play_id),
+    database.prepare("INSERT INTO contact_relevance (id,workspace_id,created_at,updated_at,revision,play_id,contact_id,relevance_json) VALUES ('p5i-identity-relevance-beta',?,?,?,1,'p5i-identity-play-beta','p5i-identity-beta','{}')").bind(lifecycle.workspaceId,NOW,NOW),
     database.prepare("INSERT INTO suppressions (id,workspace_id,subject_type,subject_digest,channel,reason,created_at) VALUES ('p5i-identity-suppression-alpha',?,'contact',?,'email','synthetic',?)").bind(lifecycle.workspaceId,"a".repeat(64),NOW),
     database.prepare("INSERT INTO suppressions (id,workspace_id,subject_type,subject_digest,channel,reason,created_at) VALUES ('p5i-identity-suppression-beta',?,'contact',?,'email','synthetic',?)").bind(lifecycle.workspaceId,"b".repeat(64),NOW),
   ]);
@@ -539,4 +548,8 @@ function load(fixture,name) { return fixture.vite.ssrLoadModule(new URL(`../doma
  * so it only holds while every module shares one instance of the file that owns
  * it. Concurrent loads let two of them instantiate a shared dependency twice,
  * and the operation then correctly rejects an object branded by the other. */
-async function loadDomain(fixture,names) { const modules=[]; for (const name of names) modules.push(await load(fixture,name)); return modules; }
+async function loadDomain(fixture,names) {
+  const domain = await loadPhase5Domain(fixture);
+  const key = {"enrichment-authority":"authority","enrichment-repository":"persistence","enrichment-grant-issuance":"issuance","enrichment-operation":"operation","contact-provider-port":"providerPort","contact-evidence":"contactEvidence"};
+  return names.map((name)=>domain[key[name]]);
+}

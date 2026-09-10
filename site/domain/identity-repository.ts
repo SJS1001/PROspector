@@ -157,7 +157,9 @@ export function createD1IdentityResolutionRepository(
           snapshot.associations.map((association) => [association.id, association.subjectId] as const)
         )),
       );
-      if (impactSubjects.size !== exact.associationImpact.length) throw rejected();
+      if (exact.associationImpact.some((impact) => !impactSubjects.has(impact.id))) {
+        throw rejected();
+      }
 
       const createdAt = positiveTime(clock());
       const statements: D1PreparedStatement[] = [
@@ -316,28 +318,6 @@ async function readIdentitySnapshots(
     ))
   ) return Object.freeze([]);
 
-  // The current schema has no contact-to-email/phone suppression binding. Do
-  // not guess across that gap: any potentially relevant unbound tombstone
-  // blocks identity resolution until a normalized subject binding exists.
-  const identityDigests = rows.map((row) => row.identity_digest);
-  const digestPlaceholders = identityDigests.map(() => "?").join(",");
-  const unboundSuppressions = await database.prepare(
-    `SELECT count(*) count FROM suppressions
-     WHERE workspace_id=?
-       AND subject_type IN (?,?,?)
-       AND NOT (subject_type=? AND subject_digest IN (${digestPlaceholders}))`,
-  ).bind(
-    scope.workspaceId,
-    scope.subjectKind,
-    scope.subjectKind === "contact" ? "email" : "organization_alias",
-    scope.subjectKind === "contact" ? "phone" : "organization_domain",
-    scope.subjectKind,
-    ...identityDigests,
-  ).first<{ count: number }>();
-  if (!unboundSuppressions || Number(unboundSuppressions.count) !== 0) {
-    return Object.freeze([]);
-  }
-
   const lineageRows = (await database.prepare(
     `SELECT source_subject_id,target_subject_id,relationship,
       retained_source_lineage_ids_json,retained_identity_lineage_ids_json,
@@ -356,6 +336,39 @@ async function readIdentitySnapshots(
     lineage.relationship === "merged_into"
     && orderedIds.includes(lineage.source_subject_id)
   ))) return Object.freeze([]);
+  const parsedWorkspaceLineage = lineageRows.map(parseLineageRetention);
+  if (parsedWorkspaceLineage.some((entry) => entry === null)) return Object.freeze([]);
+
+  // The current schema has no contact-to-email/phone suppression binding. Do
+  // not guess across that gap: any potentially relevant unbound tombstone
+  // blocks identity resolution until a normalized subject binding exists.
+  // A merged identity's exact retained digest references remain bound through
+  // its validated lineage even though the source identity is no longer live.
+  const identityDigests = rows.map((row) => row.identity_digest);
+  const retainedIdentityDigests = parsedWorkspaceLineage.flatMap((lineage) => (
+    lineage?.suppressionSubjectRefs.filter((reference) => DIGEST_PATTERN.test(reference)) ?? []
+  ));
+  const boundIdentityDigests = sortedUnique([
+    ...identityDigests,
+    ...retainedIdentityDigests,
+  ]);
+  const digestPlaceholders = boundIdentityDigests.map(() => "?").join(",");
+  const unboundSuppressions = await database.prepare(
+    `SELECT count(*) count FROM suppressions
+     WHERE workspace_id=?
+       AND subject_type IN (?,?,?)
+       AND NOT (subject_type=? AND subject_digest IN (${digestPlaceholders}))`,
+  ).bind(
+    scope.workspaceId,
+    scope.subjectKind,
+    scope.subjectKind === "contact" ? "email" : "organization_alias",
+    scope.subjectKind === "contact" ? "phone" : "organization_domain",
+    scope.subjectKind,
+    ...boundIdentityDigests,
+  ).first<{ count: number }>();
+  if (!unboundSuppressions || Number(unboundSuppressions.count) !== 0) {
+    return Object.freeze([]);
+  }
 
   const associationRows = scope.subjectKind === "contact"
     ? (await database.prepare(
