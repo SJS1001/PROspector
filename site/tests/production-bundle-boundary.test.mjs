@@ -20,6 +20,7 @@ const root = resolve(import.meta.dirname, "..");
 // scripts/greenfield-target-config.mjs. `dist/.openai` is build metadata and
 // migrations, not executable output.
 const DEPLOYED_DIRECTORIES = ["dist/server", "dist/client"];
+const PRODUCTION_SOURCE_DIRECTORY = "app";
 
 const BINARY_EXTENSIONS = new Set([
   ".avif", ".br", ".eot", ".gif", ".gz", ".ico", ".jpeg", ".jpg", ".mp4",
@@ -85,6 +86,27 @@ test("the production build does not emit the local-demo routes", async () => {
     { pattern: "Local demo interview", label: "app/local-demo/_screen.tsx:52" },
     { pattern: "synthetic_seed_failed", label: "app/api/local-demo/person-discovery-c4/_handler.ts:17" },
   ], "a local-demo route module reached the deployed artifact");
+});
+
+test("production source and artifacts cannot reach the fictional qualification leaf through imports or re-exports", async () => {
+  // The production bundle scan below is the final authority, but inspect the
+  // source graph too. This catches a static import, a barrel re-export, or an
+  // otherwise routable production module before a bundler optimization makes
+  // the resulting artifact difficult to attribute.
+  const sourceFiles = [];
+  await walk(resolve(root, PRODUCTION_SOURCE_DIRECTORY), sourceFiles);
+  assertAbsent(
+    sourceFiles.filter((file) => !file.path.startsWith("app/local-demo/")),
+    [{ pattern: "local-demo/presentation/prospect-qualification-review", label: "fictional qualification leaf import or re-export" }],
+    "a production source module can reach the isolated fictional qualification leaf",
+  );
+
+  const artifacts = await deployedTextFiles();
+  assertAbsent(artifacts, [
+    { pattern: "Prospect qualification review", label: "fictional qualification screen marker" },
+    { pattern: "ContactReady-shaped preview", label: "fictional ContactReady screen marker" },
+    { pattern: "fictional-config-digest-01", label: "fictional qualification predecessor digest" },
+  ], "a direct or indirect import/re-export/route emitted the fictional qualification leaf into a production artifact");
 });
 
 test("the production build does not emit the CRM preview fixture", async () => {
