@@ -4,7 +4,9 @@
 
 - Status: **paused by owner direction** after the current task.
 - Repair commit: `95b3d5529fca15ee65fd009ec1447f3ef40c8ffb`.
-- Review vehicle: PR #111, `codex/integrate-pr111`.
+- Review vehicle: PR #111, remote branch
+  `codex/phase3-release-evidence-contract`. The local integration-branch name is
+  not a portable remote reference.
 - Baseline: greenfield only. The original private Sites project is inaccessible,
   permanently retired, and must not be inspected, migrated, restored, cloned, or
   used as evidence. No claim is made that an original-project migration occurred.
@@ -157,7 +159,8 @@ as an incidental part of these proofs.
 
 ## Exact resume procedure
 
-1. Fetch the repository and fast-forward the PR #111 branch; do not rely on a
+1. Fetch the repository and fast-forward remote branch
+   `codex/phase3-release-evidence-contract` for PR #111; do not rely on a
    remembered SHA or this conversation.
 2. Read `AGENTS.md`, `docs/CODEX-CONTINUATION.md`, this handoff,
    `docs/GREENFIELD-BASELINE.md`, `.planning/STATE.md`, `.planning/ROADMAP.md`,
