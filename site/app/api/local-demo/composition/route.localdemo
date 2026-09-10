@@ -1,0 +1,7 @@
+export const dynamic = "force-dynamic";
+
+/** Development-only route; production does not discover this module. */
+export async function GET(request) {
+  const { handleLocalDemoComposition } = await import("./_handler");
+  return handleLocalDemoComposition(request);
+}
