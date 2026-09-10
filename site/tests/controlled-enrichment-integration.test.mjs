@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { countRows } from "./helpers/d1.mjs";
 import {
@@ -106,6 +109,24 @@ test("candidate lineage invalidated after issuance blocks reservation without ob
     assert.equal(result.kind,"blocked");
     assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
     assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+  } finally { await fixture.dispose(); }
+});
+
+test("an expired provider quote blocks grant issuance with zero calls and zero durable authority", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-stale-quote");
+  try {
+    const { lifecycle, issuance } = await readyObservedCandidate(fixture);
+    const [repositoryModule] = await loadDomain(fixture,["enrichment-repository"]);
+    const repository = repositoryModule.createD1EnrichmentRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:lifecycle.owner.subject,now:()=>NOW+30_000});
+    const before = await snapshotLaterPhaseEffects(fixture.database);
+    const snapshot = await repository.loadIssuanceSnapshot(lifecycle.owner.subject,[lifecycle.prospectId]);
+    assert.equal(snapshot?.admitted,true);
+    const request={...grantRequest(lifecycle,snapshot.revision,"p5i-stale-quote"),now:NOW+30_000,expiresAt:NOW+31_000};
+    assert.equal((await issuance.issueEnrichmentGrant(repository,request)).kind,"blocked");
+    assert.equal(await countRows(fixture.database,"enrichment_grants"),0);
+    assert.equal(await countRows(fixture.database,"enrichment_reservations"),0);
+    assert.equal(await countRows(fixture.database,"contact_point_observations"),0);
+    assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),before);
   } finally { await fixture.dispose(); }
 });
 
@@ -320,6 +341,28 @@ test("actual services settle one synthetic provider result into current ContactR
       assert.deepEqual(result.effectsBefore,eligibility.zeroDownstreamEffects());
       assert.deepEqual(result.effectsAfter,eligibility.zeroDownstreamEffects());
     }
+    const negativeProjectionCases = [
+      ["stale contact", {...projectionInput,now:NOW+31*24*60*60*1000}],
+      ["configuration mismatch", {...projectionInput,strategy:{...projectionInput.strategy,configurationDigest:"0".repeat(64)}}],
+      ["configuration inactive", {...projectionInput,authority:{...projectionInput.authority,configurationCurrent:false}}],
+      ["configuration drift", {...projectionInput,authority:{...projectionInput.authority,drifted:true}}],
+      ["prospect disqualified", {...projectionInput,authority:{...projectionInput.authority,disqualified:true}}],
+      ["contact suppressed", {...projectionInput,authority:{...projectionInput.authority,suppressed:true}}],
+    ];
+    const denialEffectsBefore = await snapshotLaterPhaseEffects(fixture.database);
+    for (const [label,input] of negativeProjectionCases) {
+      const deniedProjection = eligibility.projectContactEligibility(input);
+      assert.equal(deniedProjection.eligible,false,label);
+      for (const recheck of [eligibility.recheckForPackageApproval,eligibility.recheckForCrmExport,eligibility.recheckForClickToCall,eligibility.recheckForFinalSend]) {
+        const denied = recheck(input);
+        assert.equal(denied.blocked,true,label);
+        assert.deepEqual(denied.effectsBefore,eligibility.zeroDownstreamEffects(),label);
+        assert.deepEqual(denied.effectsAfter,eligibility.zeroDownstreamEffects(),label);
+      }
+      assert.equal(providerCalls,1,`${label} cannot make another fake provider call`);
+      assert.equal(await countRows(fixture.database,"contact_eligibility_snapshots"),0,`${label} cannot persist eligibility`);
+      assert.deepEqual(await snapshotLaterPhaseEffects(fixture.database),denialEffectsBefore,`${label} cannot mutate later-phase state`);
+    }
     const snapshotRequest = {
       ownerSubject:lifecycle.owner.subject,
       workspaceId:lifecycle.workspaceId,
@@ -469,6 +512,60 @@ test("D1 merge and split decisions preserve suppression reach, scope, and moved 
   } finally { await fixture.dispose(); }
 });
 
+test("suppression binding rejects invalid lineage digests and unrelated contact digests without durable mutation", async () => {
+  const fixture = await createD1Fixture("phase5-controlled-enrichment-lineage-binding");
+  try {
+    await applyCanonicalPhase5IntegrationMigrations(fixture.database);
+    const lifecycle = await createApprovedProspectLifecycle(fixture);
+    const identity = await load(fixture,"identity-resolution");
+    const persistence = await load(fixture,"identity-repository");
+    const owner={subject:lifecycle.owner.subject,admittedOwner:true};
+    await seedD1IdentityContacts(fixture.database,lifecycle);
+    const repository=persistence.createD1IdentityResolutionRepository(fixture.database,{workspaceId:lifecycle.workspaceId,ownerSubject:owner.subject,subjectKind:"contact",now:()=>NOW});
+    const mergeSuggestion=await identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"merge",candidateIds:["p5i-identity-alpha","p5i-identity-beta"]});
+    await identity.applyIdentityResolution(repository,owner,{workspaceId:lifecycle.workspaceId,suggestionId:mergeSuggestion.id,decision:{kind:"merge",primaryId:"p5i-identity-alpha",secondaryIds:["p5i-identity-beta"]},expectedRevision:mergeSuggestion.revision,idempotencyKey:"p5i-lineage-binding-merge"});
+    const lineage = await fixture.database.prepare("SELECT * FROM identity_lineage WHERE workspace_id=? LIMIT 1").bind(lifecycle.workspaceId).first();
+    const durableBefore = await identityDurableSnapshot(fixture.database,lifecycle.workspaceId);
+
+    await fixture.database.exec("DROP TRIGGER immutable_identity_lineage_update; DROP TRIGGER immutable_identity_decisions_update;");
+    await fixture.database.prepare("UPDATE identity_lineage SET lineage_digest=? WHERE id=?").bind("0".repeat(64),lineage.id).run();
+    await assert.rejects(
+      () => identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"split",sourceId:"p5i-identity-alpha",moveAssociationIds:["p5i-identity-relevance-beta"]}),
+      /identity_resolution_rejected/,
+      "a digest-shaped but cryptographically invalid lineage cannot exempt retained suppression",
+    );
+    assert.deepEqual(await identityDurableSnapshot(fixture.database,lifecycle.workspaceId),durableBefore,"invalid lineage cannot create a suggestion or mutate identity state");
+
+    const unrelatedDigest="c".repeat(64);
+    await fixture.database.prepare("INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) SELECT 'p5i-identity-unrelated',?,?,?,1,id,?,'Unrelated Fictional Contact' FROM companies WHERE workspace_id=?")
+      .bind(lifecycle.workspaceId,NOW,NOW,unrelatedDigest,lifecycle.workspaceId).run();
+    const retainedSuppressionSubjectRefs=["a".repeat(64),"b".repeat(64),unrelatedDigest];
+    const lineageDigest=phase5Digest({
+      schema:"identity-lineage/v1",
+      decisionId:lineage.decision_id,
+      subjectKind:"contact",
+      sourceSubjectId:lineage.source_subject_id,
+      targetSubjectId:lineage.target_subject_id,
+      relationship:lineage.relationship,
+      retainedSourceLineageIds:JSON.parse(lineage.retained_source_lineage_ids_json),
+      retainedIdentityLineageIds:JSON.parse(lineage.retained_identity_lineage_ids_json),
+      retainedAliases:JSON.parse(lineage.retained_aliases_json),
+      retainedSuppressionSubjectRefs,
+    });
+    await fixture.database.batch([
+      fixture.database.prepare("UPDATE identity_decisions SET retained_suppression_subject_refs_json=? WHERE id=?").bind(JSON.stringify(retainedSuppressionSubjectRefs),lineage.decision_id),
+      fixture.database.prepare("UPDATE identity_lineage SET id=?,retained_suppression_subject_refs_json=?,lineage_digest=? WHERE decision_id=?").bind(`il_${lineageDigest.slice(0,24)}`,JSON.stringify(retainedSuppressionSubjectRefs),lineageDigest,lineage.decision_id),
+    ]);
+    const unrelatedBefore = await identityDurableSnapshot(fixture.database,lifecycle.workspaceId);
+    await assert.rejects(
+      () => identity.planIdentitySuggestion(repository,owner,{workspaceId:lifecycle.workspaceId,kind:"split",sourceId:"p5i-identity-alpha",moveAssociationIds:["p5i-identity-relevance-beta"]}),
+      /identity_resolution_rejected/,
+      "a valid lineage digest cannot bind suppression belonging to an unrelated contact",
+    );
+    assert.deepEqual(await identityDurableSnapshot(fixture.database,lifecycle.workspaceId),unrelatedBefore,"unrelated contact lineage cannot create a suggestion or mutate identity state");
+  } finally { await fixture.dispose(); }
+});
+
 test("cross-tenant authority is rejected and the JavaScript enrichment graph cannot start legacy enrichment", async () => {
   const fixture = await createD1Fixture("phase5-controlled-enrichment-tenant-and-legacy");
   try {
@@ -493,6 +590,14 @@ test("cross-tenant authority is rejected and the JavaScript enrichment graph can
     const resourcesAfter = new Set(process.getActiveResourcesInfo());
     assert.equal(resourcesAfter.has("ChildProcess"),false,"loading the JavaScript enrichment graph cannot start a child process");
     assert.equal(resourcesBefore.has("ChildProcess"),false,"the test began with no provider process");
+    const productionSources = await productionTypeScriptSources();
+    assert.ok(productionSources.some(([path]) => path.endsWith("/app/api/contacts/route.ts")),"the production Contacts route is included in the static proof");
+    for (const [path,source] of productionSources) {
+      assert.doesNotMatch(source,/mcp_server|child_process|python(?:3)?/iu,`${path} cannot reach the legacy Python adapter`);
+    }
+    const contactsRoute = productionSources.find(([path]) => path.endsWith("/app/api/contacts/route.ts"))?.[1] ?? "";
+    assert.doesNotMatch(contactsRoute,/commandService|executeEnrichmentOperation|bindContactProviderPort/u,"the production Contacts route cannot compose grant execution or a provider port");
+    assert.match(await readFile(new URL("../../enrichment/mcp_server.py",import.meta.url),"utf8"),/FastMCP/u,"the legacy file remains only as an unreachable artifact covered by the static proof");
   } finally { await fixture.dispose(); }
 });
 
@@ -525,6 +630,34 @@ function syntheticEvidence(binding,id) { return Object.freeze({id,assignmentId:b
 function providerBinding(issued) { return {providerId:issued.grant.tuple.providerId,providerVersion:issued.grant.tuple.providerVersion,catalogRef:issued.grant.tuple.catalogRef}; }
 function syntheticVerifier(contactEvidence,evidence,issued) { return contactEvidence.bindContactEvidenceVerifier({verifierId:"phase5-fictional-verifier",verifierVersion:"v1"},async()=>Object.freeze({observationId:evidence.id,workspaceId:evidence.workspaceId,contactId:evidence.contactId,profileConfigurationId:evidence.profileConfigurationId,profileConfigurationDigest:evidence.profileConfigurationDigest,kind:evidence.kind,normalizedValue:evidence.value,contentHash:evidence.provenance.contentHash,verificationClass:"mailbox_verified",method:"mailbox_verification",verifiedAt:NOW+2,providerId:issued.grant.tuple.providerId,providerVersion:issued.grant.tuple.providerVersion,catalogRef:issued.grant.tuple.catalogRef,verdictReference:`verdict:${evidence.id}`,verdictDigest:"f".repeat(64)})); }
 async function terminalReservation(database,reservationId) { return database.prepare("SELECT state,terminal_reason,documented_units,documented_cost_minor FROM enrichment_reservation_events WHERE reservation_id=? ORDER BY durable_revision DESC LIMIT 1").bind(reservationId).first(); }
+
+async function identityDurableSnapshot(database,workspaceId) {
+  const [suggestions,decisions,lineage,relevance] = await Promise.all([
+    countRows(database,"identity_suggestions"),
+    countRows(database,"identity_decisions"),
+    countRows(database,"identity_lineage"),
+    database.prepare("SELECT id,contact_id,revision FROM contact_relevance WHERE workspace_id=? ORDER BY id").bind(workspaceId).all(),
+  ]);
+  return {suggestions,decisions,lineage,relevance:relevance.results};
+}
+
+function phase5Digest(value) {
+  return createHash("sha256").update(phase5Canonical(value)).digest("hex");
+}
+
+function phase5Canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(phase5Canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${phase5Canonical(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+async function productionTypeScriptSources() {
+  const roots=[new URL("../app/",import.meta.url),new URL("../domain/",import.meta.url)];
+  const files=(await Promise.all(roots.map((root)=>readdir(root,{recursive:true,withFileTypes:true})))).flatMap((entries)=>entries
+    .filter((entry)=>entry.isFile() && /\.(?:ts|tsx)$/u.test(entry.name))
+    .map((entry)=>join(entry.parentPath,entry.name)));
+  return Promise.all(files.map(async (path)=>[path,await readFile(path,"utf8")]));
+}
 
 async function seedD1IdentityContacts(database,lifecycle) {
   const play = await database.prepare("SELECT p.play_id,m.product_id FROM customer_profiles p JOIN market_plays m ON m.id=p.play_id AND m.workspace_id=p.workspace_id WHERE p.id=? AND p.workspace_id=?").bind(lifecycle.profileId,lifecycle.workspaceId).first();
