@@ -16,9 +16,9 @@ the formal phase/plan/requirement ledger. The upstream, hosted, provider,
 credential, real-principal, independent-review, and owner-acceptance gates
 remain pending exactly as checked.
 
-The remaining local end-to-end gap is one coherent supported-screen browser
-journey across those already-merged later-phase UX seams. The single canonical
-record for that work is `.planning/LOCAL-DEMO-COMPOSITION.md`. The owner has
+The coherent supported-screen browser journey across those already-merged
+later-phase UX seams is implemented as a strictly transient local acceptance
+lane. The single canonical record is `.planning/LOCAL-DEMO-COMPOSITION.md`. The owner has
 accepted it only for strictly local, zero-effect composition, and it defines only fixed
 fictional/disposable projections behind the existing development, exact
 `LOCAL_DEMO`, loopback, same-origin, and synthetic-owner fences. Preserve
@@ -26,7 +26,18 @@ the dependency order: Phase 4 ready Profile/qualified Prospect/review → Phase 
 fictional contact/enrichment review → Phase 6 Package before Message and
 suppression rechecks → Phase 7 morning/weekly/CRM/portability previews. Real
 decisions stay refused, effect counters stay zero, production bundles exclude
-the fixtures/routes, and no summary or formal credit may result.
+the fixtures/routes, and no summary or formal credit may result. Its exact
+operator progression is guarded by one-time CSRF and current HMAC-signed
+workspace/scenario/revision authority before the scenario handler import.
+Reload resumes transient runtime state; restart invalidates it. The pinned
+Chromium lane exercises Phase 4→5→6→7, reload, restart fail-closed behavior,
+accessibility/reflow, captures the complete browser request window, and proves
+identical counts across every local backing store immediately around the
+composition. Its after-run verifier separately proves the combined E1 lane has
+zero forbidden D1 rows and zero R2 objects or multipart uploads; the allowed E1
+bootstrap/review rows are not claimed as zero. The legacy CRM preview route is
+removed; the integrated UI exposes only synthetic field/count/refusal metadata
+and never materializes CSV text or bytes.
 
 That proposal grants no hosted/provider/credential/real-data/persistence/
 export/outbound authority. Stop rather than widening a checked plan, composing

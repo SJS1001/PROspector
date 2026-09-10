@@ -32,11 +32,11 @@ test("LOCAL_DEMO is server-only and rejects every ordinary runtime shape", async
   const demoPage = await readFile(resolve(root, "app/local-demo/_screen.tsx"), "utf8");
   assert.match(demoPage, /credentials: "same-origin"/);
   assert.match(demoPage, /data-local-demo-visible="true"/);
-  assert.match(demoPage, /Local demo interview/);
-  assert.match(demoPage, /Start company setup/);
-  assert.doesNotMatch(demoPage, /action:\s*"bootstrap"|Initialize local interview/);
-  assert.match(demoPage, /Local demo setup steps/);
-  assert.match(demoPage, /demoState === "active"/);
+  assert.match(demoPage, /Supported Phase 4–7 local journey/);
+  assert.match(demoPage, /action: "advance"/);
+  assert.match(demoPage, /expectedRevision: scenario\.revision/);
+  assert.match(demoPage, /Materialization<\/dt><dd>refused/);
+  assert.doesNotMatch(demoPage, /TextEncoder|TextDecoder|blob:|data:|download/);
   assert.match(demoPage, /Open Consensus Knowledge/);
   assert.match(demoPage, /import Link from "next\/link"/);
   assert.match(demoPage, /href="\/\?view=knowledge"/);

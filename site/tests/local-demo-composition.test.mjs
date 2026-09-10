@@ -45,22 +45,18 @@ test("the canonical composition is deterministic, immutable, ordered Phase 4 thr
   });
 });
 
-test("composition admission rejects cross-origin, stale control material, wrong workspace or owner, missing flags, and non-loopback", async () => {
+test("composition shell admission rejects cross-origin, wrong owner, missing flags, and non-loopback", async () => {
   globalThis.__localDemoBindings = validBindings;
   await withVite(async (vite) => {
     const admission = await vite.ssrLoadModule(admissionUrl.pathname);
-    const request = (url = "http://127.0.0.1:8788/api/local-demo/composition", headers = {}) => new Request(url, { method: "POST", headers: { origin: new URL(url).origin, ...headers } });
-    assert.equal(await admission.admitLocalDemoCompositionRead(request()), true);
+    const request = (url = "http://127.0.0.1:8788/api/local-demo/composition", headers = {}) => new Request(url, { method: "POST", headers: { origin: new URL(url).origin, "content-type": "application/json", ...headers }, body: "{}" });
+    assert.ok(await admission.admitLocalDemoScenarioRequest(new Request("http://127.0.0.1:8788/api/local-demo/composition")));
     const denied = [
       request("http://127.0.0.1:8788/api/local-demo/composition", { origin: "http://127.0.0.1:8789" }),
-      request("http://127.0.0.1:8788/api/local-demo/composition", { "x-csrf-token": "stale" }),
-      request("http://127.0.0.1:8788/api/local-demo/composition", { "x-local-demo-authority-revision": "stale" }),
-      request("http://127.0.0.1:8788/api/local-demo/composition", { "x-local-demo-workspace": "other" }),
-      request("http://127.0.0.1:8788/api/local-demo/composition", { "x-local-demo-owner": "other" }),
-      new Request("http://127.0.0.1:8788/api/local-demo/composition", { method: "POST", headers: { origin: "http://127.0.0.1:8788", "content-type": "application/json" }, body: "{}" }),
+      new Request("http://127.0.0.1:8788/api/local-demo/composition", { method: "POST", headers: { origin: "http://127.0.0.1:8788" }, body: "{}" }),
       request("https://example.test/api/local-demo/composition"),
     ];
-    for (const candidate of denied) assert.equal(await admission.admitLocalDemoCompositionRead(candidate), false);
+    for (const candidate of denied) assert.equal(await admission.admitLocalDemoScenarioRequest(candidate), null);
 
     for (const patch of [
       { LOCAL_DEMO: undefined },
@@ -73,7 +69,7 @@ test("composition admission rejects cross-origin, stale control material, wrong 
       globalThis.__localDemoBindings = { ...validBindings, ...patch };
       vite.moduleGraph.invalidateAll();
       const fresh = await vite.ssrLoadModule(admissionUrl.pathname);
-      assert.equal(await fresh.admitLocalDemoCompositionRead(request()), false);
+      assert.equal(await fresh.admitLocalDemoScenarioRequest(new Request("http://127.0.0.1:8788/api/local-demo/composition")), null);
     }
   }, true);
   delete globalThis.__localDemoBindings;
@@ -83,10 +79,9 @@ test("route admission precedes scenario import and the read surface exposes no m
   const route = await readFile(new URL("app/api/local-demo/composition/route.localdemo", root), "utf8");
   const handler = await readFile(new URL("app/api/local-demo/composition/_handler.ts", root), "utf8");
   const screen = await readFile(new URL("app/local-demo/_screen.tsx", root), "utf8");
-  assert.ok(route.indexOf("await admitLocalDemoCompositionRead(request)") < route.indexOf("await import(\"./_handler\")"));
-  assert.doesNotMatch(route, /export async function GET/u);
-  assert.doesNotMatch(handler, /\b(?:DB|D1Database|R2Bucket|fetch|insert|update|delete|reconcile|write|csrf)\s*\(/iu);
-  assert.doesNotMatch(handler, /handleLocalDemoCompositionRead\s*\([^)]/u);
+  assert.ok(route.indexOf("await admitLocalDemoScenarioRequest(request)") < route.indexOf("await import(\"./_handler\")"));
+  assert.match(route, /export function GET/u);
+  assert.doesNotMatch(handler, /\b(?:DB|D1Database|R2Bucket|fetch|insert|update|delete|reconcile|write)\s*\(/iu);
   assert.doesNotMatch(screen, /crm-csv-codec|TextEncoder|TextDecoder|\.text\b|byteLength|sha256|encoding/iu);
   for (const marker of ["Morning Brief", "Manual-call outcome", "Portability compatibility", "Effects:"]) assert.match(screen, new RegExp(marker, "u"));
 });

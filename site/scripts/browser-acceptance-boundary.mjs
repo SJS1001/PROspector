@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path
 
 const RUNTIME_ENTRIES = Object.freeze([
   ".openai",
+  "adapters",
   "app",
   "build",
   "db",

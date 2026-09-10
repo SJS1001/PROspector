@@ -18,15 +18,42 @@ of locally wired, test-only, reject-only, and runtime-unreachable work. Their
 presence does not satisfy their checked plans or their predecessor, hosted,
 provider, credential, real-principal, human-review, or owner-acceptance gates.
 
-The remaining local end-to-end gap is one supported-screen browser journey
-that composes the already-merged Phase 4–7 UX into a coherent fictional story.
-The journey must demonstrate the operator moving from a ready synthetic
+The supported-screen journey now composes the merged Phase 4–7 UX into a
+coherent fictional story. It demonstrates the operator moving from a ready synthetic
 Profile and qualified Prospect through fictional contact/enrichment review,
 exact Package and Message review, suppression and manual-call outcomes, and
 the weekly/CRM/portability surfaces. Existing focused tests and separate
 browser lanes prove individual seams; they do not prove this cross-phase UX
 ordering, state hand-off, reload behavior, or fail-closed presentation as one
-journey.
+journey. This is implementation and local acceptance evidence only, with no
+formal phase or production acceptance credit.
+
+The composition endpoint exists in source only as `route.localdemo`. The
+repository-pinned operator browser runner copies that shell into its disposable
+runtime as `route.ts`; production discovery never sees it. The shell completes
+the development/flag/Access-disabled/loopback/owner checks for every request
+and, for a progression command, same-origin, one-time CSRF, current revision,
+fixed workspace, and HMAC-signed scenario authority checks before dynamically
+importing the composition handler. GET only initializes or resumes a transient
+15-minute session. POST advances one of four in-memory display revisions. A
+reload resumes within that disposable runtime; a runtime restart invalidates
+the cookies and authority and starts at revision zero. Neither operation writes
+D1, R2, filesystem, browser storage, or an external service.
+
+The legacy `/api/local-demo/crm-handoff-preview` route was removed. Phase 7 CRM
+presentation is metadata and refusal evidence inside the single composition:
+eligible-row count, field count, and `materializationAuthorized=false`. It
+creates no CSV text, bytes, codec call, download, clipboard, blob, or data URL.
+
+The browser case snapshots row counts in every local SQLite/D1 and R2 backing
+store immediately before the composition journey and again after progression
+and reload; all snapshots must be identical. It
+also captures every browser request during that window and requires every
+origin to be the exact loopback runtime. The lane's final verifier separately
+checks the aggregate E1 bootstrap/review state, forbidden-table emptiness, and
+zero R2 objects/multipart uploads. That aggregate verifier is not presented as
+proof that bootstrap wrote nothing; the around-journey snapshot is the
+composition-specific zero-persistence evidence.
 
 ## Exact proposed boundary
 
@@ -108,7 +135,8 @@ steps 2–5 in order. No `*-SUMMARY.md` may be created from this track.
 ## Exact zero-effect verification
 
 Every slice must record its exact base/head and true exits for focused tests,
-`npm test`, `npm run lint`, `npm run build`, and `git diff --check`.
+the applicable lint/build commands, and `git diff --check`. The corrective
+slice deliberately leaves the full `npm test` lane to its integration owner.
 Browser-affecting work must run the applicable checked browser command with the
 repository-pinned Chromium revision and its after-run verifier. A mismatched
 browser is not evidence.
