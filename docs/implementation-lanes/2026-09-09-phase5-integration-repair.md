@@ -19,8 +19,10 @@ merge:
 - stale quote/contact, configuration mismatch/currentness/drift,
   disqualification, and suppression denials assert zero additional fake calls
   and zero unauthorized durable or later-phase mutation; and
-- static production-source and loaded-module-graph checks prove that the legacy
-  Python MCP adapter is not reachable from the JavaScript routes/domain graph.
+- static production-source and loaded-module-graph checks provide focused
+  regression evidence that the inspected JavaScript routes/domain modules do
+  not reference or start the legacy Python MCP adapter. They are not a complete
+  resolved-import or production-bundle reachability proof.
 
 All fixtures remain fictional and local. This record grants no provider,
 credential, hosted, production-data, persistence, export, package, call, send,
