@@ -21,3 +21,8 @@ Plans that require a real principal, hosted control-plane action, database evide
 Use Node.js 22.13 or newer. From `site/`, install with `npm ci` and verify with `npm test` and `npm run lint`. Miniflare tests require loopback permission in restricted Codex environments; a loopback `EPERM` is an environment restriction, not permission to weaken the tests or runtime.
 
 GSD skills and `gsd-sdk` are optional account tooling. When unavailable, execute the checked repository `*-PLAN.md` files directly in dependency order and maintain their summaries, audits, and state records in Git.
+
+CI execution must follow [`docs/CI-RUNNER-POLICY.md`](docs/CI-RUNNER-POLICY.md):
+GitHub-hosted Actions runners are prohibited. Use only repository-controlled
+self-hosted local runners or approved non-GitHub cloud execution. Run
+`node --test tests/ci-runner-policy.test.mjs` after changing CI configuration.

@@ -1,0 +1,11 @@
+{
+  "name": "prospector-repository-policy",
+  "private": true,
+  "scripts": {
+    "test:ci-policy": "node --test tests/ci-runner-policy.test.mjs",
+    "verify:ci-policy": "node scripts/verify-ci-runner-policy.mjs"
+  },
+  "devDependencies": {
+    "yaml": "2.9.0"
+  }
+}
