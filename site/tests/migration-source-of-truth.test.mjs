@@ -32,6 +32,13 @@ import {
 } from "./helpers/d1.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const nextMigrationIndex = Number.parseInt(CANONICAL_MIGRATION_HEAD.slice(0, 4), 10) + 1;
+const nextMigrationPrefix = String(nextMigrationIndex).padStart(4, "0");
+
+function nextMigration(suffix) {
+  const tag = `${nextMigrationPrefix}_${suffix}`;
+  return { filename: `${tag}.sql`, tag };
+}
 
 async function scratchChain() {
   const directory = await mkdtemp(resolve(tmpdir(), "prospector-migration-chain-"));
@@ -53,10 +60,10 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   CANONICAL_MIGRATION_FILENAMES.forEach((filename, index) => {
     assert.equal(filename.slice(0, 4), String(index).padStart(4, "0"), `${filename} must sit at journal index ${index}`);
   });
-  // Regression: the chain reaches the integrated person-discovery head rather
-  // than the historical 0009 boundary.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 20);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0019_person_discovery.sql");
+  // Regression: the chain reaches the release-evidence binding migration
+  // rather than stopping at the historical person-discovery boundary.
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 21);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0020_private-synthetic-proof-migration-identity.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {
@@ -67,11 +74,29 @@ test("the canonical chain is exactly the set of checked SQL files", async () => 
   assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].sort(), onDisk, "no orphan SQL file and no journal entry without a file");
 });
 
+test("the pinned LOCAL_DEMO tuple derives from the exact historical 0019 chain", async () => {
+  const historicalChain = CANONICAL_MIGRATION_FILENAMES.slice(0, 20);
+  assert.equal(historicalChain.at(-1), "0019_person_discovery.sql");
+  const entries = await Promise.all(historicalChain.map(async (filename, idx) => ({
+    idx,
+    tag: filename.slice(0, -4),
+    digest: createHash("sha256").update(await readFile(resolve(MIGRATION_DIRECTORY, filename))).digest("hex"),
+  })));
+  const expected = createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+  const source = await readFile(resolve(root, "domain/release-evidence.ts"), "utf8");
+  const pinned = source.match(/migrationDigest:\s*"([a-f0-9]{64})"/u)?.[1];
+  assert.equal(pinned, expected);
+});
+
 test("an SQL file that no journal entry claims fails closed", async () => {
   const directory = await scratchChain();
+  const candidate = nextMigration("unjournalled_candidate");
   try {
-    await writeFile(resolve(directory, "0020_unjournalled_candidate.sql"), "SELECT 1;\n");
-    assert.throws(() => readMigrationChain(directory), /migration_chain_orphan_file:0020_unjournalled_candidate\.sql/);
+    await writeFile(resolve(directory, candidate.filename), "SELECT 1;\n");
+    assert.throws(
+      () => readMigrationChain(directory),
+      new RegExp(`migration_chain_orphan_file:${candidate.filename.replaceAll(".", "\\.")}`),
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -79,11 +104,15 @@ test("an SQL file that no journal entry claims fails closed", async () => {
 
 test("a journal entry whose SQL file is missing fails closed", async () => {
   const directory = await scratchChain();
+  const candidate = nextMigration("absent_migration");
   try {
     await rewriteJournal(directory, (journal) => {
-      journal.entries.push({ idx: journal.entries.length, version: "6", when: 1, tag: "0020_absent_migration" });
+      journal.entries.push({ idx: journal.entries.length, version: "6", when: 1, tag: candidate.tag });
     });
-    assert.throws(() => readMigrationChain(directory), /migration_chain_file_missing:0020_absent_migration\.sql/);
+    assert.throws(
+      () => readMigrationChain(directory),
+      new RegExp(`migration_chain_file_missing:${candidate.filename.replaceAll(".", "\\.")}`),
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -124,14 +153,15 @@ test("an unreadable or non-object journal fails closed instead of returning a sh
 
 test("a newly added migration enters every derived consumer without an edit", async () => {
   const directory = await scratchChain();
+  const candidate = nextMigration("synthetic_future_migration");
   try {
-    await writeFile(resolve(directory, "0020_synthetic_future_migration.sql"), "SELECT 1;\n");
+    await writeFile(resolve(directory, candidate.filename), "SELECT 1;\n");
     await rewriteJournal(directory, (journal) => {
-      journal.entries.push({ idx: journal.entries.length, version: "6", when: 1, tag: "0020_synthetic_future_migration" });
+      journal.entries.push({ idx: journal.entries.length, version: "6", when: 1, tag: candidate.tag });
     });
     const grown = readMigrationChain(directory);
     assert.equal(grown.length, CANONICAL_MIGRATION_COUNT + 1);
-    assert.equal(grown.at(-1), "0020_synthetic_future_migration.sql");
+    assert.equal(grown.at(-1), candidate.filename);
     assert.deepEqual(grown.slice(0, CANONICAL_MIGRATION_COUNT), [...CANONICAL_MIGRATION_FILENAMES]);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -164,7 +194,7 @@ test("pinned fixture prefixes and the derived forward list still reconstruct the
   );
   assert.deepEqual([...PERSON_DISCOVERY_C4_MIGRATIONS], [...CANONICAL_MIGRATION_FILENAMES]);
   assert.throws(() => assertCanonicalPrefix(["0001_true_spencer_smythe.sql"], "reordered"), /exact prefix/);
-  assert.throws(() => assertCanonicalPrefix([...CANONICAL_MIGRATION_FILENAMES, "0020_invented.sql"], "invented"), /exact prefix/);
+  assert.throws(() => assertCanonicalPrefix([...CANONICAL_MIGRATION_FILENAMES, nextMigration("invented").filename], "invented"), /exact prefix/);
 });
 
 test("the greenfield attestation covers the Contacts and Person Discovery schema", () => {

@@ -3,15 +3,16 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { browserAcceptanceWorkerConfig } from "../scripts/browser-acceptance-boundary.mjs";
+import { CANONICAL_MIGRATION_FILENAMES, CANONICAL_MIGRATION_HEAD } from "../scripts/migration-chain.mjs";
 import { PERSON_DISCOVERY_C4_BINDING_NAME, PERSON_DISCOVERY_C4_BINDING_VALUE, PERSON_DISCOVERY_C4_MIGRATIONS, personDiscoveryC4Bindings } from "../scripts/person-discovery-browser-boundary.mjs";
 import { createServer } from "vite";
 import { applyPersonDiscoveryMigrations, countRows, createD1Fixture, snapshotForbiddenOperationalRows } from "./helpers/d1.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 test("C4 is a separate full-chain exact-binding browser lane", async () => {
-  assert.equal(PERSON_DISCOVERY_C4_MIGRATIONS.length, 20);
+  assert.deepEqual(PERSON_DISCOVERY_C4_MIGRATIONS, CANONICAL_MIGRATION_FILENAMES);
   assert.equal(PERSON_DISCOVERY_C4_MIGRATIONS[0], "0000_jittery_meteorite.sql");
-  assert.equal(PERSON_DISCOVERY_C4_MIGRATIONS.at(-1), "0019_person_discovery.sql");
+  assert.equal(PERSON_DISCOVERY_C4_MIGRATIONS.at(-1), CANONICAL_MIGRATION_HEAD);
   assert.equal(browserAcceptanceWorkerConfig({ d1: "DB", r2: "R2" }).vars[PERSON_DISCOVERY_C4_BINDING_NAME], undefined);
   assert.equal(browserAcceptanceWorkerConfig({ d1: "DB", r2: "R2" }, personDiscoveryC4Bindings()).vars[PERSON_DISCOVERY_C4_BINDING_NAME], PERSON_DISCOVERY_C4_BINDING_VALUE);
   assert.throws(() => browserAcceptanceWorkerConfig({ d1: "DB", r2: "R2" }, { PROSPECTOR_UNREVIEWED_BINDING: "value" }), /invalid additional browser acceptance binding/);

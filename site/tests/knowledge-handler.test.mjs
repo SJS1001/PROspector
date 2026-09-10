@@ -110,7 +110,10 @@ test("knowledge mutation routing cannot drop an exact Explore selection before a
   const handler = await readFile(new URL("../domain/knowledge-handler.ts", import.meta.url), "utf8");
   assert.match(handler, /submitInterviewAnswer\(database, principal,[\s\S]{0,500}\}, selection\)/);
   assert.match(handler, /recordInterviewDecision\(database, principal,[\s\S]{0,650}\}, selection\)/);
-  assert.match(handler, /projectionResponse\(dependencies\.database, principal, dependencies\.interviewSelection\)/);
+  assert.match(
+    handler,
+    /projectionResponse\(dependencies\.database, principal, dependencies\.interviewSelection, dependencies\.csrfCookieMode\)/,
+  );
 });
 
 test("the closed command contract names safe Proposed-only intake and rejects operational authority", () => {

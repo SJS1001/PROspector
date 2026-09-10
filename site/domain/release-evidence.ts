@@ -6,9 +6,9 @@ export type ReleaseEvidenceConfig = Readonly<{
   fixtureProvenance: string;
 }>;
 
-// Local synthetic fixtures are pinned to the reviewed mainline release. Hosted
-// runtime configuration must provide the same shape through the private config
-// seam; no short commit or partial migration digest is accepted there.
+// This is a disposable LOCAL_DEMO fixture tuple, not hosted-release evidence.
+// It is injected only by the fully guarded loopback route composition. Hosted
+// runtime configuration must provide an explicit, independently produced tuple.
 export const LOCAL_SYNTHETIC_RELEASE_EVIDENCE: ReleaseEvidenceConfig = Object.freeze({
   sourceRevision: "5382b9266df32cb83bc8c1886744e5e8a8dace87",
   migrationIdentity: "canonical-chain-0019-person-discovery",

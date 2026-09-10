@@ -54,12 +54,15 @@ export function assessReleaseEvidence(evidence, { now = new Date().toISOString()
   if (phase2.status !== "complete") fail("phase2_dependency_incomplete");
   opaque(phase2.evidenceReference, "phase2_evidence_reference_invalid");
 
-  const local = exactKeys(manifest.local, ["testPhase3", "reviewedSourceRevision", "migration"], "local_evidence_incomplete");
+  const local = exactKeys(manifest.local, ["testPhase3", "reviewedSourceRevision", "migration", "fixture"], "local_evidence_incomplete");
   if (local.testPhase3 !== "passed") fail("local_phase3_test_incomplete");
   if (typeof local.reviewedSourceRevision !== "string" || !GIT_REVISION.test(local.reviewedSourceRevision)) fail("reviewed_source_revision_invalid");
   const migration = exactKeys(local.migration, ["identity", "digest"], "migration_identity_incomplete");
   if (typeof migration.identity !== "string" || !/^canonical-chain-[0-9]{4}-[a-z0-9-]+$/u.test(migration.identity)) fail("migration_identity_incomplete");
   if (typeof migration.digest !== "string" || !SHA256.test(migration.digest)) fail("migration_digest_invalid");
+  const fixture = exactKeys(local.fixture, ["digest", "provenance"], "fixture_evidence_incomplete");
+  if (typeof fixture.digest !== "string" || !SHA256.test(fixture.digest)) fail("fixture_digest_invalid");
+  opaque(fixture.provenance, "fixture_provenance_invalid");
 
   const target = exactKeys(manifest.target, ["productId", "expectedRevision"], "target_identity_incomplete");
   opaque(target.productId, "target_identity_incomplete");
@@ -75,6 +78,8 @@ export function assessReleaseEvidence(evidence, { now = new Date().toISOString()
   if (authorization.migrationIdentity !== migration.identity) fail("migration_identity_mismatch");
   if (authorization.migrationDigest !== migration.digest) fail("migration_digest_mismatch");
   if (!SHA256.test(authorization.fixtureDigest)) fail("fixture_digest_invalid");
+  if (authorization.fixtureDigest !== fixture.digest) fail("fixture_digest_mismatch");
+  if (authorization.fixtureProvenance !== fixture.provenance) fail("fixture_provenance_mismatch");
   parseExpiry(authorization.expiresAt, Date.parse(now));
 
   const consumption = exactKeys(manifest.consumption, ["singleUse", "operationId", "winnerOperationId", "consumedByOperationId", "reference"], "consumption_incomplete");

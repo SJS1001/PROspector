@@ -16,6 +16,7 @@ function dependencies(request: Request): KnowledgeHandlerDependencies {
   return {
     database: bindings.DB, subjectPepper: bindings.OWNER_SUBJECT_PEPPER, pilotOwnerEmail: bindings.PILOT_OWNER_EMAIL,
     enableLocalDemoProgression: isLocalDemoRequest(request, bindings),
+    csrfCookieMode: isLocalDemoRequest(request, bindings) ? "local-demo" : "secure",
     runtimeIsDevelopment: import.meta.env.DEV,
     interviewSelection: selectionFrom(request),
     getIdentity: async () => {

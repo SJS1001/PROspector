@@ -4,6 +4,8 @@ import {
   CsrfTokenError,
   issueCsrfToken,
   withCsrfCookie,
+  csrfCookieName,
+  type CsrfCookieMode,
 } from "./csrf";
 import type { InterviewPrincipal } from "./interview";
 import {
@@ -20,7 +22,7 @@ import {
 } from "./product-readiness";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
-import { LOCAL_SYNTHETIC_RELEASE_EVIDENCE, type ReleaseEvidenceConfig } from "./release-evidence";
+import type { ReleaseEvidenceConfig } from "./release-evidence";
 
 export const DISCOVERY_MUTATION_INTENT = "discovery-mutation";
 export const MAX_DISCOVERY_BODY_BYTES = 8192;
@@ -30,7 +32,8 @@ export type DiscoveryHandlerDependencies = {
   subjectPepper: string;
   pilotOwnerEmail: string;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
-  releaseEvidence?: ReleaseEvidenceConfig;
+  releaseEvidence: ReleaseEvidenceConfig;
+  csrfCookieMode?: CsrfCookieMode;
 };
 
 type ProductRow = { id: string; name: string; lifecycle: string; revision: number };
@@ -48,7 +51,7 @@ export async function handleDiscoveryGet(
   try {
     const principal = await authenticatedPrincipal(dependencies);
     const productId = optionalProductLocator(new URL(request.url).searchParams.get("productId"));
-    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
+    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isConflict(error)) return privateWorkspaceUnavailable();
@@ -72,15 +75,15 @@ export async function handleDiscoveryPost(
     await consumeCsrfToken(
       dependencies.database,
       principal.subject,
-      csrfTokenFromRequest(request),
+      csrfTokenFromRequest(request, csrfCookieName(dependencies.csrfCookieMode)),
     );
     const body = await readBoundedJson(request, MAX_DISCOVERY_BODY_BYTES);
     if (!isRecord(body) || !DISCOVERY_ACTIONS.includes(body.action as DiscoveryAction))
       return json({ error: "unsupported_action" }, 400);
     const action = body.action as DiscoveryAction;
     assertClosedCommand(body, action);
-    const productId = await dispatch(action, body, dependencies.database, principal, dependencies.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
-    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence ?? LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
+    const productId = await dispatch(action, body, dependencies.database, principal, dependencies.releaseEvidence);
+    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
@@ -155,6 +158,7 @@ async function projectionResponse(
   principal: InterviewPrincipal,
   requestedProductId: string | null,
   releaseEvidence: ReleaseEvidenceConfig,
+  csrfCookieMode?: CsrfCookieMode,
 ) {
   const workspace = await ownedWorkspace(database, principal);
   const products = await database.prepare(
@@ -174,7 +178,7 @@ async function projectionResponse(
     proposals: state?.proposals ?? [],
     privateSyntheticProof: state?.privateProof ?? null,
   });
-  return withCsrfCookie(response, await issueCsrfToken(database, principal.subject));
+  return withCsrfCookie(response, await issueCsrfToken(database, principal.subject), csrfCookieMode);
 }
 
 

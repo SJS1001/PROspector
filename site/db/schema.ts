@@ -369,6 +369,7 @@ export const privateSyntheticProofAuthorizations = sqliteTable(
     configurationId: text("configuration_id").notNull().references(() => configurations.id),
     configurationDigest: text("configuration_digest").notNull(),
     reviewedSourceRevision: text("reviewed_source_revision").notNull(),
+    migrationIdentity: text("migration_identity").notNull().default("legacy-unbound"),
     migrationDigest: text("migration_digest").notNull(),
     fixtureDigest: text("fixture_digest").notNull(),
     fixtureProvenance: text("fixture_provenance").notNull(),

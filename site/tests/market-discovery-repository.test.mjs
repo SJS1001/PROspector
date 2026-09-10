@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  applyMigrations,
+  applyPersonDiscoveryMigrations,
   assertForbiddenOperationalRowsUnchanged,
   createD1Fixture,
   runRace,
@@ -58,18 +58,19 @@ function finding(sequence, overrides = {}) {
 }
 
 async function loadDomains(fixture) {
-  const [commercial, knowledge, readiness, discovery, submission] = await Promise.all([
+  const [commercial, knowledge, readiness, discovery, submission, releaseEvidence] = await Promise.all([
     fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname),
     fixture.vite.ssrLoadModule(new URL("../domain/knowledge.ts", import.meta.url).pathname),
     fixture.vite.ssrLoadModule(new URL("../domain/product-readiness.ts", import.meta.url).pathname),
     fixture.vite.ssrLoadModule(new URL("../domain/market-discovery.ts", import.meta.url).pathname),
     fixture.vite.ssrLoadModule(new URL("../domain/discovery-submission.ts", import.meta.url).pathname),
+    fixture.vite.ssrLoadModule(new URL("../domain/release-evidence.ts", import.meta.url).pathname),
   ]);
-  return { commercial, knowledge, readiness, discovery, submission };
+  return { commercial, knowledge, readiness, discovery, submission, releaseEvidence };
 }
 
 async function seedReadyProduct(fixture) {
-  await applyMigrations(fixture.database);
+  await applyPersonDiscoveryMigrations(fixture.database);
   const domains = await loadDomains(fixture);
   const model = await domains.commercial.initializeCommercialModel(fixture.database, owner, {
     idempotencyKey: key(100),
@@ -883,7 +884,7 @@ test("D-05 legacy workspace subjects retain market reads while proof consumption
     await fixture.database.prepare(
       "UPDATE workspaces SET owner_subject = ? WHERE owner_subject = ?",
     ).bind(owner.legacySubject, owner.subject).run();
-    const state = await authority.discovery.readMarketDiscoveryState(fixture.database, owner, authority.productId);
+    const state = await authority.discovery.readMarketDiscoveryState(fixture.database, owner, authority.productId, authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE);
     assert.equal(state.authority, "known");
     const run = await authority.discovery.startProductDiscoveryRun(fixture.database, owner, {
       productId: authority.productId,
@@ -901,6 +902,7 @@ test("D-05 legacy workspace subjects retain market reads while proof consumption
       productId: authority.productId,
       expectedProductRevision: authority.ready.product.revision,
       idempotencyKey: key(641),
+      releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
     });
     await fixture.database.prepare(
       "UPDATE workspaces SET owner_subject = ? WHERE owner_subject = ?",
@@ -910,6 +912,7 @@ test("D-05 legacy workspace subjects retain market reads while proof consumption
         productId: authority.productId,
         expectedProductRevision: authority.ready.product.revision,
         idempotencyKey: key(642),
+        releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
       }),
       /authorization|authority|match/i,
       "a legacy workspace lookup must not turn a proof authorization into a legacy-subject grant",
@@ -930,6 +933,7 @@ test("D-12 private synthetic proof requires exact confirmed authority, consumes 
         productId: authority.productId,
         expectedProductRevision: authority.ready.product.revision,
         idempotencyKey: key(710),
+        releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
       }),
       /confirmed|authority|unavailable/i,
     );
@@ -938,6 +942,7 @@ test("D-12 private synthetic proof requires exact confirmed authority, consumes 
       productId: authority.productId,
       expectedProductRevision: authority.ready.product.revision,
       idempotencyKey: key(711),
+      releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
     };
     const authorization = await authority.discovery.activatePrivateSyntheticProofAuthorization(
       fixture.database,
@@ -963,10 +968,25 @@ test("D-12 private synthetic proof requires exact confirmed authority, consumes 
       /already exists|another operation|conflict/i,
     );
 
+    await assert.rejects(
+      authority.discovery.submitPrivateSyntheticProof(fixture.database, owner, {
+        productId: authority.productId,
+        expectedProductRevision: authority.ready.product.revision,
+        idempotencyKey: key(7121),
+        releaseEvidence: {
+          ...authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
+          migrationIdentity: "canonical-chain-0021-replacement-contract",
+        },
+      }),
+      /authorization|authority|match/i,
+      "an authorization reviewed against an old release chain cannot validate against a new identity",
+    );
+
     const submissionInput = {
       productId: authority.productId,
       expectedProductRevision: authority.ready.product.revision,
       idempotencyKey: key(713),
+      releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
     };
     const result = await authority.discovery.submitPrivateSyntheticProof(
       fixture.database,
@@ -1000,6 +1020,7 @@ test("D-12 private synthetic proof requires exact confirmed authority, consumes 
       fixture.database,
       owner,
       authority.productId,
+      authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
     );
     assert.equal(state.authority, "known");
     assert.equal(state.proposals.length, 1);
@@ -1007,6 +1028,14 @@ test("D-12 private synthetic proof requires exact confirmed authority, consumes 
     const authorizationRow = await fixture.database
       .prepare("SELECT * FROM private_synthetic_proof_authorizations LIMIT 1")
       .first();
+    const consumptionAudit = await fixture.database
+      .prepare("SELECT detail_json FROM audit_events WHERE action = 'private_synthetic_proof.consumed' LIMIT 1")
+      .first();
+    assert.equal(
+      JSON.parse(consumptionAudit.detail_json).fixtureDigest,
+      authorizationRow.fixture_digest,
+      "the consumption audit records the authorization's durably stored fixture digest",
+    );
     assert.doesNotMatch(
       JSON.stringify(authorizationRow),
       /bounded synthetic observation|operating teams need evidence-backed context/i,
@@ -1028,6 +1057,7 @@ test("D-12 private synthetic proof consumption is bound to its authorized immuta
       productId: authority.productId,
       expectedProductRevision: authority.ready.product.revision,
       idempotencyKey: key(720),
+      releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
     });
     assert.equal(authorization.runId, authority.ready.initialRun.id);
     assert.equal(authorization.configuration.id, authority.ready.configuration.id);
@@ -1047,6 +1077,7 @@ test("D-12 private synthetic proof consumption is bound to its authorized immuta
       fixture.database,
       owner,
       authority.productId,
+      authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
     );
     assert.equal(stateAfterReplacement.privateProof.authorizationId, null, "a replaced configuration invalidates its old private-proof authorization projection");
     await assert.rejects(
@@ -1054,6 +1085,7 @@ test("D-12 private synthetic proof consumption is bound to its authorized immuta
         productId: authority.productId,
         expectedProductRevision: authority.ready.product.revision,
         idempotencyKey: key(721),
+        releaseEvidence: authority.releaseEvidence.LOCAL_SYNTHETIC_RELEASE_EVIDENCE,
       }),
       /authorization|pinned|unavailable/i,
     );

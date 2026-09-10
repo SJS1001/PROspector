@@ -137,6 +137,12 @@ export async function applyPersonDiscoveryMigrations(database) {
   await applyMigrationFiles(database, PERSON_DISCOVERY_FORWARD_MIGRATION_FILENAMES);
 }
 
+export async function applyMigrationsThrough(database, finalFilename) {
+  const finalIndex = CANONICAL_MIGRATION_FILENAMES.indexOf(finalFilename);
+  assert.notEqual(finalIndex, -1, `Unknown canonical migration: ${finalFilename}`);
+  await applyMigrationFiles(database, CANONICAL_MIGRATION_FILENAMES.slice(0, finalIndex + 1));
+}
+
 async function applyLegacyMigrations(database) {
   await applyMigrationFiles(database, LEGACY_MIGRATION_FILENAMES);
 }

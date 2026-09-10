@@ -25,8 +25,8 @@ test("0019 is an additive forward-only person-discovery migration with complete 
     readFile(new URL("../drizzle/meta/0019_snapshot.json", import.meta.url), "utf8").then(JSON.parse),
     readFile(new URL("../drizzle/meta/0018_snapshot.json", import.meta.url), "utf8").then(JSON.parse),
   ]);
-  assert.equal(PERSON_DISCOVERY_FORWARD_MIGRATION_FILENAMES.at(-1), "0019_person_discovery.sql");
-  assert.equal(journal.entries.at(-1).tag, "0019_person_discovery");
+  assert.ok(PERSON_DISCOVERY_FORWARD_MIGRATION_FILENAMES.includes("0019_person_discovery.sql"));
+  assert.ok(journal.entries.some((entry) => entry.tag === "0019_person_discovery"));
   assert.equal(snapshot.prevId, predecessor.id);
   for (const table of TABLES) {
     assert.ok(migration.includes(`CREATE TABLE \`${table}\``), `migration must create ${table}`);
