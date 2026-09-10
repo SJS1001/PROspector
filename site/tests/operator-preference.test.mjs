@@ -22,6 +22,8 @@ test("stored Product and Profile choices are preferences only", async () => {
     };
     assert.equal(preference.readOperatorPreference("choice", throwing), null);
     assert.doesNotThrow(() => preference.writeOperatorPreference("choice", "product-b", throwing));
+    assert.equal(preference.readOperatorPreference("choice"), null, "SSR has no browser storage");
+    assert.doesNotThrow(() => preference.writeOperatorPreference("choice", "product-b"), "SSR storage writes fail closed");
   } finally {
     await vite.close();
   }
