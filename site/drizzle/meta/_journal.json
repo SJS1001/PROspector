@@ -148,6 +148,13 @@
       "when": 1788995721683,
       "tag": "0020_private-synthetic-proof-migration-identity",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1789315137567,
+      "tag": "0021_prospect-transition-history",
+      "breakpoints": true
     }
   ]
 }

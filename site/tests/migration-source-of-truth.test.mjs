@@ -60,10 +60,10 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   CANONICAL_MIGRATION_FILENAMES.forEach((filename, index) => {
     assert.equal(filename.slice(0, 4), String(index).padStart(4, "0"), `${filename} must sit at journal index ${index}`);
   });
-  // Regression: the chain reaches the release-evidence binding migration
-  // rather than stopping at the historical person-discovery boundary.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 21);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0020_private-synthetic-proof-migration-identity.sql");
+  // Regression: the chain reaches the transition-history migration rather
+  // than stopping at the historical release-evidence boundary.
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 22);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0021_prospect-transition-history.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {

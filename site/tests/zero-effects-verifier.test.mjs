@@ -44,9 +44,16 @@ test("the inventory classifies exactly the objects the checked migration chain c
     );
   }
   for (const name of CANONICAL_LOCAL_STATE_TABLES) assert.equal(PHASE2_FORBIDDEN_TABLE_NAMES.includes(name), false, name);
+  assert.equal(classifyTable("prospect_transition_events"), "effect");
+  for (const name of [
+    "prospect_transition_scope_insert",
+    "prospect_transition_continuity_insert",
+    "prospect_transition_immutable_update",
+    "prospect_transition_immutable_delete",
+  ]) assert.ok(CANONICAL_TRIGGERS.includes(name), `${name} must be classified`);
 });
 
-test("every effect table introduced by migrations 0010-0019 is verified, not ignored", async () => {
+test("every effect table introduced by migration 0010 or later is verified, not ignored", async () => {
   const early = await readMigrationSchema((file) => file < "0010");
   const late = await readMigrationSchema();
   const introduced = [...late.tables].filter((name) => !early.tables.has(name)).sort();
