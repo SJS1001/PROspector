@@ -8,9 +8,9 @@ import { createServer } from "vite";
  * union in `domain/weekly-outcome.ts` and the persisted `profile_prospects`
  * state contract in `db/schema.ts`.
  *
- * Phase 7 persistence work is gated and unimplemented, so most weekly-outcome
- * states have no persisted counterpart yet. This test does not claim they do.
- * Instead, every modelled state must be exactly one of:
+ * The additive Prospect transition ledger backs the weekly-outcome state
+ * vocabulary without widening the narrower Phase 4 current-state projection.
+ * Every modelled state must be exactly one of:
  *   - "backed": its snake_case form appears in the persisted
  *     `profile_prospects.state` enum, or
  *   - present in `UNBACKED_PROSPECT_STATES` below, an explicit, exact
@@ -22,22 +22,9 @@ import { createServer } from "vite";
  * silently diverging.
  */
 
-// Exact, test-local allowlist of ProspectState literals that currently have
-// no corresponding persisted profile_prospects.state value. Each is unbacked
-// pending the gated Phase 7 persistence work; this grants no runtime,
-// migration, or operational authority.
-const UNBACKED_PROSPECT_STATES = Object.freeze([
-  "Candidate",
-  "NotQualified",
-  "InsufficientEvidence",
-  "Disqualified",
-  "ContactReady",
-  "PackageReady",
-  "ExportReady",
-  "Contacted",
-  "NeedsReview",
-  "NonContactable",
-]);
+// Exact allowlist of ProspectState literals with neither current-projection nor
+// transition-history backing. Migration 0021 intentionally makes this empty.
+const UNBACKED_PROSPECT_STATES = Object.freeze([]);
 
 // The reverse direction of the same gap: persisted profile_prospects.state
 // values the reducer does not model. A history stream carrying one of these
@@ -48,13 +35,17 @@ const UNMODELLED_PERSISTED_STATES = Object.freeze([
   "cooled_down",
 ]);
 
-// History event kinds `domain/weekly-outcome.ts` consumes. None is persistable
-// yet; see the event-kind test below for why that is asserted rather than
-// assumed.
+// History event kinds `domain/weekly-outcome.ts` consumes. The durable
+// transition seam backs creation and state changes; contact linkage remains a
+// separate future persistence concern.
 const MODELLED_HISTORY_EVENT_KINDS = Object.freeze([
   "prospect_created",
   "state_transition",
   "contact_linked",
+]);
+const PERSISTED_HISTORY_EVENT_KINDS = Object.freeze([
+  "prospect_created",
+  "state_transition",
 ]);
 
 async function loadModule(relativePath) {
@@ -106,9 +97,12 @@ function pascalToPersistedSnakeCase(value) {
 test("every ProspectState literal is either persisted or an explicit unbacked allowlist entry", async () => {
   const prospectStates = await readProspectStateLiterals();
   const schema = await loadModule("../db/schema.ts");
-  const persistedStates = schema.profileProspects.state.enumValues;
-  assert.ok(Array.isArray(persistedStates) && persistedStates.length > 0,
+  const persistedCurrentStates = schema.profileProspects.state.enumValues;
+  const persistedHistoryStates = schema.prospectTransitionEvents.newState.enumValues;
+  assert.ok(Array.isArray(persistedCurrentStates) && persistedCurrentStates.length > 0,
     "expected profile_prospects.state to declare an enum contract");
+  assert.ok(Array.isArray(persistedHistoryStates) && persistedHistoryStates.length > 0,
+    "expected prospect_transition_events.new_state to declare an enum contract");
 
   const unbackedAllowlist = new Set(UNBACKED_PROSPECT_STATES);
   assert.equal(
@@ -120,7 +114,8 @@ test("every ProspectState literal is either persisted or an explicit unbacked al
   const backed = [];
   const unbacked = [];
   for (const state of prospectStates) {
-    if (persistedStates.includes(pascalToPersistedSnakeCase(state))) {
+    if (persistedCurrentStates.includes(pascalToPersistedSnakeCase(state))
+      || persistedHistoryStates.includes(state)) {
       backed.push(state);
     } else {
       unbacked.push(state);
@@ -202,19 +197,12 @@ test("every persisted prospect state is either modelled or an explicit unmodelle
   );
 });
 
-test("no persisted event kind can yet carry a modelled prospect history event", async () => {
-  const schema = await readFile(
-    new URL("../db/schema.ts", import.meta.url),
-    "utf8",
-  );
-
-  const persistable = MODELLED_HISTORY_EVENT_KINDS.filter((kind) => schema.includes(`"${kind}"`));
+test("persisted prospect history event kinds match the deliberate transition subset", async () => {
+  const schema = await loadModule("../db/schema.ts");
+  const persisted = schema.prospectTransitionEvents.eventKind.enumValues;
+  assert.deepEqual([...persisted].sort(), [...PERSISTED_HISTORY_EVENT_KINDS].sort());
   assert.deepEqual(
-    persistable,
-    [],
-    "db/schema.ts now declares these modelled history event kinds: "
-    + `${persistable.join(", ")}. The reducer's history stream may have become `
-    + "persistable, so revisit domain/weekly-outcome.ts and both allowlists "
-    + "above rather than deleting this assertion.",
+    MODELLED_HISTORY_EVENT_KINDS.filter((kind) => !persisted.includes(kind)),
+    ["contact_linked"],
   );
 });

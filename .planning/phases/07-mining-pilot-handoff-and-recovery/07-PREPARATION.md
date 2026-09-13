@@ -427,27 +427,24 @@ authorized, and no Plan 07-01, 07-02, 07-05, 07-06, or Phase 7 credit follows
 from them. `docs/implementation-lanes/2026-09-05-completion-inventory.md`
 records the same boundary as Phase 7 `0/10`, "CSV/weekly cores only".
 
-One gap follows directly from the weekly-outcome core and is pinned rather than
-closed. The reducer models a fourteen-state prospect lifecycle and counts the
-first transition to `ExportReady`, but `profile_prospects.state` in
-`site/db/schema.ts` admits only `qualified`, `approved`, `rejected`, `deferred`,
-and `cooled_down`, and no prospect state-transition history table exists. Ten of
-the fourteen modelled states have no persisted counterpart, so nothing in the
-repository can currently produce the history stream `reduceWeeklyOutcome`
-consumes. `NotQualified`, `InsufficientEvidence`, and `Disqualified` do appear
-in `prospecting_candidates.status`, but that is a different entity's status and
-does not back a Prospect state. The reverse gap also holds: persisted
-`cooled_down` is not modelled, so a future adapter must map or reject it rather
-than pass it through.
+The previously pinned transition-history gap is closed by the separately
+authorized bounded local maintenance slice in additive migration
+`0021_prospect-transition-history.sql` and
+`site/domain/prospect-transition-history.ts`. The durable ledger represents
+Prospect creation and every state transition in the reducer's fourteen-state
+vocabulary, preserves bounded actor/source/reason and opaque evidence
+references without raw identity or evidence content, and supplies an
+owner-admitted history reader to `reduceWeeklyOutcome`. The narrower
+`profile_prospects.state` current projection is unchanged; `cooled_down` is
+still deliberately not mapped into the weekly lifecycle. Contact-link and
+loss-event persistence are also outside that slice.
 
-`site/tests/weekly-outcome-persisted-state-conformance.test.mjs` holds both
-directions against exact allowlists so neither can widen, or be silently closed
-by a schema edit, without a deliberate decision. It additionally requires the
-reducer's runtime `STATES` array and its `ProspectState` union — two separate
-hand-maintained copies — to list exactly the same states, and asserts that no
-persisted event kind yet carries `state_transition`, `prospect_created`, or
-`contact_linked`. Actually persisting those transitions is Plan 07-04 work and
-is not authorized by this lane.
+`site/tests/weekly-outcome-persisted-state-conformance.test.mjs` now proves the
+ledger's state enum covers the reducer vocabulary, the runtime `STATES` array
+and `ProspectState` union agree, and only `prospect_created` and
+`state_transition` are backed. `contact_linked` remains explicitly unbacked.
+This maintenance record is not execution or completion of Plan 07-04 and no
+`07-04-SUMMARY.md` is created.
 
 Validation recorded on 2026-09-07: the extended conformance suite passed 4/4,
 the weekly-outcome pair (`weekly-outcome` and
@@ -462,6 +459,16 @@ event-kind case. No repository source was left modified. Canonical `npm test`,
 including the production build, was not run in this lane and the preflight lane
 was not used. This supersedes an earlier record in commit `9bf5a4a`, which
 correctly stated at the time that the suite had not been executed.
+
+Validation recorded on 2026-09-13 for the additive maintenance slice: the
+weekly reducer plus persisted-state conformance suites passed 13/13, the
+production build and canonical lint passed, the canonical migration chain
+resolved 22 entries with `0021` at its head, and an in-memory SQLite check
+proved cross-tenant, out-of-order, update, and delete rejection. The focused
+Miniflare/D1 integration suite was not executed because the cloud task blocked
+an attempted HTTPS connection to `workers.cloudflare.com`; no bypass or hosted
+action was attempted. This is local evidence only and grants no plan, phase,
+hosted, provider, export, or effect authority.
 
 ## Local-demo CRM handoff preview exception (superseded 2026-09-09)
 
