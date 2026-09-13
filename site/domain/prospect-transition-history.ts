@@ -254,7 +254,7 @@ function toHistoryEvent(row: ReportRow): ProspectHistoryEvent {
     eventId: row.id,
     sequence: Number(row.sequence),
     occurredAt: new Date(Number(row.occurred_at)).toISOString(),
-    auditRef: { id: row.evidence_reference_id, digest: row.evidence_reference_digest },
+    auditRef: { id: row.id, digest: row.operation_digest },
   };
   return row.event_kind === "prospect_created"
     ? Object.freeze({ ...base, kind: "prospect_created" as const, initialState: "Candidate" as const })

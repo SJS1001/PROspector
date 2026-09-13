@@ -163,6 +163,7 @@ test("weekly reporting consumes durable history and counts only the first Export
   assert.deepEqual(absent.report.reasonCodes, ["history_stream_incomplete"]);
 
   const states = ["Candidate", "Qualified", "Approved", "ContactReady", "PackageReady", "ExportReady"];
+  let exportTransition;
   await record(context, command());
   for (let index = 1; index < states.length; index += 1) {
     const newState = states[index];
@@ -176,12 +177,13 @@ test("weekly reporting consumes durable history and counts only the first Export
           : newState === "PackageReady" ? "package_readiness"
             : newState === "ExportReady" ? "export_readiness" : "qualification",
       reasonCode: `entered_${newState.replace(/([a-z])([A-Z])/gu, "$1_$2").toLowerCase()}`,
-      evidenceReferenceId: `evidence-${index}`,
-      evidenceReferenceDigest: String(index + 2).repeat(64),
+      evidenceReferenceId: "shared-evidence",
+      evidenceReferenceDigest: "a".repeat(64),
       idempotencyKey: `transition-${index}`,
       occurredAt: PERSON_DISCOVERY_NOW + index * 1_000,
     }));
     assert.equal(result.kind, "recorded");
+    if (newState === "ExportReady") exportTransition = result.record;
   }
   const result = await context.history.readWeeklyOutcomeFromTransitionHistory(
     context.fixture.database,
@@ -193,7 +195,11 @@ test("weekly reporting consumes durable history and counts only the first Export
   assert.equal(result.report.status, "available");
   assert.equal(result.report.counts.newlyExportReadyProspectCount, 1);
   assert.equal(result.report.cohort[0].prospectId, context.fixture.prospectId);
-  assert.equal(result.report.cohort[0].auditRef.id, "evidence-5");
+  assert.ok(exportTransition);
+  assert.deepEqual(result.report.cohort[0].auditRef, {
+    id: exportTransition.id,
+    digest: exportTransition.operationDigest,
+  });
   assert.deepEqual(
     await context.history.readWeeklyOutcomeFromTransitionHistory(
       context.fixture.database,
