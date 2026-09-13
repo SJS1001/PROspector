@@ -107,6 +107,38 @@ test("exact trusted admission queues once with immutable command and sanitized a
   await assert.rejects(() => admitProspectingRunToQueue(seed.database, input(seed, { expectedRunRevision: 2 }), trustedPort()), rejected, "same-key changed semantics cannot replay");
 });
 
+test("committed replay uses bound audit evidence after authority expiry without consulting the port", async () => {
+  const seed = setup("expired-replay");
+  const first = await admitProspectingRunToQueue(seed.database, input(seed), trustedPort());
+  let invoked = false;
+  const replay = await admitProspectingRunToQueue(seed.database, input(seed, { now: NOW + 60_001 }), {
+    async authorize() {
+      invoked = true;
+      return {
+        kind: "authorized",
+        authorityId: "refreshed-authority",
+        evidenceDigest: "f".repeat(64),
+        requestDigest: "0".repeat(64),
+        validUntil: NOW + 120_000,
+      };
+    },
+  });
+  assert.equal(invoked, false, "a committed exact-tuple replay must not require refreshed authority");
+  assert.deepEqual(
+    { state: replay.executionState, revision: replay.revision, replayed: replay.replayed, digest: replay.operationDigest },
+    { state: "queued", revision: 2, replayed: true, digest: first.operationDigest },
+  );
+  assert.deepEqual(await admissionCounts(seed), { commands: 1, audits: 1 });
+
+  const audit = await seed.database.prepare("SELECT id,detail_json FROM audit_events WHERE workspace_id=? AND action='prospecting.run.queued'").bind(seed.workspaceId).first();
+  const tampered = { ...JSON.parse(audit.detail_json), requestDigest: "0".repeat(64) };
+  seed.database.db.prepare("UPDATE audit_events SET detail_json=? WHERE id=?").run(JSON.stringify(tampered), audit.id);
+  await assert.rejects(() => admitProspectingRunToQueue(seed.database, input(seed, { now: NOW + 60_002 }), {
+    async authorize() { invoked = true; return { kind: "denied" }; },
+  }), rejected, "replay must fail closed when stored audit evidence no longer matches the current request digest");
+  assert.equal(invoked, false, "invalid prior evidence must not fall through to fresh authorization");
+});
+
 test("denied, expired, malformed, or tuple-mismatched authority cannot queue", async () => {
   const cases = [
     { name: "denied", port: { async authorize() { return { kind: "denied" }; } } },
@@ -126,17 +158,29 @@ test("denied, expired, malformed, or tuple-mismatched authority cannot queue", a
 
 test("stale revisions, inactive configurations, and invalid source states fail closed", async () => {
   const stale = setup("stale");
-  await assert.rejects(() => admitProspectingRunToQueue(stale.database, input(stale, { expectedRunRevision: 2 }), trustedPort()), rejected);
+  let staleInvoked = false;
+  await assert.rejects(() => admitProspectingRunToQueue(stale.database, input(stale, { expectedRunRevision: 2 }), {
+    async authorize() { staleInvoked = true; return { kind: "denied" }; },
+  }), rejected);
+  assert.equal(staleInvoked, false, "stale revision must be rejected before trusted authorization");
   assert.deepEqual(await runState(stale), { execution_state: "blocked_missing_capability", revision: 1 });
 
   const inactive = setup("inactive");
   inactive.database.db.prepare("UPDATE typed_configurations SET active=0 WHERE id=? AND workspace_id=?").run(inactive.configurationId, inactive.workspaceId);
-  await assert.rejects(() => admitProspectingRunToQueue(inactive.database, input(inactive), trustedPort()), rejected);
+  let inactiveInvoked = false;
+  await assert.rejects(() => admitProspectingRunToQueue(inactive.database, input(inactive), {
+    async authorize() { inactiveInvoked = true; return { kind: "denied" }; },
+  }), rejected);
+  assert.equal(inactiveInvoked, false, "inactive configuration must be rejected before trusted authorization");
   assert.deepEqual(await runState(inactive), { execution_state: "blocked_missing_capability", revision: 1 });
 
   const invalidState = setup("invalid-state");
   invalidState.database.db.prepare("UPDATE prospecting_runs SET execution_state='cancelled' WHERE id=? AND workspace_id=?").run(invalidState.runId, invalidState.workspaceId);
-  await assert.rejects(() => admitProspectingRunToQueue(invalidState.database, input(invalidState), trustedPort()), rejected);
+  let invalidStateInvoked = false;
+  await assert.rejects(() => admitProspectingRunToQueue(invalidState.database, input(invalidState), {
+    async authorize() { invalidStateInvoked = true; return { kind: "denied" }; },
+  }), rejected);
+  assert.equal(invalidStateInvoked, false, "invalid source state must be rejected before trusted authorization");
   assert.deepEqual(await runState(invalidState), { execution_state: "cancelled", revision: 1 });
   assert.deepEqual(await admissionCounts(invalidState), { commands: 0, audits: 0 });
 });

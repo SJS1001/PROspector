@@ -77,7 +77,6 @@ export async function admitProspectingRunToQueue(
   port: ProspectingRunAdmissionPort = createRejectOnlyProspectingRunAdmissionPort(),
 ) {
   validateInput(input);
-  if (!port || typeof port.authorize !== "function") throw rejected();
 
   const run = await database.prepare(
     `SELECT r.id,r.profile_id,r.configuration_id,r.configuration_digest,r.revision,r.execution_state,
@@ -106,6 +105,18 @@ export async function admitProspectingRunToQueue(
     toState: "queued",
   });
   const requestDigest = await digestProspectingRunAdmissionRequest(request);
+
+  const prior = await readPriorAdmission(database, input.workspaceId, input.idempotencyKey);
+  if (prior) {
+    if (!matchesPriorAdmission(prior, input, requestDigest)) throw rejected();
+    return Object.freeze({ runId: input.runId, executionState: "queued" as const, revision: input.expectedRunRevision + 1, replayed: true, operationDigest: prior.operation_digest });
+  }
+
+  if (Number(run.configuration_active) !== 1 || run.execution_state !== "blocked_missing_capability" || Number(run.revision) !== input.expectedRunRevision) {
+    throw rejected();
+  }
+  if (!port || typeof port.authorize !== "function") throw rejected();
+
   let authority: Extract<ProspectingRunAdmissionDecision, { kind: "authorized" }>;
   try {
     authority = validateDecision(await port.authorize(request), requestDigest, input.now);
@@ -119,21 +130,6 @@ export async function admitProspectingRunToQueue(
     requestDigest,
     validUntil: authority.validUntil,
   }));
-
-  const prior = await readPriorAdmission(database, input.workspaceId, input.idempotencyKey);
-  if (prior) {
-    if (prior.command_type !== "profile.prospecting.transport_admission" ||
-        prior.subject_id !== input.runId || prior.operation_digest !== operationDigest ||
-        Number(prior.expected_revision) !== input.expectedRunRevision ||
-        prior.audit_operation_digest !== operationDigest || prior.audit_request_digest !== requestDigest) {
-      throw rejected();
-    }
-    return Object.freeze({ runId: input.runId, executionState: "queued" as const, revision: input.expectedRunRevision + 1, replayed: true, operationDigest });
-  }
-
-  if (Number(run.configuration_active) !== 1 || run.execution_state !== "blocked_missing_capability" || Number(run.revision) !== input.expectedRunRevision) {
-    throw rejected();
-  }
 
   const commandId = v7();
   const auditId = v7();
@@ -195,9 +191,7 @@ export async function admitProspectingRunToQueue(
     if (results.some((result) => Number(result.meta?.changes ?? 0) !== 1)) throw rejected();
   } catch {
     const winner = await readPriorAdmission(database, input.workspaceId, input.idempotencyKey);
-    if (winner && winner.command_type === "profile.prospecting.transport_admission" && winner.subject_id === input.runId &&
-        winner.operation_digest === operationDigest && Number(winner.expected_revision) === input.expectedRunRevision &&
-        winner.audit_operation_digest === operationDigest && winner.audit_request_digest === requestDigest) {
+    if (winner && matchesPriorAdmission(winner, input, requestDigest) && winner.operation_digest === operationDigest) {
       return Object.freeze({ runId: input.runId, executionState: "queued" as const, revision: input.expectedRunRevision + 1, replayed: true, operationDigest });
     }
     throw rejected();
@@ -208,7 +202,7 @@ export async function admitProspectingRunToQueue(
 
 async function readPriorAdmission(database: D1Database, workspaceId: string, idempotencyKey: string) {
   return database.prepare(
-    `SELECT c.command_type,c.subject_id,c.operation_digest,c.expected_revision,
+    `SELECT c.command_type,c.subject_type,c.subject_id,c.status,c.operation_digest,c.expected_revision,
             json_extract(a.detail_json,'$.operationDigest') AS audit_operation_digest,
             json_extract(a.detail_json,'$.requestDigest') AS audit_request_digest
        FROM authority_commands c
@@ -219,9 +213,21 @@ async function readPriorAdmission(database: D1Database, workspaceId: string, ide
       WHERE c.workspace_id=? AND c.idempotency_key=?
       LIMIT 1`,
   ).bind(workspaceId, idempotencyKey).first<{
-    command_type: string; subject_id: string; operation_digest: string; expected_revision: number;
+    command_type: string; subject_type: string; subject_id: string; status: string;
+    operation_digest: string; expected_revision: number;
     audit_operation_digest: string | null; audit_request_digest: string | null;
   }>();
+}
+
+function matchesPriorAdmission(
+  prior: NonNullable<Awaited<ReturnType<typeof readPriorAdmission>>>,
+  input: AdmissionInput,
+  requestDigest: string,
+) {
+  return prior.command_type === "profile.prospecting.transport_admission" &&
+    prior.subject_type === "prospecting_run" && prior.subject_id === input.runId && prior.status === "accepted" &&
+    Number(prior.expected_revision) === input.expectedRunRevision && digest(prior.operation_digest) &&
+    prior.audit_operation_digest === prior.operation_digest && prior.audit_request_digest === requestDigest;
 }
 
 function validateInput(input: AdmissionInput) {
