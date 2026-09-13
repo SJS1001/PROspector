@@ -117,13 +117,22 @@ test("D-05 qualification review requires a reason/date and never authorizes Phas
   const fixture = await createD1Fixture("phase4-review-contract");
   try {
     await applyMigrations(fixture.database);
+    await seedProfileAuthority(fixture, OWNER, NOW);
     const review = await fixture.vite.ssrLoadModule(new URL("../domain/prospect-review.ts", import.meta.url).pathname)
       .catch(() => assert.fail("missing production behavior: site/domain/prospect-review.ts must persist immutable assessments and owner review cooldowns"));
     const before = await snapshotForbiddenOperationalRows(fixture.database);
-    for (const [decision, input] of [["approve", {}], ["reject", {}], ["defer", { reason: "awaiting budget", reviewAt: NOW + 7 * 86_400_000 }]]) {
-      if (decision !== "approve") await assert.rejects(
-        () => review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: "prospect-a", decision, expectedRevision: 1, idempotencyKey: `0198f400-0000-7000-8000-0000000002${decision.length}`, ...input }),
-        /reason/i,
+    await assert.rejects(
+      () => review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: "prospect-a", decision: "reject", expectedRevision: 1, idempotencyKey: "0198f400-0000-7000-8000-000000000206" }),
+      /reason/i,
+    );
+    await assert.rejects(
+      () => review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: "prospect-a", decision: "defer", reason: "awaiting budget", expectedRevision: 1, idempotencyKey: "0198f400-0000-7000-8000-000000000205" }),
+      /date/i,
+    );
+    for (const idempotencyKey of [" aaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaa ", "aaaaaaaaaa\u0000aaaaaaaaaa", "not-canonical-key-value", "a".repeat(19), "a".repeat(81)]) {
+      await assert.rejects(
+        () => review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: "prospect-a", decision: "reject", reason: "malformed key must fail closed", expectedRevision: 1, idempotencyKey }),
+        /invalid review command/i,
       );
     }
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
