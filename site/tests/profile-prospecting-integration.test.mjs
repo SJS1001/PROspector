@@ -17,6 +17,7 @@ test("Phase 4 persisted synthetic lifecycle is replayable, auditable, and remain
     const access = await fixture.vite.ssrLoadModule(new URL("../domain/pilot-access.ts", import.meta.url).pathname);
     const handler = await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-handler.ts", import.meta.url).pathname);
     const runner = await fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const admission = await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-run-admission.ts", import.meta.url).pathname);
     const qualification = await fixture.vite.ssrLoadModule(new URL("../domain/qualification.ts", import.meta.url).pathname);
     const principal = await access.admitPilotOwner(identity, identity.email, subjectPepper);
     const seeded = await seedProfileAuthority(fixture, principal, NOW);
@@ -52,15 +53,24 @@ test("Phase 4 persisted synthetic lifecycle is replayable, auditable, and remain
     const ownerAssignment = await ownerPost(cookie, { action: "issue_assignment", runId: initialRun.id, profileId: seeded.profileId, configurationId: active.id, configurationDigest: active.digest, toolConfigurationDigest: "f".repeat(64), expiresAt: NOW + 60_000, idempotencyKey: "0198f400-0000-7000-8000-000000001004" });
     assert.equal(ownerAssignment.status, 409, "the browser route cannot mint runner capability");
 
-    // There is intentionally no scheduler/transport admission route yet. This
-    // test-only state transition represents the trusted runner lease handoff;
-    // the public owner route above remains blocked and cannot mint a capability.
     await fixture.database.batch([
       fixture.database.prepare("INSERT INTO organizations (id,workspace_id,created_at,updated_at,revision,company_id,canonical_name,identity_digest) SELECT 'phase4-integrated-org',?,?,?,1,id,'Synthetic mining operator',? FROM companies WHERE workspace_id=?").bind(seeded.workspaceId,NOW,NOW,DIGEST,seeded.workspaceId),
       fixture.database.prepare("INSERT INTO accounts (id,workspace_id,created_at,updated_at,revision,play_id,organization_id,state) SELECT 'phase4-integrated-account',?,?,?,1,play_id,'phase4-integrated-org','draft' FROM customer_profiles WHERE id=?").bind(seeded.workspaceId,NOW,NOW,seeded.profileId),
       fixture.database.prepare("INSERT INTO targets (id,workspace_id,created_at,updated_at,revision,profile_id,account_id,state) VALUES ('phase4-integrated-target',?,?,?,1,?,'phase4-integrated-account','draft')").bind(seeded.workspaceId,NOW,NOW,seeded.profileId),
-      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='queued' WHERE id=?").bind(initialRun.id),
     ]);
+    const queueAdmission = await admission.admitProspectingRunToQueue(fixture.database, {
+      workspaceId: seeded.workspaceId,
+      runId: initialRun.id,
+      expectedRunRevision: 1,
+      idempotencyKey: "phase4-integrated-transport-admission",
+      now: NOW,
+    }, {
+      async authorize(request) {
+        const requestDigest = await admission.digestProspectingRunAdmissionRequest(request);
+        return { kind: "authorized", authorityId: "phase4-local-synthetic-transport", evidenceDigest: "e".repeat(64), requestDigest, validUntil: NOW + 60_000 };
+      },
+    });
+    assert.deepEqual({ state: queueAdmission.executionState, revision: queueAdmission.revision, replayed: queueAdmission.replayed }, { state: "queued", revision: 2, replayed: false });
     const assignment = await runner.issueRunnerAssignment(fixture.database, { workspaceId: seeded.workspaceId, runId: initialRun.id, profileId: seeded.profileId, configurationId: active.id, configurationDigest: active.digest, audience: "prospecting-runner/v1", expiresAt: NOW + 60_000, instructionVersion: "runner-instructions/v1", toolConfigurationDigest: "f".repeat(64), quotas: { maxBytes: 20_000, maxFindings: 3, maxSources: 3 }, grantReference: "synthetic", reason: "synthetic integration", idempotencyKey: "phase4-integrated-assignment", now: NOW, capabilitySecret: RUNNER_SECRET });
     assert.ok(await fixture.database.prepare("SELECT t.id FROM targets t JOIN typed_configurations c ON c.id=? AND c.workspace_id=t.workspace_id AND c.owner_type='profile' AND c.owner_id=t.profile_id AND c.kind='profile_effective' JOIN offers o ON o.id=json_extract(c.manifest_json,'$.authority.offer.id') AND o.workspace_id=t.workspace_id AND o.profile_id=t.profile_id WHERE t.id=? AND t.workspace_id=? AND t.profile_id=?").bind(active.id, "phase4-integrated-target", seeded.workspaceId, seeded.profileId).first(), "materializer target must bind the pinned Offer lineage");
     const payload = { status: "complete", findings: [{ kind: "operating-signal", sourceUrl: "https://example.invalid/source", observedAt: NOW, excerpt: "<script>synthetic observation</script>" }], sources: [{ url: "https://example.invalid/source", retrievedAt: NOW, excerpt: "<script>source</script>", publisher: "Synthetic" }], provenance: { provider: "runner-provider", model: "runner-model", instructionVersion: "runner-instructions/v1", toolConfigurationDigest: "f".repeat(64), tools: [], transformations: [] } };
