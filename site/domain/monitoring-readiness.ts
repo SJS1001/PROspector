@@ -1,4 +1,4 @@
-export const MONITORING_SNAPSHOT_SCHEMA = "prospector-monitoring-snapshot/v1" as const;
+export const MONITORING_SNAPSHOT_SCHEMA = "prospector-monitoring-snapshot/v2" as const;
 export const MONITORING_READINESS_SCHEMA = "prospector-monitoring-readiness/v1" as const;
 
 export type MonitoringComponent = "scheduler" | "runner" | "outbox" | "recovery";
@@ -19,11 +19,17 @@ type QueueSignal = Readonly<{
   oldestPendingAt: number | null;
 }>;
 
+type ComponentLivenessEvidence = Readonly<{
+  component: MonitoringComponent;
+  observedAt: number;
+}>;
+
 export type MonitoringSnapshot = Readonly<{
   schema: typeof MONITORING_SNAPSHOT_SCHEMA;
   workspaceId: string;
   observedAt: number;
   windowStartedAt: number;
+  componentLiveness: Readonly<Record<MonitoringComponent, ComponentLivenessEvidence>>;
   scheduler: QueueSignal;
   runner: QueueSignal & Readonly<{
     expiredLeaseCount: number;
@@ -227,7 +233,8 @@ function validateSnapshot(
 ): MonitoringSnapshot {
   if (!identifier(expectedWorkspaceId) || !safeTimestamp(now) || !validThresholds(thresholds)) throw new MonitoringContractError();
   const snapshot = exactRecord(value, [
-    "schema", "workspaceId", "observedAt", "windowStartedAt", "scheduler", "runner", "outbox", "recovery",
+    "schema", "workspaceId", "observedAt", "windowStartedAt", "componentLiveness",
+    "scheduler", "runner", "outbox", "recovery",
   ]);
   if (
     !snapshot
@@ -239,6 +246,16 @@ function validateSnapshot(
     || snapshot.observedAt > now
     || now - snapshot.observedAt > thresholds.maximumSnapshotAgeMs
   ) throw new MonitoringContractError();
+
+  const componentLiveness = exactRecord(snapshot.componentLiveness, COMPONENTS);
+  if (!componentLiveness || !COMPONENTS.every((component) => {
+    const evidence = exactRecord(componentLiveness[component], ["component", "observedAt"]);
+    return evidence
+      && evidence.component === component
+      && safeTimestamp(evidence.observedAt)
+      && evidence.observedAt <= snapshot.observedAt
+      && now - evidence.observedAt <= thresholds.maximumSnapshotAgeMs;
+  })) throw new MonitoringContractError();
 
   const scheduler = queue(snapshot.scheduler, []);
   const runner = queue(snapshot.runner, ["expiredLeaseCount", "denialCount"]);

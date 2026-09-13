@@ -17,10 +17,16 @@ async function load() {
 
 function snapshot(overrides = {}) {
   return {
-    schema: "prospector-monitoring-snapshot/v1",
+    schema: "prospector-monitoring-snapshot/v2",
     workspaceId: WORKSPACE,
     observedAt: NOW,
     windowStartedAt: NOW - 60 * 60_000,
+    componentLiveness: {
+      scheduler: { component: "scheduler", observedAt: NOW },
+      runner: { component: "runner", observedAt: NOW },
+      outbox: { component: "outbox", observedAt: NOW },
+      recovery: { component: "recovery", observedAt: NOW },
+    },
     scheduler: { pendingCount: 0, oldestPendingAt: null },
     runner: { pendingCount: 0, oldestPendingAt: null, expiredLeaseCount: 0, denialCount: 0 },
     outbox: {
@@ -125,6 +131,7 @@ test("cross-workspace, stale, future, inconsistent, extra, and accessor snapshot
   const { vite, monitoring } = await load();
   try {
     const invalid = [
+      snapshot({ schema: "prospector-monitoring-snapshot/v1" }),
       snapshot({ workspaceId: "synthetic_workspace_beta" }),
       snapshot({ observedAt: NOW - 2 * 60_000 - 1 }),
       snapshot({ observedAt: NOW + 1 }),
@@ -158,6 +165,71 @@ test("malformed threshold policy is rejected rather than weakening readiness", a
       () => monitoring.evaluateMonitoringReadiness(snapshot(), WORKSPACE, NOW, weakened),
       (error) => error?.code === "monitoring_snapshot_invalid",
     );
+  } finally {
+    await vite.close();
+  }
+});
+
+test("every component requires exact independently fresh liveness evidence", async () => {
+  const { vite, monitoring } = await load();
+  try {
+    const missing = snapshot();
+    delete missing.componentLiveness.recovery;
+    const malformed = snapshot({
+      componentLiveness: {
+        ...snapshot().componentLiveness,
+        runner: { component: "runner", observedAt: "recent" },
+      },
+    });
+    const wrongComponent = snapshot({
+      componentLiveness: {
+        ...snapshot().componentLiveness,
+        scheduler: { component: "runner", observedAt: NOW },
+      },
+    });
+    const stale = snapshot({
+      componentLiveness: {
+        ...snapshot().componentLiveness,
+        recovery: { component: "recovery", observedAt: NOW - 2 * 60_000 - 1 },
+      },
+    });
+    const afterCollector = snapshot({
+      componentLiveness: {
+        ...snapshot().componentLiveness,
+        outbox: { component: "outbox", observedAt: NOW + 1 },
+      },
+    });
+
+    for (const value of [missing, malformed, wrongComponent, stale, afterCollector]) {
+      assert.throws(
+        () => monitoring.evaluateMonitoringReadiness(value, WORKSPACE, NOW),
+        (error) => error?.code === "monitoring_snapshot_invalid",
+      );
+    }
+  } finally {
+    await vite.close();
+  }
+});
+
+test("component liveness is accepted exactly at the freshness boundary", async () => {
+  const { vite, monitoring } = await load();
+  try {
+    const boundary = NOW - monitoring.DEFAULT_MONITORING_THRESHOLDS.maximumSnapshotAgeMs;
+    const result = monitoring.evaluateMonitoringReadiness(snapshot({
+      componentLiveness: {
+        scheduler: { component: "scheduler", observedAt: boundary },
+        runner: { component: "runner", observedAt: boundary },
+        outbox: { component: "outbox", observedAt: boundary },
+        recovery: { component: "recovery", observedAt: boundary },
+      },
+    }), WORKSPACE, NOW);
+    assert.equal(result.ready, true);
+    assert.deepEqual(result.components, {
+      scheduler: "healthy",
+      runner: "healthy",
+      outbox: "healthy",
+      recovery: "healthy",
+    });
   } finally {
     await vite.close();
   }

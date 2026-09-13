@@ -20,10 +20,16 @@ async function load() {
 
 function safeSnapshot(workspaceId = WORKSPACE) {
   return {
-    schema: "prospector-monitoring-snapshot/v1",
+    schema: "prospector-monitoring-snapshot/v2",
     workspaceId,
     observedAt: NOW,
     windowStartedAt: NOW - 60_000,
+    componentLiveness: {
+      scheduler: { component: "scheduler", observedAt: NOW },
+      runner: { component: "runner", observedAt: NOW },
+      outbox: { component: "outbox", observedAt: NOW },
+      recovery: { component: "recovery", observedAt: NOW },
+    },
     scheduler: { pendingCount: 0, oldestPendingAt: null },
     runner: { pendingCount: 0, oldestPendingAt: null, expiredLeaseCount: 0, denialCount: 0 },
     outbox: { pendingCount: 0, oldestPendingAt: null, expiredLeaseCount: 0, uncertainDispatchCount: 0, digestMismatchCount: 0 },
@@ -106,6 +112,26 @@ test("cross-tenant and failed sources collapse to the same privacy-safe unavaila
       assert.equal(response.status, 503);
       assert.deepEqual(await response.json(), { error: "monitoring_unavailable" });
     }
+  } finally {
+    await vite.close();
+  }
+});
+
+test("stale component liveness collapses to privacy-safe unavailable", async () => {
+  const { vite, handler } = await load();
+  try {
+    const response = await handler.handleMonitoringGet(
+      new Request("http://localhost/api/monitoring"),
+      dependencies({ source: { read: async () => ({
+        ...safeSnapshot(),
+        componentLiveness: {
+          ...safeSnapshot().componentLiveness,
+          scheduler: { component: "scheduler", observedAt: NOW - 2 * 60_000 - 1 },
+        },
+      }) } }),
+    );
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "monitoring_unavailable" });
   } finally {
     await vite.close();
   }
