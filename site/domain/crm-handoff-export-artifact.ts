@@ -10,6 +10,7 @@
 
 import {
   CRM_CSV_FIELD_IDS,
+  encodeCrmCsv,
   CRM_CSV_SCHEMA_VERSION,
   type CrmCsvFieldId,
   type CrmCsvRow,
@@ -19,7 +20,7 @@ import { materializeCrmHandoff } from "./crm-handoff-artifact";
 export const CRM_HANDOFF_EXPORT_CONTRACT = Object.freeze({
   selectionSchema: "prospector/crm-handoff-selection/v1" as const,
   artifactSchema: "prospector/crm-handoff-export-artifact/v1" as const,
-  privacyPolicy: "closed-fields-synthetic-contact-only/v1" as const,
+  privacyPolicy: "closed-fields-fixed-fictional-only/v2" as const,
   dataClassification: "synthetic" as const,
   fieldIds: CRM_CSV_FIELD_IDS,
 });
@@ -135,7 +136,36 @@ export class CrmHandoffExportError extends Error {
 
 const DIGEST = /^[a-f0-9]{64}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
-const ROW_ID_FIELDS = ["prospect_id", "contact_id", "contact_point_id"] as const;
+const SYNTHETIC_VERIFICATION_TIME = "2000-01-01T00:00:00.000Z";
+const FIXED_FICTIONAL_TEXT = Object.freeze({
+  account_target: new Set(["Fictional Example Mining Company"]),
+  selected_role: new Set([
+    "Fictional Example Operations Role",
+    "\t=SYNTHETIC(\"https://example.test\")",
+  ]),
+});
+const SYNTHETIC_ROW_ID_PATTERNS: Readonly<Partial<Record<CrmCsvFieldId, RegExp>>> = Object.freeze({
+  prospect_id: /^synthetic-prospect-\d{4}$/u,
+  company_id: /^synthetic-company-\d{4}$/u,
+  product_id: /^synthetic-product-\d{4}$/u,
+  market_play_id: /^synthetic-market-play-\d{4}$/u,
+  profile_id: /^synthetic-profile-\d{4}$/u,
+  contact_id: /^synthetic-contact-\d{4}$/u,
+  contact_point_id: /^synthetic-contact-point-\d{4}$/u,
+  verification_method_ref: /^synthetic-verification-\d{4}$/u,
+  qualification_score_ref: /^synthetic-qualification-score-\d{4}$/u,
+  evidence_refs: /^synthetic-evidence-\d{4}$/u,
+  offer_ref: /^synthetic-offer-\d{4}$/u,
+  package_ref: /^synthetic-package-\d{4}$/u,
+  source_workspace_id: /^synthetic-workspace-\d{4}$/u,
+  source_run_id: /^synthetic-run-\d{4}$/u,
+  export_manifest_ref: /^synthetic-export-manifest-\d{4}$/u,
+});
+const SYNTHETIC_SCOPE_ID_PATTERNS = Object.freeze({
+  tenant: /^synthetic-tenant-\d{4}$/u,
+  workspace: /^synthetic-workspace-\d{4}$/u,
+  selection: /^synthetic-selection-\d{4}$/u,
+});
 
 /** Canonical digest an upstream authority must bind into its selection. */
 export async function digestCrmHandoffSelection(value: unknown): Promise<string> {
@@ -145,8 +175,15 @@ export async function digestCrmHandoffSelection(value: unknown): Promise<string>
 
 /** Canonical row digest used by an upstream selection authority. */
 export async function digestCrmHandoffExportRow(value: unknown): Promise<string> {
-  const rows = normalizeRows([value]);
-  return digestRow(rows[0]);
+  try {
+    const rows = normalizeRows([value]);
+    await validateCodecRows([value]);
+    assertFixedFictionalRow(rows[0]);
+    return digestRow(rows[0]);
+  } catch (error) {
+    if (error instanceof CrmHandoffExportError) throw error;
+    throw new CrmHandoffExportError("crm_handoff_export_input_invalid");
+  }
 }
 
 /** Validate explicit selection, tenant binding, freshness, and exact row set. */
@@ -228,16 +265,21 @@ async function evaluate(value: unknown) {
       fail("crm_handoff_export_selection_mismatch");
     }
 
+    // Admission must use the same complete normalization and all size/output
+    // limits as materialization. A weaker preflight must never authorize rows
+    // that the canonical codec would later reject.
+    await validateCodecRows(input.rows);
+
     const selected = new Map(selection.selectedRows.map((row) => [rowIdentity(row), row]));
     if (selected.size !== selection.selectedRows.length || rows.length !== selected.size) {
       fail("crm_handoff_export_selection_mismatch");
     }
     for (const row of rows) {
+      assertFixedFictionalRow(row);
       if (row.source_workspace_id !== current.workspaceId) fail("crm_handoff_export_cross_tenant");
-      assertSyntheticContact(row);
-      const prospectId = id(row.prospect_id);
-      const contactId = id(row.contact_id);
-      const contactPointId = id(row.contact_point_id);
+      const prospectId = syntheticRowId("prospect_id", row.prospect_id);
+      const contactId = syntheticRowId("contact_id", row.contact_id);
+      const contactPointId = syntheticRowId("contact_point_id", row.contact_point_id);
       const reference = selected.get(rowIdentity({
         prospectId,
         contactId,
@@ -280,8 +322,8 @@ function normalizeCurrent(value: unknown): CrmHandoffCurrentAuthority {
     "exportDefinitionDigest", "configurationDigest",
   ]);
   return Object.freeze({
-    tenantId: id(input.tenantId),
-    workspaceId: id(input.workspaceId),
+    tenantId: syntheticScopeId("tenant", input.tenantId),
+    workspaceId: syntheticScopeId("workspace", input.workspaceId),
     selectionRevision: revision(input.selectionRevision),
     authorityRevision: revision(input.authorityRevision),
     snapshotDigest: digest(input.snapshotDigest),
@@ -320,9 +362,9 @@ function normalizeSelectionDraft(value: unknown): CrmHandoffSelectionDraft {
     schema: CRM_HANDOFF_EXPORT_CONTRACT.selectionSchema,
     decision: "authorized" as const,
     dataClassification: "synthetic" as const,
-    tenantId: id(input.tenantId),
-    workspaceId: id(input.workspaceId),
-    selectionId: id(input.selectionId),
+    tenantId: syntheticScopeId("tenant", input.tenantId),
+    workspaceId: syntheticScopeId("workspace", input.workspaceId),
+    selectionId: syntheticScopeId("selection", input.selectionId),
     selectionRevision: revision(input.selectionRevision),
     authorityRevision: revision(input.authorityRevision),
     snapshotDigest: digest(input.snapshotDigest),
@@ -340,9 +382,9 @@ function normalizeSelectedRows(value: unknown): readonly CrmHandoffSelectionRowR
   const rows = value.map((entry) => {
     const row = exactRecord(entry, ["prospectId", "contactId", "contactPointId", "rowDigest"]);
     return Object.freeze({
-      prospectId: id(row.prospectId),
-      contactId: id(row.contactId),
-      contactPointId: id(row.contactPointId),
+      prospectId: syntheticRowId("prospect_id", row.prospectId),
+      contactId: syntheticRowId("contact_id", row.contactId),
+      contactPointId: syntheticRowId("contact_point_id", row.contactPointId),
       rowDigest: digest(row.rowDigest),
     });
   }).sort(compareRowRefs);
@@ -359,13 +401,47 @@ function normalizeRows(value: unknown): readonly CrmCsvRow[] {
       if (cell !== null && typeof cell !== "string") fail("crm_handoff_export_input_invalid");
       row[field] = cell as string | null;
     }
-    for (const field of ROW_ID_FIELDS) id(row[field]);
     return Object.freeze(row);
   });
   return Object.freeze(rows);
 }
 
-function assertSyntheticContact(row: CrmCsvRow) {
+function assertFixedFictionalRow(row: CrmCsvRow) {
+  for (const field of CRM_CSV_FIELD_IDS) {
+    const value = row[field];
+    if (value === null) continue;
+    if (SYNTHETIC_ROW_ID_PATTERNS[field]) {
+      syntheticRowId(field, value);
+      continue;
+    }
+    if (field === "account_target" || field === "selected_role") {
+      if (!FIXED_FICTIONAL_TEXT[field].has(value)) {
+        fail("crm_handoff_export_not_synthetic");
+      }
+      continue;
+    }
+    if (field === "contact_kind") {
+      if (value !== "email" && value !== "phone") fail("crm_handoff_export_not_synthetic");
+      continue;
+    }
+    if (field === "verification_class") {
+      if (value !== "synthetic_mailbox_verified" && value !== "synthetic_source_verified") {
+        fail("crm_handoff_export_not_synthetic");
+      }
+      continue;
+    }
+    if (field === "verification_time") {
+      if (value !== SYNTHETIC_VERIFICATION_TIME) fail("crm_handoff_export_not_synthetic");
+      continue;
+    }
+    if (field === "activity_status") {
+      if (value !== "synthetic_no_activity") fail("crm_handoff_export_not_synthetic");
+      continue;
+    }
+    if (field === "contact_value") continue;
+    fail("crm_handoff_export_not_synthetic");
+  }
+
   if (row.contact_kind === "email") {
     if (typeof row.contact_value !== "string" || !/^[^@\s]+@(?:[A-Za-z0-9-]+\.)*example\.test$/u.test(row.contact_value)) {
       fail("crm_handoff_export_not_synthetic");
@@ -383,6 +459,10 @@ function assertSyntheticContact(row: CrmCsvRow) {
 
 async function digestRow(row: CrmCsvRow) {
   return sha256(JSON.stringify(CRM_CSV_FIELD_IDS.map((field) => row[field])));
+}
+
+async function validateCodecRows(rows: unknown) {
+  await encodeCrmCsv(rows);
 }
 
 function withoutOperationDigest(selection: CrmHandoffSelectionAuthorization): CrmHandoffSelectionDraft {
@@ -441,6 +521,18 @@ function exactRecord(value: unknown, expectedKeys: readonly string[]): Record<st
 function id(value: unknown) {
   if (typeof value !== "string" || !ID.test(value)) fail("crm_handoff_export_input_invalid");
   return value;
+}
+
+function syntheticRowId(field: CrmCsvFieldId, value: unknown) {
+  const normalized = id(value);
+  if (!SYNTHETIC_ROW_ID_PATTERNS[field]?.test(normalized)) fail("crm_handoff_export_not_synthetic");
+  return normalized;
+}
+
+function syntheticScopeId(kind: keyof typeof SYNTHETIC_SCOPE_ID_PATTERNS, value: unknown) {
+  const normalized = id(value);
+  if (!SYNTHETIC_SCOPE_ID_PATTERNS[kind].test(normalized)) fail("crm_handoff_export_not_synthetic");
+  return normalized;
 }
 
 function digest(value: unknown) {
