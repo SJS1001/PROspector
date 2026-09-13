@@ -129,6 +129,12 @@ test("D-05 qualification review requires a reason/date and never authorizes Phas
       () => review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: "prospect-a", decision: "defer", reason: "awaiting budget", expectedRevision: 1, idempotencyKey: "0198f400-0000-7000-8000-000000000205" }),
       /date/i,
     );
+    for (const idempotencyKey of [" aaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaa ", "aaaaaaaaaa\u0000aaaaaaaaaa", "not-canonical-key-value", "a".repeat(19), "a".repeat(81)]) {
+      await assert.rejects(
+        () => review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: "prospect-a", decision: "reject", reason: "malformed key must fail closed", expectedRevision: 1, idempotencyKey }),
+        /invalid review command/i,
+      );
+    }
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
   } finally { await fixture.dispose(); }
 });
