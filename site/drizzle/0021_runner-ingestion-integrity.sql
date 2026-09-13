@@ -1,6 +1,10 @@
 -- One run may expose only one live capability. A consumed partial submission
 -- can deliberately open a successor capability, but only after trusted
 -- ingestion records its retryable terminal event.
+UPDATE `runner_assignments`
+SET `status` = 'expired', `updated_at` = unixepoch() * 1000, `revision` = `revision` + 1
+WHERE `status` = 'issued' AND `expires_at` <= unixepoch() * 1000;
+--> statement-breakpoint
 CREATE UNIQUE INDEX `runner_assignment_active_run_unique`
 ON `runner_assignments` (`workspace_id`, `run_id`)
 WHERE `status` = 'issued';

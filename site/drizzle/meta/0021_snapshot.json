@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7f0d9fcb-90b2-477b-b313-e71896cf5efe",
-  "prevId": "4c11efd5-2e07-4561-85ee-24a50ae49092",
+  "id": "b8387d37-f9d4-443a-91da-7f375a505793",
+  "prevId": "7f0d9fcb-90b2-477b-b313-e71896cf5efe",
   "tables": {
     "accounts": {
       "name": "accounts",
@@ -18467,6 +18467,15 @@
           ],
           "isUnique": true
         },
+        "runner_assignment_active_run_unique": {
+          "name": "runner_assignment_active_run_unique",
+          "columns": [
+            "workspace_id",
+            "run_id"
+          ],
+          "isUnique": true,
+          "where": "\"runner_assignments\".\"status\" = 'issued'"
+        },
         "runner_assignment_run_idx": {
           "name": "runner_assignment_run_idx",
           "columns": [
@@ -19568,6 +19577,15 @@
             "submission_digest"
           ],
           "isUnique": true
+        },
+        "runner_submission_complete_run_unique": {
+          "name": "runner_submission_complete_run_unique",
+          "columns": [
+            "workspace_id",
+            "run_id"
+          ],
+          "isUnique": true,
+          "where": "\"runner_submissions\".\"status\" = 'received' and json_extract(\"runner_submissions\".\"submission_json\", '$.status') = 'complete'"
         },
         "runner_submission_run_idx": {
           "name": "runner_submission_run_idx",

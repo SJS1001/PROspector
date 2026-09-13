@@ -74,6 +74,31 @@ test("the canonical chain is exactly the set of checked SQL files", async () => 
   assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].sort(), onDisk, "no orphan SQL file and no journal entry without a file");
 });
 
+test("0021 snapshot advances 0020 and records both runner-ingestion unique indexes", async () => {
+  const predecessor = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0020_snapshot.json"), "utf8"));
+  const current = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0021_snapshot.json"), "utf8"));
+  assert.notEqual(current.id, predecessor.id, "a migration snapshot must not duplicate its predecessor identity");
+  assert.equal(current.prevId, predecessor.id, "0021 must chain directly from 0020");
+  assert.deepEqual(
+    current.tables.runner_assignments.indexes.runner_assignment_active_run_unique,
+    {
+      name: "runner_assignment_active_run_unique",
+      columns: ["workspace_id", "run_id"],
+      isUnique: true,
+      where: '"runner_assignments"."status" = \'issued\'',
+    },
+  );
+  assert.deepEqual(
+    current.tables.runner_submissions.indexes.runner_submission_complete_run_unique,
+    {
+      name: "runner_submission_complete_run_unique",
+      columns: ["workspace_id", "run_id"],
+      isUnique: true,
+      where: '\"runner_submissions\".\"status\" = \'received\' and json_extract(\"runner_submissions\".\"submission_json\", \'$.status\') = \'complete\'',
+    },
+  );
+});
+
 test("the pinned LOCAL_DEMO tuple derives from the exact historical 0019 chain", async () => {
   const historicalChain = CANONICAL_MIGRATION_FILENAMES.slice(0, 20);
   assert.equal(historicalChain.at(-1), "0019_person_discovery.sql");
