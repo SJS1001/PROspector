@@ -653,6 +653,11 @@ test("stale, unknown, missing, and stale-predecessor states give explicit recove
     assert.match(stalePredecessor, /Stale predecessor/);
     assert.match(
       stalePredecessor,
+      /The Product, Market Play, or Offer changed\. Load the current authority before continuing\./,
+    );
+    assert.match(stalePredecessor, /Load current authority/);
+    assert.match(
+      stalePredecessor,
       /This profile is not ready. Confirm the required item/,
     );
     assert.match(

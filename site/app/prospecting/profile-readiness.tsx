@@ -13,6 +13,11 @@ type Item = {
   status: "complete" | "missing" | "stale" | "wrong-scoped" | string;
   versionIds?: string[];
 };
+const UPSTREAM_AUTHORITY_PREREQUISITES = new Set([
+  "product_configuration",
+  "accepted_play",
+  "confirmed_offer_lineage",
+]);
 type Candidate = {
   id: string;
   revision: number;
@@ -94,6 +99,12 @@ export function ProfileReadiness({
   const candidateIsCurrent =
     candidate?.status === "candidate" ||
     candidate?.status === "candidate_not_active";
+  const hasStaleAuthority = readinessItems.some(
+    (item) => item.status === "stale",
+  );
+  const hasInvalidUpstreamAuthority = (readiness.missing ?? []).some(
+    (prerequisite) => UPSTREAM_AUTHORITY_PREREQUISITES.has(prerequisite),
+  );
   return (
     <section
       className="prospecting-panel readiness"
@@ -117,13 +128,24 @@ export function ProfileReadiness({
           </li>
         ))}
       </ol>
-      {!authorityIsCurrent && (
-        <p role="alert">
-          Missing or stale:{" "}
-          {(readiness.missing ?? []).map(label).join(", ") ||
-            "unknown authority"}
-        </p>
-      )}
+      {!authorityIsCurrent &&
+        (hasStaleAuthority || hasInvalidUpstreamAuthority ? (
+          <section className="authority-card candidate-recovery" role="alert">
+            <p>
+              The Product, Market Play, or Offer changed. Load the current
+              authority before continuing.
+            </p>
+            <button type="button" disabled={busy} onClick={onReload}>
+              Load current authority
+            </button>
+          </section>
+        ) : (
+          <p role="alert">
+            Missing or stale:{" "}
+            {(readiness.missing ?? []).map(label).join(", ") ||
+              "unknown authority"}
+          </p>
+        ))}
       {active ? (
         <section
           className="authority-card"
@@ -196,7 +218,7 @@ export function ProfileReadiness({
           </button>
         </section>
       ) : candidateIsCurrent && candidate ? (
-        <section className="authority-card candidate-recovery" role="alert">
+        <section className="authority-card candidate-recovery">
           <h3>Candidate authority needs recovery</h3>
           <p>
             A persisted candidate exists, but one or more of its predecessor
@@ -207,9 +229,6 @@ export function ProfileReadiness({
             Candidate {candidate.id} · revision {candidate.revision} · digest{" "}
             {candidate.digest}
           </code>
-          <button type="button" disabled={busy} onClick={onReload}>
-            Load current authority
-          </button>
         </section>
       ) : (
         <section className="authority-card">
