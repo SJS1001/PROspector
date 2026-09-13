@@ -15,6 +15,7 @@ import { seedProfileAuthority } from "./helpers/phase4.mjs";
 
 const NOW = 1_780_000_000_000;
 const OWNER = { subject: "phase4-contract-owner", legacySubject: "phase4-contract-owner-legacy", displayName: "Phase 4 contract owner" };
+const OUTSIDER = { subject: "phase4-contract-outsider", legacySubject: "phase4-contract-outsider-legacy", displayName: "Phase 4 contract outsider" };
 
 /*async function seedProfileAuthority(fixture) {
   const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
@@ -255,6 +256,106 @@ test("D-01/D-02 Profile candidate and activation are separate, immutable, and ze
   } finally { await fixture.dispose(); }
 });
 
+test("Profile candidate creation distinguishes exact replay from resource deduplication and conflicting key reuse", async () => {
+  const fixture = await createD1Fixture("phase4-candidate-idempotency-contract");
+  try {
+    await applyMigrations(fixture.database);
+    const readiness = await loadProfileReadiness(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const input = { profileId:seeded.profileId, expectedProfileRevision:seeded.revision, now:NOW, idempotencyKey:"0198f400-0000-7000-8000-000000000161" };
+
+    const created = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, input);
+    assert.deepEqual(
+      { revision:created.revision, status:created.status },
+      { revision:1, status:"candidate_not_active" },
+      "creation projects the persisted pending lifecycle",
+    );
+    assert.deepEqual(
+      { disposition:created.disposition, replayed:created.replayed, deduplicated:created.deduplicated },
+      { disposition:"created", replayed:false, deduplicated:false },
+    );
+    const commandCount = await countRows(fixture.database, "authority_commands");
+
+    const replayed = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { ...input, now:NOW + 1 });
+    assert.equal(replayed.id, created.id);
+    assert.deepEqual(
+      { disposition:replayed.disposition, replayed:replayed.replayed, deduplicated:replayed.deduplicated },
+      { disposition:"replayed", replayed:true, deduplicated:false },
+      "only the same persisted key and operation digest is a replay",
+    );
+
+    const deduplicated = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { ...input, now:NOW + 2, idempotencyKey:"0198f400-0000-7000-8000-000000000162" });
+    assert.equal(deduplicated.id, created.id);
+    assert.deepEqual(
+      { disposition:deduplicated.disposition, replayed:deduplicated.replayed, deduplicated:deduplicated.deduplicated },
+      { disposition:"deduplicated", replayed:false, deduplicated:true },
+      "a new key finding the same immutable candidate is explicit deduplication, not replay",
+    );
+    assert.equal(await countRows(fixture.database, "authority_commands"), commandCount, "deduplication does not persist an unused command key");
+
+    await assert.rejects(
+      () => readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { ...input, expectedProfileRevision:seeded.revision + 1 }),
+      /Idempotency key was used for another Profile candidate/i,
+      "the original key cannot be rebound to changed payload semantics",
+    );
+    await assert.rejects(
+      () => readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:created.id, expectedRevision:created.revision, expectedDigest:created.digest, now:NOW + 3, idempotencyKey:input.idempotencyKey }),
+      /Idempotency key was used for another Profile activation/i,
+      "a candidate key cannot cross the operation boundary into activation",
+    );
+
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO workspaces (id,company_name,owner_subject,created_at,updated_at,revision) VALUES ('phase4-outsider-workspace','Outsider Company',?,?,?,1)").bind(OUTSIDER.subject,NOW,NOW),
+      fixture.database.prepare("INSERT INTO companies (id,workspace_id,created_at,updated_at,revision,name,status) VALUES ('phase4-outsider-company','phase4-outsider-workspace',?,?,1,'Outsider Company','active')").bind(NOW,NOW),
+    ]);
+    await assert.rejects(
+      () => readiness.createProfileConfigurationCandidate(fixture.database, OUTSIDER, { ...input, now:NOW + 4 }),
+      /Profile authority is unavailable/i,
+      "the same key cannot replay a candidate through another workspace",
+    );
+
+    await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:created.id, expectedRevision:created.revision, expectedDigest:created.digest, now:NOW + 5, idempotencyKey:"0198f400-0000-7000-8000-000000000163" });
+    const persisted = await fixture.database.prepare("SELECT revision,status FROM profile_configuration_candidates WHERE id=? AND workspace_id=?").bind(created.id,seeded.workspaceId).first();
+    const replayedAfterActivation = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { ...input, now:NOW + 6 });
+    assert.deepEqual(
+      { id:replayedAfterActivation.id, revision:replayedAfterActivation.revision, status:replayedAfterActivation.status, disposition:replayedAfterActivation.disposition },
+      { id:created.id, revision:Number(persisted.revision), status:persisted.status, disposition:"replayed" },
+      "same-key replay after activation projects the current persisted revision and lifecycle",
+    );
+  } finally { await fixture.dispose(); }
+});
+
+test("Profile activation distinguishes exact replay from resource deduplication and conflicting key reuse", async () => {
+  const fixture = await createD1Fixture("phase4-activation-idempotency-contract");
+  try {
+    await applyMigrations(fixture.database);
+    const readiness = await loadProfileReadiness(fixture);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:seeded.revision, now:NOW, idempotencyKey:"0198f400-0000-7000-8000-000000000171" });
+    const input = { candidateId:candidate.id, expectedRevision:candidate.revision, expectedDigest:candidate.digest, now:NOW + 1, idempotencyKey:"0198f400-0000-7000-8000-000000000172" };
+
+    const created = await readiness.activateProfileConfiguration(fixture.database, OWNER, input);
+    assert.deepEqual(
+      { disposition:created.disposition, replayed:created.replayed, deduplicated:created.deduplicated },
+      { disposition:"created", replayed:false, deduplicated:false },
+    );
+    const commandCount = await countRows(fixture.database, "authority_commands");
+
+    const replayed = await readiness.activateProfileConfiguration(fixture.database, OWNER, { ...input, now:NOW + 2 });
+    assert.deepEqual(replayed, { ...created, disposition:"replayed", replayed:true, deduplicated:false }, "exact replay returns the original persisted activation resources");
+
+    const deduplicated = await readiness.activateProfileConfiguration(fixture.database, OWNER, { ...input, now:NOW + 3, idempotencyKey:"0198f400-0000-7000-8000-000000000173" });
+    assert.deepEqual(deduplicated, { ...created, disposition:"deduplicated", replayed:false, deduplicated:true }, "a new key finding the activation is explicit deduplication");
+    assert.equal(await countRows(fixture.database, "authority_commands"), commandCount, "activation deduplication does not persist an unused command key");
+
+    await assert.rejects(
+      () => readiness.activateProfileConfiguration(fixture.database, OWNER, { ...input, expectedDigest:"f".repeat(64) }),
+      /Idempotency key was used for another Profile activation/i,
+      "the activation key cannot be rebound to a changed digest",
+    );
+  } finally { await fixture.dispose(); }
+});
+
 test("D-01 candidate and activation both require the exact parent Product to remain Ready", async () => {
   const fixture = await createD1Fixture("phase4-product-lifecycle-authority");
   try {
@@ -297,6 +398,15 @@ test("D-02 replacement activation keeps the Profile Ready and rolls exact config
     ]);
     const successorCandidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:Number(ready.revision), now:NOW + 3, idempotencyKey:"0198f400-0000-7000-8000-000000000133" });
     const successor = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId:successorCandidate.id, expectedRevision:successorCandidate.revision, expectedDigest:successorCandidate.digest, now:NOW + 4, idempotencyKey:"0198f400-0000-7000-8000-000000000134" });
+    const persistedSuccessor = await fixture.database.prepare("SELECT revision,status FROM profile_configuration_candidates WHERE id=? AND workspace_id=?").bind(successorCandidate.id,seeded.workspaceId).first();
+    const commandCount = await countRows(fixture.database, "authority_commands");
+    const deduplicatedSuccessor = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId:seeded.profileId, expectedProfileRevision:Number(ready.revision), now:NOW + 5, idempotencyKey:"0198f400-0000-7000-8000-000000000135" });
+    assert.deepEqual(
+      { id:deduplicatedSuccessor.id, revision:deduplicatedSuccessor.revision, status:deduplicatedSuccessor.status, disposition:deduplicatedSuccessor.disposition, replayed:deduplicatedSuccessor.replayed, deduplicated:deduplicatedSuccessor.deduplicated },
+      { id:successorCandidate.id, revision:Number(persistedSuccessor.revision), status:persistedSuccessor.status, disposition:"deduplicated", replayed:false, deduplicated:true },
+      "a new key deduplicating after replacement activation projects current persisted state without masquerading as replay",
+    );
+    assert.equal(await countRows(fixture.database, "authority_commands"), commandCount, "post-activation candidate deduplication does not consume its new key");
     const after = await fixture.database.prepare("SELECT lifecycle,revision FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
     assert.deepEqual({ lifecycle:after.lifecycle, revision:Number(after.revision) }, { lifecycle:"ready", revision:Number(ready.revision) }, "replacement activation preserves the Ready lifecycle and its bound revision");
     assert.notEqual(successor.configuration.id, first.configuration.id);

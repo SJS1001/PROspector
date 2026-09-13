@@ -8,7 +8,7 @@ export async function seedProfileAuthority(fixture, owner, now = 1_780_000_000_0
   const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject = ? LIMIT 1").bind(owner.subject).first();
   const company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
   const productCommandId = "phase4-product-authority-command";
-  await fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'test.product.authority',?,?,1,'product',?,'accepted')").bind(productCommandId, workspace.id, now, now, "0198f400-0000-7000-8000-000000000090", "0".repeat(64), product.id).run();
+  await fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'test.product.authority',?,?,1,'product',?,'accepted')").bind(productCommandId, workspace.id, now, now, "0198f400-0000-7000-9000-000000000090", "0".repeat(64), product.id).run();
   const productCategories = ["capability", "limitation", "delivery", "proof", "ownership", "claim_guardrail", "source_policy", "discovery_policy", "default_runner_policy"];
   const productVersions = [];
   for (const [index, kind] of productCategories.entries()) {
