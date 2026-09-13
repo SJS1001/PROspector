@@ -17,6 +17,11 @@ type SuppressionSubject = Readonly<{
   digest: string;
   channel: "phone" | "all";
 }>;
+type MatchingPendingWork = Readonly<{
+  id: string;
+  revision: number;
+  state: "pending";
+}>;
 
 export type ManualCallAuthoritySnapshot = Readonly<{
   dataClassification: "synthetic";
@@ -66,6 +71,7 @@ export type ManualCallAuthoritySnapshot = Readonly<{
     freshUntil: number;
   }>;
   suppressionSubjects: readonly SuppressionSubject[];
+  matchingPendingWork: readonly MatchingPendingWork[];
   suppressed: boolean;
 }>;
 
@@ -109,14 +115,23 @@ export type ManualCallOutcomeRepository = Readonly<{
     ownerSubject: string;
     idempotencyKey: string;
   }>): Promise<ManualCallOutcomeRecord | null>;
+  /**
+   * Atomically rechecks authority and, for do-not-call, completes the exact
+   * suppression and pending-work cancellation projection in the required
+   * order before inserting the outcome record. A uniqueness loser returns the
+   * immutable repository winner as `replayed`.
+   */
   commitCurrentOutcome(input: Readonly<{
     expectedAuthorityRevision: number;
     expectedAuthorityDigest: string;
-    suppressionSubjects: readonly SuppressionSubject[];
-    suppressionRequiredBeforeOutcome: boolean;
+    doNotCallRequirements: Readonly<{
+      suppressionSubjects: readonly SuppressionSubject[];
+      matchingPendingWork: readonly MatchingPendingWork[];
+      requiredOrder: "suppression_then_pending_work_cancellation_then_outcome";
+    }> | null;
     record: ManualCallOutcomeRecord;
   }>): Promise<Readonly<{
-    kind: "committed" | "stale" | "suppressed" | "conflict";
+    kind: "committed" | "replayed" | "stale" | "suppressed" | "conflict";
     record: ManualCallOutcomeRecord | null;
   }>>;
 }>;
@@ -191,6 +206,7 @@ export function createManualCallDecisionService(dependencies: Readonly<{
       schema: "synthetic-manual-call-outcome/v1",
       workspaceId: principal.workspaceId,
       actorSubject: principal.subject,
+      decisionRequest: decisionRequest(command),
       decisionDigest: command.expectedDecisionDigest,
       outcome: command.outcome,
       notesDigest,
@@ -244,15 +260,19 @@ export function createManualCallDecisionService(dependencies: Readonly<{
     const committed = await dependencies.outcomeRepository.commitCurrentOutcome({
       expectedAuthorityRevision: authority.authorityRevision,
       expectedAuthorityDigest: decision.authorityDigest,
-      suppressionSubjects: authority.suppressionSubjects,
-      suppressionRequiredBeforeOutcome: command.outcome === "do_not_call",
+      doNotCallRequirements: command.outcome === "do_not_call" ? deepFreeze({
+        suppressionSubjects: authority.suppressionSubjects,
+        matchingPendingWork: authority.matchingPendingWork,
+        requiredOrder: "suppression_then_pending_work_cancellation_then_outcome" as const,
+      }) : null,
       record,
     });
-    if (committed.kind !== "committed" || !committed.record) {
+    if ((committed.kind !== "committed" && committed.kind !== "replayed") || !committed.record) {
       throw new ManualCallDecisionError(committed.kind === "conflict" ? "idempotency_conflict" : "authority_changed");
     }
-    if (canonical(committed.record) !== canonical(record)) throw new ManualCallDecisionError("repository_result_mismatch");
-    return outcomeResult(committed.record, false);
+    if (!sameImmutableOutcome(committed.record, record)) throw new ManualCallDecisionError("repository_result_mismatch");
+    validTime(committed.record.recordedAt);
+    return outcomeResult(committed.record, committed.kind === "replayed");
   };
 
   return Object.freeze({ decide, recordOutcome });
@@ -379,6 +399,20 @@ function decisionInput(value: DecisionRequest): DecisionRequest {
   });
 }
 
+function decisionRequest(value: DecisionRequest): DecisionRequest {
+  return deepFreeze({
+    packageApprovalId: value.packageApprovalId,
+    phoneObservationId: value.phoneObservationId,
+    expectedAuthorityRevision: value.expectedAuthorityRevision,
+    expectedPackageVersion: value.expectedPackageVersion,
+    expectedPackageArtifactDigest: value.expectedPackageArtifactDigest,
+    expectedPackageApprovalDigest: value.expectedPackageApprovalDigest,
+    expectedProspectRevision: value.expectedProspectRevision,
+    expectedContactRevision: value.expectedContactRevision,
+    expectedContactEligibilityDigest: value.expectedContactEligibilityDigest,
+  });
+}
+
 function outcomeInput(value: OutcomeCommand): OutcomeCommand {
   const input = exactRecord(value, [
     "packageApprovalId", "phoneObservationId", "expectedAuthorityRevision", "expectedPackageVersion",
@@ -410,8 +444,25 @@ function authorityInput(value: ManualCallAuthoritySnapshot): ManualCallAuthority
     if (!DIGEST.test(value)) throw new ManualCallDecisionError("invalid_authority");
   }
   if (!Array.isArray(copied.suppressionSubjects) || copied.suppressionSubjects.length < 1
-    || copied.suppressionSubjects.length > 32 || typeof copied.suppressed !== "boolean") throw new ManualCallDecisionError("invalid_authority");
+    || copied.suppressionSubjects.length > 32
+    || !Array.isArray(copied.matchingPendingWork) || copied.matchingPendingWork.length > 64
+    || typeof copied.suppressed !== "boolean") throw new ManualCallDecisionError("invalid_authority");
+  const pendingIds = new Set<string>();
+  for (const work of copied.matchingPendingWork) {
+    const item = exactRecord(work, ["id", "revision", "state"]);
+    if (!validIdentifier(item.id) || !Number.isSafeInteger(item.revision) || Number(item.revision) < 1
+      || item.state !== "pending" || pendingIds.has(item.id)) throw new ManualCallDecisionError("invalid_authority");
+    pendingIds.add(item.id);
+  }
   return deepFreeze(copied);
+}
+
+function sameImmutableOutcome(actual: ManualCallOutcomeRecord, expected: ManualCallOutcomeRecord) {
+  const { recordedAt: actualRecordedAt, ...actualImmutable } = actual;
+  const { recordedAt: expectedRecordedAt, ...expectedImmutable } = expected;
+  void actualRecordedAt;
+  void expectedRecordedAt;
+  return canonical(actualImmutable) === canonical(expectedImmutable);
 }
 
 function snapshot<T>(value: T): T {

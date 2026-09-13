@@ -56,6 +56,9 @@ function authority(patch = {}) {
       { kind: "organization", digest: D("5"), channel: "all" },
       { kind: "company", digest: D("6"), channel: "all" },
     ],
+    matchingPendingWork: [
+      { id: "synthetic-pending-email", revision: 2, state: "pending" },
+    ],
     suppressed: false,
     ...patch,
   };
@@ -84,6 +87,10 @@ class SyntheticRepositories {
     this.externalEffects = 0;
     this.loadCount = 0;
     this.forcedCommitKind = null;
+    this.commitCount = 0;
+    this.commitInputs = [];
+    this.findBarrier = null;
+    this.lastCommitInput = null;
   }
 
   async loadCurrentAuthority({ workspaceId, ownerSubject, packageApprovalId, phoneObservationId }) {
@@ -94,19 +101,27 @@ class SyntheticRepositories {
   }
 
   async findByIdempotencyKey({ workspaceId, ownerSubject, idempotencyKey }) {
+    if (this.findBarrier) await this.findBarrier.wait();
     const record = this.records.get(`${workspaceId}:${ownerSubject}:${idempotencyKey}`);
     return record ? structuredClone(record) : null;
   }
 
   async commitCurrentOutcome(input) {
+    this.commitCount += 1;
+    this.commitInputs.push(structuredClone(input));
+    this.lastCommitInput = structuredClone(input);
     if (this.forcedCommitKind) return { kind: this.forcedCommitKind, record: null };
     const key = `${input.record.workspaceId}:${input.record.actorSubject}:${input.record.idempotencyKey}`;
     const prior = this.records.get(key);
-    if (prior) return { kind: prior.operationDigest === input.record.operationDigest ? "committed" : "conflict", record: prior };
+    if (prior) return { kind: prior.operationDigest === input.record.operationDigest ? "replayed" : "conflict", record: prior };
     if (this.current.authorityRevision !== input.expectedAuthorityRevision || this.current.suppressed) return { kind: "stale", record: null };
-    if (input.suppressionRequiredBeforeOutcome) {
+    if (input.doNotCallRequirements) {
       this.order.push("suppression");
       this.current = { ...this.current, suppressed: true, authorityRevision: this.current.authorityRevision + 1 };
+      this.order.push("pending-work-cancellation");
+      for (const work of input.doNotCallRequirements.matchingPendingWork) {
+        this.order.push(`cancel:${work.id}:${work.revision}`);
+      }
     }
     this.order.push("outcome");
     this.records.set(key, structuredClone(input.record));
@@ -114,12 +129,12 @@ class SyntheticRepositories {
   }
 }
 
-async function setup(snapshot = authority()) {
+async function setup(snapshot = authority(), now = () => NOW) {
   const serviceModule = await loadService();
   const scriptDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ callScript: snapshot.packageVersion.snapshot.callScript, schema: "outreach-call-script/v1" })));
   snapshot.packageVersion.callScriptDigest = Array.from(new Uint8Array(scriptDigest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const repositories = new SyntheticRepositories(snapshot);
-  const service = serviceModule.createManualCallDecisionService({ authorityRepository: repositories, outcomeRepository: repositories, now: () => NOW });
+  const service = serviceModule.createManualCallDecisionService({ authorityRepository: repositories, outcomeRepository: repositories, now });
   return { repositories, service };
 }
 
@@ -134,6 +149,27 @@ test("eligible decision exposes only the approved package script and no callable
   assert.equal(decision.phoneEffectAuthorized, false);
   assert.deepEqual(decision.effects, { providerInvocations: 0, dialInvocations: 0, uriInvocations: 0 });
   assert.equal(repositories.externalEffects, 0);
+});
+
+test("the idempotency digest binds every normalized decision-request field", async () => {
+  const changes = {
+    packageApprovalId: "synthetic-other-approval",
+    phoneObservationId: "synthetic-other-observation",
+    expectedAuthorityRevision: 8,
+    expectedPackageVersion: 4,
+    expectedPackageArtifactDigest: D("d"),
+    expectedPackageApprovalDigest: D("e"),
+    expectedProspectRevision: 6,
+    expectedContactRevision: 7,
+    expectedContactEligibilityDigest: D("f"),
+  };
+  for (const [field, changed] of Object.entries(changes)) {
+    const { service } = await setup();
+    const decision = await service.decide(principal, request());
+    const command = { ...request(), expectedDecisionDigest: decision.decisionDigest, outcome: "connected", notes: "Synthetic immutable request binding.", idempotencyKey: `synthetic-bind-${field.toLowerCase()}` };
+    await service.recordOutcome(principal, command);
+    await assert.rejects(service.recordOutcome(principal, { ...command, [field]: changed }), /idempotency_conflict/, field);
+  }
 });
 
 test("stale approval, revision, artifact, and script binding fail closed", async () => {
@@ -237,7 +273,12 @@ test("do_not_call commits suppression before the synthetic outcome", async () =>
     notes: "Synthetic do not call request.", idempotencyKey: "synthetic-dnc-key",
   });
   assert.equal(result.suppressionRecordedFirst, true);
-  assert.deepEqual(repositories.order, ["suppression", "outcome"]);
+  assert.deepEqual(repositories.order, ["suppression", "pending-work-cancellation", "cancel:synthetic-pending-email:2", "outcome"]);
+  assert.deepEqual(repositories.lastCommitInput.doNotCallRequirements, {
+    suppressionSubjects: repositories.current.suppressionSubjects,
+    matchingPendingWork: [{ id: "synthetic-pending-email", revision: 2, state: "pending" }],
+    requiredOrder: "suppression_then_pending_work_cancellation_then_outcome",
+  });
   assert.equal(repositories.current.suppressed, true);
   assert.equal(repositories.externalEffects, 0);
   const replay = await service.recordOutcome(principal, {
@@ -245,7 +286,44 @@ test("do_not_call commits suppression before the synthetic outcome", async () =>
     notes: "Synthetic do not call request.", idempotencyKey: "synthetic-dnc-key",
   });
   assert.equal(replay.replayed, true);
-  assert.deepEqual(repositories.order, ["suppression", "outcome"]);
+  assert.deepEqual(repositories.order, ["suppression", "pending-work-cancellation", "cancel:synthetic-pending-email:2", "outcome"]);
+});
+
+test("do_not_call requires the cancellation step even when authoritative matching work is empty", async () => {
+  const { repositories, service } = await setup(authority({ matchingPendingWork: [] }));
+  const decision = await service.decide(principal, request());
+  await service.recordOutcome(principal, {
+    ...request(), expectedDecisionDigest: decision.decisionDigest, outcome: "do_not_call",
+    notes: "Synthetic empty matching work set.", idempotencyKey: "synthetic-dnc-empty-work-key",
+  });
+  assert.deepEqual(repositories.order, ["suppression", "pending-work-cancellation", "outcome"]);
+  assert.deepEqual(repositories.lastCommitInput.doNotCallRequirements.matchingPendingWork, []);
+});
+
+test("an identical commit race returns the repository winner as a replay despite timestamp drift", async () => {
+  let release;
+  let waiting = 0;
+  let currentTime = NOW;
+  const barrier = new Promise((resolve) => { release = resolve; });
+  const { repositories, service } = await setup(authority(), () => currentTime++);
+  const decision = await service.decide(principal, request());
+  repositories.findBarrier = {
+    async wait() {
+      waiting += 1;
+      if (waiting === 2) release();
+      await barrier;
+    },
+  };
+  const command = { ...request(), expectedDecisionDigest: decision.decisionDigest, outcome: "connected", notes: "Synthetic concurrent outcome.", idempotencyKey: "synthetic-concurrent-key" };
+  const results = await Promise.all([
+    service.recordOutcome(principal, command),
+    service.recordOutcome(principal, command),
+  ]);
+  assert.equal(repositories.commitCount, 2);
+  assert.equal(new Set(repositories.commitInputs.map((input) => input.record.recordedAt)).size, 2);
+  assert.deepEqual(results.map((result) => result.replayed).sort(), [false, true]);
+  assert.equal(results[0].outcomeId, results[1].outcomeId);
+  assert.equal(repositories.records.size, 1);
 });
 
 test("decision remains usable later only while the exact authority is current", async () => {
