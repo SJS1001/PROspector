@@ -48,7 +48,7 @@ export async function handleKnowledgeGet(dependencies: KnowledgeHandlerDependenc
   try {
     const principal = await authenticatedPrincipal(dependencies);
     if (!await phase2SchemaAvailable(dependencies.database)) return json({ error: OLD_SCHEMA_PROJECTION });
-    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection, dependencies.csrfCookieMode);
+    return await projectionResponse(dependencies.database, principal, dependencies.interviewSelection, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isKnownDomainError(error)) return json({ error: "knowledge_unavailable" }, 409);
@@ -74,7 +74,7 @@ export async function handleKnowledgePost(request: Request, dependencies: Knowle
     const onboardingAction = body.action === "initialize_owner_workspace" || body.action === "create_onboarding_draft" || body.action === "start_onboarding_interview";
     if(localOnboardingSeam&&!onboardingAction&&!await writesActivated(dependencies.database,principal))return json({error:INACTIVE_WRITES_PROJECTION},503);
     await dispatch(body, dependencies.database, principal, dependencies.interviewSelection);
-    return projectionResponse(dependencies.database, principal, dependencies.interviewSelection, dependencies.csrfCookieMode);
+    return await projectionResponse(dependencies.database, principal, dependencies.interviewSelection, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
