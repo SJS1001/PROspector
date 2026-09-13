@@ -13,6 +13,11 @@ type Item = {
   status: "complete" | "missing" | "stale" | "wrong-scoped" | string;
   versionIds?: string[];
 };
+const UPSTREAM_AUTHORITY_PREREQUISITES = new Set([
+  "product_configuration",
+  "accepted_play",
+  "confirmed_offer_lineage",
+]);
 type Candidate = {
   id: string;
   revision: number;
@@ -97,6 +102,9 @@ export function ProfileReadiness({
   const hasStaleAuthority = readinessItems.some(
     (item) => item.status === "stale",
   );
+  const hasInvalidUpstreamAuthority = (readiness.missing ?? []).some(
+    (prerequisite) => UPSTREAM_AUTHORITY_PREREQUISITES.has(prerequisite),
+  );
   return (
     <section
       className="prospecting-panel readiness"
@@ -121,7 +129,7 @@ export function ProfileReadiness({
         ))}
       </ol>
       {!authorityIsCurrent &&
-        (hasStaleAuthority ? (
+        (hasStaleAuthority || hasInvalidUpstreamAuthority ? (
           <section className="authority-card candidate-recovery" role="alert">
             <p>
               The Product, Market Play, or Offer changed. Load the current

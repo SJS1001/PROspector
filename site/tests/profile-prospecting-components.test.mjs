@@ -45,6 +45,65 @@ test("stale readiness presents the approved recovery copy and delegates reload",
   }
 });
 
+test("missing upstream authority presents the same safe recovery without exposing mutation", async () => {
+  const { vite, readiness } = await modules();
+  try {
+    let reloads = 0;
+    for (const prerequisite of [
+      "product_configuration",
+      "accepted_play",
+      "confirmed_offer_lineage",
+    ]) {
+      const html = renderToStaticMarkup(
+        React.createElement(readiness.ProfileReadiness, {
+          readiness: missingUpstreamReadiness(prerequisite),
+          busy: false,
+          onCommand() {
+            throw new Error("missing upstream authority must not mutate");
+          },
+          onReload() {
+            reloads += 1;
+          },
+        }),
+      );
+      assert.match(
+        html,
+        /The Product, Market Play, or Offer changed\. Load the current authority before continuing\./,
+        prerequisite,
+      );
+      assert.match(html, /Load current authority/, prerequisite);
+      assert.doesNotMatch(html, /Activate Profile configuration/, prerequisite);
+    }
+    const element = React.createElement(readiness.ProfileReadiness, {
+      readiness: missingUpstreamReadiness("product_configuration"),
+      busy: false,
+      onCommand() {
+        throw new Error("missing upstream authority must not mutate");
+      },
+      onReload() {
+        reloads += 1;
+      },
+    });
+    let renderer;
+    await act(() => {
+      renderer = create(element);
+    });
+    const createCandidate = button(
+      renderer.root,
+      "Create Profile configuration candidate",
+      { includeDisabled: true },
+    );
+    assert.equal(createCandidate?.props.disabled, true);
+    const reload = button(renderer.root, "Load current authority");
+    assert.ok(reload);
+    await act(() => reload.props.onClick());
+    assert.equal(reloads, 1);
+    await act(() => renderer.unmount());
+  } finally {
+    await vite.close();
+  }
+});
+
 test("review drafts and rejection confirmation remain card-local with deterministic focus", async () => {
   const { vite, review } = await modules();
   try {
@@ -185,6 +244,18 @@ function staleReadiness() {
     missing: ["source_policy"],
     items: [
       { category: "source_policy", status: "stale", versionIds: ["version-old"] },
+    ],
+    candidate: null,
+  };
+}
+
+function missingUpstreamReadiness(prerequisite) {
+  return {
+    profile: { id: "profile-1", revision: 4 },
+    complete: false,
+    missing: [prerequisite],
+    items: [
+      { category: "source_policy", status: "complete", versionIds: ["version-current"] },
     ],
     candidate: null,
   };
