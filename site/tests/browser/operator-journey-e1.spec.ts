@@ -35,10 +35,12 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
     await expect(page.getByRole("heading", { name: "Review Queue", exact: true })).toBeVisible();
     const reflow = await measureReflow(page);
     expect(reflow.scrollWidth, `${width}px: ${JSON.stringify(reflow)}`).toBeLessThanOrEqual(reflow.clientWidth + 1);
+    if (width <= 760) await assertReviewCardStacks(page);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await assertTextResizeHolds(page);
   await assertVisibleFocus(page);
+  await assertKeyboardRejectionConfirmation(page);
 
   // 1. CSRF expiry. The token the page holds is dropped before the mutation, so
   // the server rejects it. The owner must be told the outcome is unverified and
@@ -230,6 +232,42 @@ async function assertVisibleFocus(page: Page) {
   }
   // Keyboard navigation must actually reach the task's controls.
   expect(stops, "no control was reachable by keyboard").toBeGreaterThan(2);
+}
+
+/** Rejection is an in-context destructive confirmation. Keyboard focus moves
+ * into it, Escape cancels it, and focus returns to the initiating card. */
+async function assertKeyboardRejectionConfirmation(page: Page) {
+  await fillApproval(page, "keyboard confirmation probe");
+  const reject = page.getByRole("button", { name: "Reject prospect" });
+  await reject.focus();
+  await page.keyboard.press("Enter");
+  const confirm = page.getByRole("button", { name: "Confirm rejection" });
+  await expect(confirm).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
+  await expect(reject).toBeFocused();
+}
+
+/** Below the Phase 4 breakpoint the queue remains one card-wide and its three
+ * competing decisions stack instead of creating horizontal overflow. */
+async function assertReviewCardStacks(page: Page) {
+  const card = page.locator(".review-queue article").first();
+  const actions = card.locator(".decision-actions");
+  const geometry = await actions.locator("button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width };
+    }),
+  );
+  expect(geometry).toHaveLength(3);
+  expect(geometry.every((item) => item.width > 0)).toBe(true);
+  expect(new Set(geometry.map((item) => Math.round(item.left))).size).toBe(1);
+  expect(new Set(geometry.map((item) => Math.round(item.right))).size).toBe(1);
+  const bounds = await Promise.all([card.boundingBox(), actions.boundingBox()]);
+  expect(bounds[0]).not.toBeNull();
+  expect(bounds[1]).not.toBeNull();
+  expect(bounds[1]!.x).toBeGreaterThanOrEqual(bounds[0]!.x);
+  expect(bounds[1]!.x + bounds[1]!.width).toBeLessThanOrEqual(bounds[0]!.x + bounds[0]!.width + 1);
 }
 
 /** Issue #11 asks for zoom. WCAG 1.4.4 is text scaled to 200% with no

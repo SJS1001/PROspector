@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   buildReviewCommand,
   EMPTY_REVIEW_DRAFT,
@@ -48,33 +48,60 @@ type Queue = {
   cooldownHistory?: History[];
   reentryHistory?: History[];
 };
+type Decision = "approve" | "reject" | "defer";
+type PendingDecision = { prospectId: string; decision: Decision };
 export function ReviewQueue({
   queue,
   onCommand,
   busy,
 }: {
   queue: Queue[];
-  onCommand: (body: Record<string, unknown>) => void;
+  onCommand: (body: Record<string, unknown>) => void | Promise<void>;
   busy: boolean;
 }) {
   const [drafts, setDrafts] = useState<ReviewDrafts>({});
   const [confirming, setConfirming] = useState<string | null>(null);
-  const submit = (item: Queue, decision: "approve" | "reject" | "defer") => {
+  const [pending, setPending] = useState<PendingDecision | null>(null);
+  const pendingRef = useRef<PendingDecision | null>(null);
+  const rejectButtons = useRef(new Map<string, HTMLButtonElement>());
+  const confirmButtons = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (confirming) confirmButtons.current.get(confirming)?.focus();
+  }, [confirming]);
+  const submit = async (item: Queue, decision: Decision) => {
+    if (pendingRef.current) return;
     const command = buildReviewCommand(
       item,
       decision,
       drafts[item.id] ?? EMPTY_REVIEW_DRAFT,
     );
-    if (command) onCommand(command);
+    if (!command) return;
+    const nextPending = { prospectId: item.id, decision };
+    pendingRef.current = nextPending;
+    setPending(nextPending);
+    try {
+      await onCommand(command);
+    } finally {
+      pendingRef.current = null;
+      setPending(null);
+    }
+  };
+  const openRejection = (item: Queue) => {
+    setConfirming(item.id);
+  };
+  const cancelRejection = (item: Queue) => {
+    setConfirming(null);
+    rejectButtons.current.get(item.id)?.focus();
   };
   const qualified = queue.filter((item) => item.outcome === "Passed");
+  const controlsBusy = busy || pending !== null;
   return (
     <section
       className="prospecting-panel review-queue"
       aria-labelledby="review-queue"
     >
       <h2 id="review-queue">Review Queue</h2>
-      {busy && (
+      {busy && !pending && (
         <p aria-live="polite" role="status">
           Decision pending. The immutable assessment remains shown while
           competing decisions are disabled.
@@ -86,8 +113,9 @@ export function ReviewQueue({
           const lastCooldown = item.cooldownHistory?.at(-1);
           const lastReentry = item.reentryHistory?.at(-1);
           const draft = drafts[item.id] ?? EMPTY_REVIEW_DRAFT;
+          const itemPending = pending?.prospectId === item.id ? pending : null;
           return (
-            <article key={item.id} aria-busy={busy}>
+            <article key={item.id} aria-busy={busy || itemPending !== null}>
               <header>
                 <strong>Qualified</strong>
                 <span>Passed · score {item.score}</span>
@@ -129,6 +157,13 @@ export function ReviewQueue({
                   {lastDecision.audit_event_id}
                 </p>
               )}
+              {itemPending && (
+                <p aria-live="polite" role="status">
+                  {pendingLabel(itemPending.decision)} pending. The immutable
+                  assessment remains shown while competing decisions are
+                  disabled.
+                </p>
+              )}
               <Lineage history={item} />
               <label>
                 Owner reason
@@ -142,7 +177,7 @@ export function ReviewQueue({
                       }),
                     )
                   }
-                  disabled={busy}
+                  disabled={controlsBusy}
                 />
               </label>
               <label>
@@ -157,37 +192,47 @@ export function ReviewQueue({
                       }),
                     )
                   }
-                  disabled={busy}
+                  disabled={controlsBusy}
                 />
               </label>
               <div className="decision-actions">
                 <button
                   type="button"
-                  disabled={busy || !draft.reason.trim()}
-                  onClick={() => submit(item, "approve")}
+                  disabled={controlsBusy || !draft.reason.trim()}
+                  onClick={() => void submit(item, "approve")}
                 >
                   Approve prospect
                 </button>
                 <button
                   type="button"
                   className="destructive"
-                  disabled={busy || !draft.reason.trim()}
-                  onClick={() => setConfirming(item.id)}
+                  disabled={controlsBusy || !draft.reason.trim()}
+                  ref={(node) => {
+                    if (node) rejectButtons.current.set(item.id, node);
+                    else rejectButtons.current.delete(item.id);
+                  }}
+                  onClick={() => openRejection(item)}
                 >
                   Reject prospect
                 </button>
                 <button
                   type="button"
                   disabled={
-                    busy || !draft.reason.trim() || !draft.reviewAt
+                    controlsBusy || !draft.reason.trim() || !draft.reviewAt
                   }
-                  onClick={() => submit(item, "defer")}
+                  onClick={() => void submit(item, "defer")}
                 >
                   Defer prospect
                 </button>
               </div>
               {confirming === item.id && (
-                <div role="alert" className="rejection-confirmation">
+                <div
+                  role="alert"
+                  className="rejection-confirmation"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") cancelRejection(item);
+                  }}
+                >
                   <p>
                     Rejecting this prospect starts a 90-day cooldown unless a
                     Material Signal appears. Confirm rejection.
@@ -195,15 +240,19 @@ export function ReviewQueue({
                   <button
                     type="button"
                     className="destructive"
-                    disabled={busy}
-                    onClick={() => submit(item, "reject")}
+                    disabled={controlsBusy}
+                    ref={(node) => {
+                      if (node) confirmButtons.current.set(item.id, node);
+                      else confirmButtons.current.delete(item.id);
+                    }}
+                    onClick={() => void submit(item, "reject")}
                   >
                     Confirm rejection
                   </button>
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => setConfirming(null)}
+                    disabled={controlsBusy}
+                    onClick={() => cancelRejection(item)}
                   >
                     Keep prospect
                   </button>
@@ -290,6 +339,11 @@ function freshness(value?: Freshness) {
       ? "Account Context — reconfirmation required"
       : "Current";
   return `${state} · newest retrieval ${stamp(value.newestRetrievedAt)} · ${value.sources?.length ?? 0} cited source${value.sources?.length === 1 ? "" : "s"}`;
+}
+function pendingLabel(decision: Decision) {
+  if (decision === "approve") return "Approval";
+  if (decision === "reject") return "Rejection";
+  return "Deferral";
 }
 function prospect(history: History) {
   return history.prospect_id ?? "current";
