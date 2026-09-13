@@ -84,6 +84,85 @@ test("runner capability TTL is capped at five minutes and remains expiry-bound",
   } finally { await seed.fixture.dispose(); }
 });
 
+test("an expired issued assignment remains auditable while a fresh capability is safely reissued", async () => {
+  const seed = await setup();
+  try {
+    const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const expired = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+      expiresAt: NOW + 10,
+      idempotencyKey: "expired-assignment",
+    }));
+    const reissued = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+      now: NOW + 10,
+      expiresAt: NOW + 60_010,
+      idempotencyKey: "expired-assignment-reissue",
+      reason: "replace an expired runner capability",
+    }));
+
+    assert.notEqual(reissued.assignmentId, expired.assignmentId);
+    assert.match(reissued.capability, /\./);
+    assert.deepEqual(
+      (await seed.fixture.database.prepare("SELECT id,status,revision FROM runner_assignments WHERE run_id='runner-run' ORDER BY created_at,id").all()).results,
+      [
+        { id: expired.assignmentId, status: "expired", revision: 2 },
+        { id: reissued.assignmentId, status: "issued", revision: 1 },
+      ],
+      "expiration changes lifecycle state without deleting the original assignment record",
+    );
+    assert.equal(
+      await seed.fixture.database.prepare("SELECT COUNT(*) count FROM audit_events WHERE action='runner.assignment.issued' AND subject_id IN (?,?)").bind(expired.assignmentId, reissued.assignmentId).first().then((row) => Number(row.count)),
+      2,
+      "both issuance audit records remain durable",
+    );
+    assert.equal(
+      await seed.fixture.database.prepare("SELECT COUNT(*) count FROM audit_events WHERE action='runner.assignment.expired' AND subject_id=?").bind(expired.assignmentId).first().then((row) => Number(row.count)),
+      1,
+      "the lifecycle transition is separately auditable",
+    );
+    await assert.rejects(
+      () => runner.submitRunnerObservations(seed.fixture.database, {
+        capability: expired.capability,
+        idempotencyKey: "expired-stale-token",
+        now: NOW + 11,
+        capabilitySecret: secret,
+        payload: validPayload(),
+      }),
+      /runner_assignment_rejected/i,
+      "the stale token stays unusable after reissuance",
+    );
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("concurrent reissue after expiry admits exactly one successor capability", async () => {
+  const seed = await setup();
+  try {
+    const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const expired = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+      expiresAt: NOW + 10,
+      idempotencyKey: "concurrent-expired-assignment",
+    }));
+    const attempts = await Promise.allSettled(["a", "b"].map((suffix) => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+      now: NOW + 10,
+      expiresAt: NOW + 60_010,
+      idempotencyKey: `concurrent-expiry-reissue-${suffix}`,
+      reason: `concurrent expiry replacement ${suffix}`,
+    }))));
+
+    assert.equal(attempts.filter((entry) => entry.status === "fulfilled").length, 1);
+    assert.equal(attempts.filter((entry) => entry.status === "rejected").length, 1);
+    assert.deepEqual(
+      (await seed.fixture.database.prepare("SELECT status,COUNT(*) count FROM runner_assignments WHERE run_id='runner-run' GROUP BY status ORDER BY status").all()).results,
+      [{ status: "expired", count: 1 }, { status: "issued", count: 1 }],
+    );
+    assert.equal((await seed.fixture.database.prepare("SELECT status FROM runner_assignments WHERE id=?").bind(expired.assignmentId).first()).status, "expired");
+    assert.equal(
+      await seed.fixture.database.prepare("SELECT COUNT(*) count FROM authority_commands WHERE workspace_id=? AND command_type='runner.assignment.issue'").bind(seed.workspaceId).first().then((row) => Number(row.count)),
+      2,
+      "the losing transaction leaves no orphan authority command",
+    );
+  } finally { await seed.fixture.dispose(); }
+});
+
 test("runner submission is bounded append-only observation data and rejects authority fields", async () => {
   const seed = await setup();
   try {
@@ -129,20 +208,34 @@ test("capability and ledger bind the immutable run window and reject out-of-wind
   } finally { await seed.fixture.dispose(); }
 });
 
-test("a submitted historical run may receive an explicit retry assignment but rejected work cannot reopen", async () => {
+test("a processed partial run may receive an explicit retry assignment but unprocessed or rejected work cannot reopen", async () => {
   const seed = await setup();
   try {
     const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const ingestion = await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts", import.meta.url).pathname);
     const first = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed));
-    await runner.submitRunnerObservations(seed.fixture.database, {
+    const partial = await runner.submitRunnerObservations(seed.fixture.database, {
       capability: first.capability,
       idempotencyKey: "historical-first-submission",
       now: NOW + 1,
       capabilitySecret: secret,
       payload: { ...validPayload(), status: "partial" },
     });
+    await assert.rejects(
+      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+        idempotencyKey: "unprocessed-partial-retry",
+        reason: "must wait for trusted partial ingestion",
+        now: NOW + 2,
+        expiresAt: NOW + 60_002,
+      })),
+      /runner_assignment_rejected/i,
+    );
+    await ingestion.processAcceptedRunnerSubmission(seed.fixture.database, {
+      workspaceId: seed.workspaceId,
+      submissionId: partial.submissionId,
+      now: NOW + 3,
+    });
     await seed.fixture.database.batch([
-      seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='submitted' WHERE id='runner-run'"),
       seed.fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id='runner-config'"),
     ]);
     assert.equal(
@@ -153,14 +246,14 @@ test("a submitted historical run may receive an explicit retry assignment but re
     const retry = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
       idempotencyKey: "historical-retry-assignment",
       reason: "explicit retry of accepted historical partial submission",
-      now: NOW + 2,
-      expiresAt: NOW + 60_002,
+      now: NOW + 4,
+      expiresAt: NOW + 60_004,
     }));
     assert.match(retry.capability, /\./);
     assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id='runner-run'").first()).execution_state, "assigned");
     await seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='rejected' WHERE id='runner-run'").run();
     await assert.rejects(
-      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "rejected-reopen", now: NOW + 3, expiresAt: NOW + 60_003 })),
+      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "rejected-reopen", now: NOW + 5, expiresAt: NOW + 60_005 })),
       /runner_assignment_rejected/i,
     );
   } finally { await seed.fixture.dispose(); }

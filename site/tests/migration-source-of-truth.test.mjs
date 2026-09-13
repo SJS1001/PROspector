@@ -62,8 +62,8 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   });
   // Regression: the chain reaches the release-evidence binding migration
   // rather than stopping at the historical person-discovery boundary.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 21);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0020_private-synthetic-proof-migration-identity.sql");
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 22);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0021_runner-ingestion-integrity.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {
@@ -72,6 +72,31 @@ test("the canonical chain is exactly the set of checked SQL files", async () => 
     .map((entry) => entry.name)
     .sort();
   assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].sort(), onDisk, "no orphan SQL file and no journal entry without a file");
+});
+
+test("0021 snapshot advances 0020 and records both runner-ingestion unique indexes", async () => {
+  const predecessor = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0020_snapshot.json"), "utf8"));
+  const current = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0021_snapshot.json"), "utf8"));
+  assert.notEqual(current.id, predecessor.id, "a migration snapshot must not duplicate its predecessor identity");
+  assert.equal(current.prevId, predecessor.id, "0021 must chain directly from 0020");
+  assert.deepEqual(
+    current.tables.runner_assignments.indexes.runner_assignment_active_run_unique,
+    {
+      name: "runner_assignment_active_run_unique",
+      columns: ["workspace_id", "run_id"],
+      isUnique: true,
+      where: '"runner_assignments"."status" = \'issued\'',
+    },
+  );
+  assert.deepEqual(
+    current.tables.runner_submissions.indexes.runner_submission_complete_run_unique,
+    {
+      name: "runner_submission_complete_run_unique",
+      columns: ["workspace_id", "run_id"],
+      isUnique: true,
+      where: '\"runner_submissions\".\"status\" = \'received\' and json_extract(\"runner_submissions\".\"submission_json\", \'$.status\') = \'complete\'',
+    },
+  );
 });
 
 test("the pinned LOCAL_DEMO tuple derives from the exact historical 0019 chain", async () => {
