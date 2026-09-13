@@ -62,8 +62,8 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   });
   // Regression: the chain reaches the release-evidence binding migration
   // rather than stopping at the historical person-discovery boundary.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 21);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0020_private-synthetic-proof-migration-identity.sql");
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 22);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0021_runner-ingestion-integrity.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {

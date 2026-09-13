@@ -41,6 +41,35 @@ test("enabled injected ingress coordinates an accepted submission through eviden
  }finally{await seed.fixture.dispose();}
 });
 
+test("two interleaved capabilities serialize one run and preserve partial observations before a late complete",async()=>{
+ const seed=await setup();try{
+  const runner=await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts",import.meta.url).pathname);
+  const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
+  const issue=(key,at)=>runner.issueRunnerAssignment(seed.fixture.database,{workspaceId:seed.workspaceId,runId:seed.runId,profileId:seed.profileId,configurationId:seed.configurationId,configurationDigest:seed.configurationDigest,audience:"prospecting-runner/v1",expiresAt:at+60_000,instructionVersion:"runner-instructions/v1",toolConfigurationDigest:"f".repeat(64),quotas:{maxBytes:20_000,maxFindings:3,maxSources:3},grantReference:"synthetic",reason:"interleaved capability regression",idempotencyKey:key,now:at,capabilitySecret:secret});
+  const competing=await Promise.allSettled([issue("interleaved-a",NOW),issue("interleaved-b",NOW)]);
+  assert.equal(competing.filter(result=>result.status==="fulfilled").length,1,"the run-scoped assignment invariant admits one live capability");
+  assert.equal(competing.filter(result=>result.status==="rejected").length,1);
+  const first=competing.find(result=>result.status==="fulfilled").value;
+  const partialPayload={...payload(NOW,"https://partial.example.invalid/source"),status:"partial"};
+  const partial=await runner.submitRunnerObservations(seed.fixture.database,{capability:first.capability,idempotencyKey:"interleaved-partial",payload:partialPayload,now:NOW+1,capabilitySecret:secret});
+  await assert.rejects(()=>issue("interleaved-before-partial-terminal",NOW+2),/runner_assignment_rejected/i,"consuming a token does not open a competing assignment before trusted ingestion");
+  const partialResult=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{workspaceId:seed.workspaceId,submissionId:partial.submissionId,now:NOW+3});
+  assert.equal(partialResult.retryable,true);
+  const late=await issue("interleaved-late-complete",NOW+4);
+  const complete=await runner.submitRunnerObservations(seed.fixture.database,{capability:late.capability,idempotencyKey:"interleaved-complete",payload:payload(NOW,"https://complete.example.invalid/source"),now:NOW+5,capabilitySecret:secret});
+  const completed=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{workspaceId:seed.workspaceId,submissionId:complete.submissionId,now:NOW+6});
+  assert.equal(completed.signalCount,1);
+  assert.deepEqual(await seed.fixture.database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=?").bind(seed.runId).first(),{execution_state:"succeeded",successful_watermark:NOW});
+  const submissions=await seed.fixture.database.prepare("SELECT id,json_extract(submission_json,'$.status') status FROM runner_submissions WHERE run_id=? ORDER BY created_at,id").bind(seed.runId).all();
+  assert.deepEqual(submissions.results.map(row=>row.status),["partial","complete"]);
+  const signals=await seed.fixture.database.prepare("SELECT submission_id FROM prospecting_signals WHERE run_id=? ORDER BY submission_id").bind(seed.runId).all();
+  assert.deepEqual(new Set(signals.results.map(row=>row.submission_id)),new Set([partial.submissionId,complete.submissionId]),"accepted observations from both serialized submissions remain durable");
+  await assert.rejects(()=>issue("interleaved-after-complete",NOW+7),/runner_assignment_rejected/i,"a complete submission closes assignment issuance for the run");
+  assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM runner_assignments WHERE run_id=? AND status='issued'").bind(seed.runId).first()).count),0);
+  assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM runner_submissions WHERE run_id=? AND json_extract(submission_json,'$.status')='complete'").bind(seed.runId).first()).count),1);
+ }finally{await seed.fixture.dispose();}
+});
+
 test("owner-rejected prospect re-enters only through application-produced sourced disproof bound to later trusted evidence",async()=>{
  const seed=await setup();try{
   const runner=await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts",import.meta.url).pathname);

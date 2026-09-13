@@ -129,20 +129,34 @@ test("capability and ledger bind the immutable run window and reject out-of-wind
   } finally { await seed.fixture.dispose(); }
 });
 
-test("a submitted historical run may receive an explicit retry assignment but rejected work cannot reopen", async () => {
+test("a processed partial run may receive an explicit retry assignment but unprocessed or rejected work cannot reopen", async () => {
   const seed = await setup();
   try {
     const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+    const ingestion = await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts", import.meta.url).pathname);
     const first = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed));
-    await runner.submitRunnerObservations(seed.fixture.database, {
+    const partial = await runner.submitRunnerObservations(seed.fixture.database, {
       capability: first.capability,
       idempotencyKey: "historical-first-submission",
       now: NOW + 1,
       capabilitySecret: secret,
       payload: { ...validPayload(), status: "partial" },
     });
+    await assert.rejects(
+      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
+        idempotencyKey: "unprocessed-partial-retry",
+        reason: "must wait for trusted partial ingestion",
+        now: NOW + 2,
+        expiresAt: NOW + 60_002,
+      })),
+      /runner_assignment_rejected/i,
+    );
+    await ingestion.processAcceptedRunnerSubmission(seed.fixture.database, {
+      workspaceId: seed.workspaceId,
+      submissionId: partial.submissionId,
+      now: NOW + 3,
+    });
     await seed.fixture.database.batch([
-      seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='submitted' WHERE id='runner-run'"),
       seed.fixture.database.prepare("UPDATE typed_configurations SET active=0 WHERE id='runner-config'"),
     ]);
     assert.equal(
@@ -153,14 +167,14 @@ test("a submitted historical run may receive an explicit retry assignment but re
     const retry = await runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, {
       idempotencyKey: "historical-retry-assignment",
       reason: "explicit retry of accepted historical partial submission",
-      now: NOW + 2,
-      expiresAt: NOW + 60_002,
+      now: NOW + 4,
+      expiresAt: NOW + 60_004,
     }));
     assert.match(retry.capability, /\./);
     assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id='runner-run'").first()).execution_state, "assigned");
     await seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='rejected' WHERE id='runner-run'").run();
     await assert.rejects(
-      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "rejected-reopen", now: NOW + 3, expiresAt: NOW + 60_003 })),
+      () => runner.issueRunnerAssignment(seed.fixture.database, issueInput(seed, { idempotencyKey: "rejected-reopen", now: NOW + 5, expiresAt: NOW + 60_005 })),
       /runner_assignment_rejected/i,
     );
   } finally { await seed.fixture.dispose(); }
