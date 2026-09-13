@@ -130,7 +130,7 @@ function port({ dispatch, reconcile } = {}) {
         calls.reconcile += 1;
         return reconcile
           ? reconcile(request)
-          : { status: "sent_confirmed", evidence: "exact_originated_match", originated: request.originated, observedAt: NOW + 2, automaticRetryAuthorized: false };
+          : { status: "sent_confirmed", evidence: "exact_originated_match", originated: request.originated, observedAt: NOW, automaticRetryAuthorized: false };
       },
       async syncOriginatedEvents() {
         calls.sync += 1;
@@ -221,6 +221,27 @@ test("every exact approval and final eligibility drift cancels before the port",
   }
 });
 
+test("lease expiry during asynchronous marker construction blocks the final dispatch boundary", async () => {
+  const { vite, orchestration } = await load();
+  let clockReads = 0;
+  try {
+    const fake = port();
+    const service = orchestrator(orchestration, [record()], fake.value, () => {
+      clockReads += 1;
+      return clockReads === 1 ? NOW : NOW + 30_000;
+    });
+    const result = await service.dispatch(dispatchCommand());
+    assert.equal(result.kind, "blocked");
+    assert.equal(result.reason, "lease_unavailable");
+    assert.equal(result.providerCalls, 0);
+    assert.equal(fake.calls.dispatch, 0);
+    assert.equal(service.read("synthetic-outbox-item").state, "leased");
+    assert.equal(service.read("synthetic-outbox-item").revision, 4);
+  } finally {
+    await vite.close();
+  }
+});
+
 test("ambiguous acceptance is terminal for dispatch and only exact originated reconciliation can resolve sent", async () => {
   const { vite, orchestration } = await load();
   try {
@@ -291,6 +312,70 @@ test("absent, conflicting, invalid, or failed reconciliation remains DeliveryUnk
         assert.equal(result.automaticRetryAuthorized, false);
         assert.equal(fake.calls.dispatch, 1);
         assert.equal(fake.calls.reconcile, 1);
+      } finally {
+        await vite.close();
+      }
+    });
+  }
+});
+
+test("a DeliveryUnknown revision permits only one concurrent reconciliation operation", async () => {
+  const { vite, orchestration } = await load();
+  let release;
+  const waiting = new Promise((resolve) => { release = resolve; });
+  try {
+    const fake = port({
+      dispatch(envelope) {
+        return { status: "delivery_unknown", ambiguity: "accepted_response_lost", originated: envelope.originated, ownerReconciliationRequired: true, automaticRetryAuthorized: false };
+      },
+      async reconcile(request) {
+        await waiting;
+        return { status: "sent_confirmed", evidence: "exact_originated_match", originated: request.originated, observedAt: NOW, automaticRetryAuthorized: false };
+      },
+    });
+    const service = orchestrator(orchestration, [record()], fake.value);
+    const unknown = await service.dispatch(dispatchCommand());
+    const firstPromise = service.reconcile({ outboxItemId: unknown.outboxItemId, expectedRevision: unknown.revision, operationKey: "synthetic-reconcile-first" });
+    while (fake.calls.reconcile === 0) await new Promise((resolve) => setImmediate(resolve));
+    const concurrent = await service.reconcile({ outboxItemId: unknown.outboxItemId, expectedRevision: unknown.revision, operationKey: "synthetic-reconcile-second" });
+    assert.equal(concurrent.kind, "blocked");
+    assert.equal(concurrent.reason, "operation_in_progress");
+    assert.equal(fake.calls.reconcile, 1);
+    release();
+    assert.equal((await firstPromise).kind, "sent");
+    assert.equal(fake.calls.reconcile, 1);
+  } finally {
+    release?.();
+    await vite.close();
+  }
+});
+
+test("stale and future sent observations remain DeliveryUnknown and replay without another reconciliation", async (t) => {
+  for (const [name, observedAt] of [["stale", NOW - 1], ["future", NOW + 1]]) {
+    await t.test(name, async () => {
+      const { vite, orchestration } = await load();
+      try {
+        const fake = port({
+          dispatch(envelope) {
+            return { status: "delivery_unknown", ambiguity: "request_transmission_unknown", originated: envelope.originated, ownerReconciliationRequired: true, automaticRetryAuthorized: false };
+          },
+          reconcile(request) {
+            return { status: "sent_confirmed", evidence: "exact_originated_match", originated: request.originated, observedAt, automaticRetryAuthorized: false };
+          },
+        });
+        const service = orchestrator(orchestration, [record()], fake.value);
+        const unknown = await service.dispatch(dispatchCommand({ operationKey: `synthetic-dispatch-${name}` }));
+        const command = { outboxItemId: unknown.outboxItemId, expectedRevision: unknown.revision, operationKey: `synthetic-reconcile-${name}` };
+        const result = await service.reconcile(command);
+        assert.equal(result.kind, "delivery_unknown");
+        assert.equal(result.reason, "reconciliation_match_invalid");
+        assert.equal(result.automaticRetryAuthorized, false);
+        const replay = await service.reconcile(command);
+        assert.equal(replay.kind, "delivery_unknown");
+        assert.equal(replay.reason, "reconciliation_match_invalid");
+        assert.equal(replay.replayed, true);
+        assert.equal(fake.calls.reconcile, 1);
+        assert.equal(fake.calls.dispatch, 1);
       } finally {
         await vite.close();
       }

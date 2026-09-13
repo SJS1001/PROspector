@@ -173,6 +173,7 @@ export function createLocalOutreachCommandOrchestrator(
     records.set(record.outboxItemId, record);
   }
   const receipts = new Map<string, OperationReceipt>();
+  const reconciliationReservations = new Map<string, Readonly<{ revision: number; operationKey: string }>>();
   const mailPortUnavailable = rejectOnlyPort(mailPort);
 
   async function dispatch(value: unknown): Promise<LocalOutreachCommandResult> {
@@ -236,7 +237,14 @@ export function createLocalOutreachCommandOrchestrator(
       return blocked("stale_command");
     }
     const finalNow = scope.now();
-    if (!validNow(finalNow) || currentAuthorityFailure(current, finalNow)) {
+    if (!validNow(finalNow)) return blocked("current_authority_unavailable");
+    if (
+      current.leaseGeneration !== command.leaseGeneration
+      || current.leaseHolderId !== command.leaseHolderId
+      || current.leaseExpiresAt === null
+      || current.leaseExpiresAt <= finalNow
+    ) return blocked("lease_unavailable");
+    if (currentAuthorityFailure(current, finalNow)) {
       const result = complete(current, "cancelled", "final_recheck_failed", 0, finalNow);
       records.set(current.outboxItemId, result.record);
       const completed = resultValue(result.record, "final_recheck_failed", 0, false);
@@ -310,10 +318,15 @@ export function createLocalOutreachCommandOrchestrator(
       receipts.set(command.operationKey, { digest: operationDigest, status: "completed", result: completed });
       return completed;
     }
+    const existingReservation = reconciliationReservations.get(current.outboxItemId);
+    if (existingReservation?.revision === current.revision) return blocked("operation_in_progress");
+    reconciliationReservations.set(current.outboxItemId, Object.freeze({
+      revision: current.revision,
+      operationKey: command.operationKey,
+    }));
     receipts.set(command.operationKey, { digest: operationDigest, status: "in_progress", result: null });
-    let providerResult: MailReconciliationResult;
     try {
-      providerResult = await mailPort.reconcile(Object.freeze({
+      const providerResult: MailReconciliationResult = await mailPort.reconcile(Object.freeze({
         approvedMessage: current.approvedMessage,
         idempotency: Object.freeze({
           outboxItemId: current.outboxItemId,
@@ -324,11 +337,22 @@ export function createLocalOutreachCommandOrchestrator(
         deliveryUnknownRecordedAt: current.deliveryUnknownRecordedAt,
         originated: current.originated,
       }));
+      const reconciliationNow = scope.now();
+      const classified = classifyReconciliationResult(
+        providerResult,
+        current.originated,
+        current.deliveryUnknownRecordedAt,
+        reconciliationNow,
+      );
+      return finishReconciliation(command.operationKey, operationDigest, current, classified.state, classified.reason);
     } catch {
       return finishReconciliation(command.operationKey, operationDigest, current, "delivery_unknown", "reconciliation_unavailable");
+    } finally {
+      const reservation = reconciliationReservations.get(current.outboxItemId);
+      if (reservation?.revision === current.revision && reservation.operationKey === command.operationKey) {
+        reconciliationReservations.delete(current.outboxItemId);
+      }
     }
-    const classified = classifyReconciliationResult(providerResult, current.originated);
-    return finishReconciliation(command.operationKey, operationDigest, current, classified.state, classified.reason);
   }
 
   async function cancel(value: unknown): Promise<LocalOutreachCommandResult> {
@@ -498,6 +522,8 @@ function classifyDispatchResult(
 function classifyReconciliationResult(
   value: unknown,
   expectedOriginated: OriginatedMessageReference,
+  deliveryUnknownRecordedAt: number,
+  reconciliationNow: number,
 ): Readonly<{ state: "sent" | "delivery_unknown"; reason: string }> {
   const input = exactRecord(value);
   if (!input || typeof input.status !== "string" || input.automaticRetryAuthorized !== false) {
@@ -507,6 +533,10 @@ function classifyReconciliationResult(
     return input.evidence === "exact_originated_match"
       && originatedMatches(input.originated, expectedOriginated)
       && validNow(input.observedAt)
+      && validNow(deliveryUnknownRecordedAt)
+      && validNow(reconciliationNow)
+      && Number(input.observedAt) >= deliveryUnknownRecordedAt
+      && Number(input.observedAt) <= reconciliationNow
       ? { state: "sent", reason: "exact_originated_match" }
       : { state: "delivery_unknown", reason: "reconciliation_match_invalid" };
   }
