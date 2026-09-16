@@ -50,10 +50,15 @@ export async function persistQualificationAssessment(database:D1Database, princi
   const existing=await database.prepare("SELECT id FROM qualification_assessments WHERE workspace_id=? AND assessment_digest=? LIMIT 1").bind(workspace.id,assessmentDigest).first<{id:string}>();
   if(existing) return assessmentProjection(existing.id,evaluation,duplicate?.id);
   const materialSignal=signalRows.results.filter(x=>Boolean(x.material)).sort((a,b)=>Number(b.retrieved_at)-Number(a.retrieved_at)||a.id.localeCompare(b.id))[0];
-  const cooldownActive=priorInactive?.cooldown_id&&Number(priorInactive.ends_at)>now;
-  const reentryKind=priorInactive?.state==="rejected"&&sourcedDisproof?"sourced_disproof":priorInactive?.state==="deferred"&&(materialSignal||Number(priorInactive.ends_at)<=now)?(materialSignal?"material_signal":"review_date_due"):null;
+  const cooldownActive=Boolean(priorInactive?.cooldown_id&&Number(priorInactive.ends_at)>now);
+  const cooldownExpired=Boolean(priorInactive?.cooldown_id&&Number(priorInactive.ends_at)<=now);
+  const reentryKind=priorInactive?.state==="rejected"&&sourcedDisproof?"sourced_disproof"
+    :priorInactive?.state==="rejected"&&materialSignal?"material_signal"
+    :priorInactive?.state==="rejected"&&cooldownExpired?"review_date_due"
+    :priorInactive?.state==="deferred"&&(materialSignal||Number(priorInactive.ends_at)<=now)?(materialSignal?"material_signal":"review_date_due")
+    :null;
   if(cooldownActive&&!reentryKind) throw fail("Prospect cooldown remains active; a Material Signal is required for re-entry");
-  if(priorInactive?.state==="rejected"&&!reentryKind) throw fail("Application-validated sourced disproof is required to reopen a rejected prospect");
+  if(priorInactive?.state==="rejected"&&!reentryKind) throw fail("Rejected prospect requires Material Signal, 90-day cooldown expiry, or sourced disproof to re-enter");
   const assessmentId=v7(), commandId=v7(), auditId=v7(), prospectId=v7(), reentryId=v7(), reentryCommandId=v7(), reentryAuditId=v7();
   try { await database.batch([
     database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(assessmentId,workspace.id,candidate.id,configuration.id,configuration.digest,inputJson,inputDigest,anchorJson,evidenceJson,gateJson,scoreJson,evaluation.score,evaluation.outcome,stable(evaluation.tieOrder),assessmentDigest,priorInactive?.assessment_id??null,now),
@@ -73,10 +78,12 @@ export async function decideQualifiedProspect(database:D1Database, principal:Pri
   if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<1||!validKey(input.idempotencyKey)) throw fail("Invalid review command");
   const workspace=await workspaceFor(database,principal);
   const prospect=await database.prepare("SELECT p.id,p.workspace_id,p.assessment_id,p.revision,p.state,p.active,a.outcome FROM profile_prospects p JOIN qualification_assessments a ON a.id=p.assessment_id AND a.workspace_id=p.workspace_id WHERE p.id=? AND p.workspace_id=? LIMIT 1").bind(input.prospectId,workspace.id).first<{id:string;workspace_id:string;assessment_id:string;revision:number;state:string;active:number;outcome:string}>();
-  if(!prospect||prospect.state!=="qualified"||!prospect.active||prospect.outcome!=="Passed"||input.assessmentId!==undefined&&input.assessmentId!==prospect.assessment_id||prospect.revision!==input.expectedRevision) throw fail("Qualified Prospect is unavailable or stale");
-  const operation=await sha256(stable({action:"prospect.review",prospectId:prospect.id,assessmentId:prospect.assessment_id,decision:input.decision,reason,reviewAt:input.reviewAt??null,revision:prospect.revision}));
+  if(!prospect) throw fail("Qualified Prospect is unavailable or stale");
+  if(input.assessmentId!==undefined&&input.assessmentId!==prospect.assessment_id) throw fail("Qualified Prospect is unavailable or stale");
+  const operation=await sha256(stable({action:"prospect.review",prospectId:prospect.id,assessmentId:prospect.assessment_id,decision:input.decision,reason,reviewAt:input.reviewAt??null,revision:input.expectedRevision}));
   const prior=await database.prepare("SELECT id,operation_digest FROM prospect_review_decisions WHERE workspace_id=? AND idempotency_key=? LIMIT 1").bind(workspace.id,input.idempotencyKey).first<{id:string;operation_digest:string}>();
   if(prior){if(prior.operation_digest!==operation)throw fail("Idempotency key conflicts with a different review command");return{decisionId:prior.id,replayed:true};}
+  if(prospect.state!=="qualified"||!prospect.active||prospect.outcome!=="Passed"||prospect.revision!==input.expectedRevision) throw fail("Qualified Prospect is unavailable or stale");
   const state=input.decision==="approve"?"approved":input.decision==="reject"?"rejected":"deferred", decisionId=v7(),commandId=v7(),auditId=v7();
   try { const writes=[
     database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) SELECT ?,?,?,?,1,'prospect.review',?,?,?,'profile_prospect',?,'accepted' WHERE EXISTS (SELECT 1 FROM profile_prospects WHERE id=? AND workspace_id=? AND state='qualified' AND active=1 AND revision=? AND assessment_id=?)").bind(commandId,workspace.id,now,now,input.idempotencyKey,operation,prospect.revision,prospect.id,prospect.id,workspace.id,prospect.revision,prospect.assessment_id),

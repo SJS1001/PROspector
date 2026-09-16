@@ -176,6 +176,105 @@ test("D-05 projects complete bounded P1→P2→P3 review lineage without duplica
   } finally { await fixture.dispose(); }
 });
 
+test("owner review replays an exact idempotent decision and rejects a reused key with a changed payload", async () => {
+  const fixture = await createD1Fixture("phase4-review-replay");
+  try {
+    await applyMigrations(fixture.database);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const readiness = await loadProfileReadiness(fixture);
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000301" });
+    const replayCandidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000301" });
+    assert.equal(replayCandidate.id, candidate.id, "exact candidate key+digest replay returns the same resource");
+    await assert.rejects(
+      () => readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision + 1, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000301" }),
+      /Stale Profile revision/,
+    );
+    await assert.rejects(
+      () => readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000399" }),
+      /Idempotency key does not own the existing Profile candidate/,
+    );
+    const activation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000302" });
+    const replayActivation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000302" });
+    assert.equal(replayActivation.configuration.id, activation.configuration.id);
+    const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first();
+    const profile = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    const company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
+    const digest = "a".repeat(64);
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO organizations (id,workspace_id,created_at,updated_at,revision,company_id,canonical_name,identity_digest) VALUES ('replay-org',?,?,?,1,?,'Replay organization',?)").bind(workspace.id,NOW,NOW,company.id,digest),
+      fixture.database.prepare("INSERT INTO accounts (id,workspace_id,created_at,updated_at,revision,play_id,organization_id,state) VALUES ('replay-account',?,?,?,1,?,'replay-org','draft')").bind(workspace.id,NOW,NOW,profile.play_id),
+      fixture.database.prepare("INSERT INTO targets (id,workspace_id,created_at,updated_at,revision,profile_id,account_id,state) VALUES ('replay-target',?,?,?,1,?,'replay-account','draft')").bind(workspace.id,NOW,NOW,seeded.profileId),
+      fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES ('replay-assignment-command',?,?,?,1,'test.replay.assignment','replay-assignment-key',?,1,'prospecting_run',?,'accepted')").bind(workspace.id,NOW,NOW,"f".repeat(64),activation.initialRun.id),
+      fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES ('replay-assignment-audit',?,'system','test','test.replay','prospecting_run',?,'{}',?)").bind(workspace.id,activation.initialRun.id,NOW),
+      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='queued' WHERE id=? AND workspace_id=?").bind(activation.initialRun.id,workspace.id),
+      fixture.database.prepare("INSERT INTO runner_assignments (id,workspace_id,created_at,updated_at,revision,run_id,profile_id,configuration_id,configuration_digest,audience,token_hash,nonce_hash,instruction_version,tool_configuration_digest,quota_json,quota_digest,expires_at,status,authority_command_id,audit_event_id) VALUES ('replay-assignment',?,?,?,1,?,?,?,?,'replay',?,?, 'v1',?,'{}',?,?,'issued','replay-assignment-command','replay-assignment-audit')").bind(workspace.id,NOW,NOW,activation.initialRun.id,seeded.profileId,activation.configuration.id,activation.configuration.digest,"0".repeat(64),"1".repeat(64),"2".repeat(64),"3".repeat(64),NOW + 100000),
+      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='assigned' WHERE id=? AND workspace_id=?").bind(activation.initialRun.id,workspace.id),
+      fixture.database.prepare("INSERT INTO runner_submissions (id,workspace_id,run_id,assignment_id,configuration_id,submission_json,submission_digest,provenance_json,provenance_digest,status,operation_digest,idempotency_key,created_at) VALUES ('replay-submission',?,?,?,?, '{}',?,'{}',?,'accepted',?,'replay-submission-key',?)").bind(workspace.id,activation.initialRun.id,"replay-assignment",activation.configuration.id,digest,digest,digest,NOW),
+      fixture.database.prepare("INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES ('replay-candidate',?,?,?,1,?,'phase4-offer',?,?,?, ?,?,?,'qualified')").bind(workspace.id,NOW,NOW,seeded.profileId,activation.initialRun.id,"replay-submission",activation.configuration.id,digest,JSON.stringify({ accountId: "replay-account", targetId: "replay-target", accountFit:2,painStrength:2,timingUrgency:2,dataReadiness:2,commercialViability:2 }),digest),
+      fixture.database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES ('replay-assessment',?,'replay-candidate',?,?, '{}',?,'{}','{}','{}','{}',8,'Passed','[]',?,NULL,?)").bind(workspace.id,activation.configuration.id,activation.configuration.digest,digest,digest,NOW),
+      fixture.database.prepare("INSERT INTO profile_prospects (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,candidate_id,assessment_id,fingerprint,state,active) VALUES ('replay-prospect',?,?,?,1,?,'phase4-offer','replay-candidate','replay-assessment',?,'qualified',1)").bind(workspace.id,NOW,NOW,seeded.profileId,digest),
+    ]);
+    const review = await fixture.vite.ssrLoadModule(new URL("../domain/prospect-review.ts", import.meta.url).pathname);
+    const command = { prospectId: "replay-prospect", assessmentId: "replay-assessment", decision: "reject", reason: "Exact owner rejection", expectedRevision: 1, idempotencyKey: "0198f400-0000-7000-8000-000000000310", now: NOW };
+    const first = await review.decideQualifiedProspect(fixture.database, OWNER, command);
+    assert.equal(first.replayed, false);
+    const replay = await review.decideQualifiedProspect(fixture.database, OWNER, command);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.decisionId, first.decisionId);
+    await assert.rejects(
+      () => review.decideQualifiedProspect(fixture.database, OWNER, { ...command, reason: "Changed payload must not reuse the key" }),
+      /Idempotency key conflicts with a different review command/,
+    );
+  } finally { await fixture.dispose(); }
+});
+
+test("rejected prospects re-enter after cooldown expiry or a Material Signal without requiring sourced disproof", async () => {
+  const fixture = await createD1Fixture("phase4-reject-reentry");
+  try {
+    await applyMigrations(fixture.database);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const readiness = await loadProfileReadiness(fixture);
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000401" });
+    const activation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000402" });
+    const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first();
+    const profile = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    const company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
+    const digest = "b".repeat(64);
+    const candidateJson = JSON.stringify({ accountId: "reentry-account", targetId: "reentry-target", accountFit:2,painStrength:2,timingUrgency:1,dataReadiness:1,commercialViability:1, requiredEvidence:["target","pain","timing","operation","offer"] });
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO organizations (id,workspace_id,created_at,updated_at,revision,company_id,canonical_name,identity_digest) VALUES ('reentry-org',?,?,?,1,?,'Reentry organization',?)").bind(workspace.id,NOW,NOW,company.id,digest),
+      fixture.database.prepare("INSERT INTO accounts (id,workspace_id,created_at,updated_at,revision,play_id,organization_id,state) VALUES ('reentry-account',?,?,?,1,?,'reentry-org','draft')").bind(workspace.id,NOW,NOW,profile.play_id),
+      fixture.database.prepare("INSERT INTO targets (id,workspace_id,created_at,updated_at,revision,profile_id,account_id,state) VALUES ('reentry-target',?,?,?,1,?,'reentry-account','draft')").bind(workspace.id,NOW,NOW,seeded.profileId),
+      fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES ('reentry-assignment-command',?,?,?,1,'test.reentry.assignment','reentry-assignment-key',?,1,'prospecting_run',?,'accepted')").bind(workspace.id,NOW,NOW,"f".repeat(64),activation.initialRun.id),
+      fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES ('reentry-assignment-audit',?,'system','test','test.reentry','prospecting_run',?,'{}',?)").bind(workspace.id,activation.initialRun.id,NOW),
+      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='queued' WHERE id=? AND workspace_id=?").bind(activation.initialRun.id,workspace.id),
+      fixture.database.prepare("INSERT INTO runner_assignments (id,workspace_id,created_at,updated_at,revision,run_id,profile_id,configuration_id,configuration_digest,audience,token_hash,nonce_hash,instruction_version,tool_configuration_digest,quota_json,quota_digest,expires_at,status,authority_command_id,audit_event_id) VALUES ('reentry-assignment',?,?,?,1,?,?,?,?,'reentry',?,?, 'v1',?,'{}',?,?,'issued','reentry-assignment-command','reentry-assignment-audit')").bind(workspace.id,NOW,NOW,activation.initialRun.id,seeded.profileId,activation.configuration.id,activation.configuration.digest,"0".repeat(64),"1".repeat(64),"2".repeat(64),"3".repeat(64),NOW + 100000),
+      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='assigned' WHERE id=? AND workspace_id=?").bind(activation.initialRun.id,workspace.id),
+      fixture.database.prepare("INSERT INTO runner_submissions (id,workspace_id,run_id,assignment_id,configuration_id,submission_json,submission_digest,provenance_json,provenance_digest,status,operation_digest,idempotency_key,created_at) VALUES ('reentry-submission',?,?,?,?, '{}',?,'{}',?,'accepted',?,'reentry-submission-key',?)").bind(workspace.id,activation.initialRun.id,"reentry-assignment",activation.configuration.id,digest,digest,digest,NOW),
+      fixture.database.prepare("INSERT INTO prospecting_source_lineage (id,workspace_id,run_id,submission_id,source_id,source_url,publisher_identity,underlying_origin_identity,independence_group,source_tier,published_at,occurred_at,retrieved_at,excerpt,lineage_json,lineage_digest,created_at) VALUES ('reentry-lineage',?,?,?,NULL,'https://reentry.example.invalid/','reentry.example.invalid','reentry.example.invalid','origin:reentry.example.invalid',1,NULL,?,?,?, '{}',?,?)").bind(workspace.id,activation.initialRun.id,"reentry-submission",NOW,NOW,"excerpt",digest,NOW),
+      fixture.database.prepare("INSERT INTO prospecting_signals (id,workspace_id,profile_id,run_id,submission_id,source_lineage_id,signal_kind,material,signal_json,signal_digest,created_at) VALUES ('reentry-signal',?,?,?,?,?,'operating-signal',0,'{}',?,?)").bind(workspace.id,seeded.profileId,activation.initialRun.id,"reentry-submission","reentry-lineage",digest,NOW),
+      fixture.database.prepare("INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES ('reentry-first-candidate',?,?,?,1,?,'phase4-offer',?,?,?, ?,?,?,'qualified')").bind(workspace.id,NOW,NOW,seeded.profileId,activation.initialRun.id,"reentry-submission",activation.configuration.id,digest,candidateJson,digest),
+    ]);
+    const review = await fixture.vite.ssrLoadModule(new URL("../domain/prospect-review.ts", import.meta.url).pathname);
+    const first = await review.persistQualificationAssessment(fixture.database, OWNER, { candidateId: "reentry-first-candidate", now: NOW });
+    assert.equal(first.queueState, "qualified");
+    const firstProspect = await fixture.database.prepare("SELECT id,assessment_id,revision FROM profile_prospects WHERE id=?").bind(first.prospectId).first();
+    await review.decideQualifiedProspect(fixture.database, OWNER, { prospectId: firstProspect.id, assessmentId: firstProspect.assessment_id, decision: "reject", reason: "Reject for cooldown/material re-entry", expectedRevision: Number(firstProspect.revision), idempotencyKey: "0198f400-0000-7000-8000-000000000410", now: NOW + 1 });
+    const stillCool = await fixture.database.prepare("INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES ('reentry-cool-candidate',?,?,?,1,?,'phase4-offer',?,?,?, ?,?,?,'received')").bind(workspace.id,NOW+2,NOW+2,seeded.profileId,activation.initialRun.id,"reentry-submission",activation.configuration.id,"c".repeat(64),candidateJson,"c".repeat(64)).run();
+    assert.ok(stillCool);
+    await assert.rejects(
+      () => review.persistQualificationAssessment(fixture.database, OWNER, { candidateId: "reentry-cool-candidate", now: NOW + 2 }),
+      /Material Signal is required for re-entry/,
+    );
+    const later = NOW + 90 * 86_400_000 + 10;
+    await fixture.database.prepare("INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES ('reentry-expired-candidate',?,?,?,1,?,'phase4-offer',?,?,?, ?,?,?,'received')").bind(workspace.id,later,later,seeded.profileId,activation.initialRun.id,"reentry-submission",activation.configuration.id,"d".repeat(64),candidateJson,"d".repeat(64)).run();
+    const expired = await review.persistQualificationAssessment(fixture.database, OWNER, { candidateId: "reentry-expired-candidate", now: later });
+    assert.equal(expired.queueState, "qualified");
+    const event = await fixture.database.prepare("SELECT event_kind FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first();
+    assert.equal(event.event_kind, "review_date_due");
+  } finally { await fixture.dispose(); }
+});
+
 async function loadProfileReadiness(fixture) {
   try {
     return await fixture.vite.ssrLoadModule(new URL("../domain/profile-readiness.ts", import.meta.url).pathname);
