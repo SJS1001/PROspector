@@ -119,11 +119,17 @@ export async function createProfileConfigurationCandidate(database: D1Database, 
   if (!readiness.complete) throw new ProfileReadinessConflictError(`Complete Profile readiness is required: ${readiness.missing.join(", ")}`);
   const manifest = effectiveConfigurationManifest(profile, authority, readiness);
   const manifestJson = stable(manifest); const digest = await sha256(manifestJson);
-  const prior = await database.prepare("SELECT id, revision, candidate_digest FROM profile_configuration_candidates WHERE workspace_id = ? AND profile_id = ? AND candidate_digest = ? LIMIT 1").bind(workspace.id, profile.id, digest).first<{id:string;revision:number;candidate_digest:string}>();
-  if (prior) return candidateProjection(prior);
-  const old = await command(database, workspace.id, input.idempotencyKey); if (old) throw new ProfileReadinessConflictError("Idempotency key was used for another Profile candidate");
-  const now = input.now ?? Date.now(), commandId = v7(), configurationId = v7(), candidateId = v7(), auditId = v7();
   const operation = await sha256(stable({ action: "profile.configuration.candidate", profileId: profile.id, expectedRevision: profile.revision, digest }));
+  const old = await command(database, workspace.id, input.idempotencyKey);
+  if (old) {
+    if (old.operation_digest !== operation) throw new ProfileReadinessConflictError("Idempotency key was used for another Profile candidate");
+    const owned = await database.prepare("SELECT id, revision, candidate_digest FROM profile_configuration_candidates WHERE workspace_id = ? AND profile_id = ? AND authority_command_id = ? LIMIT 1").bind(workspace.id, profile.id, old.id).first<{id:string;revision:number;candidate_digest:string}>();
+    if (owned) return candidateProjection(owned);
+    throw new ProfileReadinessConflictError("Idempotency key was used for another Profile candidate");
+  }
+  const prior = await database.prepare("SELECT id FROM profile_configuration_candidates WHERE workspace_id = ? AND profile_id = ? AND candidate_digest = ? LIMIT 1").bind(workspace.id, profile.id, digest).first<{id:string}>();
+  if (prior) throw new ProfileReadinessConflictError("Idempotency key does not own the existing Profile candidate");
+  const now = input.now ?? Date.now(), commandId = v7(), configurationId = v7(), candidateId = v7(), auditId = v7();
   const predecessor = await database.prepare("SELECT id FROM typed_configurations WHERE workspace_id = ? AND owner_type = 'profile' AND owner_id = ? AND kind = 'profile_effective' AND active = 1 LIMIT 1").bind(workspace.id, profile.id).first<{id:string}>();
   try { const results = await database.batch([
     database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) SELECT ?,?,?,?,1,'profile.configuration.candidate',?,?,?,'profile',?,'accepted' WHERE EXISTS (SELECT 1 FROM customer_profiles p JOIN market_plays mp ON mp.id=p.play_id AND mp.workspace_id=p.workspace_id JOIN products product ON product.id=mp.product_id AND product.workspace_id=p.workspace_id WHERE p.id=? AND p.workspace_id=? AND p.revision=? AND p.lifecycle IN ('draft','ready') AND product.lifecycle='ready')").bind(commandId,workspace.id,now,now,input.idempotencyKey,operation,profile.revision,profile.id,profile.id,workspace.id,profile.revision),
@@ -141,8 +147,16 @@ export async function activateProfileConfiguration(database: D1Database, princip
   const workspace = await ownedWorkspace(database, principal);
   const candidate = await database.prepare("SELECT c.*,tc.digest configuration_digest,tc.manifest_json configuration_manifest_json,p.name profile_name,p.revision profile_revision,p.lifecycle,p.play_id,mp.name play_name,mp.product_id,mp.lifecycle play_lifecycle,product.name product_name,product.lifecycle product_lifecycle,company.id company_id,company.name company_name FROM profile_configuration_candidates c JOIN typed_configurations tc ON tc.id=c.configuration_id AND tc.workspace_id=c.workspace_id JOIN customer_profiles p ON p.id=c.profile_id AND p.workspace_id=c.workspace_id JOIN market_plays mp ON mp.id=p.play_id AND mp.workspace_id=p.workspace_id JOIN products product ON product.id=mp.product_id AND product.workspace_id=p.workspace_id JOIN companies company ON company.workspace_id=p.workspace_id WHERE c.id=? AND c.workspace_id=? LIMIT 1").bind(input.candidateId,workspace.id).first<any>();
   if (!candidate) throw new ProfileReadinessConflictError("Profile configuration candidate is unavailable");
+  const operation=await sha256(stable({action:"profile.configuration.activate",candidateId:candidate.id,digest:candidate.candidate_digest,expectedRevision:input.expectedRevision}));
+  const old=await command(database,workspace.id,input.idempotencyKey);
+  if(old){
+    if(old.operation_digest!==operation) throw new ProfileReadinessConflictError("Idempotency key was used for another Profile activation");
+    const winner = await activationWinner(database, workspace.id, candidate, {...input, commandId: old.id});
+    if (winner) return activationProjection(candidate,winner.configuration_id,winner.run_id,winner);
+    throw new ProfileReadinessConflictError("Idempotency key was used for another Profile activation");
+  }
   const winner = await activationWinner(database, workspace.id, candidate, input);
-  if (winner) return activationProjection(candidate,winner.configuration_id,winner.run_id,winner);
+  if (winner) throw new ProfileReadinessConflictError("Idempotency key does not own the existing Profile activation");
   if (candidate.status !== "candidate" || Number(candidate.revision) !== input.expectedRevision || candidate.candidate_digest !== input.expectedDigest) throw new ProfileReadinessConflictError("Stale Profile configuration candidate; reload readiness");
   const profile: Profile = { id:candidate.profile_id,name:candidate.profile_name,play_id:candidate.play_id,play_name:candidate.play_name,product_id:candidate.product_id,product_name:candidate.product_name,product_lifecycle:candidate.product_lifecycle,company_id:candidate.company_id,company_name:candidate.company_name,lifecycle:candidate.lifecycle,revision:Number(candidate.profile_revision),play_lifecycle:candidate.play_lifecycle };
   const authority = await resolveAuthority(database,workspace.id,profile,true); const readiness=evaluateProfileReadiness({profile,authority,versions:authority.versions}); if (!readiness.complete) throw new ProfileReadinessConflictError("Profile readiness changed; replacement candidate required");
@@ -150,8 +164,7 @@ export async function activateProfileConfiguration(database: D1Database, princip
   const currentDigest = await sha256(currentManifest);
   const active = await database.prepare("SELECT id FROM typed_configurations WHERE workspace_id=? AND owner_type='profile' AND owner_id=? AND kind='profile_effective' AND active=1 LIMIT 1").bind(workspace.id,profile.id).first<{id:string}>();
   if (candidate.predecessor_configuration_id !== (active?.id ?? null) || candidate.candidate_digest !== currentDigest || candidate.configuration_digest !== currentDigest || candidate.configuration_manifest_json !== currentManifest) throw new ProfileReadinessConflictError("Profile authority changed; replacement candidate required");
-  const old=await command(database,workspace.id,input.idempotencyKey); if(old) throw new ProfileReadinessConflictError("Idempotency key was used for another Profile activation");
-  const now=input.now??Date.now(), commandId=v7(), activationId=v7(), auditId=v7(), scheduleId=v7(), runId=v7(); const operation=await sha256(stable({action:"profile.configuration.activate",candidateId:candidate.id,digest:candidate.candidate_digest,profileRevision:profile.revision}));
+  const now=input.now??Date.now(), commandId=v7(), activationId=v7(), auditId=v7(), scheduleId=v7(), runId=v7();
   const localTime="06:00", slot=nextProfileWeekdaySlot(profile.id,now,localTime,authority.timezone), scheduleKey=`${slot.scheduleKey}:configuration:${candidate.configuration_id}`, runKey=`initial:profile:${profile.id}:${candidate.configuration_id}`, manifest=stable({schema:"profile-prospecting-run/v1",configuration:candidate.candidate_digest,transport:"blocked_missing_capability",downstreamAuthority:false,window:{lowerExclusive:null,upperInclusive:now}}), manifestDigest=await sha256(manifest), eventJson=stable({trigger:"initial",key:runKey,state:"blocked_missing_capability"}), eventDigest=await sha256(eventJson);
   try { const results = await database.batch([
     database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) SELECT ?,?,?,?,1,'profile.configuration.activate',?,?,?,'profile_configuration_candidate',?,'accepted' WHERE EXISTS (SELECT 1 FROM profile_configuration_candidates c JOIN customer_profiles p ON p.id=c.profile_id AND p.workspace_id=c.workspace_id JOIN market_plays mp ON mp.id=p.play_id AND mp.workspace_id=p.workspace_id JOIN products product ON product.id=mp.product_id AND product.workspace_id=p.workspace_id WHERE c.id=? AND c.workspace_id=? AND c.status='candidate' AND c.revision=? AND c.candidate_digest=? AND p.revision=? AND p.lifecycle IN ('draft','ready') AND product.lifecycle='ready')").bind(commandId,workspace.id,now,now,input.idempotencyKey,operation,input.expectedRevision,candidate.id,candidate.id,workspace.id,input.expectedRevision,input.expectedDigest,profile.revision),
@@ -170,8 +183,11 @@ export async function activateProfileConfiguration(database: D1Database, princip
      * UUIDs generated above unless the authority command actually won. */
     if (Number(results[0]?.meta?.changes ?? 0) !== 1) throw new ProfileReadinessConflictError("Profile activation lost its authority guard");
   } catch(e) {
-    const won = await activationWinner(database, workspace.id, candidate, input);
-    if (won) return activationProjection(candidate,won.configuration_id,won.run_id,won);
+    const replayed = await command(database, workspace.id, input.idempotencyKey);
+    if (replayed && replayed.operation_digest === operation) {
+      const won = await activationWinner(database, workspace.id, candidate, {...input, commandId: replayed.id});
+      if (won) return activationProjection(candidate,won.configuration_id,won.run_id,won);
+    }
     throw e instanceof ProfileReadinessConflictError ? e : race(e,"Profile activation");
   }
   return activationProjection(candidate,candidate.configuration_id,runId,{schedule_id:scheduleId,timezone:authority.timezone,intended_local_time:localTime,utc_offset_minutes:slot.utcOffsetMinutes,next_run_at:slot.nextRunAt});
@@ -180,7 +196,10 @@ export async function activateProfileConfiguration(database: D1Database, princip
 /** Only an already-persisted activation for this exact candidate command may be
  * returned to a concurrent caller.  In particular, a different candidate or a
  * stale digest is not an idempotent success. */
-async function activationWinner(database:D1Database, workspaceId:string, candidate:any, input:{expectedRevision:number;expectedDigest:string}) {
+async function activationWinner(database:D1Database, workspaceId:string, candidate:any, input:{expectedRevision:number;expectedDigest:string;commandId?:string}) {
+  if (input.commandId) {
+    return database.prepare("SELECT a.configuration_id,r.id run_id,s.id schedule_id,s.timezone,s.intended_local_time,s.utc_offset_minutes,s.next_run_at FROM profile_configuration_activations a JOIN profile_configuration_candidates c ON c.id=a.candidate_id AND c.workspace_id=a.workspace_id JOIN prospecting_runs r ON r.configuration_id=a.configuration_id AND r.trigger_kind='initial' JOIN prospecting_schedules s ON s.configuration_id=a.configuration_id AND s.active=1 WHERE a.workspace_id=? AND a.candidate_id=? AND a.authority_command_id=? AND c.candidate_digest=? AND a.configuration_id=? LIMIT 1").bind(workspaceId,candidate.id,input.commandId,input.expectedDigest,candidate.configuration_id).first<any>();
+  }
   return database.prepare("SELECT a.configuration_id,r.id run_id,s.id schedule_id,s.timezone,s.intended_local_time,s.utc_offset_minutes,s.next_run_at FROM profile_configuration_activations a JOIN profile_configuration_candidates c ON c.id=a.candidate_id AND c.workspace_id=a.workspace_id JOIN prospecting_runs r ON r.configuration_id=a.configuration_id AND r.trigger_kind='initial' JOIN prospecting_schedules s ON s.configuration_id=a.configuration_id AND s.active=1 WHERE a.workspace_id=? AND a.candidate_id=? AND c.status='activated' AND c.revision=? AND c.candidate_digest=? AND a.configuration_id=? LIMIT 1").bind(workspaceId,candidate.id,input.expectedRevision + 1,input.expectedDigest,candidate.configuration_id).first<any>();
 }
 
@@ -202,7 +221,7 @@ async function resolveAuthority(database:D1Database, workspaceId:string, profile
 }
 async function ownedWorkspace(database:D1Database, principal:InterviewPrincipal):Promise<Workspace>{const legacy=principal.legacySubject??principal.subject;const r=await database.prepare("SELECT w.id,c.id company_id FROM workspaces w JOIN companies c ON c.workspace_id=w.id WHERE w.owner_subject IN (?,?) ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject,legacy,principal.subject).first<any>();if(!r)throw new ProfileReadinessConflictError("Commercial workspace authority is unavailable");return{id:r.id,companyId:r.company_id}}
 async function ownedProfile(database:D1Database,w:string,id:string):Promise<Profile>{const r=await database.prepare("SELECT cp.id,cp.name,cp.play_id,cp.lifecycle,cp.revision,mp.name play_name,mp.product_id,mp.lifecycle play_lifecycle,p.name product_name,p.lifecycle product_lifecycle,c.id company_id,c.name company_name FROM customer_profiles cp JOIN market_plays mp ON mp.id=cp.play_id AND mp.workspace_id=cp.workspace_id JOIN products p ON p.id=mp.product_id AND p.workspace_id=cp.workspace_id JOIN companies c ON c.workspace_id=cp.workspace_id WHERE cp.id=? AND cp.workspace_id=? LIMIT 1").bind(id,w).first<any>();if(!r)throw new ProfileReadinessConflictError("Profile authority is unavailable");return{...r,revision:Number(r.revision)}}
-async function command(d:D1Database,w:string,k:string){return d.prepare("SELECT id FROM authority_commands WHERE workspace_id=? AND idempotency_key=? LIMIT 1").bind(w,k).first()}
+async function command(d:D1Database,w:string,k:string){return d.prepare("SELECT id, operation_digest FROM authority_commands WHERE workspace_id=? AND idempotency_key=? LIMIT 1").bind(w,k).first<{id:string;operation_digest:string}>()}
 function candidateProjection(r:{id:string;revision:number;candidate_digest:string}){return{id:r.id,revision:Number(r.revision),digest:r.candidate_digest,status:"candidate_not_active" as const,immutable:true}}
 function activationProjection(c:any,configurationId:string,runId:string,schedule:{schedule_id:string;timezone:string;intended_local_time:string;utc_offset_minutes:number;next_run_at:number}){return{configuration:{id:configurationId,digest:c.candidate_digest,active:true,immutable:true},initialRun:{id:runId,trigger:"initial",executionState:"blocked_missing_capability"},schedule:{id:schedule.schedule_id,timezone:schedule.timezone,localTime:schedule.intended_local_time,utcOffsetMinutes:Number(schedule.utc_offset_minutes),nextRunAt:Number(schedule.next_run_at),cadence:"weekdays",executionState:"blocked_missing_capability"}}}
 function effectiveConfigurationManifest(profile:Profile,authority:Authority,readiness:ReturnType<typeof evaluateProfileReadiness>){const sourcePolicy={...authority.sourcePolicy,rules:authority.sourcePolicy.value};const runnerPolicy={...authority.runnerPolicy,rules:authority.runnerPolicy.value};return {schema:"profile-effective-configuration/v2",profile:{id:profile.id,revision:profile.revision,playId:profile.play_id,productId:profile.product_id},authority:{productConfiguration:authority.productConfiguration,acceptedPlay:authority.acceptedPlay,offer:authority.offer,sourcePolicy,runnerPolicy,scheduleSemantics:authority.scheduleSemantics,replacementDirectives:authority.replacementDirectives},confirmedCategoryInputs:authority.categoryInputs,readiness:readiness.items,policy:{sourcePolicy,runnerPolicy,scheduleSemantics:authority.scheduleSemantics,timezone:authority.timezone,cadence:"weekdays",localTime:"06:00",transport:"reject_only",replacement:authority.replacementPolicy}}}
