@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { PASS_RULE } from "./catalog.ts";
 import type { Assessment, ProspectOutcome, ScoreDimension } from "@/lib/domain/types";
 
-export const RUBRIC_DIGEST = "sha256:mining-operating-rubric-v1";
+export const RUBRIC_DIGEST = "sha256:mining-operating-rubric-v2";
 
 const DIMENSIONS = [
   { id: "account_fit", label: "Account fit", keys: ["plant", "mill", "concentrator", "processing", "operating", "mine", "smelter"] },
@@ -75,21 +75,56 @@ export function assignTier(accountName: string, url: string): 1 | 2 | 3 {
   return 3;
 }
 
-function scoreHits(text: string, keys: readonly string[], extra: string[]) {
-  const hay = text.toLowerCase();
-  const terms = [...keys, ...extra.filter((item) => item.length > 3)];
-  const hits = terms.filter((term) => hay.includes(term.toLowerCase())).length;
-  if (hits >= 3) return 2;
-  if (hits >= 1) return 1;
+function sentencesOf(text: string) {
+  return text
+    .split(/[.!?;\n]+/)
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter((item) => item.length > 0);
+}
+
+function scoreHits(text: string, keys: readonly string[]) {
+  const sentences = sentencesOf(text);
+  const found = new Set<string>();
+  let sentenceHits = 0;
+  for (const sentence of sentences) {
+    const hay = sentence.toLowerCase();
+    const matched = keys.filter((term) => hay.includes(term.toLowerCase()));
+    if (matched.length === 0) continue;
+    sentenceHits += 1;
+    for (const term of matched) found.add(term);
+  }
+  if (found.size >= 3) return 2;
+  if (found.size >= 1) return 1;
   return 0;
 }
 
-function extraTerms(profileText: string) {
-  return profileText
-    .toLowerCase()
-    .split(/[^a-z0-9+/]+/)
-    .filter((word) => word.length > 4)
-    .slice(0, 24);
+function timingScore(text: string) {
+  const keys = DIMENSIONS.find((item) => item.id === "timing")!.keys.filter((item) => !/^\d{4}$/.test(item));
+  const years = ["2025", "2026", "2027"];
+  const sentences = sentencesOf(text);
+  const found = new Set<string>();
+  let sentenceHits = 0;
+  for (const sentence of sentences) {
+    const hay = sentence.toLowerCase();
+    const verb = keys.filter((term) => hay.includes(term));
+    const year = years.filter((term) => hay.includes(term));
+    if (verb.length === 0 && year.length === 0) continue;
+    if (year.length && verb.length === 0) continue;
+    sentenceHits += 1;
+    for (const term of [...verb, ...year]) found.add(term);
+  }
+  if (found.size >= 3) return 2;
+  if (found.size >= 1) return 1;
+  return 0;
+}
+
+function stuffedPage(text: string) {
+  const words = text.toLowerCase().split(/[^a-z0-9+/]+/).filter((word) => word.length > 2);
+  if (words.length === 0) return true;
+  const keys = new Set<string>(DIMENSIONS.flatMap((item) => [...item.keys]));
+  const hits = words.filter((word) => keys.has(word)).length;
+  const density = hits / words.length;
+  return words.length < 16 && density > 0.6;
 }
 
 export function fingerprintOf(accountName: string, targetName: string) {
@@ -100,18 +135,25 @@ export function fingerprintOf(accountName: string, targetName: string) {
 }
 
 export function qualifyCandidate(input: QualificationInput): QualificationResult {
-  const combined = `${input.source.title}\n${input.source.text}\n${input.profileText}`;
-  const extras = extraTerms(input.profileText);
+  const pageText = `${input.source.title} ${input.source.text}`;
+  const stuffed = stuffedPage(pageText);
   const dimensions: ScoreDimension[] = DIMENSIONS.map((dim) => {
-    const score = scoreHits(`${input.source.title} ${input.source.text}`, dim.keys, extras);
-    const note = input.runnerNotes?.[dim.id]?.trim() || `Application count of sourced ${dim.label.toLowerCase()} evidence.`;
-    return { id: dim.id, label: dim.label, score, max: 2, note: clip(note, 160) };
+    const score = stuffed ? 0 : dim.id === "timing" ? timingScore(pageText) : scoreHits(pageText, dim.keys);
+    return {
+      id: dim.id,
+      label: dim.label,
+      score,
+      max: 2,
+      note: stuffed
+        ? "Keyword dump on a short page — not counted."
+        : `Distinct terms on the retrieved page (${score}/2). Profile extras and runner notes are ignored.`,
+    };
   });
 
   const score = dimensions.reduce((sum, item) => sum + item.score, 0);
   const pain = dimensions.find((item) => item.id === "pain_strength")?.score ?? 0;
   const timing = dimensions.find((item) => item.id === "timing")?.score ?? 0;
-  const hay = combined.toLowerCase();
+  const hay = pageText.toLowerCase();
   const hard = HARD_NO.find((item) => hay.includes(item)) ?? null;
   const tier = assignTier(input.accountName, input.source.url);
   const qualifyingSources = tier === 1;
@@ -119,7 +161,7 @@ export function qualifyCandidate(input: QualificationInput): QualificationResult
 
   let outcome: ProspectOutcome = "Passed";
   if (hard) outcome = "Disqualified";
-  else if (!input.source.text.trim() || !qualifyingSources && tier === 3) outcome = "InsufficientEvidence";
+  else if (stuffed || !input.source.text.trim() || !qualifyingSources && tier === 3) outcome = "InsufficientEvidence";
   else if (score < 7 || pain < 1 || timing < 1) outcome = "NotQualified";
 
   return {

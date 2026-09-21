@@ -60,3 +60,35 @@ test("hard disqualifier wins", () => {
   });
   assert.equal(result.outcome, "Disqualified");
 });
+
+test("keyword dump on a short page cannot pass", () => {
+  const result = qualifyCandidate({
+    accountName: "Nordic Mining",
+    targetName: "Engebø",
+    profileText: profile,
+    source: {
+      url: "https://www.nordicmining.com/stuffed",
+      title: "Keywords",
+      text: "Operating plant mill recovery throughput historian expansion 2026 director diagnostic",
+      retrievedAt: "2026-09-20T00:00:00.000Z",
+    },
+  });
+  assert.equal(result.outcome, "InsufficientEvidence");
+});
+
+test("a year without a timing verb does not count as urgency", () => {
+  const result = qualifyCandidate({
+    accountName: "Nordic Mining",
+    targetName: "Engebø plant",
+    profileText: profile,
+    source: {
+      url: "https://www.nordicmining.com/operations/engebo/",
+      title: "Engebø rutile plant",
+      text: "Operating mineral processing plant with historian data, recovery and throughput constraints. Copyright 2026. OT/IT link and GM diagnostic path.",
+      retrievedAt: "2026-09-20T00:00:00.000Z",
+    },
+  });
+  const timing = result.assessment.dimensions.find((item) => item.id === "timing");
+  assert.equal(timing?.score, 0);
+  assert.equal(result.outcome, "NotQualified");
+});

@@ -88,3 +88,35 @@ export async function searchApolloPeople(opts: {
   }
   return hits;
 }
+
+export type ApolloCredits = {
+  leadLimit: number | null;
+  leadConsumed: number | null;
+  leadLeft: number | null;
+  fetchedAt: string;
+};
+
+export async function fetchApolloCredits(key: string): Promise<ApolloCredits> {
+  const response = await fetch("https://api.apollo.io/api/v1/usage_stats/credit_usage_stats", {
+    method: "POST",
+    signal: AbortSignal.timeout(12_000),
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache",
+      "x-api-key": key,
+    },
+    body: JSON.stringify({}),
+  });
+  const json = (await response.json().catch(() => ({}))) as {
+    credit_usage_stats?: Record<string, { limit?: number; consumed?: number; left_over?: number }>;
+  };
+  if (!response.ok) throw new Error(`Apollo usage ${response.status}`);
+  const lead = json.credit_usage_stats?.lead_credit ?? json.credit_usage_stats?.export_credit;
+  return {
+    leadLimit: lead?.limit ?? null,
+    leadConsumed: lead?.consumed ?? null,
+    leadLeft: lead?.left_over ?? null,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+

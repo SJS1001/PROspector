@@ -1,7 +1,7 @@
 import type { ProfileSnapshot } from "@/lib/domain/types";
+import { completeJson } from "@/lib/server/llm";
 import { profileText } from "@/lib/server/profile";
 import { idFor } from "@/lib/server/seed";
-import { resolveXaiKey } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
 
 type ProposalDraft = {
@@ -25,61 +25,12 @@ function extractJson(text: string): { proposals?: ProposalDraft[] } {
   }
 }
 
-function outputText(body: Record<string, unknown>) {
-  if (typeof body.output_text === "string") return body.output_text;
-  const output = Array.isArray(body.output) ? body.output : [];
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as { content?: unknown };
-    if (!Array.isArray(row.content)) continue;
-    for (const part of row.content) {
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        chunks.push(part.text);
-      }
-    }
-  }
-  if (chunks.length) return chunks.join("\n");
-  const choices = body.choices as { message?: { content?: string } }[] | undefined;
-  return choices?.[0]?.message?.content ?? "";
-}
-
-async function proposeMarkets(snapshot: ProfileSnapshot, apiKey: string): Promise<ProposalDraft[]> {
-  if (!apiKey) throw new Error("Add an xAI key in Connections before running discovery.");
+async function proposeMarkets(sql: Sql, userId: string, snapshot: ProfileSnapshot): Promise<ProposalDraft[]> {
   const prompt = `You are an untrusted research runner. Do not start prospecting or name individual sales targets.
 Return JSON only: {"proposals":[{"title":"","problemMatch":"","customerType":"","examples":"","likelyBuyer":"","risks":"","productFit":"","evidence":""}]}
 Produce at most 3 Market Play proposals for this product. Each is a market, not a company list.
 ${profileText(snapshot)}`;
-
-  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-  const responses = await fetch("https://api.x.ai/v1/responses", {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(45_000),
-    body: JSON.stringify({
-      model: "grok-4.5",
-      input: [{ role: "user", content: prompt }],
-      tools: [{ type: "web_search" }],
-      max_output_tokens: 1800,
-    }),
-  });
-  let text = "";
-  if (responses.ok) text = outputText((await responses.json()) as Record<string, unknown>);
-  else {
-    const chat = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers,
-      signal: AbortSignal.timeout(45_000),
-      body: JSON.stringify({
-        model: "grok-4.5",
-        messages: [{ role: "user", content: prompt }],
-        search_parameters: { mode: "on", return_citations: true },
-        max_tokens: 1800,
-      }),
-    });
-    if (!chat.ok) throw new Error(`Market discovery failed (${chat.status}).`);
-    text = outputText((await chat.json()) as Record<string, unknown>);
-  }
+  const text = await completeJson(sql, userId, prompt);
   return (extractJson(text).proposals ?? [])
     .filter((item) => item?.title && item?.problemMatch)
     .slice(0, 3);
@@ -92,7 +43,7 @@ export async function executeDiscovery(opts: {
   digest: string;
   snapshot: ProfileSnapshot;
 }) {
-  const proposals = await proposeMarkets(opts.snapshot, await resolveXaiKey(opts.sql, opts.userId));
+  const proposals = await proposeMarkets(opts.sql, opts.userId, opts.snapshot);
   let n = 0;
   for (const item of proposals) {
     n += 1;

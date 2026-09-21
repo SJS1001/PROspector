@@ -4,11 +4,14 @@ import { getSql, type Sql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { executeDiscovery } from "@/lib/server/discover";
 import { executeHunt } from "@/lib/server/hunt";
-import { searchApolloPeople } from "@/lib/server/apollo";
+import { fetchApolloCredits, searchApolloPeople } from "@/lib/server/apollo";
 import { sendViaGmail } from "@/lib/server/mailer";
+import { scanGmailInbox } from "@/lib/server/inbox";
 import { revealFromPages } from "@/lib/server/reveal";
-import { connectionFlags, getSecret, putSecret } from "@/lib/server/secrets";
-import { APOLLO_UNIT_CENTS, GRANT_TTL_MS, SEND_LEASE_MS, WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
+import { searchZoomInfoPeople } from "@/lib/server/zoominfo";
+import { connectionFlags, getSecret, putSecret, resolveJev } from "@/lib/server/secrets";
+import { jevGuardCopy } from "@/lib/server/jev-tasks";
+import { INTERVIEW, APOLLO_UNIT_CENTS, GRANT_TTL_MS, SEND_LEASE_MS, WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
 import { digestSnapshot, productReadinessFromKnowledge, readinessFromKnowledge, snapshotFromKnowledge } from "@/lib/server/profile";
 import { torontoParts } from "@/lib/server/toronto";
 import { ensureWorkspace, idFor, seedMiningSample } from "@/lib/server/seed";
@@ -674,10 +677,10 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
       offer: row.offer,
     })),
     runner: {
-      provider: "xAI",
-      model: "grok-4.5",
-      tools: ["web_search", "https_retrieve"],
-      credentialsStored: links.xai,
+      provider: links.llmProviderLabel,
+      model: links.llmModel,
+      tools: links.llmSearch === "none" ? ["https_retrieve"] : ["web_search", "https_retrieve"],
+      credentialsStored: links.llm,
       assignment: "Bounded public HTTPS pages for the active profile. The runner cannot qualify, approve, or send.",
     },
     signals: signalRows.map(mapSignal),
@@ -883,6 +886,15 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
   `;
   if (busy) throw new Error("A prospecting run is already active. Wait for it to finish.");
 
+  if (trigger !== "initial") {
+    const [recent] = await sql<{ started_at: string }>`
+      select started_at from prospecting_runs where user_id = ${userId} order by started_at desc limit 1
+    `;
+    if (recent && Date.now() - new Date(recent.started_at).getTime() < 20_000) {
+      throw new Error("Wait 20 seconds between hunts so a runner cannot be looped.");
+    }
+  }
+
   if (trigger === "initial") {
     const now = new Date().toISOString();
     await sql`
@@ -914,6 +926,7 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
       .filter((value): value is string => Boolean(value)),
   );
 
+  const flags = await connectionFlags(sql, userId);
   try {
     await executeHunt({
       sql,
@@ -922,6 +935,7 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
       digest,
       snapshot,
       knownFingerprints: known,
+      maxCandidates: flags.huntBatch,
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Prospecting run failed.";
@@ -1293,8 +1307,12 @@ export const requestEnrichmentGrant = createServerFn({ method: "POST" })
     }
     const flags = await connectionFlags(sql, context.userId);
     const apolloKey = await getSecret(sql, context.userId, "apollo");
-    const cost = apolloKey ? APOLLO_UNIT_CENTS : 0;
-    if (apolloKey && flags.spendUsedCents + cost > flags.monthlyBudgetCents) {
+    const zoomKey = await getSecret(sql, context.userId, "zoominfo");
+    if (apolloKey && flags.apolloLeadLeft === 0) {
+      throw new Error("Apollo reports 0 lead credits remaining. Paid reveal is blocked until the ledger refills.");
+    }
+    const cost = apolloKey || zoomKey ? APOLLO_UNIT_CENTS : 0;
+    if (cost > 0 && flags.spendUsedCents + cost > flags.monthlyBudgetCents) {
       throw new Error("Monthly spend cap would be exceeded. Raise the cap in Connections or wait for next month.");
     }
     const expiresAt = new Date(Date.now() + GRANT_TTL_MS).toISOString();
@@ -1336,6 +1354,34 @@ export const requestEnrichmentGrant = createServerFn({ method: "POST" })
               phone_display = excluded.phone_display
         `;
       }
+    } else if (zoomKey) {
+      const hits = await searchZoomInfoPeople({
+        key: zoomKey,
+        accountName: prospect.account_name,
+        titles: ["General Manager", "Plant Manager", "VP Operations", "Mill Manager", "Director"],
+      });
+      status = "zoominfo";
+      note = `ZoomInfo grant used. ${hits.length} people returned. Credits billed by ZoomInfo.`;
+      for (const [index, hit] of hits.entries()) {
+        const role = roles[index] ?? "validator";
+        const kind = hit.email ? "verified" : "suggestion";
+        const email = hit.email ?? `${role}.${prospect.id.slice(0, 8)}@locked.invalid`;
+        await sql`
+          insert into contacts (
+            id, user_id, prospect_id, full_name, role, email_kind, email_display, source, confidence, published_url, phone_display, provider_id
+          ) values (
+            ${idFor(context.userId, `contact:${data.prospectId}:zi:${hit.providerId || email}`)},
+            ${context.userId}, ${data.prospectId}, ${hit.fullName}, ${role}, ${kind}, ${email},
+            ${`ZoomInfo ${hit.title || "match"}.`},
+            ${hit.email ? "high" : "low"}, ${prospect.evidence_url}, ${hit.phone}, ${hit.providerId}
+          )
+          on conflict (id) do update
+          set email_kind = excluded.email_kind,
+              email_display = excluded.email_display,
+              source = excluded.source,
+              phone_display = excluded.phone_display
+        `;
+      }
     } else {
       const found = await revealFromPages([prospect.evidence_url]);
       note = found.length
@@ -1367,7 +1413,7 @@ export const requestEnrichmentGrant = createServerFn({ method: "POST" })
       values (
         ${idFor(context.userId, `grant:${data.prospectId}:${Date.now()}`)},
         ${context.userId}, ${data.prospectId}, ${status}, ${note},
-        ${apolloKey ? "apollo" : "public"}, ${"person"}, ${cost}, ${expiresAt}, ${new Date().toISOString()}
+        ${apolloKey ? "apollo" : zoomKey ? "zoominfo" : "public"}, ${"person"}, ${cost}, ${expiresAt}, ${new Date().toISOString()}
       )
     `;
     if (cost > 0) {
@@ -1378,6 +1424,13 @@ export const requestEnrichmentGrant = createServerFn({ method: "POST" })
         set spend_month = ${flags.spendMonth},
             spend_used_cents = ${flags.spendUsedCents + cost}
       `;
+    }
+    if (apolloKey) {
+      try {
+        await putSecret(sql, context.userId, "apollo_credits", JSON.stringify(await fetchApolloCredits(apolloKey)));
+      } catch {
+        /* keep last ledger */
+      }
     }
     return loadWorkspace(context.userId);
   });
@@ -1543,6 +1596,26 @@ export const openInGmail = createServerFn({ method: "POST" })
     if (pack?.status !== "approved") {
       throw new Error("The package is no longer approved.");
     }
+    const jevSend = await resolveJev(sql, context.userId);
+    if (jevSend.apiKey) {
+      const knowledgeRows = await sql<KnowledgeRow>`
+        select id, question_id, scope, question, proposed_answer, confirmed_answer, status,
+               evidence, inference, recommendation, sort_order
+        from knowledge_items where user_id = ${context.userId} order by sort_order asc
+      `;
+      const snapshot = snapshotFromKnowledge(knowledgeRows.map(mapKnowledge));
+      const limitations =
+        knowledgeRows.find((item) => item.question_id === "product.limitations")?.confirmed_answer ||
+        snapshot.promise;
+      const guard = await jevGuardCopy({
+        apiKey: jevSend.apiKey,
+        baseUrl: jevSend.baseUrl,
+        limitations,
+        promise: snapshot.promise,
+        body: row.body,
+      }).catch(() => ({ block: false, reason: "" }));
+      if (guard.block) throw new Error(guard.reason);
+    }
     const [contact] = await sql<{ email_kind: string; email_display: string }>`
       select email_kind, email_display from contacts
       where user_id = ${context.userId} and id = ${row.contact_id}
@@ -1653,6 +1726,30 @@ export const approvePackage = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
+    const [pack] = await sql<{ id: string; body: string }>`
+      select id, body from outreach_packages where user_id = ${context.userId} and id = ${data.packageId}
+    `;
+    if (!pack) throw new Error("That package is not in this workspace.");
+    const jev = await resolveJev(sql, context.userId);
+    if (jev.apiKey) {
+      const knowledgeRows = await sql<KnowledgeRow>`
+        select id, question_id, scope, question, proposed_answer, confirmed_answer, status,
+               evidence, inference, recommendation, sort_order
+        from knowledge_items where user_id = ${context.userId} order by sort_order asc
+      `;
+      const snapshot = snapshotFromKnowledge(knowledgeRows.map(mapKnowledge));
+      const limitations =
+        knowledgeRows.find((row) => row.question_id === "product.limitations")?.confirmed_answer ||
+        snapshot.promise;
+      const guard = await jevGuardCopy({
+        apiKey: jev.apiKey,
+        baseUrl: jev.baseUrl,
+        limitations,
+        promise: snapshot.promise,
+        body: pack.body,
+      }).catch(() => ({ block: false, reason: "" }));
+      if (guard.block) throw new Error(guard.reason);
+    }
     const rows = await sql<{ id: string }>`
       update outreach_packages
       set status = ${"approved"}, approved_at = ${new Date().toISOString()}
@@ -1684,20 +1781,68 @@ export const addSuppression = createServerFn({ method: "POST" })
 
 export const saveConnections = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { xai?: string; apollo?: string; gmailUser?: string; gmailPass?: string; zoominfo?: string; monthlyBudgetCents?: number }) => ({
+  .validator((input: {
+    xai?: string;
+    apollo?: string;
+    gmailUser?: string;
+    gmailPass?: string;
+    zoominfo?: string;
+    monthlyBudgetCents?: number;
+    llmProvider?: string;
+    llmModel?: string;
+    llmBaseUrl?: string;
+    llmKey?: string;
+    scheduleEnabled?: boolean;
+    huntBatch?: number;
+    jev?: string;
+    jevBaseUrl?: string;
+  }) => ({
     xai: input.xai ?? "",
     apollo: input.apollo ?? "",
     gmailUser: input.gmailUser ?? "",
     gmailPass: input.gmailPass ?? "",
     zoominfo: input.zoominfo ?? "",
     monthlyBudgetCents: input.monthlyBudgetCents,
+    llmProvider: input.llmProvider ?? "",
+    llmModel: input.llmModel ?? "",
+    llmBaseUrl: input.llmBaseUrl ?? "",
+    llmKey: input.llmKey ?? "",
+    scheduleEnabled: input.scheduleEnabled,
+    huntBatch: input.huntBatch,
+    jev: input.jev ?? "",
+    jevBaseUrl: input.jevBaseUrl ?? "",
   }))
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
     if (data.xai) await putSecret(sql, context.userId, "xai", data.xai);
-    if (data.apollo) await putSecret(sql, context.userId, "apollo", data.apollo);
+    if (data.llmKey) {
+      await putSecret(sql, context.userId, "llm_key", data.llmKey);
+      await putSecret(sql, context.userId, "xai", data.llmKey);
+    }
+    if (data.llmProvider) await putSecret(sql, context.userId, "llm_provider", data.llmProvider);
+    if (data.llmModel) await putSecret(sql, context.userId, "llm_model", data.llmModel);
+    if (data.llmBaseUrl) await putSecret(sql, context.userId, "llm_base_url", data.llmBaseUrl);
+    if (data.scheduleEnabled === true) await putSecret(sql, context.userId, "schedule_enabled", "1");
+    if (data.scheduleEnabled === false) await putSecret(sql, context.userId, "schedule_enabled", "0");
+    if (data.apollo) {
+      await putSecret(sql, context.userId, "apollo", data.apollo);
+      try {
+        await putSecret(sql, context.userId, "apollo_credits", JSON.stringify(await fetchApolloCredits(data.apollo)));
+      } catch {
+        /* key saved; ledger refreshes on next tick */
+      }
+    }
+    if (Number.isFinite(Number(data.huntBatch))) {
+      const batch = Math.min(20, Math.max(4, Math.round(Number(data.huntBatch))));
+      await putSecret(sql, context.userId, "hunt_batch", String(batch));
+    }
     if (data.zoominfo) await putSecret(sql, context.userId, "zoominfo", data.zoominfo);
+    if (data.jev) await putSecret(sql, context.userId, "jev", data.jev);
+    if (data.jevBaseUrl) {
+      if (!data.jevBaseUrl.startsWith("https://")) throw new Error("Jev base URL must be HTTPS.");
+      await putSecret(sql, context.userId, "jev_base_url", data.jevBaseUrl.replace(/\/+$/, ""));
+    }
     if (data.gmailUser) await putSecret(sql, context.userId, "gmail_user", data.gmailUser);
     if (data.gmailPass) await putSecret(sql, context.userId, "gmail_pass", data.gmailPass);
     const budget = Number(data.monthlyBudgetCents);
@@ -1761,8 +1906,9 @@ export const restoreArchive = createServerFn({ method: "POST" })
     }
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
+    const allowed = new Set<string>(INTERVIEW.map((item) => item.questionId));
     for (const item of parsed.knowledge ?? []) {
-      if (!item.questionId) continue;
+      if (!item.questionId || !allowed.has(item.questionId)) continue;
       await sql`
         update knowledge_items
         set proposed_answer = ${item.proposedAnswer},
@@ -1780,9 +1926,26 @@ export const tickSchedule = createServerFn({ method: "POST" })
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
     const flags = await connectionFlags(sql, context.userId);
+    if (flags.gmail) {
+      try {
+        const user = await getSecret(sql, context.userId, "gmail_user");
+        const pass = await getSecret(sql, context.userId, "gmail_pass");
+        await scanGmailInbox({ sql, userId: context.userId, user, pass });
+      } catch {
+        await putSecret(sql, context.userId, "inbox_scanned_at", new Date().toISOString());
+      }
+    }
+    if (flags.apollo) {
+      try {
+        const key = await getSecret(sql, context.userId, "apollo");
+        if (key) await putSecret(sql, context.userId, "apollo_credits", JSON.stringify(await fetchApolloCredits(key)));
+      } catch {
+        /* keep last ledger */
+      }
+    }
     const toronto = torontoParts();
     let workspace = await loadWorkspace(context.userId);
-    if (!flags.xai) return workspace;
+    if (!flags.llm || !flags.scheduleEnabled) return workspace;
     if (workspace.product.status === "active") {
       const ranMonth = workspace.discoveryRuns.some(
         (item) => item.startedAt.startsWith(toronto.month) && item.status !== "failed",

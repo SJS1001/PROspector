@@ -170,6 +170,14 @@ export function useSaveConnections() {
       gmailPass: string;
       zoominfo?: string;
       monthlyBudgetCents?: number;
+      llmProvider?: string;
+      llmModel?: string;
+      llmBaseUrl?: string;
+      llmKey?: string;
+      scheduleEnabled?: boolean;
+      huntBatch?: number;
+      jev?: string;
+      jevBaseUrl?: string;
     }) => saveConnections({ data: input }),
   );
 }

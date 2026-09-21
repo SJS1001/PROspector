@@ -259,10 +259,24 @@ export type CrmPreview = {
 
 export type ConnectionFlags = {
   xai: boolean;
+  llm: boolean;
+  llmProvider: string;
+  llmProviderLabel: string;
+  llmModel: string;
+  llmSearch: string;
+  llmBaseUrl: string;
+  scheduleEnabled: boolean;
+  huntBatch: number;
   apollo: boolean;
+  apolloLeadLeft: number | null;
+  apolloLeadLimit: number | null;
+  apolloCreditsAt: string | null;
   gmail: boolean;
   gmailUser: string | null;
   zoominfo: boolean;
+  jev: boolean;
+  secretsEncrypted: boolean;
+  inboxScannedAt: string | null;
   monthlyBudgetCents: number;
   spendUsedCents: number;
   spendMonth: string;

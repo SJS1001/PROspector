@@ -1,12 +1,15 @@
 import { qualifyCandidate } from "@/lib/domain/qualify";
+import { mergeJevQualification } from "@/lib/domain/qualify-jev";
 import type { ProfileSnapshot } from "@/lib/domain/types";
+import { completeJson } from "@/lib/server/llm";
+import { jevQualifyPage } from "@/lib/server/jev-tasks";
 import { profileText } from "@/lib/server/profile";
 import { retrieveHttps } from "@/lib/server/retrieve";
+import { resolveJev } from "@/lib/server/secrets";
 import { idFor } from "@/lib/server/seed";
-import { resolveXaiKey } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
 
-const MAX_CANDIDATES = 4;
+const MAX_CANDIDATES = 12;
 
 type RunnerCandidate = {
   accountName: string;
@@ -42,34 +45,18 @@ function extractJson(text: string): { candidates?: RunnerCandidate[] } {
   }
 }
 
-function outputText(body: Record<string, unknown>) {
-  if (typeof body.output_text === "string") return body.output_text;
-  const output = Array.isArray(body.output) ? body.output : [];
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as { type?: string; content?: unknown };
-    if (!Array.isArray(row.content)) continue;
-    for (const part of row.content) {
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        chunks.push(part.text);
-      }
-    }
-  }
-  if (chunks.length) return chunks.join("\n");
-  const choices = body.choices as { message?: { content?: string } }[] | undefined;
-  return choices?.[0]?.message?.content ?? "";
-}
-
-async function proposeFromXai(snapshot: ProfileSnapshot, apiKey: string): Promise<RunnerCandidate[]> {
-  if (!apiKey) throw new Error("Add an xAI key in Connections before hunting.");
-
+async function proposeCandidates(
+  sql: Sql,
+  userId: string,
+  snapshot: ProfileSnapshot,
+  limit: number,
+): Promise<RunnerCandidate[]> {
   const prompt = `You are an untrusted research runner for a private GTM workspace.
 Do not qualify, score, approve, or invent contact emails.
 Return JSON only: {"candidates":[{"accountName":"","targetName":"","url":"https://...","excerpt":"","notes":{"account_fit":"","pain_strength":"","timing":"","data_readiness":"","commercial":""}}]}
-Propose at most ${MAX_CANDIDATES} currently operating accounts that match this profile.
+Propose at most ${limit} currently operating accounts that match this profile.
 Each url must be a real public HTTPS page on the company or a regulator/trade publisher.
-Prefer named plants/sites, not conglomerate homepages.
+Prefer named plants/sites, not conglomerate homepages. Do not use IP addresses or localhost.
 
 Company: ${snapshot.company}
 Product: ${snapshot.product}
@@ -78,46 +65,11 @@ Play: ${snapshot.play}
 Fit: ${snapshot.fit}
 Offer: ${snapshot.offerId}`;
 
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
-  };
-
-  const responses = await fetch("https://api.x.ai/v1/responses", {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(45_000),
-    body: JSON.stringify({
-      model: "grok-4.5",
-      input: [{ role: "user", content: prompt }],
-      tools: [{ type: "web_search" }],
-      max_output_tokens: 2200,
-    }),
-  });
-
-  let text = "";
-  if (responses.ok) {
-    text = outputText((await responses.json()) as Record<string, unknown>);
-  } else {
-    const chat = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers,
-      signal: AbortSignal.timeout(45_000),
-      body: JSON.stringify({
-        model: "grok-4.5",
-        messages: [{ role: "user", content: prompt }],
-        search_parameters: { mode: "on", return_citations: true, max_search_results: 8 },
-        max_tokens: 2200,
-      }),
-    });
-    if (!chat.ok) throw new Error(`Prospecting search failed (${chat.status}).`);
-    text = outputText((await chat.json()) as Record<string, unknown>);
-  }
-
+  const text = await completeJson(sql, userId, prompt);
   const parsed = extractJson(text).candidates ?? [];
   return parsed
     .filter((item) => item?.accountName && item?.url?.startsWith("https://"))
-    .slice(0, MAX_CANDIDATES)
+    .slice(0, limit)
     .map((item) => ({
       accountName: String(item.accountName).slice(0, 120),
       targetName: String(item.targetName || item.accountName).slice(0, 160),
@@ -134,41 +86,76 @@ export async function executeHunt(opts: {
   digest: string;
   snapshot: ProfileSnapshot;
   knownFingerprints: Set<string>;
+  maxCandidates?: number;
 }) {
-  const apiKey = await resolveXaiKey(opts.sql, opts.userId);
-  const proposed = await proposeFromXai(opts.snapshot, apiKey);
+  const limit = Math.min(20, Math.max(4, opts.maxCandidates ?? MAX_CANDIDATES));
+  const proposed = await proposeCandidates(opts.sql, opts.userId, opts.snapshot, limit);
   const profile = profileText(opts.snapshot);
+  const jev = await resolveJev(opts.sql, opts.userId);
   const accepted: HuntInsert[] = [];
   const reasons: string[] = [];
 
-  for (const candidate of proposed) {
-    try {
-      const page = await retrieveHttps(candidate.url);
-      const qualified = qualifyCandidate({
-        accountName: candidate.accountName,
-        targetName: candidate.targetName,
+  for (let i = 0; i < proposed.length; i += 4) {
+    const batch = proposed.slice(i, i + 4);
+    const pages = await Promise.all(
+      batch.map(async (candidate) => {
+        try {
+          return { candidate, page: await retrieveHttps(candidate.url) };
+        } catch (error) {
+          return { candidate, error };
+        }
+      }),
+    );
+    for (const item of pages) {
+      if ("error" in item && item.error) {
+        reasons.push(
+          `${item.candidate.accountName}: ${item.error instanceof Error ? item.error.message : "retrieval failed"}`,
+        );
+        continue;
+      }
+      if (!("page" in item) || !item.page) continue;
+      let qualified = qualifyCandidate({
+        accountName: item.candidate.accountName,
+        targetName: item.candidate.targetName,
         source: {
-          url: page.url,
-          title: page.title,
-          text: page.text || candidate.excerpt || "",
-          retrievedAt: page.retrievedAt,
+          url: item.page.url,
+          title: item.page.title,
+          text: item.page.text || item.candidate.excerpt || "",
+          retrievedAt: item.page.retrievedAt,
         },
         profileText: profile,
-        runnerNotes: candidate.notes,
+        runnerNotes: item.candidate.notes,
       });
+      if (jev.apiKey) {
+        try {
+          const judged = await jevQualifyPage({
+            apiKey: jev.apiKey,
+            baseUrl: jev.baseUrl,
+            accountName: item.candidate.accountName,
+            targetName: item.candidate.targetName,
+            url: item.page.url,
+            title: item.page.title,
+            pageText: item.page.text,
+            profileText: profile,
+          });
+          qualified = mergeJevQualification(qualified, judged);
+        } catch {
+          // Keyword rubric remains the fail-closed path.
+        }
+      }
       if (opts.knownFingerprints.has(qualified.fingerprint)) {
-        reasons.push(`${candidate.accountName}: already in this workspace.`);
+        reasons.push(`${item.candidate.accountName}: already in this workspace.`);
         continue;
       }
       opts.knownFingerprints.add(qualified.fingerprint);
       accepted.push({
-        accountName: candidate.accountName,
-        targetName: candidate.targetName,
-        url: page.url,
-        title: page.title,
+        accountName: item.candidate.accountName,
+        targetName: item.candidate.targetName,
+        url: item.page.url,
+        title: item.page.title,
         excerpt: qualified.evidenceExcerpt,
-        hash: page.hash,
-        retrievedAt: page.retrievedAt,
+        hash: item.page.hash,
+        retrievedAt: item.page.retrievedAt,
         outcome: qualified.outcome,
         score: qualified.score,
         assessment: qualified.assessment,
@@ -176,10 +163,6 @@ export async function executeHunt(opts: {
         evidenceDate: qualified.evidenceDate,
         fingerprint: qualified.fingerprint,
       });
-    } catch (error) {
-      reasons.push(
-        `${candidate.accountName}: ${error instanceof Error ? error.message : "retrieval failed"}`,
-      );
     }
   }
 

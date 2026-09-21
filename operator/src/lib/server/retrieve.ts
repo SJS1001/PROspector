@@ -7,10 +7,15 @@ const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 12_000;
 
 function isBlockedIp(ip: string) {
+  const mapped = ip.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isBlockedIp(mapped[1]);
   const v4 = ip.includes(".") && !ip.includes(":");
   if (v4) {
-    const [a, b] = ip.split(".").map((part) => Number(part));
-    if (a === 10 || a === 127 || a === 0 || a === 169 && b === 254) return true;
+    const parts = ip.split(".").map((part) => Number(part));
+    const [a, b] = parts;
+    if (parts.some((n) => Number.isNaN(n))) return true;
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
+    if (a === 169 && b === 254) return true;
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     if (a === 100 && b >= 64 && b <= 127) return true;
@@ -31,9 +36,10 @@ export function assertPublicHttps(urlString: string) {
   }
   if (url.protocol !== "https:") throw new Error("Only HTTPS evidence URLs are retrieved.");
   if (url.username || url.password) throw new Error("Evidence URLs may not include credentials.");
-  if (url.hostname === "localhost" || url.hostname.endsWith(".local")) {
+  if (url.hostname === "localhost" || url.hostname.endsWith(".local") || url.hostname.endsWith(".internal")) {
     throw new Error("Private hosts are not retrieved.");
   }
+  if (url.hostname.includes(".onion")) throw new Error("Onion hosts are not retrieved.");
   if (isIP(url.hostname) && isBlockedIp(url.hostname)) {
     throw new Error("Private addresses are not retrieved.");
   }
