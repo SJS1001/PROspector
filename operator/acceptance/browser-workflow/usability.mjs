@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 // No locator click/fill/check/selectOption/focus or DOM-dispatched event is used.
 export function createKeyboardJourney(page, evidence = {}) {
   const actions = (evidence.keyboardJourney ??= {
-    input: "Tab/Shift+Tab, Enter/Space, select arrows and keyboard typing",
+    input: "Tab/Shift+Tab, Enter/Space, native select type-ahead and keyboard typing",
     actions: [],
     negativeProbeTabs: "Separate stale/mutation/replay probes may use pointer activation",
   }).actions;
@@ -85,12 +85,13 @@ export function createKeyboardJourney(page, evidence = {}) {
   };
   const select = async (locator, value, label = "selection") => {
     await reach(locator, label);
-    const values = await locator.locator("option").evaluateAll((nodes) => nodes.map((node) => node.value));
-    const index = values.indexOf(value);
-    assert.ok(index >= 0, `${label}: option exists`);
-    // Native select navigation, including a non-default option, without selectOption.
-    await page.keyboard.press("Home");
-    for (let step = 0; step < index; step++) await page.keyboard.press("ArrowDown");
+    const options = await locator.locator("option").evaluateAll((nodes) => nodes.map((node) => ({ value: node.value, label: node.label })));
+    const option = options.find((item) => item.value === value);
+    assert.ok(option, `${label}: option exists`);
+    assert.equal(options.filter((item) => item.label === option.label).length, 1, `${label}: unique native type-ahead label`);
+    // Native type-ahead works in pinned macOS Chromium; Home/arrows do not
+    // commit its closed headless select. No selectOption or DOM event injection.
+    await page.keyboard.type(option.label);
     await page.keyboard.press("Tab");
     assert.equal(await locator.inputValue(), value, `${label}: native keyboard selection`);
     actions.push({ kind: "select", label });
