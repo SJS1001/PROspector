@@ -1,102 +1,13 @@
 {
-  "base": "2aeb39e2f0dc86a8c0cdc58409f831beff2129d3",
+  "status": "BLOCKED_NATIVE_CONTAINMENT",
   "node": "v24.22.1",
   "platform": "linux",
-  "playwright": "1.63.0",
-  "browserRevision": "1243",
-  "status": "BLOCKED_OR_FAILED",
-  "cases": [
-    "real built server starts with outbound guard",
-    "anonymous denied; owner login; no signup; missing/foreign Origin and cross-site POST refused; zero workspace delta"
-  ],
-  "snapshots": [
-    {
-      "label": "before-negative-http",
-      "counts": {
-        "workspaces": 0,
-        "knowledge_items": 0,
-        "product_configurations": 0,
-        "draft_plays": 0,
-        "profile_configurations": 0,
-        "discovery_runs": 0,
-        "prospecting_runs": 0,
-        "prospects": 0,
-        "contacts": 0,
-        "outreach_packages": 0,
-        "outreach_messages": 0,
-        "suppressions": 0,
-        "delivery_events": 0
-      },
-      "digest": "6777b76549d213243743c84d39e1acca7052ab15eccd0f89c9a576f0650e665c"
-    },
-    {
-      "label": "after-negative-http",
-      "counts": {
-        "workspaces": 0,
-        "knowledge_items": 0,
-        "product_configurations": 0,
-        "draft_plays": 0,
-        "profile_configurations": 0,
-        "discovery_runs": 0,
-        "prospecting_runs": 0,
-        "prospects": 0,
-        "contacts": 0,
-        "outreach_packages": 0,
-        "outreach_messages": 0,
-        "suppressions": 0,
-        "delivery_events": 0
-      },
-      "digest": "6777b76549d213243743c84d39e1acca7052ab15eccd0f89c9a576f0650e665c"
-    }
-  ],
-  "reviewedSourceFiles": 27,
-  "interceptedProviders": [
-    "jev-tasks.ts",
-    "llm.ts",
-    "retrieve.ts"
-  ],
-  "browser": "153.0.8010.12",
-  "interview": {
-    "submitted": 16,
-    "confirmed": 16,
-    "fictional": true
-  },
-  "discovery": {
-    "productActivated": true,
-    "manualRun": true,
-    "draftPlayConfirmed": true
-  },
-  "prospectProbe": {
-    "cycle": 1,
-    "plantOne": 0,
-    "plantTwo": 0,
-    "alerts": 1,
-    "alertMessages": [
-      "item.startedAt.startsWith is not a function"
-    ],
-    "classifications": []
-  },
+  "cases": [],
+  "snapshots": [],
+  "workflowExecuted": false,
+  "nativeContainment": "unavailable",
   "error": {
-    "stage": "browser-workflow",
-    "name": "TimeoutError",
-    "locations": [
-      "workflow.mjs:127:19",
-      "workflow.mjs:192:13",
-      "run.mjs:451:3"
-    ],
-    "category": "browser-timeout"
-  },
-  "browserFenceCounts": {
-    "local": 89,
-    "denied": 0,
-    "redirect-denied": 0,
-    "websocket-denied": 0,
-    "compose": 0
-  },
-  "stubCounts": {
-    "hunt": 1,
-    "discovery": 2,
-    "retrieve": 1
-  },
-  "forbiddenAttempts": 0
+    "stage": "native-containment-preflight",
+    "code": "ACCEPTANCE_NATIVE_CONTAINMENT_UNAVAILABLE"
+  }
 }

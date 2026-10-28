@@ -1,3 +1,66 @@
+# Native boundary / strict CSV correction — 2026-10-28
+
+Base: PR139 `cc2464645f52b50256b8acbdf5583c0e6129886b`.
+Ownership: only `operator/acceptance/browser-workflow/`.
+This section supersedes earlier statements that JS guards contain native APIs.
+Historical browser evidence below is unchanged and is not proof of this wrapper.
+
+Independent reproduction, before fixes: under the previous `guard.mjs`,
+`process.binding("spawn_sync").spawn` launched a harmless Node child and returned
+its deliberate exit status 23. The old CSV parser accepted `ab"cd"\r\n` as
+`abcd`. No reviewer thread-reading tool was available; both defects were
+reproduced independently rather than importing the unseen local review commit.
+
+The runner now wraps the complete tree with checked macOS Seatbelt policy.
+JS patches moved to `instrumentation.mjs` and apply only in the application
+server after independent OS-denial probes. Native child/worker denial checks
+and an owned-listener positive probe are in `native-probe.mjs`; fixed browser
+transport is 127.0.0.1:8082. Exact capabilities and limitations are in README.
+Linux/missing/failed policy stays blocked, with no environment bypass. Stale
+PASS evidence is replaced before launch; nonzero child exit cannot pass.
+
+CSV uses a field-state parser: quotes can only begin a field; a closing quote
+must precede comma/CRLF; quotes escape only by doubling; record boundaries are
+CRLF. Strict UTF-8 decode preserves leading BOM instead of dropping bytes.
+Tests include malformed quote placement, unterminated/missing-CRLF rows,
+Unicode/control/embedded-newline values and the actual download consumer that
+previously accepted malformed quoting as the expected account name.
+
+Linux x86_64, Node v24.22.1, npm 11.9.0, foreground evidence:
+
+- `cd operator && npm ci --no-audit --no-fund`: exit 0, 479 packages.
+- `npm run test:unit` in this directory: 44 passed, zero failures/skips.
+- `npm test`: exit 1 as intended; 44 unit cases pass, then native containment
+  preflight blocks before build/DB/server/browser launch on Linux.
+- Owned-path ESLint: exit 0, zero errors/warnings. Also fixes the nine reported
+  empty-catch/unnecessary-escape errors, now in orchestrator/workflow sources.
+- `git diff --check`: exit 0.
+
+Parent Mac handoff (not executed in this Linux environment):
+
+```sh
+cd operator/acceptance/browser-workflow
+npm run test:native
+npm test
+```
+
+`test:native` is exactly `/usr/bin/sandbox-exec -f macos-network.sb node
+native-probe.mjs --positive`. It must print `NATIVE_CONTAINMENT_PROBES_PASSED`
+and exit 0. Kernel/profile/Chromium compatibility remains unverified here.
+The parent owns the combined full browser run and fns/auth source review.
+**No reviewed-graph entries/hashes changed.** Reconcile only after substantive
+review of the parent's changed source; never blindly regenerate the manifest.
+
+One inherited read-only reviewer was used. Parent launcher exposed no model/
+effort selection or runtime-model attestation; no override was selected. The
+reviewer independently reran focused tests, and identified/fixed an intermediate
+mistake that installed server JS patches in the orchestrator. Final source
+keeps only OS admission in the orchestrator, so build/HTTP lifecycle APIs remain
+available inside the policy. No broad suite/browser acceptance, real providers,
+owner data, secrets, settings/workflows, merge or deployment is claimed.
+
+---
+
 # Artifact recovery and real-browser handoff — 2026-10-28
 
 PR132 start verified: `34bbfcde7f00679f80b922b2da9153dd16c893d8`.

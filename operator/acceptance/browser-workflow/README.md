@@ -1,6 +1,6 @@
 # Isolated browser workflow acceptance
 
-**Status: pinned browser acquired; workflow acceptance remains open.** This lane starts from
+**Status: native containment candidate added; Mac validation and workflow acceptance remain open.** This lane starts from
 `8838363ef64698f92ac57ac06d564b3d72d4701f` on
 `codex/local-app-integration`. It adds no production seam, auth bypass, dependency,
 route, migration, workflow, or default change. Other lanes need not import it.
@@ -8,7 +8,8 @@ LOCAL-07, Mac acceptance, and real-provider quality remain open.
 
 ## Run
 
-Use Node >=22.15, an unused **127.0.0.1:8080**, and the repository checkout.
+Use Node >=22.15, macOS with **/usr/bin/sandbox-exec**, unused loopback ports
+**8080 and 8082**, and the repository checkout. Linux intentionally fails closed.
 Do not launch this against an ordinary owner data directory.
 
 ```sh
@@ -17,6 +18,8 @@ npm ci
 cd acceptance/browser-workflow
 npm ci
 npx playwright install chromium
+npm run test:unit
+npm run test:native # macOS: OS policy + native descendant/worker probes
 npm test
 ```
 
@@ -54,15 +57,50 @@ hide drift. UI/framework dependency code is outside that source manifest and
 remains pinned by the operator lockfile. This is a reviewed-source test fence,
 not an OS sandbox for malicious native addons or arbitrary code execution.
 
-Before importing the built server, `guard.mjs` denies outbound socket connect,
-TLS, HTTP(S)/HTTP2, DNS resolution (including Resolver instances), UDP,
-fetch/WebSocket, child processes and workers. It allows only the exact inbound
-listener; Node's numeric-loopback lookup is answered in memory without a DNS
-resolver. A child-specific binding event must exist before any HTTP request, so
-a port collision cannot send acceptance traffic to another installation. Caught
-denials still fail the final verdict, including after teardown. No stale lock is
-deleted. DB inspection/fault injection happens only after full server exit and
-lock release; each inspection client closes before restart.
+The public runner clears stale evidence, then runs the entire internal
+orchestrator under the checked `macos-network.sb` using absolute
+`/usr/bin/sandbox-exec`. The initial child inherits only PATH, HOME, LANG, TMPDIR
+and optional PLAYWRIGHT_BROWSERS_PATH; NODE_OPTIONS/preload flags are excluded.
+All build/setup, server, native subprocess, worker and Chromium descendants
+inherit this OS network policy. It denies network operations except TCP to/from
+SBPL's **localhost host set on ports 8080 and 8082**. SBPL does not accept
+127.0.0.1 as a literal host filter. This is not an exact IPv4-only OS rule;
+localhost includes IPv6, and its host-set interpretation belongs to macOS.
+8082 is the fixed Playwright WebSocket transport; the application uses 8080.
+Both ports are permitted to the whole tree, including native application
+children. This is an explicit capability, not per-process isolation.
+
+Before importing application/dependency code, containment admission runs a
+fresh uninstrumented Node child. It requires EPERM/EACCES for numeric IPv4 and
+IPv6 localhost on forbidden port 8081, TEST-NET external IPv4/IPv6 TCP, and UDP.
+ECONNREFUSED, timeout, successful connect, or probe failure never count as OS
+denial. The exact reproduced `process.binding("spawn_sync").spawn` primitive
+and a worker repeat these checks, proving inheritance. The first check is
+always numeric forbidden localhost; direct invocation outside a working policy
+fails before any external probe. Initial admission also binds its own positive
+listeners on 8080/8082, then proves allowed native-child traffic and closes
+both before app/browser launch. Port collision blocks rather than probing
+another installation. Every server start independently repeats denial probes
+before installing JS instrumentation. Unsupported/missing/rejected containment
+fails closed; there is no environment override or uncontained fallback.
+
+`guard.mjs` installs `instrumentation.mjs` only after OS admission. Those JS
+patches deny ordinary outbound sockets, TLS, HTTP(S)/HTTP2, DNS/Resolvers, UDP,
+fetch/WebSocket, child processes and workers; they narrow ordinary server APIs
+to the exact inbound 127.0.0.1:8080 listener. Native bindings demonstrably bypass
+these patches; their tests explicitly retain that regression instead of calling
+the patches an OS sandbox. The OS policy constrains descendant socket traffic,
+not process creation. It does not isolate filesystem access, credentials,
+Mach/other IPC, host brokers, arbitrary malicious code or compromised kernels.
+Run only reviewed pinned code with fictional data; the profile is not a general
+hostile-code sandbox or a proof against delegated host-service effects.
+
+A child-specific binding event must precede every HTTP request. Caught JS
+denials still fail the final verdict, including teardown. No stale lock is
+deleted. DB inspection/fault injection waits for full server exit/lock release;
+each inspection client closes before restart. Tests of native denial are
+separate from the workflow's zero-forbidden-attempt counter; those intentional
+preflight attempts never imply a complete browser journey.
 
 Browser-context routing is installed before creating any pages, covers popup
 first navigation, blocks service workers and all WebSockets, and allows only
@@ -73,7 +111,8 @@ aborted; Gmail is never navigated. Local requests use `route.fetch` with
 requires redirect-free responses. DNS/background browser flags supplement these
 routes. Direct foreign/alternate-loopback negative probes run before workflows;
 redirect refusal and WebSocket closure also have deterministic route-contract tests.
-The browser probes ran with the acquired pinned headless shell and refused both targets.
+The historical browser probes ran with the acquired pinned headless shell and refused both targets;
+the new OS-contained Mac path still requires its own execution evidence.
 They use a disposable page, closed before opening the workflow page.
 
 ## Auth and workflow evidence
