@@ -18,3 +18,12 @@ Architecture: React presentation changes using the existing workspace DTO, mutat
 ## Review focus
 
 Saved answers remain verbatim and reachable. Corrections still require proposal and confirmation. Pending decisions/errors/blockers remain visible. Activation, spending, export and outreach keep their existing boundaries. Never run acceptance mutations against the owner's database. Preserve local-only operation and all existing colors.
+
+## Owner-approved Company follow-up
+
+Remove navigation padlocks (setup indicators, not authentication), introductory
+copy, repeated Company/Product labels and routine Saved badges. Keep company and
+product names, compact description/offer previews and short Edit buttons. Put
+full verbatim answers, evidence, limits, delivery and targeting under one closed
+Details disclosure. Preserve descriptive accessible button names, explicit
+correction confirmation and the existing dark tokens.

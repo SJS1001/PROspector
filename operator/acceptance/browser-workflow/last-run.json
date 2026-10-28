@@ -1,5 +1,5 @@
 {
-  "base": "b411707ae6e3d1e5ce503bfc0276dd68afc48f81",
+  "base": "fb3672bb71f51341dbb3f5dc7726e178f0906d5b",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
+      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
+      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
+      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
+      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "60ab03e685f757c487302c8f53e6a691c467160c592faf8abb563df280bfe594"
+      "digest": "af4efa98efdf77c6a04ebcb7741f650d70ebd85d03c6883430cafff6cdf3ee2b"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "60ab03e685f757c487302c8f53e6a691c467160c592faf8abb563df280bfe594"
+      "digest": "af4efa98efdf77c6a04ebcb7741f650d70ebd85d03c6883430cafff6cdf3ee2b"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "7bcdd8781fc91cb82cd20acc59800ebbee30e7ded26b7d6e731ffb8785a82350"
+      "digest": "c5c73e90f7ce784bef8aace1cb79f2ca90f1c0b486fa9ae89ee66e67cedd6808"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "7bcdd8781fc91cb82cd20acc59800ebbee30e7ded26b7d6e731ffb8785a82350"
+      "digest": "c5c73e90f7ce784bef8aace1cb79f2ca90f1c0b486fa9ae89ee66e67cedd6808"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "7bcdd8781fc91cb82cd20acc59800ebbee30e7ded26b7d6e731ffb8785a82350"
+      "digest": "c5c73e90f7ce784bef8aace1cb79f2ca90f1c0b486fa9ae89ee66e67cedd6808"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "72a93a70cb7107d924d31738bd8e76c50b48d7694ccb558eea1c5bb88380bac9"
+      "digest": "41a3120ad51937d6a00bc1224167cf3505e27a1a298e59d8ecf10b180a019397"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "72a93a70cb7107d924d31738bd8e76c50b48d7694ccb558eea1c5bb88380bac9"
+      "digest": "41a3120ad51937d6a00bc1224167cf3505e27a1a298e59d8ecf10b180a019397"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "72a93a70cb7107d924d31738bd8e76c50b48d7694ccb558eea1c5bb88380bac9"
+      "digest": "41a3120ad51937d6a00bc1224167cf3505e27a1a298e59d8ecf10b180a019397"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "e7b603a10568ce37ffd6e7319e88e2ef6012fbd88b41c6b2f9cba5cf024bfb5f"
+      "digest": "c04af0b961350d56a85f57a067017be7de1915b9946eb9512ec1f3b9c0b8b8e6"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,7 +315,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "e7b603a10568ce37ffd6e7319e88e2ef6012fbd88b41c6b2f9cba5cf024bfb5f"
+      "digest": "c04af0b961350d56a85f57a067017be7de1915b9946eb9512ec1f3b9c0b8b8e6"
     }
   ],
   "reviewedSourceFiles": 29,
@@ -911,8 +911,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open Company details",
+        "tabs": 5,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open Company details",
+        "key": "Space"
+      },
+      {
+        "kind": "reach",
         "label": "Review saved product limits",
-        "tabs": 7,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -933,8 +944,19 @@
       },
       {
         "kind": "reach",
+        "label": "Close Company details",
+        "tabs": 13,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close Company details",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "Edit company",
-        "tabs": 9,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -1031,7 +1053,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /discovery",
-        "tabs": 17,
+        "tabs": 13,
         "direction": "Shift+Tab"
       },
       {
@@ -1042,7 +1064,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /discovery",
-        "tabs": 23,
+        "tabs": 19,
         "direction": "Shift+Tab"
       },
       {
@@ -2007,28 +2029,6 @@
       {
         "kind": "activate",
         "label": "Run public-source reveal 2-0",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Run public-source reveal 2-1",
-        "tabs": 7,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Run public-source reveal 2-1",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Run public-source reveal 2-2",
-        "tabs": 9,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Run public-source reveal 2-2",
         "key": "Enter"
       },
       {
@@ -3345,7 +3345,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 5
     },
     {
       "checkpoint": "interview answer 2",
@@ -3367,7 +3367,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 5
     },
     {
       "checkpoint": "interview answer 2",
@@ -3389,7 +3389,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 5
     },
     {
       "checkpoint": "interview proposed 2",
@@ -3411,7 +3411,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 3
+      "controls": 4
     },
     {
       "checkpoint": "interview proposed 2",
@@ -3433,7 +3433,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 3
+      "controls": 4
     },
     {
       "checkpoint": "interview proposed 2",
@@ -3455,7 +3455,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 3
+      "controls": 4
     },
     {
       "checkpoint": "interview answer 3",
@@ -3477,7 +3477,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 7
     },
     {
       "checkpoint": "interview answer 3",
@@ -3499,7 +3499,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 7
     },
     {
       "checkpoint": "interview answer 3",
@@ -3521,7 +3521,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 7
     },
     {
       "checkpoint": "interview proposed 3",
@@ -3543,7 +3543,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 6
     },
     {
       "checkpoint": "interview proposed 3",
@@ -3565,7 +3565,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 6
     },
     {
       "checkpoint": "interview proposed 3",
@@ -3587,7 +3587,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 6
     },
     {
       "checkpoint": "interview answer 4",
@@ -3609,7 +3609,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 9
     },
     {
       "checkpoint": "interview answer 4",
@@ -3631,7 +3631,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 9
     },
     {
       "checkpoint": "interview answer 4",
@@ -3653,7 +3653,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 9
     },
     {
       "checkpoint": "interview proposed 4",
@@ -3675,7 +3675,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 8
     },
     {
       "checkpoint": "interview proposed 4",
@@ -3697,7 +3697,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 8
     },
     {
       "checkpoint": "interview proposed 4",
@@ -3719,7 +3719,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 8
     },
     {
       "checkpoint": "interview answer 5",
@@ -3741,7 +3741,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 10
     },
     {
       "checkpoint": "interview answer 5",
@@ -3763,7 +3763,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 10
     },
     {
       "checkpoint": "interview answer 5",
@@ -3785,7 +3785,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 10
     },
     {
       "checkpoint": "interview proposed 5",
@@ -3807,7 +3807,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 9
     },
     {
       "checkpoint": "interview proposed 5",
@@ -3829,7 +3829,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 9
     },
     {
       "checkpoint": "interview proposed 5",
@@ -3851,7 +3851,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 9
     },
     {
       "checkpoint": "interview answer 6",
@@ -3873,7 +3873,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 12
     },
     {
       "checkpoint": "interview answer 6",
@@ -3895,7 +3895,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 12
     },
     {
       "checkpoint": "interview answer 6",
@@ -3917,7 +3917,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 12
     },
     {
       "checkpoint": "interview proposed 6",
@@ -3939,7 +3939,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 11
     },
     {
       "checkpoint": "interview proposed 6",
@@ -3961,7 +3961,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 11
     },
     {
       "checkpoint": "interview proposed 6",
@@ -3983,7 +3983,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 11
     },
     {
       "checkpoint": "interview answer 7",
@@ -4005,7 +4005,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 13
     },
     {
       "checkpoint": "interview answer 7",
@@ -4027,7 +4027,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 13
     },
     {
       "checkpoint": "interview answer 7",
@@ -4049,7 +4049,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 13
     },
     {
       "checkpoint": "interview proposed 7",
@@ -4071,7 +4071,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 12
     },
     {
       "checkpoint": "interview proposed 7",
@@ -4093,7 +4093,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 12
     },
     {
       "checkpoint": "interview proposed 7",
@@ -4115,7 +4115,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 12
     },
     {
       "checkpoint": "interview answer 8",
@@ -4137,7 +4137,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 14
     },
     {
       "checkpoint": "interview answer 8",
@@ -4159,7 +4159,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 14
     },
     {
       "checkpoint": "interview answer 8",
@@ -4181,7 +4181,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 14
     },
     {
       "checkpoint": "interview proposed 8",
@@ -4203,7 +4203,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 13
     },
     {
       "checkpoint": "interview proposed 8",
@@ -4225,7 +4225,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 13
     },
     {
       "checkpoint": "interview proposed 8",
@@ -4247,7 +4247,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 13
     },
     {
       "checkpoint": "interview answer 9",
@@ -4269,7 +4269,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 15
     },
     {
       "checkpoint": "interview answer 9",
@@ -4291,7 +4291,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 15
     },
     {
       "checkpoint": "interview answer 9",
@@ -4313,7 +4313,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 15
     },
     {
       "checkpoint": "interview proposed 9",
@@ -4335,7 +4335,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 14
     },
     {
       "checkpoint": "interview proposed 9",
@@ -4357,7 +4357,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 14
     },
     {
       "checkpoint": "interview proposed 9",
@@ -4379,7 +4379,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 14
     },
     {
       "checkpoint": "interview answer 10",
@@ -4401,7 +4401,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 16
     },
     {
       "checkpoint": "interview answer 10",
@@ -4423,7 +4423,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 16
     },
     {
       "checkpoint": "interview answer 10",
@@ -4445,7 +4445,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 16
     },
     {
       "checkpoint": "interview proposed 10",
@@ -4467,7 +4467,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 15
     },
     {
       "checkpoint": "interview proposed 10",
@@ -4489,7 +4489,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 15
     },
     {
       "checkpoint": "interview proposed 10",
@@ -4511,7 +4511,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 15
     },
     {
       "checkpoint": "interview answer 11",
@@ -4533,7 +4533,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 17
     },
     {
       "checkpoint": "interview answer 11",
@@ -4555,7 +4555,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 17
     },
     {
       "checkpoint": "interview answer 11",
@@ -4577,7 +4577,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 17
     },
     {
       "checkpoint": "interview proposed 11",
@@ -4599,7 +4599,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 16
     },
     {
       "checkpoint": "interview proposed 11",
@@ -4621,7 +4621,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 16
     },
     {
       "checkpoint": "interview proposed 11",
@@ -4643,7 +4643,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 16
     },
     {
       "checkpoint": "interview answer 12",
@@ -4665,7 +4665,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 18
     },
     {
       "checkpoint": "interview answer 12",
@@ -4687,7 +4687,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 18
     },
     {
       "checkpoint": "interview answer 12",
@@ -4709,7 +4709,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 18
     },
     {
       "checkpoint": "interview proposed 12",
@@ -4731,7 +4731,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 17
     },
     {
       "checkpoint": "interview proposed 12",
@@ -4753,7 +4753,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 17
     },
     {
       "checkpoint": "interview proposed 12",
@@ -4775,7 +4775,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 17
     },
     {
       "checkpoint": "interview answer 13",
@@ -4797,7 +4797,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 19
     },
     {
       "checkpoint": "interview answer 13",
@@ -4819,7 +4819,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 19
     },
     {
       "checkpoint": "interview answer 13",
@@ -4841,7 +4841,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 19
     },
     {
       "checkpoint": "interview proposed 13",
@@ -4863,7 +4863,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 18
     },
     {
       "checkpoint": "interview proposed 13",
@@ -4885,7 +4885,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 18
     },
     {
       "checkpoint": "interview proposed 13",
@@ -4907,7 +4907,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 18
     },
     {
       "checkpoint": "interview answer 14",
@@ -4929,7 +4929,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 20
     },
     {
       "checkpoint": "interview answer 14",
@@ -4951,7 +4951,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 20
     },
     {
       "checkpoint": "interview answer 14",
@@ -4973,7 +4973,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 20
     },
     {
       "checkpoint": "interview proposed 14",
@@ -4995,7 +4995,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 19
     },
     {
       "checkpoint": "interview proposed 14",
@@ -5017,7 +5017,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 19
     },
     {
       "checkpoint": "interview proposed 14",
@@ -5039,7 +5039,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 19
     },
     {
       "checkpoint": "interview answer 15",
@@ -5061,7 +5061,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 17
+      "controls": 21
     },
     {
       "checkpoint": "interview answer 15",
@@ -5083,7 +5083,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 17
+      "controls": 21
     },
     {
       "checkpoint": "interview answer 15",
@@ -5105,7 +5105,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 17
+      "controls": 21
     },
     {
       "checkpoint": "interview proposed 15",
@@ -5127,7 +5127,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 20
     },
     {
       "checkpoint": "interview proposed 15",
@@ -5149,7 +5149,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 20
     },
     {
       "checkpoint": "interview proposed 15",
@@ -5171,7 +5171,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 20
     },
     {
       "checkpoint": "interview answer 16",
@@ -5193,7 +5193,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 18
+      "controls": 22
     },
     {
       "checkpoint": "interview answer 16",
@@ -5215,7 +5215,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 18
+      "controls": 22
     },
     {
       "checkpoint": "interview answer 16",
@@ -5237,7 +5237,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 18
+      "controls": 22
     },
     {
       "checkpoint": "interview proposed 16",
@@ -5259,7 +5259,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 17
+      "controls": 21
     },
     {
       "checkpoint": "interview proposed 16",
@@ -5281,7 +5281,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 17
+      "controls": 21
     },
     {
       "checkpoint": "interview proposed 16",
@@ -5303,7 +5303,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 17
+      "controls": 21
     },
     {
       "checkpoint": "saved Company disclosure open",
@@ -5325,7 +5325,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 18
+      "controls": 22
     },
     {
       "checkpoint": "saved Company disclosure open",
@@ -5347,7 +5347,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 18
+      "controls": 22
     },
     {
       "checkpoint": "saved Company disclosure open",
@@ -5369,7 +5369,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 18
+      "controls": 22
     },
     {
       "checkpoint": "screen /discovery",
@@ -7946,138 +7946,6 @@
       "controls": 7
     },
     {
-      "checkpoint": "contact reveal 2-1",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-1",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-1",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-2",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-2",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-2",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
       "checkpoint": "screen /outreach",
       "width": 320,
       "scrollX": 0,
@@ -8361,7 +8229,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 15
     },
     {
       "checkpoint": "screen /settings",
@@ -9373,10 +9241,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "56ca71dcdd832e88e9940822d93b30513cdc12a81ff6d8257124f766091d1164",
+      "sha256": "a38fafdd5a967d17ce135e495d5113e4d0b26343273a583b18ab23f7d9e69633",
       "rows": 1,
       "identities": [
-        "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe"
+        "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
       ]
     }
   },
@@ -9397,20 +9265,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "56ca71dcdd832e88e9940822d93b30513cdc12a81ff6d8257124f766091d1164",
+        "sha256": "a38fafdd5a967d17ce135e495d5113e4d0b26343273a583b18ab23f7d9e69633",
         "rows": 1,
         "identities": [
-          "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe"
+          "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "87e4f812b898bd4947d00911c1f4b77d406c151d7b961e2d4640aa2843268e0e",
+        "sha256": "675c39812efab017f66d84b9dc5b4692eca2a192784550e7a22f55ec124dd3da",
         "rows": 2,
         "identities": [
-          "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe",
-          "e09ae68f813893d605d2c309:ce161d787efe99c020785b79"
+          "4133329e762cd4c24d793f3d:da9a61a7557811a9a9f9ca3f",
+          "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
         ]
       }
     ]
@@ -9424,26 +9292,26 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "56ca71dcdd832e88e9940822d93b30513cdc12a81ff6d8257124f766091d1164",
+      "sha256": "a38fafdd5a967d17ce135e495d5113e4d0b26343273a583b18ab23f7d9e69633",
       "rows": 1,
       "identities": [
-        "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe"
+        "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "2c65f531859340efa023d57ebffd6ceff95ccde33e291ec4f6ff07b4521c36ee",
+    "sha256": "48c765bc12460f98fb4d445650f2b318686e81c35b8bc9b9d59615786e73dff2",
     "rows": 7,
     "identities": [
-      "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe",
-      "0bc4ea2983d96ec8d2785907:csv-edge-0",
-      "0bc4ea2983d96ec8d2785907:csv-edge-1",
-      "0bc4ea2983d96ec8d2785907:csv-edge-2",
-      "0bc4ea2983d96ec8d2785907:csv-edge-3",
-      "0bc4ea2983d96ec8d2785907:csv-edge-4",
-      "0bc4ea2983d96ec8d2785907:csv-edge-5"
+      "d4c889893c624b8b91183557:csv-edge-0",
+      "d4c889893c624b8b91183557:csv-edge-1",
+      "d4c889893c624b8b91183557:csv-edge-2",
+      "d4c889893c624b8b91183557:csv-edge-3",
+      "d4c889893c624b8b91183557:csv-edge-4",
+      "d4c889893c624b8b91183557:csv-edge-5",
+      "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
     ]
   },
   "recovery": [
@@ -9456,10 +9324,10 @@
   "stubCounts": {
     "hunt": 2,
     "discovery": 2,
-    "retrieve": 6
+    "retrieve": 4
   },
   "browserCounts": {
-    "local": 347,
+    "local": 342,
     "composeAborted": 2,
     "unexpected": 0
   },

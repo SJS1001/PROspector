@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   mutationMessage,
@@ -27,6 +26,10 @@ export function KnowledgeView() {
   const capability = find("product.capability");
   const delivery = find("product.delivery");
   const groups = [
+    {
+      title: "Full answers & evidence",
+      ids: ["company.legal_name", "product.name", "product.capability", "product.delivery"],
+    },
     { title: "Product limits & permitted claims", ids: ["product.limitations", "product.promise"] },
     {
       title: "Evidence & delivery details",
@@ -43,17 +46,11 @@ export function KnowledgeView() {
   return (
     <div className="grid gap-4">
       <PageHeading
-        eyebrow="Your business"
         title="Company & product"
-        copy={
-          current
-            ? "Answer one question, then review and confirm it."
-            : "Your saved business details. Open a section to review or update it."
-        }
         action={
           !current ? (
             <Link to="/discovery">
-              <Button>Review target markets</Button>
+              <Button>Target markets</Button>
             </Link>
           ) : undefined
         }
@@ -71,50 +68,47 @@ export function KnowledgeView() {
       ) : null}
       {company ? (
         <Panel className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div className="min-w-0">
-            <p className="text-xs text-muted">Company</p>
-            <h2 className="mt-1 break-words text-lg font-medium">{company.confirmedAnswer}</h2>
-          </div>
-          <div className="flex items-center gap-3">
-            <Badge tone="ok">Saved</Badge>
-            <EditAnswer item={company} label="Edit company" />
-          </div>
+          <h2 className="min-w-0 break-words text-lg font-medium">{company.confirmedAnswer}</h2>
+          <EditAnswer item={company} label="Edit company" />
         </Panel>
       ) : null}
       {product || capability || delivery ? (
         <Panel className="p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs text-muted">Product</p>
-              <h2 className="mt-1 break-words text-xl font-medium">
-                {product?.confirmedAnswer ?? "Your product"}
-              </h2>
-            </div>
+            <h2 className="min-w-0 break-words text-xl font-medium">
+              {product?.confirmedAnswer ?? "Your product"}
+            </h2>
             {product ? <EditAnswer item={product} label="Edit product name" /> : null}
           </div>
           <div className="mt-4 grid gap-5 md:grid-cols-2">
             {capability ? <SummaryAnswer item={capability} label="What it does" /> : null}
-            {delivery ? <SummaryAnswer item={delivery} label="Offer & delivery" /> : null}
+            {delivery ? <SummaryAnswer item={delivery} label="Offer" /> : null}
           </div>
         </Panel>
       ) : null}
-      {groups.map((group) => {
-        const items = saved.filter((item) => group.ids.includes(item.questionId));
-        if (!items.length) return null;
-        return (
-          <details key={group.title} className="rounded-md border border-line bg-cream">
-            <summary className="cursor-pointer px-5 py-4 text-sm font-medium">
-              {group.title}
-              <span className="ml-2 text-xs font-normal text-muted">{items.length} saved</span>
-            </summary>
-            <div className="grid gap-3 border-t border-line p-4">
-              {items.map((item) => (
-                <ConfirmedCard key={item.id} item={item} />
-              ))}
-            </div>
-          </details>
-        );
-      })}
+      {saved.length ? (
+        <details className="rounded-md border border-line bg-cream">
+          <summary className="cursor-pointer px-5 py-4 text-sm font-medium">Details</summary>
+          <div className="grid gap-3 border-t border-line p-4">
+            {groups.map((group) => {
+              const items = saved.filter((item) => group.ids.includes(item.questionId));
+              if (!items.length) return null;
+              return (
+                <details key={group.title} className="rounded-md border border-line">
+                  <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+                    {group.title}
+                  </summary>
+                  <div className="grid gap-3 border-t border-line p-3">
+                    {items.map((item) => (
+                      <ConfirmedCard key={item.id} item={item} />
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -122,23 +116,18 @@ export function KnowledgeView() {
 function SummaryAnswer({ item, label }: { item: KnowledgeItem; label: string }) {
   return (
     <div className="min-w-0">
-      <h3 className="text-xs font-medium text-muted">{label}</h3>
-      <p className="mt-2 line-clamp-3 break-words text-sm leading-6">{item.confirmedAnswer}</p>
-      <details className="mt-2 text-xs">
-        <summary className="cursor-pointer text-muted">Full answer & evidence</summary>
-        <p className="mt-3 whitespace-pre-wrap break-words text-sm">{item.confirmedAnswer}</p>
-        <p className="mt-2 text-muted">{item.evidence}</p>
-      </details>
-      <div className="mt-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-medium text-muted">{label}</h3>
         <EditAnswer item={item} label={`Edit ${label.toLowerCase()}`} />
       </div>
+      <p className="mt-2 line-clamp-3 break-words text-sm leading-6">{item.confirmedAnswer}</p>
     </div>
   );
 }
 
 function EditAnswer({
   item,
-  label = "Start corrected review",
+  label = `Edit ${item.question}`,
 }: {
   item: KnowledgeItem;
   label?: string;
@@ -148,10 +137,11 @@ function EditAnswer({
     <div>
       <Button
         variant="outline"
+        aria-label={label}
         disabled={start.isPending}
         onClick={() => start.mutate({ questionId: item.questionId })}
       >
-        {start.isPending ? "Opening…" : label}
+        {start.isPending ? "Opening…" : "Edit"}
       </Button>
       {start.error ? (
         <div className="mt-3">

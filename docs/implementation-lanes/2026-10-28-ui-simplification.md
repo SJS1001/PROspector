@@ -10,7 +10,8 @@ no color tokens, data schema, provider behavior or approval gates changed.
   limits, delivery details and market preferences are expandable. Corrections
   open a focused editor, then require submission and explicit confirmation.
 - Navigation groups Today, Your business, Prospecting, Outreach and Settings.
-  Mobile navigation uses Menu; current groups open and route locks remain.
+  Mobile navigation uses Menu; current groups open. The Company follow-up below
+  removes misleading route padlocks while preserving destination prerequisites.
 - Today puts the next action, review counts and recent activity first. Lifetime
   review counts are labelled Workspace totals, not weekly activity.
 - Markets/prospecting collapse completed setup and run history. Review, contacts
@@ -49,3 +50,24 @@ usefulness, provenance, freshness, time and cost still require the bounded
 [owner acceptance](../LOCAL-APP-FINAL-ACCEPTANCE.md). Automated workflows use
 fictional data and do not send email. Merge/deployment are separate from this
 local UI implementation; no hosted completion is claimed.
+
+## Company follow-up — 28 October 2026
+
+Owner feedback requested less wording and fewer visible sections. The Company
+screen now shows names, short saved-answer previews and Edit buttons. One closed
+Details disclosure holds full answers/evidence, product limits, delivery and
+market preferences. Introductory text, repeated labels and Saved badges are
+removed. Navigation padlocks are removed without changing destination guards.
+Dark colors, saved answers and explicit correction confirmation are preserved.
+
+Verified the working-tree delta on `fb3672b`: typecheck/build pass; lint zero
+errors and three existing warnings; focused UI tests 4/4 pass; changed-file
+React Doctor scan reports no issues. Contained acceptance passes 46 unit tests,
+two workflows, 483 keyboard actions, 279 layout samples, 10 cancellation cases
+and four recovery scenarios. See the current evidence section for exact scope.
+
+The owner app is running again on loopback port 8080. Its stale empty database
+lock was recovered using the documented stopped-process/backup procedure;
+1,099 backup files were hash-verified before removing only the empty lock
+folder. Read-only inspection confirms desktop and 320px rendering and access
+to full answers. Owner data was not edited.

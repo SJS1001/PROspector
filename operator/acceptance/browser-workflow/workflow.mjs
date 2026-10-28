@@ -177,7 +177,11 @@ export async function runWorkflow({
   // limits stay keyboard-accessible without reopening the interview.
   assert.equal(await task().getByRole("textbox", { includeHidden: true, name: /^Answer/ }).count(), 0);
   await visible(task().getByRole("heading", { includeHidden: true, name: "Fictional Plant Diagnostic", exact: true }));
-  const limits = task().locator("details").filter({ has: page.locator("summary").filter({ hasText: "Product limits & permitted claims" }) });
+  const savedDetails = task().locator('details:has(> summary:text-is("Details"))');
+  const savedDetailsSummary = savedDetails.locator(":scope > summary");
+  assert.equal(await savedDetails.evaluate((node) => node.open), false, "Supporting details start collapsed");
+  await keyboard.activate(savedDetailsSummary, "Open Company details", "Space");
+  const limits = savedDetails.locator('details:has(> summary:text-is("Product limits & permitted claims"))');
   const limitsSummary = limits.locator(":scope > summary");
   assert.equal(await limits.evaluate((node) => node.open), false, "Saved limits start collapsed");
   await keyboard.activate(limitsSummary, "Review saved product limits", "Space");
@@ -187,6 +191,8 @@ export async function runWorkflow({
   await keyboard.activate(limitsSummary, "Close saved product limits");
   assert.equal(await limits.evaluate((node) => node.open), false);
   await keyboard.focused(limitsSummary, "Saved disclosure retains keyboard focus");
+  await keyboard.activate(savedDetailsSummary, "Close Company details");
+  assert.equal(await savedDetails.evaluate((node) => node.open), false);
   const correctedCompany = "Fictional Quarry reviewed";
   for (const [savedAnswer, proposedAnswer] of [[fictionalAnswers[0], correctedCompany], [correctedCompany, fictionalAnswers[0]]]) {
     await click("Edit company");

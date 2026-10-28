@@ -1,3 +1,31 @@
+# Company follow-up verification — 2026-10-28
+
+Tested the working-tree changes on base `fb3672bb71f51341dbb3f5dc7726e178f0906d5b`
+on `codex/local-app-integration`; this commit includes that tested source delta.
+This section and `last-run.json` supersede the previous browser counts below.
+
+- Company removes introductory/repeated copy and Saved badges. Short Edit controls
+  retain descriptive accessible names. Full verbatim answers, evidence and
+  supporting categories sit under one initially closed Details disclosure.
+- Navigation padlocks are removed; destination prerequisites remain unchanged.
+  The existing dark palette and saved owner data are unchanged.
+- Typecheck and production build passed. Lint: zero errors, three existing
+  warnings. Focused manual workflow UI tests: 4/4 passed. React Doctor scoped
+  to files changed from HEAD: no issues; the broader historical scan was not clean.
+- Contained browser acceptance passed: 46 units, two fictional workflows,
+  483 keyboard actions, 279 layout samples, 10 cancellation cases and four
+  recovery scenarios. Zero unexpected requests or forbidden provider attempts.
+- Nested Company disclosures are keyboard-tested. Both correction proposals
+  preserve saved answers until confirmation; confirmed changes survive reload.
+- Actual owner Company rendering inspected read-only at desktop and 320px.
+  At 320px, document width equals viewport width. Details starts collapsed;
+  full answers/evidence remain accessible. No owner answers were edited.
+
+The earlier broader regression counts below are historical, not rerun claims
+for this follow-up. Real-provider usefulness and owner acceptance remain separate.
+
+---
+
 # UI simplification verification — 2026-10-28
 
 Browser-tested source: `b411707ae6e3d1e5ce503bfc0276dd68afc48f81` on

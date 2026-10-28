@@ -10,7 +10,6 @@ import {
   Sunrise,
   Users,
   Building2,
-  Lock,
   Mail,
   Cable,
   Menu,
@@ -153,12 +152,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   >
                     <Icon aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.6} />
                     <span>{item.label}</span>
-                    {!open ? (
-                      <Lock
-                        aria-label="Setup required"
-                        className="ml-auto size-3 shrink-0 text-subtle"
-                      />
-                    ) : null}
                     {open && item.id === "review" && queueCount > 0 ? (
                       <em className="ml-auto min-w-5 rounded-sm bg-lime px-1.5 text-center text-2xs font-semibold not-italic text-paper">
                         {queueCount}
@@ -233,17 +226,17 @@ export function PageHeading({
   copy,
   action,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  copy: string;
+  copy?: string;
   action?: React.ReactNode;
 }) {
   return (
     <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="max-w-xl">
-        <p className="text-2xs font-medium text-subtle">{eyebrow}</p>
+        {eyebrow ? <p className="text-2xs font-medium text-subtle">{eyebrow}</p> : null}
         <h1 className="mt-1 text-2xl font-medium tracking-tight text-ink">{title}</h1>
-        <p className="mt-1.5 text-sm text-muted">{copy}</p>
+        {copy ? <p className="mt-1.5 text-sm text-muted">{copy}</p> : null}
       </div>
       {action}
     </div>
