@@ -129,22 +129,26 @@ export async function runWorkflow({
   const click = async (name) => page.getByRole("button", { name, exact: true }).click();
   const unlock = async () => {
     await page.goto(origin);
-    await Promise.race([page.getByLabel("Owner password").waitFor(), task().waitFor()]);
+    await page.getByLabel("Owner password").or(task()).first().waitFor();
     if (await page.getByLabel("Owner password").isVisible()) {
       await page.getByLabel("Owner password").fill(password);
       await click("Unlock workspace");
       await task().waitFor();
     }
   };
+  console.log("Browser checkpoint: owner unlock");
   await unlock();
   await go("/knowledge");
   for (let index = 0; index < fictionalAnswers.length; index++) {
     await visible(task().getByText(new RegExp(`^Question ${index + 1} ·`)));
-    await page.getByLabel("Answer", { exact: true }).fill(fictionalAnswers[index]);
+    await task()
+      .getByRole("textbox", { name: /^Answer/ })
+      .fill(fictionalAnswers[index]);
     await click("Submit answer for confirmation");
     await click("Confirm submitted answer");
   }
   await visible(page.getByText("Confirmed knowledge is in force.", { exact: true }));
+  console.log("Browser checkpoint: interview confirmed");
   evidence.interview = { submitted: 16, confirmed: 16, fictional: true };
 
   await go("/discovery");
@@ -168,11 +172,13 @@ export async function runWorkflow({
   await page.getByLabel("Offer", { exact: true }).fill("eight-week-diagnostic");
   await click("Confirm draft play");
   await visible(page.getByText(/Audience: Fictional operating processing plants/));
+  console.log("Browser checkpoint: discovery confirmed");
   evidence.discovery = { productActivated: true, manualRun: true, draftPlayConfirmed: true };
 
   const csvEvidence = [];
   let lastHuntAt = 0;
   for (const cycle of [1, 2]) {
+    console.log(`Browser checkpoint: workflow ${cycle} prospects`);
     await go("/prospects");
     if (cycle === 1) await click("Activate profile configuration");
     else {
@@ -182,7 +188,28 @@ export async function runWorkflow({
     }
     lastHuntAt = Date.now();
     await click("Confirm");
-    await visible(task().getByText(`Fictional Plant ${cycle}`, { exact: true }));
+    try {
+      await visible(task().getByText(`Fictional Plant ${cycle}`, { exact: true }));
+    } finally {
+      const text = await task().innerText();
+      evidence.prospectProbe = {
+        cycle,
+        plantOne: await task().getByText("Fictional Plant 1", { exact: true }).count(),
+        plantTwo: await task().getByText("Fictional Plant 2", { exact: true }).count(),
+        alerts: await page.getByRole("alert").count(),
+        alertMessages: (await page.getByRole("alert").allTextContents()).map((text) =>
+          text === "item.startedAt.startsWith is not a function" ? text : "unclassified-ui-error",
+        ),
+        classifications: [
+          "Unreviewed fictional prompt",
+          "Unknown fictional page",
+          "retrieval failed",
+          "already in this workspace",
+          "succeeded",
+          "failed",
+        ].filter((value) => text.includes(value)),
+      };
+    }
     await go("/review");
     const review = task()
       .locator("article")
@@ -196,6 +223,7 @@ export async function runWorkflow({
     await review.getByRole("button", { name: "Approve", exact: true }).click();
     await review.waitFor({ state: "detached" });
 
+    console.log(`Browser checkpoint: workflow ${cycle} contacts`);
     await go("/contacts");
     const email = `person${cycle}@fictionalquarry.example`;
     // Suggestions share their account label. Click their actual UI controls until
@@ -316,6 +344,7 @@ export async function runWorkflow({
         .getByRole("button", { name: "Open in Gmail", exact: true })
         .waitFor();
     }
+    console.log(`Browser checkpoint: workflow ${cycle} handoff`);
     const popupPromise = context.waitForEvent("page");
     const composePromise = context.waitForEvent("request", {
       predicate: (request) => request.url().startsWith("https://mail.google.com/"),
