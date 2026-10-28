@@ -9,12 +9,29 @@ export function createKeyboardJourney(page, evidence = {}) {
     negativeProbeTabs: "Separate stale/mutation/replay probes may use pointer activation",
   }).actions;
   const active = (locator) => locator.evaluate((node) => node === document.activeElement);
+  const settleLayout = () => page.evaluate(() => new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const focused = async (locator, label) => {
+    await settleLayout();
+    // Native focus scrolling may finish after the key event and resize paint.
+    // Observe it; never scroll or focus the element through the test driver.
+    await page.waitForFunction((node) => {
+      const r = node.getBoundingClientRect();
+      return r.top >= -1 && r.bottom <= innerHeight + 1;
+    }, await locator.elementHandle(), { timeout: 1500 }).catch(() => {});
     const state = await locator.evaluate((node) => {
       const rect = node.getBoundingClientRect();
       const style = getComputedStyle(node);
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
       return {
+        rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+        viewport: { width: innerWidth, height: innerHeight, scrollY,
+          visualHeight: visualViewport?.height,
+          rootHeight: document.documentElement.scrollHeight,
+          clientHeight: document.documentElement.clientHeight,
+          bodyHeight: document.body.scrollHeight,
+          overflow: getComputedStyle(document.documentElement).overflow },
+        ancestors: (() => { const result = []; for (let p = node.parentElement; p && result.length < 12; p=p.parentElement) result.push({tag:p.tagName, height:p.clientHeight, scrollHeight:p.scrollHeight, scrollTop:p.scrollTop, overflow:getComputedStyle(p).overflow}); return result; })(),
         active: node === document.activeElement,
         keyboardVisible: node.matches(":focus-visible"),
         indicator: (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0) ||
@@ -87,6 +104,7 @@ export function createKeyboardJourney(page, evidence = {}) {
     evidence.layout ??= [];
     for (const width of [320, 360, 768]) {
       await page.setViewportSize({ width, height: 800 });
+      await settleLayout();
       const measured = await page.evaluate(() => {
         const task = document.querySelector("#operator-task");
         const root = task ?? document.querySelector("main") ?? document.body;
@@ -147,6 +165,7 @@ export function createKeyboardJourney(page, evidence = {}) {
       assert.ok(measured.controls > 0, `${checkpoint}/${width}: controls were measured`);
     }
     await page.setViewportSize({ width: 360, height: 800 });
+    await settleLayout();
   };
   return { reach, activate, type, select, skip, layout, focused };
 }
