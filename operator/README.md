@@ -1,62 +1,67 @@
-# PROspector operator
+# PROspector local operator
 
-Local go-to-market operator. One company workspace. Keys stay on this machine.
+This is the one-owner local app from `operator-os`. It runs at **http://127.0.0.1:8080** with a private on-disk PGlite database. It needs Node **22.13 or newer**. It has no sandbox assets, OAuth, hosted project, or `DATABASE_URL` requirement.
 
-This is the running operator OS (interview → discovery → hunt → review → people → outreach → CRM). It is not the Cloudflare mining-pilot in `site/`.
+## First launch
 
-## Use it on your computer
-
-You need [Node.js 22](https://nodejs.org/) (LTS). Then, in a terminal:
-
-```bash
-git clone https://github.com/SJS1001/PROspector.git
-cd PROspector
-git checkout operator-os
+```sh
 cd operator
-npm install
+npm ci
+npm run owner:setup
+npm run build
+npm start
 ```
 
-**Easiest (browser window):**
+Choose a unique 16–128 character owner password at the hidden terminal prompt. Open the exact URL above and unlock with that password. Enrollment is local CLI only; there is no public signup or first-visitor ownership race. The fixed local email is an internal identifier, not an email-delivery destination. Do not pass passwords in command arguments or environment variables. For automation, setup also accepts one password line on stdin.
 
-```bash
-npm run dev
+The server binds only IPv4 loopback. `localhost`, alternate ports, reverse proxies, foreign Host/Origin, and forwarded authority headers are deliberately unsupported. Do not expose this process using a tunnel or proxy. Owner sessions are HttpOnly/SameSite=Strict, persist for seven days, and are revoked on logout; no dev-user, bearer, sandbox OAuth, or hosted gate bypass exists. `VITE_AUTH_ENABLED=false` cannot disable owner checks.
+
+For source development after enrollment, use `npm run dev`. Production `npm start` uses the built Node server; `npm run build` copies PGlite's package-supplied WASM/data assets into its server bundle and never runs a remote database migration. `DATABASE_URL` must be unset. `npm run preview` is the same local launcher. The desktop launcher is outside this supported path.
+
+## Stop, data and recovery
+
+Stop with **Ctrl-C** in the launch terminal and wait for exit before starting another process. Only one process can open a data directory. Never run dev and production against the same directory simultaneously.
+
+Default data directory:
+
+- macOS: `~/Library/Application Support/PROspector/operator`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/prospector/operator`
+
+For an alternate installation or isolated test, export `OPERATOR_DATA_DIR` as an **absolute path outside the checkout** before **all** setup/start/recovery commands. `.env.example` is documentation; it is not automatically loaded. Symlinked data paths are rejected; resolve them to their physical path first (for example macOS `/private/tmp`, rather than `/tmp`). The selected directory is private mode 0700; database and configuration files use 0600.
+
+Keep these together: `database/`, `owner.json` (owner ID, password hash and session signing material), and `operator.vault` (local encryption key). The vault encrypts saved provider values with AES-256-GCM. OS file permissions protect the key; this is not an OS keychain or protection from another process running as your OS user. No portable plaintext credential export is added.
+
+For a local safety backup, stop the app and copy the **entire private directory** to protected storage with the same permissions. Keep it out of Git, cloud sharing and public folders. Restore the whole matching directory while stopped; do not mix one database with another owner's file or key. This stopped-process copy is not the versioned portable archive/restore feature owned by Lane C.
+
+- **Forgotten password:** stop the app, keep a protected backup, then run `npm run owner:reset` using the same data directory. It preserves the owner ID, workspace and vault, rotates session signing material, and invalidates old sessions. Setup/reset holds the database lock for the whole operation.
+- **Missing/corrupt owner or vault file:** restore the matching protected backup. Do not delete the database or generate a replacement vault key; ciphertext cannot be recovered without its original key. Runtime decryption reports missing/malformed-key errors and never creates a key.
+- **“Database is locked” after a crash:** first verify every operator process using this directory is stopped. Back up the directory. Only then remove the empty `.database.lock` directory with `rmdir` and restart. There is no automatic stale-lock takeover and no reset command.
+- **Migration failure:** stop, preserve the data directory and error, and fix the new migration or restore a complete stopped-process backup with its matching application version. Each migration and its journal entry are atomic. Applied migrations are tracked by filename: never edit or remove an applied SQL file; add a new migration. Existing rows are never automatically erased or reassigned.
+- **Legacy key:** if a prior explicit vault file must be preserved, `OPERATOR_VAULT_PATH` may name its absolute private path outside the checkout. A legacy `operator/.data/operator.vault` is not silently abandoned; move it outside the checkout while stopped and point to it explicitly. Include this external key in protected backups. In-memory databases from the old fallback cannot be recovered after their process exits.
+
+## Integration and verification
+
+The existing `Sql` tagged-template and `query(text, params)` API remains unchanged. The additive API is:
+
+```ts
+const sql = await getSql();
+await sql.transaction(async (tx) => {
+  await tx`insert into example (value) values (${"fictional"})`;
+  await tx.query("update example set value = $1", ["fictional update"]);
+  // Return commits; throwing/rejecting rolls back all writes.
+});
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080), sign in, then paste keys in **Connections**.
+Use **only `tx` inside the callback**, await all work, and do not retain it after return. Nested transactions reject. PGlite uses its native transaction; the Postgres-compatible path pins one pool connection for BEGIN/COMMIT/ROLLBACK. Lane C should use this callback for archive restore and must not send separate BEGIN/COMMIT through pooled `sql.query`. `closeDatabase()` is for controlled shutdown/test teardown after outstanding operations finish, not live HMR reset. The remote Postgres path is retained for API compatibility but is not exercised or supported by the local launcher.
 
-**Desktop window (Electron):**
-
-```bash
-npx --yes electron ./desktop/main.mjs
+```sh
+npm run build
+npm run typecheck
+npm run test:foundation
+npm run lint
+npm test
 ```
 
-That starts the same app in a PROspector window. There is not a `.dmg` / `.exe` installer yet — this is a local Node app, not an App Store package.
+The focused foundation command uses only fictional temporary records, real loopback HTTP, separate server processes and an in-process credential stub. It checks owner denial, foreign-origin rejection, session/logout/password recovery, and workspace/prospect/contact/package approval/review history/suppression/vault continuity. It does not call any external provider.
 
-### Keys to paste in Connections
-
-| Field | What it does |
-|---|---|
-| AI provider + key | Discovery and Find Prospects (Grok / OpenAI / others) |
-| Jev (TypeSafe) | Scores retrieved pages, classifies inbox, blocks invented claims |
-| Apollo | Paid people reveal (still needs a per-prospect grant) |
-| Gmail + app password | Send and inbox scan |
-| Monthly spend cap | Apollo grants cannot exceed it |
-
-Load the mining sample from Company if you want Digitalrain / ONE / Operating already confirmed.
-
-## What this does
-
-- 16-question consensus interview
-- Product ready → at most three market-play proposals
-- Profile ready → Find Prospects
-- Qualification from retrieved pages (keyword rubric + Jev when a key is saved)
-- Apollo grant with expiry and monthly cap, or public-source reveal
-- Package then message then Gmail, with send-time suppression
-- Reply / bounce / unsubscribe from the Gmail inbox
-- CRM CSV and workspace JSON export/restore
-- Greenfield Draft is nurture only — no morning run, no weekly quota
-- Weekdays 06:00 America/Toronto hunt when an AI key is saved and the schedule is on
-
-## What it is not
-
-Cloudflare Access, D1, R2, and the hosted mining-pilot live in `site/`. This folder is the private operator you run yourself. Jev does not search the web or send mail.
+Lane A does not change workflow or archive functions in `fns.ts`. Combine Lane B's manual-only/effect safeguards, Lane C's archive implementation and Lane D's general verification repairs before treating this as the completed local release. Do not enter real provider credentials during foundation testing. Linux verification does **not** complete the required Mac launch, owner workflow, provider quality or recovery acceptance.

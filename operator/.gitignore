@@ -1,0 +1,10 @@
+.output/
+.vercel/
+.tanstack/
+dist/
+.data/
+.env*
+!.env.example
+*.log
+owner.json
+operator.vault
