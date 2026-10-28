@@ -2,12 +2,23 @@
   {
     "path": "scripts/local-data.mjs",
     "sha256": "4fdbc773706733d932117a55806ba648377c32a52e676df8c0ffd650095a1ac1",
-    "imports": ["node:fs", "node:os", "node:path", "node:url"]
+    "imports": [
+      "node:fs",
+      "node:os",
+      "node:path",
+      "node:url"
+    ]
   },
   {
     "path": "scripts/local-owner.mjs",
     "sha256": "f22a9055647d565b1da810da4f862d644bd4d8dfd8aec8ee8eaaeb6b7080a1d9",
-    "imports": ["./local-data.mjs", "better-auth/crypto", "node:crypto", "node:fs", "node:path"]
+    "imports": [
+      "./local-data.mjs",
+      "better-auth/crypto",
+      "node:crypto",
+      "node:fs",
+      "node:path"
+    ]
   },
   {
     "path": "scripts/migration-plan.mjs",
@@ -15,9 +26,27 @@
     "imports": []
   },
   {
+    "path": "server/local-node-entry.ts",
+    "sha256": "49d6d0b30a76ca59c10b710e6b0c3ba5fe578fbd018b59db09f6826bb634151e",
+    "imports": [
+      "../src/lib/db",
+      "./local-shutdown.mjs",
+      "nitro/app",
+      "srvx/node"
+    ]
+  },
+  {
+    "path": "server/local-shutdown.mjs",
+    "sha256": "55cb52b208dd2f9d71d811fb2fdb88cd3acc18027f3e066ba5758077e8c23f83",
+    "imports": []
+  },
+  {
     "path": "src/lib/auth/isolation.server.ts",
     "sha256": "eeb4dc97200438ebd3437296c86b0e170e0bfa215b755fde3ff2f8d2bab520ab",
-    "imports": ["./local-request.ts", "@tanstack/react-start/server"]
+    "imports": [
+      "./local-request.ts",
+      "@tanstack/react-start/server"
+    ]
   },
   {
     "path": "src/lib/auth/local-request.ts",
@@ -37,11 +66,13 @@
   {
     "path": "src/lib/auth/pglite-dialect.ts",
     "sha256": "bd66925574245cd47cdd98b5c068dd7b4ee4a51c9439e8421dc54c62fe7c4f50",
-    "imports": ["kysely"]
+    "imports": [
+      "kysely"
+    ]
   },
   {
     "path": "src/lib/auth/server.ts",
-    "sha256": "3aab1a4f8f6d7a8300e4a83bd8260c6765bec4039aef633fa9e02a60d41ac9d8",
+    "sha256": "ab7629e35898bdd14ff9498447635d1c4cdbe9c030c21fb361528ef62e5298db",
     "imports": [
       "../../../scripts/local-owner.mjs",
       "../db",
@@ -88,12 +119,17 @@
   {
     "path": "src/lib/domain/qualify.ts",
     "sha256": "e2cef0caccd345a093da5d20deb33c8d2239e3c0b44e74e866cc85c06c0e115b",
-    "imports": ["./catalog.ts", "node:crypto"]
+    "imports": [
+      "./catalog.ts",
+      "node:crypto"
+    ]
   },
   {
     "path": "src/lib/server/archive-db.ts",
     "sha256": "d11079e631079e6ce04b9630d288f2a67c9b63480ad53e5518ec4d782be38a37",
-    "imports": ["../db"]
+    "imports": [
+      "../db"
+    ]
   },
   {
     "path": "src/lib/server/archive-request.ts",
@@ -103,16 +139,22 @@
   {
     "path": "src/lib/server/archive.ts",
     "sha256": "53c384d4038131b59b3916ec74c4f74bcace86c55a9fdfcddfc9a9e168d051b2",
-    "imports": ["node:crypto"]
+    "imports": [
+      "node:crypto"
+    ]
   },
   {
     "path": "src/lib/server/discover.ts",
     "sha256": "dadd39ad4d7264573432b3f5b68828e3efe23da3ef08cbc5b07a708e6aaa4cbb",
-    "imports": ["@/lib/server/llm", "@/lib/server/profile", "@/lib/server/seed"]
+    "imports": [
+      "@/lib/server/llm",
+      "@/lib/server/profile",
+      "@/lib/server/seed"
+    ]
   },
   {
     "path": "src/lib/server/fns.ts",
-    "sha256": "02bb41899b4a35ccc62f6c886f0bba91577364d0e384aed3b34e04fdec2f9004",
+    "sha256": "29a1ebef4ddb4ae301c54efe411411f3ec93e443038ce868e9b02655393b65a8",
     "imports": [
       "@/lib/auth/middleware",
       "@/lib/db",
@@ -150,27 +192,40 @@
   {
     "path": "src/lib/server/manual-workflow.ts",
     "sha256": "6464ccf08cbd14d8a8b18f990c0123871cbe369fb01d66714df72b4e155525c9",
-    "imports": ["node:crypto"]
+    "imports": [
+      "node:crypto"
+    ]
   },
   {
     "path": "src/lib/server/profile.ts",
     "sha256": "5b31216e77c48ed5208e972d72d64b4c3acaf4b775b5ba7af51aa3199d3c9244",
-    "imports": ["@/lib/domain/catalog", "node:crypto"]
+    "imports": [
+      "@/lib/domain/catalog",
+      "node:crypto"
+    ]
   },
   {
     "path": "src/lib/server/reveal.ts",
     "sha256": "12022cc79944b4dd6b0c28e89829e974885472f5964db6ccab6d7fd5c0f82bc4",
-    "imports": ["@/lib/server/retrieve"]
+    "imports": [
+      "@/lib/server/retrieve"
+    ]
   },
   {
     "path": "src/lib/server/secrets.ts",
     "sha256": "269b7a6ab911744dcb3078444da7f27534cae6e48a49ae052376baac32a8f53b",
-    "imports": ["@/lib/domain/llm", "@/lib/server/vault"]
+    "imports": [
+      "@/lib/domain/llm",
+      "@/lib/server/vault"
+    ]
   },
   {
     "path": "src/lib/server/seed.ts",
     "sha256": "6d74d2e8173a05c37487712900f44e2b27eea44e07de229e91539843cb561c47",
-    "imports": ["@/lib/domain/catalog", "node:crypto"]
+    "imports": [
+      "@/lib/domain/catalog",
+      "node:crypto"
+    ]
   },
   {
     "path": "src/lib/server/toronto.ts",
@@ -180,6 +235,11 @@
   {
     "path": "src/lib/server/vault.ts",
     "sha256": "5495d7384ba3d87fca87af5e4db178148c64d58815362f86dee7d973f287b5fc",
-    "imports": ["../../../scripts/local-data.mjs", "node:crypto", "node:fs", "node:path"]
+    "imports": [
+      "../../../scripts/local-data.mjs",
+      "node:crypto",
+      "node:fs",
+      "node:path"
+    ]
   }
 ]

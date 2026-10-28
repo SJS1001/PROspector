@@ -91,6 +91,30 @@ export async function runWorkflow({
   evidence = {},
 }) {
   page.setDefaultTimeout(30_000);
+  await page.setViewportSize({ width: 360, height: 800 });
+  const layout = async (checkpoint) => {
+    const measured = await page.evaluate(() => {
+      const task = document.querySelector("#operator-task");
+      const controls = [...task.querySelectorAll("button,input,textarea,select,a.inline-flex")]
+        .map((node) => node.getBoundingClientRect())
+        .filter((rect) => rect.width && rect.height);
+      return {
+        width: innerWidth,
+        documentFits:
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+        taskFits: task.scrollWidth <= task.clientWidth + 1,
+        controlsFit: controls.every((rect) => rect.left >= -1 && rect.right <= innerWidth + 1),
+        controls: controls.length,
+      };
+    });
+    evidence.layout ??= [];
+    evidence.layout.push({ checkpoint, ...measured });
+    assert.equal(measured.width, 360);
+    assert.equal(measured.documentFits, true, checkpoint + ": document reflow");
+    assert.equal(measured.taskFits, true, checkpoint + ": task reflow");
+    assert.equal(measured.controlsFit, true, checkpoint + ": controls visible horizontally");
+    assert.ok(measured.controls > 0);
+  };
   const task = () => page.locator("#operator-task");
   const go = async (route) => {
     await page.goto(`${origin}${route}`);
@@ -109,8 +133,39 @@ export async function runWorkflow({
       await task().waitFor();
     }
   };
-  console.log("Browser checkpoint: owner unlock");
-  await unlock();
+  console.log("Browser checkpoint: keyboard owner unlock");
+  await page.goto(origin);
+  const passwordField = page.locator("#owner-password");
+  await passwordField.waitFor({ state: "visible" });
+  await page.keyboard.press("Tab");
+  assert.equal(await passwordField.evaluate((node) => node === document.activeElement), true);
+  await page.keyboard.type("Fictional incorrect keyboard password");
+  await page.keyboard.press("Tab");
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Unlock workspace", exact: true })
+      .evaluate((node) => node === document.activeElement),
+    true,
+  );
+  await page.keyboard.press("Enter");
+  await page.locator('#owner-password-error[role="alert"]').waitFor();
+  await page.waitForFunction(() => {
+    const field = document.querySelector("#owner-password");
+    return field === document.activeElement && field.value === "";
+  });
+  assert.equal(await passwordField.getAttribute("aria-invalid"), "true");
+  assert.equal(await passwordField.getAttribute("aria-describedby"), "owner-password-error");
+  await page.keyboard.type(password);
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await task().waitFor();
+  evidence.keyboardUnlock = {
+    wrongPasswordRefocused: true,
+    passwordCleared: true,
+    keyboardRecovery: true,
+  };
+  await visible(task().getByRole("heading", { name: "Workspace status", exact: true }));
+  await layout("home");
   await go("/knowledge");
   for (let index = 0; index < fictionalAnswers.length; index++) {
     await visible(task().getByText(new RegExp(`^Question ${index + 1} ·`)));
@@ -231,6 +286,7 @@ export async function runWorkflow({
       .filter({ has: page.getByText(email, { exact: true }) });
     await visible(message);
     assert.match(await message.innerText(), /Digest [a-f0-9]{64}/);
+    await layout("message-cycle-" + cycle);
     const subject = await message.getByRole("heading", { level: 3 }).innerText();
     const body = await message.locator("p.whitespace-pre-wrap").innerText();
     assert.equal(
@@ -357,6 +413,8 @@ export async function runWorkflow({
     await visible(task().getByText("Handed off · delivery unconfirmed", { exact: true }).first());
     await assertIdle(page);
     await go("/settings");
+    await visible(page.getByRole("button", { name: "Download workspace backup", exact: true }));
+    await layout("settings-cycle-" + cycle);
     csvEvidence.push(
       await downloadCsv(
         page,
@@ -384,7 +442,7 @@ export async function runWorkflow({
     csv: csvEvidence,
   };
   await go("/outreach");
-  await page.getByLabel("Kind", { exact: true }).selectOption("email");
+  await page.getByRole("combobox", { name: /^Kind/ }).selectOption("email");
   await page.getByLabel("Email", { exact: true }).fill("person2@fictionalquarry.example");
   await page
     .getByLabel("Reason", { exact: true })

@@ -3,6 +3,7 @@
 import { requireNativeContainment } from "./native-boundary.mjs";
 import {
   cpSync,
+  realpathSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -27,7 +28,7 @@ import { failureEvidence } from "./diagnostics.mjs";
 requireNativeContainment();
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
-const scratch = mkdtempSync(join(tmpdir(), "prospector-browser-"));
+const scratch = realpathSync(mkdtempSync(join(tmpdir(), "prospector-browser-")));
 const runtime = join(scratch, "operator");
 const data = join(scratch, "data");
 const eventsPath = join(scratch, "events.jsonl");
@@ -365,6 +366,7 @@ try {
   writeFileSync(eventsPath, "");
   for (const file of [
     "src",
+    "server",
     "scripts",
     "migrations",
     "public",
