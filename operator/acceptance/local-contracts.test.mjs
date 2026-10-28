@@ -273,3 +273,21 @@ test("cross-owner restore retains the canonical terminal message identity", asyn
     1,
   );
 });
+
+
+test("workspace projects real database timestamps as ISO strings after a completed run", async () => {
+  await seedEligible();
+  await sql`insert into prospecting_runs (id,user_id,configuration_digest,trigger,status,started_at,finished_at)
+    values ('timestamp-run','fictional-owner','cfg','manual','succeeded','2026-10-28T03:30:00Z','2026-10-28T03:31:00Z')`;
+  await sql`insert into discovery_runs (id,user_id,configuration_digest,trigger,status,started_at,finished_at)
+    values ('timestamp-discovery','fictional-owner','cfg','manual','succeeded','2026-10-28T03:00:00Z',null)`;
+  const [raw] = await sql`select started_at from prospecting_runs where id='timestamp-run'`;
+  assert.ok(raw.started_at instanceof Date, "exercise the driver's actual Date result");
+  const workspace = await handlers.getWorkspace();
+  assert.equal(workspace.runs[0].startedAt, '2026-10-28T03:30:00.000Z');
+  assert.equal(workspace.runs[0].finishedAt, '2026-10-28T03:31:00.000Z');
+  assert.equal(workspace.discoveryRuns[0].startedAt, '2026-10-28T03:00:00.000Z');
+  assert.equal(workspace.discoveryRuns[0].finishedAt, null);
+  assert.equal(typeof workspace.packages[0].approvedAt, 'string');
+  assert.equal(typeof workspace.messages[0].approvedAt, 'string');
+});
