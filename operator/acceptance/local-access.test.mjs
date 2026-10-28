@@ -158,7 +158,7 @@ await test(
       await page.goto(origin);
       await page.waitForLoadState("networkidle");
       assert.equal(await page.getByRole("button", { name: /unlock|sign out/i }).count(), 0);
-      assert.ok((await page.locator("body").innerText()).includes("Home"));
+      assert.equal(await page.getByRole("heading", { name: "Today", exact: true }).count(), 1);
       await page.reload();
       await page.waitForLoadState("networkidle");
       assert.equal(await page.getByRole("button", { name: /unlock/i }).count(), 0);

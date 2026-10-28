@@ -37,7 +37,7 @@ test('approvals bind the reviewed digest and terminal contacts cannot be re-prep
   const outreach = read('components/outreach-view.tsx');
   const workspace = read('lib/workspace.ts');
   assert.match(outreach, /packageId: item\.id, expectedDigest: item\.digest/);
-  assert.match(outreach, /messageId: item\.id, acknowledged: ack, expectedDigest: item\.digest/);
+  assert.match(outreach, /messageId: item\.id,\s*acknowledged: ack,\s*expectedDigest: item\.digest/);
   assert.match(workspace, /messageId: string; acknowledged: boolean; expectedDigest: string/);
   assert.match(workspace, /packageId: string; expectedDigest: string/);
   assert.match(outreach, /\["handed_off", "handed_to_gmail", "sent"\]\.includes\(message\.status\)/);

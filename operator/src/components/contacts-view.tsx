@@ -16,14 +16,14 @@ export function ContactsView() {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Enriched contacts only after approval"
+        eyebrow="Outreach"
         title="Contacts"
         copy="Explicitly search published pages for a mailbox. Paid contact reveal is unavailable in this release; guessed addresses stay suggestions."
       />
 
       {visible.length === 0 ? (
         <Panel className="p-8">
-          <h2 className="font-display text-xl">No enriched contacts yet</h2>
+          <h2 className="font-display text-xl">No contacts to review yet</h2>
           <p className="mt-2 max-w-xl text-sm text-muted">
             Approve a passed prospect in Review. Suggestions for that account then become visible
             here, still labelled as suggestions until a verified mailbox exists.
@@ -35,7 +35,7 @@ export function ContactsView() {
           ) : null}
         </Panel>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3">
           {visible.map((item) => (
             <ContactCard key={item.id} item={item} />
           ))}
@@ -64,33 +64,42 @@ function ContactCard({ item }: { item: Contact }) {
     <article className="rounded-[12px] border border-line bg-cream p-5">
       <div className="flex items-start justify-between gap-3">
         <Badge tone={tone}>{item.emailKind.replace("_", " ")}</Badge>
-        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{item.role}</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+          {item.role.replaceAll("_", " ")}
+        </span>
       </div>
       <h2 className="mt-3 font-display text-lg">{item.fullName}</h2>
       <p className="text-xs text-muted">{item.accountName}</p>
-      <p className="mt-3 font-mono text-xs">{item.emailDisplay}</p>
+      <p className="mt-3 break-all font-mono text-xs">{item.emailDisplay}</p>
       {item.phoneDisplay ? (
         <p className="mt-1 text-sm">
           <a className="text-teal underline" href={`tel:${item.phoneDisplay}`}>
             {item.phoneDisplay}
           </a>
-          <span className="ml-2 text-2xs text-subtle">Opens your phone. PROspector does not place the call.</span>
+          <span className="ml-2 text-2xs text-subtle">
+            Opens your phone. PROspector does not place the call.
+          </span>
         </p>
       ) : null}
-      <p className="mt-2 text-xs text-muted">{item.source}</p>
-      {item.publishedUrl ? (
-        <p className="mt-1 break-all font-mono text-[11px] text-muted">{item.publishedUrl}</p>
-      ) : null}
-      <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-subtle">
-        Confidence {item.confidence}
-      </p>
+      <details className="mt-3 text-sm">
+        <summary className="cursor-pointer text-muted">Source and confidence</summary>
+        <p className="mt-2 text-xs text-muted">{item.source}</p>
+        {item.publishedUrl ? (
+          <p className="mt-1 break-all font-mono text-[11px] text-muted">{item.publishedUrl}</p>
+        ) : null}
+        <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-subtle">
+          Confidence {item.confidence}
+        </p>
+      </details>
       {suggestion ? (
         <p className="mt-3 text-xs text-amber">
-          Contact Suggestion — not sendable, not exportable. Run a public-source reveal to look for a published mailbox.
+          Contact Suggestion — not sendable, not exportable. Run a public-source reveal to look for
+          a published mailbox.
         </p>
       ) : (
         <p className="mt-3 text-xs text-muted">
-          Public-source only. Mailbox not verified. Eligible for a message draft, not for CRM file export.
+          Public-source only. Mailbox not verified. Eligible for a message draft, not for CRM file
+          export.
         </p>
       )}
       <Button
@@ -106,7 +115,11 @@ function ContactCard({ item }: { item: Contact }) {
       >
         {grant.isPending ? "Retrieving…" : "Run public-source reveal"}
       </Button>
-      {grant.error ? <div className="mt-3"><ErrorNote message={mutationMessage(grant.error)} /></div> : null}
+      {grant.error ? (
+        <div className="mt-3">
+          <ErrorNote message={mutationMessage(grant.error)} />
+        </div>
+      ) : null}
     </article>
   );
 }

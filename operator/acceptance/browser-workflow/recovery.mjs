@@ -5,12 +5,13 @@ import { createKeyboardJourney } from './usability.mjs';
 // context fence. No production provider or external endpoint is substituted.
 export async function runRecovery({ page, origin, snapshot, evidence }) {
   const keyboard = createKeyboardJourney(page, evidence);
-  const button = (name) => page.getByRole('button', { name, exact: true });
+  const button = (name) => page.getByRole('button', { includeHidden: true, name, exact: true });
   const navigate = async (path) => {
     await keyboard.activate(page.locator(`nav[aria-label="Workspace"] a[href="${path}"]`), `recovery navigation ${path}`);
     await page.waitForURL(origin + path);
-    const heading = path === '/settings' ? 'Connections' : 'Packages, then messages, then Gmail';
-    await page.locator('#operator-task').getByRole('heading', { name: heading, exact: true }).waitFor();
+    const heading = path === '/settings' ? 'Settings' : 'Contacts & drafts';
+    await page.locator('#operator-task').getByRole('heading', { includeHidden: true, name: heading, exact: true }).waitFor();
+    await keyboard.expose(button(path === '/settings' ? 'Download workspace backup' : 'Add suppression'), 'recovery controls');
   };
   const fn = (request, method) => request.method() === method &&
     new URL(request.url()).origin === origin && new URL(request.url()).pathname.startsWith('/_serverFn/');
@@ -18,19 +19,29 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   await navigate('/settings');
   const before = await snapshot('recovery-before-failed-download');
   let aborted = 0;
+  let releaseFailure;
+  const failureGate = new Promise((resolve) => { releaseFailure = resolve; });
   const predispatch = async (route) => {
     if (!fn(route.request(), 'POST') || aborted) return route.fallback();
     aborted++;
+    await failureGate;
     await route.abort('connectionreset');
   };
   await page.route('**/*', predispatch);
+  const failingRequest = page.waitForRequest((request) => fn(request, 'POST'));
   await keyboard.activate(button('Download workspace backup'), 'failed backup download');
+  await failingRequest;
+  const backupDisclosure = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^Backup & restore$/ }) });
+  await keyboard.activate(backupDisclosure.locator(':scope > summary'), 'Collapse backup during pending download');
+  assert.equal(await backupDisclosure.evaluate((node) => node.open), false);
+  releaseFailure();
   await page.getByRole('alert').filter({ hasText: 'connection was interrupted' }).waitFor();
   assert.equal(aborted, 1);
+  assert.equal(await backupDisclosure.evaluate((node) => node.open), true, 'Failed action reopens its collapsed disclosure before focusing feedback');
   assert.equal(await page.locator('[role="alert"]').evaluate((node) => node === document.activeElement || node.parentElement === document.activeElement), true);
   await page.unroute('**/*', predispatch);
   assert.deepEqual(await snapshot('recovery-after-failed-download'), before);
-  evidence.recovery.push('Pre-dispatch download failure: focused uncertainty message, no data delta, no automatic retry');
+  evidence.recovery.push('Pre-dispatch download failure: pending disclosure collapsed then reopened for focused uncertainty message, no data delta, no automatic retry');
   const downloadPending = page.waitForEvent('download');
   await keyboard.activate(button('Download workspace backup'), 'explicit backup download retry');
   const download = await downloadPending;
@@ -42,10 +53,10 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
 
   await navigate('/outreach');
   const form = page.locator('form').filter({ has: button('Add suppression') });
-  await keyboard.select(form.getByRole('combobox', { name: /^Kind/ }), 'email', 'recovery suppression kind');
+  await keyboard.select(form.getByRole('combobox', { includeHidden: true, name: /^Kind/ }), 'email', 'recovery suppression kind');
   const value = 'recovery@fictionalquarry.example';
   await keyboard.type(form.getByLabel('Email', { exact: true }), value, 'recovery suppression email');
-  await keyboard.type(form.getByRole('textbox', { name: 'Reason', exact: true }), 'Fictional response-loss recovery check.', 'recovery suppression reason');
+  await keyboard.type(form.getByRole('textbox', { includeHidden: true, name: 'Reason', exact: true }), 'Fictional response-loss recovery check.', 'recovery suppression reason');
   const beforeLoss = await snapshot('recovery-before-lost-response');
   let committed = 0;
   const loseResponse = async (route) => {
@@ -82,6 +93,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   assert.equal(failedLoads, 2, 'One bounded query retry');
   await page.unroute('**/*', failedLoad);
   await keyboard.activate(button('Retry loading workspace'), 'failed workspace load retry');
+  await keyboard.expose(button('Download workspace backup'), 'backup after reload');
   await button('Download workspace backup').waitFor();
   assert.deepEqual(await snapshot('recovery-after-load-retry'), afterLoss);
   await keyboard.layout('recovered workspace load');
@@ -97,7 +109,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   await file.setInputFiles({ name: 'fictional-recovery.json', mimeType: 'application/json', buffer: Buffer.from('{"version":1,') });
   await restore.waitFor();
   assert.equal(await restore.isDisabled(), true);
-  const ack = page.getByRole('checkbox', { name: 'I understand that this replaces my workspace records.' });
+  const ack = page.getByRole('checkbox', { includeHidden: true, name: 'I understand that this replaces my workspace records.' });
   await keyboard.activate(ack, 'invalid backup confirmation', 'Space');
   await keyboard.activate(restore, 'reject truncated backup');
   await page.getByRole('alert').waitFor();
@@ -156,6 +168,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   assert.ok(handoffs(afterLoss.tables.delivery_events).length > 0);
   assert.deepEqual(handoffs(restored.tables.delivery_events), handoffs(afterLoss.tables.delivery_events));
   await page.reload();
+  await keyboard.expose(button('Download workspace backup'), 'backup after reload');
   await button('Download workspace backup').waitFor();
   assert.deepEqual(await snapshot('recovery-after-restore-reload'), restored);
   evidence.recovery.push('Oversized/truncated archive rejection: unchanged authority; same-file reselection resets consent/error; valid restore focuses success and survives restart/reload');

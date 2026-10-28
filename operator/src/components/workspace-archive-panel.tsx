@@ -14,9 +14,22 @@ export function WorkspaceArchivePanel() {
   const feedback = useRef<HTMLDivElement>(null);
   const status = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
-    if (fileError || archive.error || restore.error) feedback.current?.focus();
-    else if (restore.isSuccess) status.current?.focus();
-  }, [fileError, archive.error, restore.error, restore.isSuccess]);
+    const target =
+      fileError || archive.error || restore.error
+        ? feedback.current
+        : restore.isSuccess || archive.isSuccess
+          ? status.current
+          : null;
+    if (!target) return;
+    // An operation may finish after the owner collapses Backup & restore.
+    // Reveal its feedback before moving focus into that disclosure.
+    let ancestor = target.parentElement;
+    while (ancestor) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+      ancestor = ancestor.parentElement;
+    }
+    target.focus();
+  }, [fileError, archive.error, restore.error, restore.isSuccess, archive.isSuccess]);
   const busy = archive.isPending || restore.isPending;
 
   return (
@@ -109,7 +122,9 @@ export function WorkspaceArchivePanel() {
       <p ref={status} tabIndex={-1} role="status" className="text-sm text-muted">
         {restore.isSuccess
           ? "Restore committed. Reload the app to view the recovered workspace. No provider work was requested by restore."
-          : "The complete file is validated before an atomic restore. Validation failures leave the previous workspace in place. If the connection is interrupted, reload and check the workspace before trying again."}
+          : archive.isSuccess
+            ? "Workspace backup downloaded. Store the unencrypted JSON file privately."
+            : "The complete file is validated before an atomic restore. Validation failures leave the previous workspace in place. If the connection is interrupted, reload and check the workspace before trying again."}
       </p>
     </Panel>
   );

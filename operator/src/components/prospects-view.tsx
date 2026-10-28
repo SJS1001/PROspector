@@ -32,16 +32,44 @@ export function ProspectsView() {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Profile effective configuration"
+        eyebrow="Searches & saved prospects"
         title="Prospect workspace"
-        copy="Activate the frozen profile, then Find Prospects. A runner may only point at public pages. Application code retrieves, tiers, and scores."
+        copy="Activate a confirmed target, search public sources, then review qualified prospects."
       />
       <ProfileGate data={data} />
-      <RunnerRecord data={data} />
-      <RunLedger data={data} />
+      {data.runs
+        .filter((run) => run.status !== "succeeded")
+        .map((run) => (
+          <p
+            key={run.id}
+            role={run.status === "failed" ? "alert" : "status"}
+            className="text-sm text-muted"
+          >
+            Search {run.status}
+            {run.terminalReason ? `: ${run.terminalReason}` : ""}
+          </p>
+        ))}
+      {data.prospects.some((item) => item.state === "qualified" && item.outcome === "Passed") ? (
+        <Link
+          to="/review"
+          className="inline-flex min-h-11 items-center text-sm font-semibold text-teal"
+        >
+          Review qualified prospects →
+        </Link>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          {(["all", "qualified", "assessed", "approved", "rejected", "deferred", "disqualified"] as const).map((key) => (
+          {(
+            [
+              "all",
+              "qualified",
+              "assessed",
+              "approved",
+              "rejected",
+              "deferred",
+              "disqualified",
+            ] as const
+          ).map((key) => (
             <Button
               key={key}
               variant={filter === key ? "primary" : "outline"}
@@ -51,11 +79,14 @@ export function ProspectsView() {
             </Button>
           ))}
         </div>
-        <p className="text-xs text-muted">{live} from live runs · {data.prospects.length} total</p>
+        <p className="text-xs text-muted">
+          {live} from live runs · {data.prospects.length} total
+        </p>
       </div>
       {rows.length === 0 ? (
         <Panel className="p-10 text-center text-sm text-muted">
-          No prospects in this filter. Evidence appears only after a permitted run records validated observations.
+          No prospects in this filter. Evidence appears only after a permitted run records validated
+          observations.
         </Panel>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -64,6 +95,8 @@ export function ProspectsView() {
           ))}
         </div>
       )}
+      <RunnerRecord data={data} />
+      <RunLedger data={data} />
     </div>
   );
 }
@@ -104,7 +137,7 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid gap-4">
       <Panel className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -114,27 +147,44 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
             <h2 className="mt-2 font-display text-xl">
               {data.profile.snapshot?.play || "Customer profile"}
             </h2>
-            <p className="mt-1 font-mono text-[11px] text-muted">
-              {data.profile.digest ?? "No configuration digest yet"}
-            </p>
           </div>
-          <Badge tone={data.profile.status === "active" ? "ok" : data.profile.status === "stale" ? "warn" : "neutral"}>
+          <Badge
+            tone={
+              data.profile.status === "active"
+                ? "ok"
+                : data.profile.status === "stale"
+                  ? "warn"
+                  : "neutral"
+            }
+          >
             {data.profile.status}
           </Badge>
         </div>
-        <ol className="mt-5 grid gap-2">
-          {data.profile.readiness.map((item) => (
-            <li key={item.id} className="flex items-start justify-between gap-3 border-b border-line py-2 last:border-0">
-              <div>
-                <b className="block text-sm">{item.label}</b>
-                <span className="text-xs text-muted">{item.summary}</span>
-              </div>
-              <Badge tone={item.complete ? "ok" : "warn"}>
-                {item.complete ? "Complete" : "Needs confirmation"}
-              </Badge>
-            </li>
-          ))}
-        </ol>
+        <details className="mt-4" open={!ready}>
+          <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+            Search readiness · {data.profile.readiness.filter((item) => item.complete).length}/
+            {data.profile.readiness.length} complete
+          </summary>
+          <ol className="mt-3 grid gap-2">
+            {data.profile.readiness.map((item) => (
+              <li
+                key={item.id}
+                className="flex items-start justify-between gap-3 border-b border-line py-2 last:border-0"
+              >
+                <div>
+                  <b className="block text-sm">{item.label}</b>
+                  <span className="text-xs text-muted">{item.summary}</span>
+                </div>
+                <Badge tone={item.complete ? "ok" : "warn"}>
+                  {item.complete ? "Complete" : "Needs confirmation"}
+                </Badge>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 break-all font-mono text-[11px] text-muted">
+            {data.profile.digest ?? "No configuration digest yet"}
+          </p>
+        </details>
         {!playReady ? (
           <p role="alert" className="mt-4 text-xs text-red">
             Confirm a Draft Market Play first. Explore does not start prospecting.
@@ -142,12 +192,12 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         ) : null}
         {!ready ? (
           <p role="alert" className="mt-4 text-xs text-red">
-            This profile is not ready. Confirm the required item before creating a configuration candidate.
+            This profile is not ready. Confirm the missing search settings before activation.
           </p>
         ) : null}
         {data.profile.status === "stale" ? (
           <p role="alert" className="mt-4 text-xs text-amber">
-            The Product, Market Play, or Offer changed. Load the current authority before continuing.
+            The product, market or offer changed. Activate the updated profile before continuing.
           </p>
         ) : null}
 
@@ -177,7 +227,10 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         ) : (
           <div ref={opener} className="mt-5 flex flex-wrap gap-2">
             {data.profile.status !== "active" ? (
-              <Button disabled={!ready || !playReady || pending} onClick={() => setConfirming("activate")}>
+              <Button
+                disabled={!ready || !playReady || pending}
+                onClick={() => setConfirming("activate")}
+              >
                 Activate profile configuration
               </Button>
             ) : (
@@ -194,20 +247,20 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         )}
         {pending ? (
           <p className="mt-3 text-xs text-muted" aria-live="polite">
-            Searching public sources, then retrieving and scoring. This stays on the owner’s authority.
+            Searching public sources, then retrieving and scoring. This stays on the owner’s
+            authority.
           </p>
         ) : null}
-        {error ? <div className="mt-3"><ErrorNote message={mutationMessage(error)} /></div> : null}
+        {error ? (
+          <div className="mt-3">
+            <ErrorNote message={mutationMessage(error)} />
+          </div>
+        ) : null}
       </Panel>
-      <Panel className="h-fit p-6">
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Still locked</span>
-        <h3 className="mt-2 font-display text-base">After qualification</h3>
-        <ul className="mt-3 grid gap-2 text-sm text-muted">
-          <li>Review is a state decision only.</li>
-          <li>Contacts stay hidden until approve.</li>
-          <li>No paid reveal, Gmail, or CRM file.</li>
-        </ul>
-      </Panel>
+      <p className="text-xs text-muted">
+        Review changes prospect status only. Contacts require approval; paid reveal, Gmail and CRM
+        export remain separate actions.
+      </p>
     </div>
   );
 }
@@ -216,14 +269,23 @@ function RunnerRecord({ data }: { data: WorkspaceDTO }) {
   const runner = data.runner;
   return (
     <Panel className="p-6">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Untrusted runner</span>
-      <h2 className="mt-2 font-display text-lg">{runner.provider} · {runner.model}</h2>
-      <p className="mt-2 text-sm text-muted">{runner.assignment}</p>
-      <ul className="mt-3 grid gap-1 text-xs text-muted">
-        <li>Tools: {runner.tools.join(", ")}</li>
-        <li>Credentials stored: {runner.credentialsStored ? "yes" : "no"}</li>
-        <li>The runner proposes URLs only. Application code retrieves, tiers, and scores.</li>
-      </ul>
+      <details>
+        <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+          Search provider & technical details
+        </summary>
+        <span className="mt-3 block text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
+          Untrusted runner
+        </span>
+        <h2 className="mt-2 font-display text-lg">
+          {runner.provider} · {runner.model}
+        </h2>
+        <p className="mt-2 text-sm text-muted">{runner.assignment}</p>
+        <ul className="mt-3 grid gap-1 text-xs text-muted">
+          <li>Tools: {runner.tools.join(", ")}</li>
+          <li>Credentials stored: {runner.credentialsStored ? "yes" : "no"}</li>
+          <li>The runner proposes URLs only. Application code retrieves, tiers, and scores.</li>
+        </ul>
+      </details>
     </Panel>
   );
 }
@@ -232,34 +294,49 @@ function RunLedger({ data }: { data: WorkspaceDTO }) {
   if (data.runs.length === 0) {
     return (
       <Panel className="p-6">
-        <h2 className="font-display text-lg">Run ledger</h2>
-        <p className="mt-2 text-sm text-muted">
-          No evidence submitted yet. Evidence appears only after a bounded run records validated observations.
-        </p>
+        <details open={data.runs.some((run) => run.status !== "succeeded")}>
+          <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+            Search history · {data.runs.length} runs
+          </summary>
+          <p className="mt-2 text-sm text-muted">
+            No evidence submitted yet. Evidence appears only after a bounded run records validated
+            observations.
+          </p>
+        </details>
       </Panel>
     );
   }
   return (
     <Panel className="p-6">
-      <h2 className="font-display text-lg">Run ledger</h2>
-      <ol className="mt-4 grid gap-3">
-        {data.runs.map((run) => (
-          <li key={run.id} className="rounded-[10px] border border-line bg-paper p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <b className="text-sm">{run.trigger} run</b>
-              <Badge tone={run.status === "succeeded" ? "ok" : run.status === "failed" ? "danger" : "warn"}>
-                {run.status}
-              </Badge>
-            </div>
-            <p className="mt-2 font-mono text-[11px] text-muted">{run.configurationDigest}</p>
-            <p className="mt-2 text-xs text-muted">
-              {run.candidateCount} retrieved · {run.qualifiedCount} passed
-              {run.finishedAt ? ` · ${new Date(run.finishedAt).toLocaleString("en-CA")}` : ""}
-            </p>
-            {run.terminalReason ? <p className="mt-2 text-xs">{run.terminalReason}</p> : null}
-          </li>
-        ))}
-      </ol>
+      <details open={data.runs.some((run) => run.status !== "succeeded")}>
+        <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+          Search history · {data.runs.length} runs
+        </summary>
+        <ol className="mt-4 grid gap-3">
+          {data.runs.map((run) => (
+            <li key={run.id} className="rounded-[10px] border border-line bg-paper p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <b className="text-sm">{run.trigger} run</b>
+                <Badge
+                  tone={
+                    run.status === "succeeded" ? "ok" : run.status === "failed" ? "danger" : "warn"
+                  }
+                >
+                  {run.status}
+                </Badge>
+              </div>
+              <p className="mt-2 break-all font-mono text-[11px] text-muted">
+                {run.configurationDigest}
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                {run.candidateCount} retrieved · {run.qualifiedCount} passed
+                {run.finishedAt ? ` · ${new Date(run.finishedAt).toLocaleString("en-CA")}` : ""}
+              </p>
+              {run.terminalReason ? <p className="mt-2 text-xs">{run.terminalReason}</p> : null}
+            </li>
+          ))}
+        </ol>
+      </details>
     </Panel>
   );
 }
@@ -276,8 +353,21 @@ function ProspectCard({ item }: { item: Prospect }) {
       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
         {item.origin === "run" ? "Live retrieval" : "Seeded fixture"} · {item.outcome}
       </p>
-      <p className="mt-3 flex-1 text-xs leading-5 text-muted">{item.evidenceExcerpt}</p>
-      {item.lastReason ? <p className="mt-3 text-xs text-ink">Last reason: {item.lastReason}</p> : null}
+      <p className="mt-2 text-xs text-muted">
+        Tier {item.evidenceTier} · {item.evidenceDate}
+      </p>
+      {item.assessment.hardDisqualifier ? (
+        <p className="mt-2 text-xs text-red">{item.assessment.hardDisqualifier}</p>
+      ) : null}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+          Evidence summary
+        </summary>
+        <p className="mt-2 text-xs leading-5 text-muted">{item.evidenceExcerpt}</p>
+      </details>
+      {item.lastReason ? (
+        <p className="mt-3 text-xs text-ink">Last reason: {item.lastReason}</p>
+      ) : null}
       <Link
         to="/prospects/$prospectId"
         params={{ prospectId: item.id }}
@@ -310,7 +400,9 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
 
   const now = Date.now();
   const cooldownExpired =
-    item.state === "rejected" && item.cooldownUntil != null && Date.parse(item.cooldownUntil) <= now;
+    item.state === "rejected" &&
+    item.cooldownUntil != null &&
+    Date.parse(item.cooldownUntil) <= now;
   const reviewDue =
     item.state === "deferred" && item.reviewAt != null && Date.parse(item.reviewAt) <= now;
   const evidence = data.signals.filter((row) => row.prospectId === item.id);
@@ -337,21 +429,34 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
           Application-calculated qualification
         </p>
         <p className="mt-4 max-w-3xl text-sm leading-6">{item.evidenceExcerpt}</p>
-        <p className="mt-3 font-mono text-[11px] text-muted">
+        <p className="mt-3 break-all font-mono text-[11px] text-muted">
           Tier {item.evidenceTier} · {item.evidenceDate} · {item.evidenceUrl}
         </p>
-        <p className="mt-2 font-mono text-[11px] text-muted">{item.configurationDigest}</p>
-        <div className="mt-6 grid gap-2 sm:grid-cols-5">
-          {item.assessment.dimensions.map((dim) => (
-            <div key={dim.id} className="rounded-[10px] border border-line bg-paper p-3">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">{dim.label}</span>
-              <b className="mt-1 block font-display text-xl">{dim.score}/{dim.max}</b>
-              <p className="mt-1 text-[11px] leading-4 text-muted">{dim.note}</p>
-            </div>
-          ))}
-        </div>
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+            Scoring & configuration details
+          </summary>
+          <p className="mt-2 break-all font-mono text-[11px] text-muted">
+            {item.configurationDigest}
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-5">
+            {item.assessment.dimensions.map((dim) => (
+              <div key={dim.id} className="rounded-[10px] border border-line bg-paper p-3">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                  {dim.label}
+                </span>
+                <b className="mt-1 block font-display text-xl">
+                  {dim.score}/{dim.max}
+                </b>
+                <p className="mt-1 text-[11px] leading-4 text-muted">{dim.note}</p>
+              </div>
+            ))}
+          </div>
+        </details>
         {item.assessment.hardDisqualifier ? (
-          <p className="mt-4 text-sm text-red">Hard disqualifier: {item.assessment.hardDisqualifier}</p>
+          <p className="mt-4 text-sm text-red">
+            Hard disqualifier: {item.assessment.hardDisqualifier}
+          </p>
         ) : (
           <p className="mt-4 text-xs text-muted">{item.assessment.passRule}</p>
         )}
@@ -369,7 +474,9 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
               <li key={row.id} className="rounded-[10px] border border-line bg-paper p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <b className="text-sm">{row.title}</b>
-                  <Badge tone={row.tier === 1 ? "ok" : row.tier === 2 ? "lime" : "warn"}>Tier {row.tier}</Badge>
+                  <Badge tone={row.tier === 1 ? "ok" : row.tier === 2 ? "lime" : "warn"}>
+                    Tier {row.tier}
+                  </Badge>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-muted">{row.excerpt}</p>
                 <a
@@ -390,14 +497,18 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
         <Panel className="grid gap-3 p-6">
           <h2 className="font-display text-lg">Re-entry</h2>
           <p className="text-sm text-muted">
-            Rejected prospects cool for 90 days. Deferred prospects return on the review date.
-            A material signal can re-enter either path immediately.
+            Rejected prospects cool for 90 days. Deferred prospects return on the review date. A
+            material signal can re-enter either path immediately.
           </p>
           {item.cooldownUntil ? (
-            <p className="text-xs text-muted">Cooldown until {new Date(item.cooldownUntil).toLocaleString("en-CA")}</p>
+            <p className="text-xs text-muted">
+              Cooldown until {new Date(item.cooldownUntil).toLocaleString("en-CA")}
+            </p>
           ) : null}
           {item.reviewAt ? (
-            <p className="text-xs text-muted">Review date {new Date(item.reviewAt).toLocaleDateString("en-CA")}</p>
+            <p className="text-xs text-muted">
+              Review date {new Date(item.reviewAt).toLocaleDateString("en-CA")}
+            </p>
           ) : null}
           <label className="grid gap-1 text-xs text-muted">
             Material signal
@@ -423,7 +534,9 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
             </Button>
             <Button
               variant="outline"
-              disabled={reenter.isPending || (!cooldownExpired && !reviewDue && !item.materialSignal)}
+              disabled={
+                reenter.isPending || (!cooldownExpired && !reviewDue && !item.materialSignal)
+              }
               onClick={() =>
                 reenter.mutate({ prospectId: item.id, expectedRevision: item.revision })
               }

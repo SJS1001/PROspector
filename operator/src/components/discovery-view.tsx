@@ -23,23 +23,35 @@ export function DiscoveryView() {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Product discovery"
+        eyebrow="Target markets"
         title="Market play proposals"
-        copy="Every run produces at most three proposals. Explore, defer, or dismiss — none of these activate prospecting on their own. Hunting starts only from an activated profile."
+        copy="Discover up to three markets, then explore a proposal to define your target. Prospecting requires a separate profile activation."
       />
 
       {!data.interviewComplete ? <InterviewBlocked /> : null}
 
       <ProductReadiness data={data} />
+      {data.discoveryRuns
+        .filter((run) => run.status !== "succeeded")
+        .map((run) => (
+          <p
+            key={run.id}
+            role={run.status === "failed" ? "alert" : "status"}
+            className="text-sm text-muted"
+          >
+            Discovery {run.status}
+            {run.terminalReason ? `: ${run.terminalReason}` : ""}
+          </p>
+        ))}
       <DraftPlays data={data} />
-      <DiscoveryLedger data={data} />
 
       <p className="text-xs font-semibold text-muted">
         {open.length} open · {data.proposals.length} in this workspace · at most 3 proposals per run
       </p>
       {data.proposals.length === 0 ? (
         <Panel className="p-10 text-center text-sm text-muted">
-          No market play proposals yet. Activate the product, then Discover markets. A run surfaces at most three proposals.
+          No market play proposals yet. Activate the product, then Discover markets. A run surfaces
+          at most three proposals.
         </Panel>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -48,6 +60,7 @@ export function DiscoveryView() {
           ))}
         </div>
       )}
+      <DiscoveryLedger data={data} />
     </div>
   );
 }
@@ -58,11 +71,10 @@ function InterviewBlocked() {
       <Badge tone="warn">Interview incomplete</Badge>
       <h2 className="mt-3 font-display text-2xl">Market discovery is blocked</h2>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        Confirm every knowledge item before product readiness and live market discovery can start.
-        Activation and Discover markets stay dark until the interview is complete.
+        Confirm your company details to enable market discovery.
       </p>
       <Link to="/knowledge" className="mt-5 inline-flex">
-        <Button>Continue interview</Button>
+        <Button>Complete company details</Button>
       </Link>
     </Panel>
   );
@@ -74,7 +86,9 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
   const [confirming, setConfirming] = useState<"activate" | "discover" | null>(null);
   const ready = data.interviewComplete && data.product.readiness.every((item) => item.complete);
   const active = data.product.status === "active";
-  const busyRun = data.discoveryRuns.some((run) => run.status === "queued" || run.status === "running");
+  const busyRun = data.discoveryRuns.some(
+    (run) => run.status === "queued" || run.status === "running",
+  );
   const error = activate.error ?? discover.error;
   const pending = activate.isPending || discover.isPending;
   const confirmation = useRef<HTMLDivElement>(null);
@@ -109,42 +123,52 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-            {active ? "Active product configuration" : "Product readiness"}
+            {active ? "Saved product" : "Product readiness"}
           </span>
           <h2 className="mt-2 font-display text-xl">
             {data.product.snapshot?.product || "Product configuration"}
           </h2>
-          <p className="mt-1 font-mono text-[11px] text-muted">
-            {data.product.digest ?? "No configuration digest yet"}
-          </p>
         </div>
         <Badge tone={active ? "ok" : data.product.status === "stale" ? "warn" : "neutral"}>
           {data.product.status}
         </Badge>
       </div>
 
-      <ol className="mt-5 grid gap-2">
-        {data.product.readiness.map((item) => (
-          <li key={item.id} className="flex items-start justify-between gap-3 border-b border-line py-2 last:border-0">
-            <div>
-              <b className="block text-sm">{item.label}</b>
-              <span className="text-xs text-muted">{item.summary}</span>
-            </div>
-            <Badge tone={item.complete ? "ok" : "warn"}>
-              {item.complete ? "Complete" : "Needs confirmation"}
-            </Badge>
-          </li>
-        ))}
-      </ol>
+      <details className="mt-4" open={!ready}>
+        <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+          Product readiness · {data.product.readiness.filter((item) => item.complete).length}/
+          {data.product.readiness.length} complete
+        </summary>
+        <ol className="mt-3 grid gap-2">
+          {data.product.readiness.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-start justify-between gap-3 border-b border-line py-2 last:border-0"
+            >
+              <div>
+                <b className="block text-sm">{item.label}</b>
+                <span className="text-xs text-muted">{item.summary}</span>
+              </div>
+              <Badge tone={item.complete ? "ok" : "warn"}>
+                {item.complete ? "Complete" : "Needs confirmation"}
+              </Badge>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 break-all font-mono text-[11px] text-muted">
+          {data.product.digest ?? "No configuration digest yet"}
+        </p>
+      </details>
 
       {!ready ? (
         <p role="alert" className="mt-4 text-xs text-red">
-          This product is not ready. Confirm the required interview items before creating a configuration.
+          This product is not ready. Confirm the required company details before activation.
         </p>
       ) : null}
       {data.product.status === "stale" ? (
         <p role="alert" className="mt-4 text-xs text-amber">
-          Confirmed knowledge changed after activation. Load the current product configuration before continuing.
+          Confirmed knowledge changed after activation. Load the current product configuration
+          before continuing.
         </p>
       ) : null}
 
@@ -185,7 +209,8 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
           ) : (
             <>
               <p className="text-xs text-muted">
-                Digest {data.product.digest}. Manual discovery produces at most three proposals per run and does not start prospecting.
+                Manual discovery produces at most three proposals per run and does not start
+                prospecting.
               </p>
               <Button disabled={pending || busyRun} onClick={() => setConfirming("discover")}>
                 Discover markets
@@ -200,7 +225,11 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
           Queuing market discovery against the product configuration. Prospecting stays off.
         </p>
       ) : null}
-      {error ? <div className="mt-3"><ErrorNote message={mutationMessage(error)} /></div> : null}
+      {error ? (
+        <div className="mt-3">
+          <ErrorNote message={mutationMessage(error)} />
+        </div>
+      ) : null}
     </Panel>
   );
 }
@@ -208,19 +237,39 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
 function DraftPlays({ data }: { data: WorkspaceDTO }) {
   return (
     <Panel className="p-6">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Draft plays</span>
-      <h2 className="mt-2 font-display text-lg">Explore opened a Draft Play. It does not activate prospecting.</h2>
+      <h2 className="font-display text-lg">
+        Draft markets · {data.draftPlays.filter((play) => play.status !== "confirmed").length}{" "}
+        awaiting confirmation
+      </h2>
       {data.draftPlays.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
-          No draft plays yet. Exploring a proposal records a draft interview only. Confirm audience and buyer before the profile can hunt.
+          Explore a proposal below, then confirm its audience and buyer. This does not activate
+          prospecting.
         </p>
       ) : (
         <ol className="mt-4 grid gap-3">
-          {data.draftPlays.map((play) => (
-            <DraftPlayCard key={play.id} play={play} />
-          ))}
+          {data.draftPlays
+            .filter((play) => play.status !== "confirmed")
+            .map((play) => (
+              <DraftPlayCard key={play.id} play={play} />
+            ))}
         </ol>
       )}
+      {data.draftPlays.some((play) => play.status === "confirmed") ? (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+            Confirmed draft markets ·{" "}
+            {data.draftPlays.filter((play) => play.status === "confirmed").length}
+          </summary>
+          <ol className="mt-3 grid gap-3">
+            {data.draftPlays
+              .filter((play) => play.status === "confirmed")
+              .map((play) => (
+                <DraftPlayCard key={play.id} play={play} />
+              ))}
+          </ol>
+        </details>
+      ) : null}
     </Panel>
   );
 }
@@ -241,7 +290,8 @@ function DraftPlayCard({ play }: { play: WorkspaceDTO["draftPlays"][number] }) {
       {play.notes ? <p className="mt-2 text-xs text-muted">{play.notes}</p> : null}
       {confirmed ? (
         <p className="mt-3 text-xs text-muted">
-          Audience: {play.audience}. Buyer: {play.likelyBuyer}. Offer: {play.offer}. Prospecting still needs a separate profile activation.
+          Audience: {play.audience}. Buyer: {play.likelyBuyer}. Offer: {play.offer}. Prospecting
+          still needs a separate profile activation.
         </p>
       ) : (
         <form
@@ -291,34 +341,49 @@ function DiscoveryLedger({ data }: { data: WorkspaceDTO }) {
   if (data.discoveryRuns.length === 0) {
     return (
       <Panel className="p-6">
-        <h2 className="font-display text-lg">Discovery run ledger</h2>
-        <p className="mt-2 text-sm text-muted">
-          No discovery runs yet. Activation queues one initial run. Manual Discover markets queues another, each capped at three proposals.
-        </p>
+        <details open={data.discoveryRuns.some((run) => run.status !== "succeeded")}>
+          <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+            Discovery history · {data.discoveryRuns.length} runs
+          </summary>
+          <p className="mt-2 text-sm text-muted">
+            No discovery runs yet. Activation queues one initial run. Manual Discover markets queues
+            another, each capped at three proposals.
+          </p>
+        </details>
       </Panel>
     );
   }
   return (
     <Panel className="p-6">
-      <h2 className="font-display text-lg">Discovery run ledger</h2>
-      <ol className="mt-4 grid gap-3">
-        {data.discoveryRuns.map((run) => (
-          <li key={run.id} className="rounded-[10px] border border-line bg-paper p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <b className="text-sm">{run.trigger} run</b>
-              <Badge tone={run.status === "succeeded" ? "ok" : run.status === "failed" ? "danger" : "warn"}>
-                {run.status}
-              </Badge>
-            </div>
-            <p className="mt-2 text-xs text-muted">
-              {run.proposalCount} proposals
-              {` · ${new Date(run.startedAt).toLocaleString("en-CA")}`}
-              {run.finishedAt ? ` · finished ${new Date(run.finishedAt).toLocaleString("en-CA")}` : ""}
-            </p>
-            {run.terminalReason ? <p className="mt-2 text-xs">{run.terminalReason}</p> : null}
-          </li>
-        ))}
-      </ol>
+      <details open={data.discoveryRuns.some((run) => run.status !== "succeeded")}>
+        <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+          Discovery history · {data.discoveryRuns.length} runs
+        </summary>
+        <ol className="mt-4 grid gap-3">
+          {data.discoveryRuns.map((run) => (
+            <li key={run.id} className="rounded-[10px] border border-line bg-paper p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <b className="text-sm">{run.trigger} run</b>
+                <Badge
+                  tone={
+                    run.status === "succeeded" ? "ok" : run.status === "failed" ? "danger" : "warn"
+                  }
+                >
+                  {run.status}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                {run.proposalCount} proposals
+                {` · ${new Date(run.startedAt).toLocaleString("en-CA")}`}
+                {run.finishedAt
+                  ? ` · finished ${new Date(run.finishedAt).toLocaleString("en-CA")}`
+                  : ""}
+              </p>
+              {run.terminalReason ? <p className="mt-2 text-xs">{run.terminalReason}</p> : null}
+            </li>
+          ))}
+        </ol>
+      </details>
     </Panel>
   );
 }
@@ -336,22 +401,39 @@ function ProposalCard({ proposal }: { proposal: MarketProposal }) {
     <article className="grid gap-4 rounded-[12px] border border-line bg-cream p-6">
       <header className="flex items-start justify-between gap-3">
         <h2 className="font-display text-xl leading-snug">{proposal.title}</h2>
-        <Badge tone={proposal.decision === "explore" ? "ok" : proposal.decision === "open" ? "lime" : "neutral"}>
+        <Badge
+          tone={
+            proposal.decision === "explore"
+              ? "ok"
+              : proposal.decision === "open"
+                ? "lime"
+                : "neutral"
+          }
+        >
           {proposal.decision}
         </Badge>
       </header>
       <p className="text-sm text-muted">{proposal.problemMatch}</p>
-      <dl className="grid gap-2 text-xs">
-        <Row term="Customer type" value={proposal.customerType} />
-        <Row term="Examples" value={proposal.examples} />
-        <Row term="Likely buyer" value={proposal.likelyBuyer} />
-        <Row term="Risks" value={proposal.risks} />
-        <Row term="Product fit" value={proposal.productFit} />
-      </dl>
-      <div className="rounded-[8px] border border-line bg-paper p-3 text-xs text-muted">
-        <b className="text-teal">Evidence. </b>
-        {proposal.evidence}
-      </div>
+      <p className="text-xs text-muted">
+        <b className="text-ink">Fit:</b> {proposal.productFit}
+      </p>
+      <p className="text-xs text-muted">
+        <b className="text-ink">Risks:</b> {proposal.risks}
+      </p>
+      <details>
+        <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
+          Market details & evidence
+        </summary>
+        <dl className="mt-3 grid gap-2 text-xs">
+          <Row term="Customer type" value={proposal.customerType} />
+          <Row term="Examples" value={proposal.examples} />
+          <Row term="Likely buyer" value={proposal.likelyBuyer} />
+        </dl>
+        <div className="rounded-[8px] border border-line bg-paper p-3 text-xs text-muted">
+          <b className="text-teal">Evidence. </b>
+          {proposal.evidence}
+        </div>
+      </details>
       {open ? (
         <div className="grid gap-3">
           <label className="grid gap-1 text-xs text-muted">
@@ -365,9 +447,15 @@ function ProposalCard({ proposal }: { proposal: MarketProposal }) {
             />
           </label>
           <div className="flex flex-wrap gap-2">
-            <Button disabled={decide.isPending} onClick={() => act("explore")}>Explore</Button>
-            <Button variant="outline" disabled={decide.isPending} onClick={() => act("defer")}>Defer</Button>
-            <Button variant="danger" disabled={decide.isPending} onClick={() => act("dismiss")}>Dismiss</Button>
+            <Button disabled={decide.isPending} onClick={() => act("explore")}>
+              Explore
+            </Button>
+            <Button variant="outline" disabled={decide.isPending} onClick={() => act("defer")}>
+              Defer
+            </Button>
+            <Button variant="danger" disabled={decide.isPending} onClick={() => act("dismiss")}>
+              Dismiss
+            </Button>
           </div>
           {decide.error ? <ErrorNote message={mutationMessage(decide.error)} /> : null}
         </div>
@@ -382,7 +470,7 @@ function Row({ term, value }: { term: string; value: string }) {
   return (
     <div className="grid gap-1 border-b border-line py-2 sm:grid-cols-[140px_minmax(0,1fr)]">
       <dt className="text-muted">{term}</dt>
-      <dd className="m-0">{value}</dd>
+      <dd className="m-0 break-words">{value}</dd>
     </div>
   );
 }

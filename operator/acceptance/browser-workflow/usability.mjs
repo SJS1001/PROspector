@@ -49,7 +49,35 @@ export function createKeyboardJourney(page, evidence = {}) {
     assert.equal(state.unobscured, true, `${label}: focus is not hidden by another element`);
     return state;
   };
+  // Role locators targeting collapsed content must opt into includeHidden so
+  // attached descendants can be inspected before opening their ancestors.
+  const expose = async (locator, label = "control") => {
+    await locator.waitFor({ state: "attached" });
+    const navigation = await locator.evaluate((node) => Boolean(node.closest('nav[aria-label="Workspace"]')));
+    if (navigation) {
+      const menu = page.locator('button[aria-controls="workspace-navigation"]');
+      if (await menu.isVisible() && await menu.getAttribute("aria-expanded") === "false") {
+        await activate(menu, "Open workspace menu");
+        assert.equal(await menu.getAttribute("aria-expanded"), "true", "Menu reports expanded state");
+      }
+    }
+    // Open outermost first, using native summary keyboard activation. This also
+    // covers nested review/evidence disclosures without injecting DOM state.
+    for (;;) {
+      const isSummary = await locator.evaluate((node) => node.tagName === 'SUMMARY');
+      const closed = locator.locator(isSummary
+        ? 'xpath=parent::details/ancestor::details[not(@open)]'
+        : 'xpath=ancestor::details[not(@open)]').first();
+      if (!(await closed.count())) break;
+      const summary = closed.locator(":scope > summary");
+      const disclosure = await closed.elementHandle();
+      await activate(summary, `Open disclosure for ${label}`);
+      assert.equal(await disclosure.evaluate((node) => node.open), true, `${label}: disclosure opened with keyboard`);
+      await disclosure.dispose();
+    }
+  };
   const reach = async (locator, label = "control") => {
+    await expose(locator, label);
     await locator.waitFor({ state: "visible" });
     assert.equal(await locator.count(), 1, `${label}: unambiguous accessible target`);
     assert.equal(await locator.isEnabled(), true, `${label}: enabled keyboard target`);
@@ -170,5 +198,5 @@ export function createKeyboardJourney(page, evidence = {}) {
     await page.setViewportSize({ width: 360, height: 800 });
     await settleLayout();
   };
-  return { reach, activate, type, select, skip, layout, focused };
+  return { reach, activate, type, select, skip, layout, focused, expose };
 }
