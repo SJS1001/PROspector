@@ -6,6 +6,14 @@
 **Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
+## Local personal-use candidate — 2026-10-28
+
+Latest owner decision: supported local startup now defaults to passwordless access. `npm start` creates/reuses the durable local owner identity; no enrollment/unlock is required. Exact loopback/Host/Origin guards remain. `OPERATOR_ACCESS_MODE=password` retains optional password protection. See the latest section in the integration report below for the focused verification delta.
+
+The owner-selected current local target is `operator/` on `codex/local-app-integration`, based on `operator-os`, combining PRs #127–#141 and focused integration repairs. See [the integration report and remaining task list](implementation-lanes/2026-10-28-local-integration.md) and [local runbook](../operator/README.md). This is an unmerged review candidate; owner acceptance and broader usability checks remain open. Existing hosted plan credit and external gates are unchanged.
+
+Mac HTTP auth passed 18/18, and the production shutdown bridge now drains requests before closing the durable database. The CSV projection preserves leading BOM bytes through PGlite/PostgreSQL driver decoding; real-database manual-workflow cases passed 31/31. Serial `npm test` passed 255 script + 64 source tests, and `test-all.mjs` passed 255 + 84; typecheck passed and lint has zero errors/3 existing warnings. The final build and contained Mac browser run passed at source `5eb5c1e`: two fictional workflows across restart, canonical digest match, seven exact CSV edge rows, two aborted compose navigations, zero unexpected/forbidden network requests and successful teardown. The candidate is published on the matching GitHub branch; its final live-ref comparison is recorded in the external session handoff. Full keyboard-only usability, owner quality/cost evaluation and the merge checkpoint remain open.
+
 ## Phase 3 release-evidence contract repair — 2026-09-09
 
 The repaired PR #111 candidate makes the private synthetic-proof release tuple explicit, adds immutable migration identity at checked migration `0020`, keeps legacy rows neutral and non-consumable, and restricts the disposable tuple to the complete `LOCAL_DEMO` fence. The offline preflight now binds the authorization to the exact migration and fixture tuple. See [`implementation-lanes/2026-09-09-phase3-release-evidence-contract.md`](implementation-lanes/2026-09-09-phase3-release-evidence-contract.md). This is local preparation only: it provides no hosted evidence and earns no plan or phase credit.
