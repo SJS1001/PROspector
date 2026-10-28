@@ -54,6 +54,10 @@ async function initializeLocalAuth() {
     },
     rateLimit: { enabled: true, window: 60, max: 100 },
     advanced: {
+      // The supported launcher accepts only IPv4 loopback sockets, for one owner.
+      // No proxy supplies trusted IP headers: all local callers share a per-path
+      // throttle bucket. Keep tracking enabled so Better Auth enforces that bucket.
+      ipAddress: { ipAddressHeaders: [] },
       useSecureCookies: false,
       defaultCookieAttributes: { httpOnly: true, sameSite: "strict", secure: false, path: "/" },
       cookies: { session_token: { name: SESSION_TOKEN_COOKIE } },
