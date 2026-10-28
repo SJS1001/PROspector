@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import net from "node:net";
 import { request as httpRequest } from "node:http";
 import { enrollOwner, OWNER_EMAIL, LOCAL_ORIGIN } from "../../scripts/local-owner.mjs";
+import { assertLoopbackListener } from "./listener-proof.mjs";
 const env = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
@@ -23,9 +24,12 @@ let child,
 const safe = (text) =>
   assert.ok(!secrets.some((s) => text.includes(s)), "secret absent (values withheld)");
 async function stop() {
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const done = once(child, "exit");
-  process.kill(-child.pid, "SIGTERM");
+  // The launcher forwards this signal to its server child. Sending it to the
+  // entire group would deliver it twice to the server; retain group kill below
+  // only as the bounded failure cleanup.
+  child.kill("SIGTERM");
   let timer;
   try {
     await Promise.race([
@@ -44,18 +48,22 @@ async function stop() {
 function request(path, { method = "GET", headers = {}, body } = {}) {
   if (path.startsWith("/_serverFn/")) headers = { "x-tsr-serverFn": "true", ...headers };
   return new Promise((resolve, reject) => {
-    const req = httpRequest(LOCAL_ORIGIN + path, { method, headers, timeout: 10000 }, (res) => {
-      let text = "";
-      res.on("data", (c) => (text += c));
-      res.on("end", () => {
-        try {
-          if (res.statusCode >= 400) safe(text);
-          resolve({ status: res.statusCode, headers: res.headers, text });
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
+    const req = httpRequest(
+      LOCAL_ORIGIN + path,
+      { method, headers, timeout: 10000, agent: false },
+      (res) => {
+        let text = "";
+        res.on("data", (c) => (text += c));
+        res.on("end", () => {
+          try {
+            if (res.statusCode >= 400) safe(text);
+            resolve({ status: res.statusCode, headers: res.headers, text });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
     req.on("timeout", () => req.destroy(new Error("request timeout")));
     req.on("error", reject);
     req.end(body);
@@ -101,7 +109,7 @@ async function start() {
   throw new Error("readiness timeout; diagnostics withheld");
 }
 await test("built HTTP owner and mutation boundaries", { timeout: 180000 }, async (t) => {
-  assert.equal(process.platform, "linux", "listener proof requires /proc");
+  assert.ok(["linux", "darwin"].includes(process.platform), "unsupported listener-proof platform");
   await new Promise((resolve, reject) => {
     const probe = net.createServer();
     probe.once("error", reject);
@@ -152,12 +160,7 @@ await test("built HTTP owner and mutation boundaries", { timeout: 180000 }, asyn
       data = { data: { questionId: "company.legal_name", answer: "Fictional overwrite" } };
     let cookie;
     await t.test("real IPv4 loopback listener", () => {
-      const entries = ["/proc/net/tcp", "/proc/net/tcp6"]
-        .flatMap((p) => readFileSync(p, "utf8").trim().split("\n").slice(1))
-        .map((l) => l.trim().split(/\s+/))
-        .filter((c) => c[1].endsWith(":1F90") && c[3] === "0A");
-      assert.equal(entries.length, 1);
-      assert.equal(entries[0][1], "0100007F:1F90");
+      assertLoopbackListener(child.pid);
     });
     await t.test("owner admitted; anonymous and second-owner refused", async () => {
       assert.equal(
@@ -381,7 +384,53 @@ await test("built HTTP owner and mutation boundaries", { timeout: 180000 }, asyn
         { "x-forwarded-for": "192.0.2.123" },
       );
       assert.equal(spoof.status, 429, "untrusted X-Forwarded-For must not bypass lockout");
+      const spoofedIdentities = [
+        { "X-Forwarded-For": "192.0.2.124" },
+        { "x-forwarded-for": "2001:db8::123" },
+        { "x-forwarded-for": "192.0.2.125, 127.0.0.1" },
+        { "x-forwarded-for": "127.0.0.1, 192.0.2.126" },
+        { "x-forwarded-for": "not-an-ip" },
+        { "x-forwarded-for": "" },
+        { "x-real-ip": "192.0.2.127" },
+        { "cf-connecting-ip": "192.0.2.128" },
+        { "x-client-ip": "192.0.2.129" },
+        { "x-prospector-client-ip": "192.0.2.130" },
+      ];
+      for (const headers of spoofedIdentities) {
+        for (const candidate of ["fictional-incorrect-password", password]) {
+          const result = await post(
+            "/api/auth/sign-in/email",
+            { email: OWNER_EMAIL, password: candidate },
+            headers,
+          );
+          assert.equal(result.status, 429, "client IP headers cannot change the lockout bucket");
+          assert.equal(result.headers["set-cookie"], undefined, "lockout issues no session");
+          assert.ok(Number(result.headers["x-retry-after"]) > 0, "bounded retry advertised");
+        }
+      }
     });
+    await stop();
+    await start();
+    await t.test(
+      "rotating forwarded IPs share the local login budget from the first attempt",
+      async () => {
+        const statuses = [];
+        for (let i = 0; i < 4; i++) {
+          const result = await post(
+            "/api/auth/sign-in/email",
+            { email: OWNER_EMAIL, password: "fictional-incorrect-password" },
+            { "x-forwarded-for": `192.0.2.${150 + i}` },
+          );
+          statuses.push(result.status);
+        }
+        assert.deepEqual(statuses, [401, 401, 401, 429]);
+        assert.equal(
+          (await post("/api/auth/sign-in/email", { email: OWNER_EMAIL, password })).status,
+          429,
+          "header-free correct password shares the same lockout",
+        );
+      },
+    );
     await stop();
     assert.equal(snapshot("snapshot"), before, "logout/lockout leave workspace unchanged");
     safe(logs);
