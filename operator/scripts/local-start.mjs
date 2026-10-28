@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readLocalOwner } from "./local-owner.mjs";
+import { readLocalOwner, ensureLocalOwner } from "./local-owner.mjs";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 try {
   const [major, minor] = process.versions.node.split(".").map(Number);
@@ -13,7 +13,11 @@ try {
     throw new Error(
       "Only the optional dev argument is supported; host/port overrides are refused.",
     );
-  readLocalOwner();
+  const accessMode = process.env.OPERATOR_ACCESS_MODE ?? "local";
+  if (!["local", "password"].includes(accessMode))
+    throw new Error("OPERATOR_ACCESS_MODE must be local or password.");
+  if (accessMode === "local") await ensureLocalOwner();
+  else readLocalOwner();
   const dev = process.argv[2] === "dev";
   if (!dev && !existsSync(join(root, ".output/server/index.mjs")))
     throw new Error("Run npm run build before npm start.");
@@ -34,6 +38,7 @@ try {
       stdio: "inherit",
       env: {
         ...process.env,
+        OPERATOR_ACCESS_MODE: accessMode,
         HOST: "127.0.0.1",
         PORT: "8080",
         NITRO_HOST: "127.0.0.1",

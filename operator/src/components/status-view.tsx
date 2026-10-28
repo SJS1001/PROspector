@@ -86,9 +86,8 @@ export function StatusView() {
           <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">In this site</span>
           <h2 className="mt-2 font-display text-lg">Owner workspace</h2>
           <p className="mt-2 text-sm text-muted">
-            Signed-in visitors get their own owner workspace. Activate a profile,
-            then Find Prospects. Decisions you make here persist. They do not leak
-            to anyone else.
+            This is your local owner workspace. Activate a profile, then Find
+            Prospects. Decisions you make here are saved on this machine.
           </p>
           <ul className="mt-4 grid gap-2 text-sm text-muted">
             <li>Company, product, play and profile knowledge must be confirmed before hunting.</li>

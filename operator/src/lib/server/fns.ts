@@ -324,7 +324,7 @@ function capabilitiesFrom(
       id: "owner_admission",
       name: "Owner admission",
       status: "proven",
-      reason: "This private workspace is bound to the signed-in owner. Other visitors are held at the door.",
+      reason: "This workspace belongs to the local owner. Access is limited to this machine.",
     },
     {
       id: "durable_storage",

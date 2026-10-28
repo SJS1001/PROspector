@@ -89,7 +89,7 @@ export function UserButton() {
         </span>
       )}
       <span className="text-sm font-medium">{label}</span>
-      {
+      {!user.localAccess && (
         <button
           type="button"
           disabled={signingOut}
@@ -102,7 +102,7 @@ export function UserButton() {
         >
           {signingOut ? "Signing out…" : "Sign out"}
         </button>
-      }
+      )}
     </div>
   );
 }

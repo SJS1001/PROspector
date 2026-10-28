@@ -81,6 +81,7 @@ if (process.argv[2] === "fixture") {
     ...process.env,
     OPERATOR_DATA_DIR: dir,
     DATABASE_URL: "",
+    OPERATOR_ACCESS_MODE: "password",
     VITE_AUTH_ENABLED: "false",
   };
   let child;
@@ -347,7 +348,15 @@ if (process.argv[2] === "fixture") {
       });
       await test("development password endpoint enforces rate limiting", async () => {
         const statuses = [];
-        for (let i = 0; i < 4; i++) statuses.push((await post("/api/auth/sign-in/email", { email: OWNER_EMAIL, password: "fictional-wrong-password" })).status);
+        for (let i = 0; i < 4; i++)
+          statuses.push(
+            (
+              await post("/api/auth/sign-in/email", {
+                email: OWNER_EMAIL,
+                password: "fictional-wrong-password",
+              })
+            ).status,
+          );
         assert.deepEqual(statuses, [401, 401, 401, 429]);
       });
       await stop();

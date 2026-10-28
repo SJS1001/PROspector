@@ -7,16 +7,17 @@ This is the one-owner local app from `operator-os`. It runs at **http://127.0.0.
 ```sh
 cd operator
 npm ci
-npm run owner:setup
 npm run build
 npm start
 ```
 
-Choose a unique 16–128 character owner password at the hidden terminal prompt. Open the exact URL above and unlock with that password. Enrollment is local CLI only; there is no public signup or first-visitor ownership race. The fixed local email is an internal identifier, not an email-delivery destination. Do not pass passwords in command arguments or environment variables. For automation, setup also accepts one password line on stdin.
+Open the exact URL above. No password or enrollment step is required: the launcher creates a private, durable local owner identity on first launch and reuses it thereafter. Existing owner/workspace/vault files are preserved. The fixed local email is an internal identifier, not an email-delivery destination.
 
-The server binds only IPv4 loopback. `localhost`, alternate ports, reverse proxies, foreign Host/Origin, and forwarded authority headers are deliberately unsupported. Do not expose this process using a tunnel or proxy. Owner sessions are HttpOnly/SameSite=Strict, persist for seven days, and are revoked on logout; no dev-user, bearer, sandbox OAuth, or hosted gate bypass exists. `VITE_AUTH_ENABLED=false` cannot disable owner checks.
+For optional password protection, stop the app, run `npm run owner:setup` for a new owner (or `npm run owner:reset` for an existing owner), then launch with `OPERATOR_ACCESS_MODE=password npm start`. Choose a unique 16–128 character password at the hidden terminal prompt. Never put passwords in arguments, environment variables or chat. Password mode uses HttpOnly/SameSite=Strict sessions lasting seven days, revoked on logout.
 
-For source development after enrollment, use `npm run dev`. Production `npm start` uses the built Node server; `npm run build` copies PGlite's package-supplied WASM/data assets into its server bundle and never runs a remote database migration. `DATABASE_URL` must be unset. `npm run preview` is the same local launcher. The desktop launcher is outside this supported path.
+The server binds only IPv4 loopback. `localhost`, alternate ports, reverse proxies, foreign Host/Origin, and forwarded authority headers are deliberately unsupported. Do not expose this process using a tunnel or proxy. Default local access trusts processes running on your computer; there is no browser unlock or logout. Exact Host/Origin and fetch-metadata checks still protect local APIs from other websites. No sandbox OAuth or hosted identity is used. `VITE_AUTH_ENABLED=false` does not change access mode.
+
+For source development, use `npm run dev`. Production `npm start` uses the built Node server; `npm run build` copies PGlite's package-supplied WASM/data assets into its server bundle and never runs a remote database migration. `DATABASE_URL` must be unset. `npm run preview` is the same local launcher. The desktop launcher is outside this supported path.
 
 ## Stop, data and recovery
 
@@ -58,6 +59,7 @@ Use **only `tx` inside the callback**, await all work, and do not retain it afte
 npm run build
 npm run typecheck
 npm run test:foundation
+node --test acceptance/local-access.test.mjs
 npm run lint
 npm test
 ```

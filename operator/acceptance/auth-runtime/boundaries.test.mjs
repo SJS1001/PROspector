@@ -16,6 +16,7 @@ const env = {
   HOME: process.env.HOME,
   NODE_ENV: "production",
   DATABASE_URL: "",
+  OPERATOR_ACCESS_MODE: "password",
 };
 const password = "fictional-auth-runtime-owner-password",
   secrets = [password, "fictional-auth-runtime-provider-sentinel"];

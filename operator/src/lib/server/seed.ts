@@ -307,7 +307,7 @@ const MINING_ANSWERS: Record<string, string> = {
   "product.promise":
     "ONE is a decision layer for mine uptime, recovery and throughput. It does not replace the historian, run the plant, or invent unproven savings.",
   "product.ownership":
-    "The signed-in owner is the only person who may confirm commercial knowledge in this workspace.",
+    "The local owner confirms commercial knowledge in this workspace.",
   "product.runner":
     "xAI web search + HTTPS retrieve. The runner cannot qualify, approve, spend, or send. No silent failover.",
   "play.market":

@@ -8,6 +8,7 @@ export type AppUser = {
   profileImageUrl: string | null;
   /** True when this is the sandbox/dev fallback (auth not configured). */
   isDevFallback: boolean;
+  localAccess: boolean;
 };
 
 /** `useCurrentUserState()` result: the user plus the session-loading flag. */
@@ -30,6 +31,7 @@ export function useCurrentUserState(): CurrentUserState {
           primaryEmail: user.email ?? null,
           profileImageUrl: user.image ?? null,
           isDevFallback: false,
+          localAccess: "localAccess" in user && user.localAccess === true,
         }
       : null,
     isPending,

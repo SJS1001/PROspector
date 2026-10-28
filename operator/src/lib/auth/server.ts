@@ -2,7 +2,12 @@
 import { betterAuth } from "better-auth";
 import { getPglite, getSql } from "../db";
 import { pgliteDialect } from "./pglite-dialect";
-import { readLocalOwner, LOCAL_ORIGIN, OWNER_EMAIL } from "../../../scripts/local-owner.mjs";
+import {
+  readLocalOwner,
+  localAccessEnabled,
+  LOCAL_ORIGIN,
+  OWNER_EMAIL,
+} from "../../../scripts/local-owner.mjs";
 import { assertLocalRequest } from "./local-request";
 
 export const authConfigured = true;
@@ -81,6 +86,31 @@ export async function handleLocalAuth(request: Request): Promise<Response> {
     return new Response("Forbidden", { status: 403, headers });
   }
   const path = new URL(request.url).pathname;
+  if (localAccessEnabled()) {
+    if (request.method !== "GET" || path !== "/api/auth/get-session")
+      return new Response("Not found", { status: 404, headers });
+    await getLocalAuth();
+    const owner = readLocalOwner();
+    return Response.json(
+      {
+        user: {
+          id: owner.id,
+          name: "Local owner",
+          email: OWNER_EMAIL,
+          emailVerified: true,
+          image: null,
+          localAccess: true,
+        },
+        session: {
+          id: "local",
+          userId: owner.id,
+          expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+        },
+      },
+      { headers },
+    );
+  }
+
   const allowed =
     request.method === "GET"
       ? path === "/api/auth/get-session"
