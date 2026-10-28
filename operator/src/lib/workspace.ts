@@ -142,17 +142,20 @@ export function usePrepareMessage() {
   );
 }
 export function useApproveMessage() {
-  return useWorkspaceMutation((input: { messageId: string; acknowledged: boolean }) =>
+  return useWorkspaceMutation((input: { messageId: string; acknowledged: boolean; expectedDigest: string }) =>
     approveMessage({ data: input }),
   );
 }
 export function useOpenInGmail() {
-  return useWorkspaceMutation((input: { messageId: string; expectedDigest: string }) =>
-    openInGmail({ data: input }),
-  );
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { messageId: string; expectedDigest: string }) =>
+      openInGmail({ data: input }),
+    onSuccess: (result) => queryClient.setQueryData(workspaceKey, result.workspace),
+  });
 }
 export function useApprovePackage() {
-  return useWorkspaceMutation((input: { packageId: string }) =>
+  return useWorkspaceMutation((input: { packageId: string; expectedDigest: string }) =>
     approvePackage({ data: input }),
   );
 }
@@ -182,7 +185,7 @@ export function useSaveConnections() {
   );
 }
 export function useTickSchedule() {
-  return useWorkspaceMutation(() => tickSchedule());
+  return useWorkspaceMutation(() => tickSchedule({ data: { manual: true } }));
 }
 export function useRecordDeliveryEvent() {
   return useWorkspaceMutation((input: { messageId: string; kind: string; note: string }) =>

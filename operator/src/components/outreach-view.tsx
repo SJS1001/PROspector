@@ -29,14 +29,14 @@ export function OutreachView() {
       <PageHeading
         eyebrow="Governed outreach"
         title="Packages, then messages, then Gmail"
-        copy="Package, then message, then send. If Gmail is connected, send uses your mailbox. If not, it opens compose."
+        copy="Prepare and approve a package and message, then hand the approved message to Gmail compose. Delivery is not confirmed."
       />
 
       <Panel className="p-6">
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Sender</span>
         <h2 className="mt-2 text-lg font-medium">Your mailbox, your approval</h2>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Save a Gmail app password in Connections to send. Without it, Open in Gmail still fills compose. Suppression is rechecked either way.
+          Open in Gmail creates a compose handoff after approval and a suppression recheck. You decide whether to send in Gmail.
         </p>
       </Panel>
 
@@ -67,6 +67,7 @@ export function OutreachView() {
               key={item.id}
               item={item}
               contacts={data.contacts.filter((contact) => contact.prospectId === item.prospectId)}
+              messages={data.messages}
             />
           ))}
         </div>
@@ -121,7 +122,7 @@ function ApprovedProspectRow({ item, prepared }: { item: Prospect; prepared: boo
   );
 }
 
-function PackageCard({ item, contacts }: { item: OutreachPackage; contacts: Contact[] }) {
+function PackageCard({ item, contacts, messages }: { item: OutreachPackage; contacts: Contact[]; messages: OutreachMessage[] }) {
   const approve = useApprovePackage();
   const draftMsg = usePrepareMessage();
   const draft = item.status === "draft";
@@ -144,7 +145,7 @@ function PackageCard({ item, contacts }: { item: OutreachPackage; contacts: Cont
       </p>
       <div className="flex flex-wrap gap-2">
         {draft ? (
-          <Button disabled={approve.isPending} onClick={() => approve.mutate({ packageId: item.id })}>
+          <Button disabled={approve.isPending} onClick={() => approve.mutate({ packageId: item.id, expectedDigest: item.digest })}>
             {approve.isPending ? "Approving…" : "Approve package"}
           </Button>
         ) : null}
@@ -157,16 +158,17 @@ function PackageCard({ item, contacts }: { item: OutreachPackage; contacts: Cont
           {eligible.length === 0 ? (
             <p className="text-xs text-amber">No eligible mailbox yet. Run a public-source reveal first.</p>
           ) : (
-            eligible.map((contact) => (
-              <Button
+            eligible.map((contact) => {
+              const handedOff = messages.some((message) => message.contactId === contact.id && ["handed_off", "handed_to_gmail", "sent"].includes(message.status));
+              return <Button
                 key={contact.id}
                 variant="outline"
-                disabled={draftMsg.isPending}
+                disabled={draftMsg.isPending || handedOff}
                 onClick={() => draftMsg.mutate({ packageId: item.id, contactId: contact.id })}
               >
-                Draft message to {contact.emailDisplay}
-              </Button>
-            ))
+                {handedOff ? `Already handed off: ${contact.emailDisplay}` : `Draft message to ${contact.emailDisplay}`}
+              </Button>;
+            })
           )}
         </div>
       ) : null}
@@ -182,7 +184,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
   const open = useOpenInGmail();
   const event = useRecordDeliveryEvent();
   const [ack, setAck] = useState(false);
-  const url = open.data?.messages.find((row) => row.id === item.id)?.gmailUrl ?? item.gmailUrl;
+  const [handoffError, setHandoffError] = useState<string | null>(null);
 
   return (
     <article className="grid gap-3 rounded-[12px] border border-line bg-cream p-6">
@@ -192,8 +194,8 @@ function MessageCard({ item }: { item: OutreachMessage }) {
           <h3 className="mt-2 font-display text-lg">{item.subject}</h3>
           <p className="mt-1 font-mono text-xs">{item.toEmail}</p>
         </div>
-        <Badge tone={item.status === "approved" || item.status === "handed_to_gmail" ? "ok" : item.status === "blocked" ? "danger" : "warn"}>
-          {item.status.replaceAll("_", " ")}
+        <Badge tone={item.status === "approved" || item.status === "handed_off" ? "ok" : item.status === "blocked" ? "danger" : "warn"}>
+          {item.status === "handed_off" ? "Handed off · delivery unconfirmed" : item.status.replaceAll("_", " ")}
         </Badge>
       </header>
       <p className="whitespace-pre-wrap text-sm text-muted">{item.body}</p>
@@ -216,35 +218,49 @@ function MessageCard({ item }: { item: OutreachMessage }) {
         {item.status === "draft" ? (
           <Button
             disabled={approve.isPending || !ack}
-            onClick={() => approve.mutate({ messageId: item.id, acknowledged: ack })}
+            onClick={() => approve.mutate({ messageId: item.id, acknowledged: ack, expectedDigest: item.digest })}
           >
             Approve this message
           </Button>
         ) : null}
-        {item.status === "approved" || item.status === "handed_to_gmail" ? (
+        {item.status === "approved" ? (
           <Button
             disabled={open.isPending}
-            onClick={() =>
+            onClick={() => {
+              setHandoffError(null);
+              const popup = window.open("about:blank", "_blank");
+              if (!popup) {
+                setHandoffError("Allow popups to open Gmail, then try again.");
+                return;
+              }
+              popup.opener = null;
               open.mutate(
                 { messageId: item.id, expectedDigest: item.digest },
                 {
-                  onSuccess: (workspace) => {
-                    const next = workspace.messages.find((row) => row.id === item.id)?.gmailUrl;
-                    if (next) window.open(next, "_blank", "noopener,noreferrer");
+                  onSuccess: (result) => {
+                    if (!result.url) {
+                      popup.close();
+                      setHandoffError("No new Gmail handoff is available for this message.");
+                      return;
+                    }
+                    try {
+                      const destination = new URL(result.url);
+                      if (destination.origin !== "https://mail.google.com") throw new Error("Invalid destination");
+                      popup.location.replace(destination.href);
+                    } catch {
+                      popup.close();
+                      setHandoffError("The Gmail handoff could not be opened.");
+                    }
                   },
+                  onError: () => popup.close(),
                 },
-              )
-            }
+              );
+            }}
           >
-            {open.isPending ? "Rechecking…" : "Send / Open in Gmail"}
+            {open.isPending ? "Rechecking…" : "Open in Gmail"}
           </Button>
         ) : null}
-        {url ? (
-          <a href={url} target="_blank" rel="noreferrer" className="inline-flex">
-            <Button variant="outline">Continue in Gmail</Button>
-          </a>
-        ) : null}
-        {item.status === "sent" || item.status === "handed_to_gmail" ? (
+        {item.status === "sent" || item.status === "handed_to_gmail" || item.status === "handed_off" ? (
           <>
             <Button variant="outline" disabled={event.isPending} onClick={() => event.mutate({ messageId: item.id, kind: "reply", note: "Owner recorded a reply." })}>
               Record reply
@@ -258,6 +274,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
           </>
         ) : null}
       </div>
+      {handoffError ? <ErrorNote message={handoffError} /> : null}
       {approve.error || open.error ? (
         <ErrorNote message={mutationMessage(approve.error ?? open.error)} />
       ) : null}

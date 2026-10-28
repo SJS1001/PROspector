@@ -22,14 +22,12 @@ export function SettingsView() {
   const [gmailUser, setGmailUser] = useState("");
   const [gmailPass, setGmailPass] = useState("");
   const [budget, setBudget] = useState("");
-  const [schedule, setSchedule] = useState<boolean | null>(null);
   const [batch, setBatch] = useState("");
 
   if (isPending) return <p className="text-sm text-muted">Loading connections…</p>;
   if (isError || !data) return <ErrorNote message="Connections could not be loaded." />;
 
   const selected = llmProvider(provider || data.connections.llmProvider);
-  const scheduleOn = schedule ?? data.connections.scheduleEnabled;
 
   return (
     <div className="grid max-w-2xl gap-6">
@@ -105,11 +103,11 @@ export function SettingsView() {
 
       <Panel className="grid gap-4 p-5">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium">Scheduled runs</h2>
-          <Badge tone={scheduleOn ? "ok" : "warn"}>{scheduleOn ? "On" : "Off"}</Badge>
+          <h2 className="text-sm font-medium">Morning prospect runs</h2>
+          <Badge tone="neutral">Manual</Badge>
         </div>
         <p className="text-sm text-muted">
-          Off by default. When on, weekdays after 06:00 Toronto can hunt, and monthly discovery can fire, using your model key.
+          Start a due morning prospect run from Morning Brief. Discovery is a separate owner action; no inbox scan runs automatically.
         </p>
         <label className="grid gap-1 text-xs text-muted">
           Accounts per hunt (4–20)
@@ -154,14 +152,14 @@ export function SettingsView() {
           <Badge tone={data.connections.apollo ? "ok" : "warn"}>{data.connections.apollo ? "Ready" : "Missing"}</Badge>
         </div>
         <p className="text-sm text-muted">
-          Paid people search. A grant is still required per prospect. Reveal is blocked if Apollo reports 0 lead credits left.
+          Paid contact reveal is unavailable in this release. Public-source reveal is available from Contacts.
         </p>
         {data.connections.apolloLeadLeft != null ? (
           <p className="text-sm">
             Apollo ledger: {data.connections.apolloLeadLeft} of {data.connections.apolloLeadLimit ?? "?"} lead credits remaining.
           </p>
         ) : (
-          <p className="text-xs text-muted">Save a key to pull the live Apollo credit ledger.</p>
+          <p className="text-xs text-muted">No credit ledger is shown.</p>
         )}
         <input className="field" type="password" autoComplete="off" placeholder="Apollo API key" value={apollo} onChange={(e) => setApollo(e.target.value)} />
       </Panel>
@@ -172,7 +170,7 @@ export function SettingsView() {
           <Badge tone={data.connections.zoominfo ? "ok" : "warn"}>{data.connections.zoominfo ? "Saved" : "Optional"}</Badge>
         </div>
         <p className="text-sm text-muted">
-          Used when Apollo is not connected. A grant still spends against the monthly cap.
+          Paid contact reveal is unavailable in this release.
         </p>
         <input className="field" type="password" autoComplete="off" placeholder="ZoomInfo key" value={zoominfo} onChange={(e) => setZoominfo(e.target.value)} />
       </Panel>
@@ -180,7 +178,7 @@ export function SettingsView() {
       <Panel className="grid gap-4 p-5">
         <h2 className="text-sm font-medium">Monthly spend cap</h2>
         <p className="text-sm text-muted">
-          Used {Math.round(data.connections.spendUsedCents / 100)} of {Math.round(data.connections.monthlyBudgetCents / 100)} USD this Toronto month. Apollo grants cannot exceed this cap.
+          Used {Math.round(data.connections.spendUsedCents / 100)} of {Math.round(data.connections.monthlyBudgetCents / 100)} USD this Toronto month. Paid contact reveal is unavailable in this release.
         </p>
         <input className="field" inputMode="decimal" placeholder="50" value={budget} onChange={(e) => setBudget(e.target.value)} />
       </Panel>
@@ -191,7 +189,7 @@ export function SettingsView() {
           <Badge tone={data.connections.gmail ? "ok" : "warn"}>{data.connections.gmail ? data.connections.gmailUser : "Missing"}</Badge>
         </div>
         <p className="text-sm text-muted">
-          Use a Google app password, not your normal password. Inbox is scanned for bounce, reply, and unsubscribe. Sending still needs a separate message approval.
+          Approved messages can be handed to Gmail compose. Delivery is unconfirmed; record replies, bounces, and unsubscribe requests manually.
         </p>
         {data.connections.inboxScannedAt ? (
           <p className="text-xs text-muted">Last inbox scan {data.connections.inboxScannedAt.replace("T", " ").slice(0, 16)} UTC.</p>
@@ -230,7 +228,6 @@ export function SettingsView() {
               jev,
               jevBaseUrl: jevBase,
               monthlyBudgetCents: budget ? Math.round(Number(budget) * 100) : undefined,
-              scheduleEnabled: scheduleOn,
               huntBatch: batch ? Number(batch) : undefined,
             })
           }
