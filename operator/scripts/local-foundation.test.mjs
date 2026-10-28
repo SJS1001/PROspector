@@ -263,6 +263,13 @@ if (process.argv[2] === "fixture") {
           extra: { "x-tsr-serverFn": "true" },
         });
         assert.equal(denied.status, 401);
+        const allowed = await request(`/_serverFn/${id("getWorkspace")}`, {
+          origin: LOCAL_ORIGIN,
+          cookie,
+          extra: { "x-tsr-serverFn": "true" },
+        });
+        assert.equal(allowed.status, 200);
+        assert.ok((await allowed.text()).includes("Fictional Foundation Ltd"));
         const deniedMutation = await request(`/_serverFn/${id("proposeAnswer")}`, {
           method: "POST",
           origin: "https://example.invalid",
@@ -337,6 +344,11 @@ if (process.argv[2] === "fixture") {
           const response = await request(`/@fs${dir}/${file}`);
           assert.equal(response.status, 403);
         }
+      });
+      await test("development password endpoint enforces rate limiting", async () => {
+        const statuses = [];
+        for (let i = 0; i < 4; i++) statuses.push((await post("/api/auth/sign-in/email", { email: OWNER_EMAIL, password: "fictional-wrong-password" })).status);
+        assert.deepEqual(statuses, [401, 401, 401, 429]);
       });
       await stop();
     } finally {
