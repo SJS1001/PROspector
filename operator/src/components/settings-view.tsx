@@ -132,14 +132,14 @@ export function SettingsView() {
           className="field"
           type="password"
           autoComplete="off"
-          placeholder="TypeSafe / Jev API key"
+          aria-label="TypeSafe / Jev API key" placeholder="TypeSafe / Jev API key"
           value={jev}
           onChange={(event) => setJev(event.target.value)}
         />
         <input
           className="field"
           autoComplete="off"
-          placeholder="Optional HTTPS base (default api.typesafe.ai/v1)"
+          aria-label="Jev optional HTTPS base URL" placeholder="Optional HTTPS base (default api.typesafe.ai/v1)"
           value={jevBase}
           onChange={(event) => setJevBase(event.target.value)}
         />
@@ -160,7 +160,7 @@ export function SettingsView() {
         ) : (
           <p className="text-xs text-muted">No credit ledger is shown.</p>
         )}
-        <input className="field" type="password" autoComplete="off" placeholder="Apollo API key" value={apollo} onChange={(e) => setApollo(e.target.value)} />
+        <input className="field" type="password" autoComplete="off" aria-label="Apollo API key" placeholder="Apollo API key" value={apollo} onChange={(e) => setApollo(e.target.value)} />
       </Panel>
 
       <Panel className="grid gap-4 p-5">
@@ -171,7 +171,7 @@ export function SettingsView() {
         <p className="text-sm text-muted">
           Paid contact reveal is unavailable in this release.
         </p>
-        <input className="field" type="password" autoComplete="off" placeholder="ZoomInfo key" value={zoominfo} onChange={(e) => setZoominfo(e.target.value)} />
+        <input className="field" type="password" autoComplete="off" aria-label="ZoomInfo API key" placeholder="ZoomInfo key" value={zoominfo} onChange={(e) => setZoominfo(e.target.value)} />
       </Panel>
 
       <Panel className="grid gap-4 p-5">
@@ -179,7 +179,7 @@ export function SettingsView() {
         <p className="text-sm text-muted">
           Used {Math.round(data.connections.spendUsedCents / 100)} of {Math.round(data.connections.monthlyBudgetCents / 100)} USD this Toronto month. Paid contact reveal is unavailable in this release.
         </p>
-        <input className="field" inputMode="decimal" placeholder="50" value={budget} onChange={(e) => setBudget(e.target.value)} />
+        <input className="field" inputMode="decimal" aria-label="Monthly spend cap in USD" placeholder="50" value={budget} onChange={(e) => setBudget(e.target.value)} />
       </Panel>
 
       <Panel className="grid gap-4 p-5">
@@ -196,7 +196,7 @@ export function SettingsView() {
         <input
           className="field"
           type="email"
-          placeholder="you@company.com"
+          aria-label="Gmail email address" placeholder="you@company.com"
           value={gmailUser}
           onChange={(e) => setGmailUser(e.target.value)}
         />
@@ -204,7 +204,7 @@ export function SettingsView() {
           className="field"
           type="password"
           autoComplete="off"
-          placeholder="App password"
+          aria-label="Gmail app password" placeholder="App password"
           value={gmailPass}
           onChange={(e) => setGmailPass(e.target.value)}
         />

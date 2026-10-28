@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 export function AccessScreen({ mode }: { mode: "checking" | "login" }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const passwordInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (error && !busy) passwordInput.current?.focus();
+  }, [error, busy]);
   return (
     <main className="grid min-h-dvh place-items-center bg-paper px-6 py-10">
       <section className="w-full max-w-md rounded-lg border border-line bg-cream p-7">
@@ -45,6 +49,9 @@ export function AccessScreen({ mode }: { mode: "checking" | "login" }) {
               Owner password
             </label>
             <input
+              ref={passwordInput}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "owner-password-error" : undefined}
               id="owner-password"
               type="password"
               autoComplete="current-password"
@@ -55,7 +62,7 @@ export function AccessScreen({ mode }: { mode: "checking" | "login" }) {
               className="rounded border border-line bg-paper p-3"
             />
             {error && (
-              <p role="alert" className="text-sm">
+              <p id="owner-password-error" role="alert" className="text-sm">
                 {error}
               </p>
             )}
