@@ -18,7 +18,7 @@ export function ContactsView() {
       <PageHeading
         eyebrow="Enriched contacts only after approval"
         title="Contacts"
-        copy="Add Apollo in Connections to spend a paid grant. Without Apollo, this still searches published pages at $0. Guessed addresses stay suggestions."
+        copy="Explicitly search published pages for a mailbox. Paid contact reveal is unavailable in this release; guessed addresses stay suggestions."
       />
 
       {visible.length === 0 ? (
@@ -37,7 +37,7 @@ export function ContactsView() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {visible.map((item) => (
-            <ContactCard key={item.id} item={item} apollo={data.connections.apollo} />
+            <ContactCard key={item.id} item={item} />
           ))}
         </div>
       )}
@@ -45,7 +45,7 @@ export function ContactsView() {
       <Panel className="p-6">
         <h2 className="text-lg font-medium">Next: outreach</h2>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Package approval is not send. Add Gmail in Connections to dispatch from your mailbox after a message is approved.
+          After message approval, you can hand it to Gmail compose. Delivery is unconfirmed.
         </p>
         <Link to="/outreach" className="mt-4 inline-block">
           <Button variant="outline">Open outreach</Button>
@@ -55,7 +55,7 @@ export function ContactsView() {
   );
 }
 
-function ContactCard({ item, apollo }: { item: Contact; apollo: boolean }) {
+function ContactCard({ item }: { item: Contact }) {
   const grant = useRequestEnrichmentGrant();
   const suggestion = item.emailKind === "suggestion";
   const tone = suggestion ? "warn" : item.emailKind === "public_source" ? "lime" : "ok";
@@ -100,13 +100,11 @@ function ContactCard({ item, apollo }: { item: Contact; apollo: boolean }) {
         onClick={() =>
           grant.mutate({
             prospectId: item.prospectId,
-            reason: apollo
-              ? "Owner grant for Apollo people match. Credits billed by Apollo."
-              : "Owner grant for public-source reveal. $0 spend.",
+            reason: "Owner request for public-source reveal.",
           })
         }
       >
-        {grant.isPending ? "Retrieving…" : apollo ? "Spend Apollo grant" : "Run public-source reveal"}
+        {grant.isPending ? "Retrieving…" : "Run public-source reveal"}
       </Button>
       {grant.error ? <div className="mt-3"><ErrorNote message={mutationMessage(grant.error)} /></div> : null}
     </article>

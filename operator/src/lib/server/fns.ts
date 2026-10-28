@@ -4,14 +4,10 @@ import { getSql, type Sql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { executeDiscovery } from "@/lib/server/discover";
 import { executeHunt } from "@/lib/server/hunt";
-import { fetchApolloCredits, searchApolloPeople } from "@/lib/server/apollo";
-import { sendViaGmail } from "@/lib/server/mailer";
-import { scanGmailInbox } from "@/lib/server/inbox";
 import { revealFromPages } from "@/lib/server/reveal";
-import { searchZoomInfoPeople } from "@/lib/server/zoominfo";
-import { connectionFlags, getSecret, putSecret, resolveJev } from "@/lib/server/secrets";
-import { jevGuardCopy } from "@/lib/server/jev-tasks";
-import { INTERVIEW, APOLLO_UNIT_CENTS, GRANT_TTL_MS, SEND_LEASE_MS, WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
+import { connectionFlags, putSecret } from "@/lib/server/secrets";
+import { prepareManualMessage, approveManualMessage, handoffManualMessage, manualCrmCsv, eligibleCrmContacts, packageDigest } from "@/lib/server/manual-workflow";
+import { INTERVIEW, WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
 import { digestSnapshot, productReadinessFromKnowledge, readinessFromKnowledge, snapshotFromKnowledge } from "@/lib/server/profile";
 import { torontoParts } from "@/lib/server/toronto";
 import { ensureWorkspace, idFor, seedMiningSample } from "@/lib/server/seed";
@@ -348,20 +344,16 @@ function capabilitiesFrom(
     {
       id: "paid_enrichment",
       name: "Paid enrichment",
-      status: flags.apollo ? "unproven" : "blocked",
-      reason: flags.apollo
-        ? "Apollo is connected. Reveal still requires a single-use owner grant per prospect."
-        : "Add an Apollo key in Connections. Until then, only public-source reveal is available.",
+      status: "blocked",
+      reason: "Paid reveal is disabled in this local release. Public-source lookup requires an explicit action.",
     },
     {
       id: "gmail_dispatch",
-      name: "Gmail dispatch",
-      status: flags.handedGmail ? "proven" : flags.gmail ? "unproven" : "unproven",
+      name: "Gmail compose handoff",
+      status: flags.handedGmail ? "proven" : "unproven",
       reason: flags.handedGmail
         ? "A message was handed to Gmail. Delivery confirmation still belongs to Gmail."
-        : flags.gmail
-          ? "Gmail is connected. Approve a message to send from your mailbox."
-          : "Add a Gmail app password in Connections, or use Open in Gmail compose.",
+        : "Approve the exact message, then explicitly open Gmail compose. Delivery remains unconfirmed.",
     },
     {
       id: "crm_export",
@@ -598,15 +590,16 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
     digest: row.digest,
     status: row.status,
     acknowledged: asBool(row.acknowledged),
-    gmailUrl: row.gmail_url,
+    gmailUrl: null,
     blockedReason: row.blocked_reason,
     approvedAt: row.approved_at,
     dispatchedAt: row.dispatched_at,
   }));
   const publicContacts = contacts.filter((item) => item.emailKind !== "suggestion").length;
-  const handed = messages.some((item) => item.status === "handed_to_gmail" || item.status === "sent");
+  const handed = messages.some((item) => item.status === "handed_off" || item.status === "handed_to_gmail" || item.status === "sent");
   const links = await connectionFlags(sql, userId);
-  const eligible = contacts.filter((item) => item.emailKind !== "suggestion" && item.prospectState === "approved");
+  const eligibleIds = new Set((await eligibleCrmContacts(sql, userId)).map((item) => item.contact_id));
+  const eligible = contacts.filter((item) => eligibleIds.has(item.id));
   const crm: CrmPreview = {
     authorized: eligible.length > 0,
     eligibleCount: eligible.length,
@@ -1305,381 +1298,54 @@ export const requestEnrichmentGrant = createServerFn({ method: "POST" })
     if (!prospect || prospect.state !== "approved") {
       throw new Error("Only approved prospects can be considered for enrichment.");
     }
-    const flags = await connectionFlags(sql, context.userId);
-    const apolloKey = await getSecret(sql, context.userId, "apollo");
-    const zoomKey = await getSecret(sql, context.userId, "zoominfo");
-    if (apolloKey && flags.apolloLeadLeft === 0) {
-      throw new Error("Apollo reports 0 lead credits remaining. Paid reveal is blocked until the ledger refills.");
-    }
-    const cost = apolloKey || zoomKey ? APOLLO_UNIT_CENTS : 0;
-    if (cost > 0 && flags.spendUsedCents + cost > flags.monthlyBudgetCents) {
-      throw new Error("Monthly spend cap would be exceeded. Raise the cap in Connections or wait for next month.");
-    }
-    const expiresAt = new Date(Date.now() + GRANT_TTL_MS).toISOString();
+    // Local release: a saved paid key or restored grant never selects a paid route.
+    const found = await revealFromPages([prospect.evidence_url]);
     const roles = ["champion", "economic_buyer", "validator"] as const;
-    let note = "";
-    let status = "public_source";
-    if (apolloKey) {
-      let domain = "";
-      try {
-        domain = new URL(prospect.evidence_url).hostname.replace(/^www\./, "");
-      } catch {
-        domain = "";
-      }
-      const hits = await searchApolloPeople({
-        key: apolloKey,
-        accountName: prospect.account_name,
-        domain,
-        titles: ["General Manager", "Plant Manager", "VP Operations", "Mill Manager", "Director"],
-      });
-      status = "apollo";
-      note = `Apollo grant used. ${hits.length} people returned. Credits billed by Apollo.`;
-      for (const [index, hit] of hits.entries()) {
-        const role = roles[index] ?? "validator";
-        const kind = hit.email && hit.emailStatus === "verified" ? "verified" : hit.email ? "public_source" : "suggestion";
-        const email = hit.email ?? `${role}.${prospect.id.slice(0, 8)}@locked.invalid`;
-        await sql`
-          insert into contacts (
-            id, user_id, prospect_id, full_name, role, email_kind, email_display, source, confidence, published_url, phone_display, provider_id
-          ) values (
-            ${idFor(context.userId, `contact:${data.prospectId}:apollo:${hit.providerId || email}`)},
-            ${context.userId}, ${data.prospectId}, ${hit.fullName}, ${role}, ${kind}, ${email},
-            ${`Apollo ${hit.title || "match"}. Email class: ${hit.emailStatus || "locked"}.`},
-            ${hit.email ? "high" : "low"}, ${prospect.evidence_url}, ${hit.phone}, ${hit.providerId}
-          )
-          on conflict (id) do update
-          set email_kind = excluded.email_kind,
-              email_display = excluded.email_display,
-              source = excluded.source,
-              phone_display = excluded.phone_display
-        `;
-      }
-    } else if (zoomKey) {
-      const hits = await searchZoomInfoPeople({
-        key: zoomKey,
-        accountName: prospect.account_name,
-        titles: ["General Manager", "Plant Manager", "VP Operations", "Mill Manager", "Director"],
-      });
-      status = "zoominfo";
-      note = `ZoomInfo grant used. ${hits.length} people returned. Credits billed by ZoomInfo.`;
-      for (const [index, hit] of hits.entries()) {
-        const role = roles[index] ?? "validator";
-        const kind = hit.email ? "verified" : "suggestion";
-        const email = hit.email ?? `${role}.${prospect.id.slice(0, 8)}@locked.invalid`;
-        await sql`
-          insert into contacts (
-            id, user_id, prospect_id, full_name, role, email_kind, email_display, source, confidence, published_url, phone_display, provider_id
-          ) values (
-            ${idFor(context.userId, `contact:${data.prospectId}:zi:${hit.providerId || email}`)},
-            ${context.userId}, ${data.prospectId}, ${hit.fullName}, ${role}, ${kind}, ${email},
-            ${`ZoomInfo ${hit.title || "match"}.`},
-            ${hit.email ? "high" : "low"}, ${prospect.evidence_url}, ${hit.phone}, ${hit.providerId}
-          )
-          on conflict (id) do update
-          set email_kind = excluded.email_kind,
-              email_display = excluded.email_display,
-              source = excluded.source,
-              phone_display = excluded.phone_display
-        `;
-      }
-    } else {
-      const found = await revealFromPages([prospect.evidence_url]);
-      note = found.length
-        ? `No Apollo key. Public-source reveal found ${found.length} published mailbox(es). $0 spent.`
-        : "No Apollo key. Public-source reveal found no same-site published mailbox. $0 spent.";
-      for (const [index, item] of found.entries()) {
-        const role = roles[index] ?? "validator";
-        await sql`
-          insert into contacts (
-            id, user_id, prospect_id, full_name, role, email_kind, email_display, source, confidence, published_url
-          ) values (
-            ${idFor(context.userId, `contact:${data.prospectId}:public:${item.email}`)},
-            ${context.userId}, ${data.prospectId},
-            ${`${prospect.account_name} ${role} (public source)`}, ${role}, ${"public_source"},
-            ${item.email},
-            ${`Published on ${item.url}. Not mailbox-verified. Not a paid vendor result.`},
-            ${"medium"}, ${item.url}
-          )
-          on conflict (id) do update
-          set email_kind = ${"public_source"},
-              email_display = excluded.email_display,
-              source = excluded.source,
-              published_url = excluded.published_url
-        `;
-      }
-    }
-    await sql`
-      insert into enrichment_grants (id, user_id, prospect_id, status, reason, provider, unit, cost_cents, expires_at, spent_at)
-      values (
-        ${idFor(context.userId, `grant:${data.prospectId}:${Date.now()}`)},
-        ${context.userId}, ${data.prospectId}, ${status}, ${note},
-        ${apolloKey ? "apollo" : zoomKey ? "zoominfo" : "public"}, ${"person"}, ${cost}, ${expiresAt}, ${new Date().toISOString()}
-      )
-    `;
-    if (cost > 0) {
+    for (const [index, item] of found.entries()) {
+      const role = roles[index] ?? "validator";
       await sql`
-        insert into operating_state (user_id, monthly_budget_cents, spend_month, spend_used_cents)
-        values (${context.userId}, ${flags.monthlyBudgetCents}, ${flags.spendMonth}, ${flags.spendUsedCents + cost})
-        on conflict (user_id) do update
-        set spend_month = ${flags.spendMonth},
-            spend_used_cents = ${flags.spendUsedCents + cost}
+        insert into contacts (id, user_id, prospect_id, full_name, role, email_kind, email_display, source, confidence, published_url)
+        select ${idFor(context.userId, `contact:${data.prospectId}:public:${item.email}`)},
+          ${context.userId}, id, ${`${prospect.account_name} ${role} (public source)`}, ${role}, ${"public_source"},
+          ${item.email}, ${`Published on ${item.url}. Not mailbox-verified. Not a paid vendor result.`}, ${"medium"}, ${item.url}
+        from prospects where user_id = ${context.userId} and id = ${data.prospectId}
+          and state = ${"approved"} and evidence_url = ${prospect.evidence_url}
+        on conflict (id) do nothing
       `;
-    }
-    if (apolloKey) {
-      try {
-        await putSecret(sql, context.userId, "apollo_credits", JSON.stringify(await fetchApolloCredits(apolloKey)));
-      } catch {
-        /* keep last ledger */
-      }
     }
     return loadWorkspace(context.userId);
   });
 
-function suppressed(
-  email: string,
-  rows: { kind: string; value: string }[],
-  extra: { contactId?: string; accountName?: string; phone?: string | null } = {},
-) {
-  const lower = email.toLowerCase();
-  const domain = lower.split("@")[1] ?? "";
-  const phone = extra.phone?.replace(/\D/g, "") ?? "";
-  return rows.some((row) => {
-    if (row.kind === "all") return true;
-    if (row.kind === "email" && row.value === lower) return true;
-    if (row.kind === "domain" && row.value === domain) return true;
-    if (row.kind === "phone" && phone && row.value.replace(/\D/g, "") === phone) return true;
-    if (row.kind === "contact" && extra.contactId && row.value === extra.contactId) return true;
-    if (row.kind === "org" && extra.accountName && row.value === extra.accountName.toLowerCase()) return true;
-    return false;
-  });
-}
-
-function gmailComposeUrl(to: string, subject: string, body: string) {
-  const params = new URLSearchParams({
-    view: "cm",
-    fs: "1",
-    to,
-    su: subject.slice(0, 200),
-    body: body.slice(0, 1800),
-  });
-  return `https://mail.google.com/mail/?${params.toString()}`;
-}
-
 export const prepareMessage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { packageId: string; contactId: string }) => ({
-    packageId: input.packageId,
-    contactId: input.contactId,
-  }))
+  .validator((input: { packageId: string; contactId: string }) => input)
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
-    const [pack] = await sql<{ id: string; prospect_id: string; status: string; subject: string; body: string }>`
-      select id, prospect_id, status, subject, body from outreach_packages
-      where user_id = ${context.userId} and id = ${data.packageId}
-    `;
-    if (!pack || pack.status !== "approved") {
-      throw new Error("Approve the outreach package before drafting a message.");
-    }
-    const [contact] = await sql<{ id: string; email_kind: string; email_display: string; prospect_id: string }>`
-      select id, email_kind, email_display, prospect_id from contacts
-      where user_id = ${context.userId} and id = ${data.contactId}
-    `;
-    if (!contact || contact.prospect_id !== pack.prospect_id) {
-      throw new Error("That contact is not on this package’s prospect.");
-    }
-    if (contact.email_kind === "suggestion") {
-      throw new Error("Contact Suggestions cannot enter a sendable message.");
-    }
-    const blocks = await sql<{ kind: string; value: string }>`
-      select kind, value from suppressions where user_id = ${context.userId}
-    `;
-    if (suppressed(contact.email_display, blocks)) {
-      throw new Error("That mailbox is suppressed. No message was drafted.");
-    }
-    const digest = digestOf({
-      packageId: pack.id,
-      contactId: contact.id,
-      to: contact.email_display,
-      subject: pack.subject,
-      body: pack.body,
-    });
-    const id = idFor(context.userId, `msg:${pack.id}:${contact.id}`);
-    await sql`
-      insert into outreach_messages (
-        id, user_id, package_id, prospect_id, contact_id, to_email, subject, body, digest, status
-      ) values (
-        ${id}, ${context.userId}, ${pack.id}, ${pack.prospect_id}, ${contact.id},
-        ${contact.email_display}, ${pack.subject}, ${pack.body}, ${digest}, ${"draft"}
-      )
-      on conflict (id) do update
-      set subject = excluded.subject,
-          body = excluded.body,
-          digest = excluded.digest,
-          to_email = excluded.to_email,
-          status = ${"draft"},
-          acknowledged = ${false},
-          approved_at = null,
-          dispatched_at = null,
-          gmail_url = null,
-          blocked_reason = null
-    `;
+    await prepareManualMessage(sql, context.userId, data.packageId, data.contactId,
+      idFor(context.userId, `msg:${data.packageId}:${data.contactId}`));
     return loadWorkspace(context.userId);
   });
 
 export const approveMessage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { messageId: string; acknowledged: boolean }) => ({
-    messageId: input.messageId,
-    acknowledged: Boolean(input.acknowledged),
-  }))
+  .validator((input: { messageId: string; expectedDigest: string; acknowledged: boolean }) => input)
   .handler(async ({ context, data }) => {
-    if (!data.acknowledged) {
-      throw new Error("Acknowledge that compliance guidance is advisory before approving this message.");
-    }
+    if (data.acknowledged !== true) throw new Error("Acknowledge that compliance guidance is advisory before approving this message.");
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
-    const [row] = await sql<{ id: string; to_email: string; digest: string; status: string }>`
-      select id, to_email, digest, status from outreach_messages
-      where user_id = ${context.userId} and id = ${data.messageId}
-    `;
-    if (!row) throw new Error("That message is not in this workspace.");
-    const blocks = await sql<{ kind: string; value: string }>`
-      select kind, value from suppressions where user_id = ${context.userId}
-    `;
-    if (suppressed(row.to_email, blocks)) {
-      throw new Error("That mailbox is suppressed. Approval was not recorded.");
-    }
-    await sql`
-      update outreach_messages
-      set status = ${"approved"},
-          acknowledged = ${true},
-          approved_at = ${new Date().toISOString()}
-      where user_id = ${context.userId} and id = ${data.messageId}
-    `;
+    await approveManualMessage(sql, context.userId, data.messageId, data.expectedDigest);
     return loadWorkspace(context.userId);
   });
 
 export const openInGmail = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { messageId: string; expectedDigest: string }) => ({
-    messageId: input.messageId,
-    expectedDigest: input.expectedDigest,
-  }))
+  .validator((input: { messageId: string; expectedDigest: string }) => input)
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
-    const [row] = await sql<{
-      id: string;
-      to_email: string;
-      subject: string;
-      body: string;
-      digest: string;
-      status: string;
-      contact_id: string;
-      package_id: string;
-    }>`
-      select id, to_email, subject, body, digest, status, contact_id, package_id
-      from outreach_messages
-      where user_id = ${context.userId} and id = ${data.messageId}
-    `;
-    if (!row) throw new Error("That message is not in this workspace.");
-    if (row.digest !== data.expectedDigest) {
-      throw new Error("This message changed. Previous approval cannot be used.");
-    }
-    if (row.status !== "approved" && row.status !== "handed_to_gmail" && row.status !== "sent") {
-      throw new Error("Approve this exact message before sending.");
-    }
-    const [pack] = await sql<{ status: string }>`
-      select status from outreach_packages where user_id = ${context.userId} and id = ${row.package_id}
-    `;
-    if (pack?.status !== "approved") {
-      throw new Error("The package is no longer approved.");
-    }
-    const jevSend = await resolveJev(sql, context.userId);
-    if (jevSend.apiKey) {
-      const knowledgeRows = await sql<KnowledgeRow>`
-        select id, question_id, scope, question, proposed_answer, confirmed_answer, status,
-               evidence, inference, recommendation, sort_order
-        from knowledge_items where user_id = ${context.userId} order by sort_order asc
-      `;
-      const snapshot = snapshotFromKnowledge(knowledgeRows.map(mapKnowledge));
-      const limitations =
-        knowledgeRows.find((item) => item.question_id === "product.limitations")?.confirmed_answer ||
-        snapshot.promise;
-      const guard = await jevGuardCopy({
-        apiKey: jevSend.apiKey,
-        baseUrl: jevSend.baseUrl,
-        limitations,
-        promise: snapshot.promise,
-        body: row.body,
-      }).catch(() => ({ block: false, reason: "" }));
-      if (guard.block) throw new Error(guard.reason);
-    }
-    const [contact] = await sql<{ email_kind: string; email_display: string }>`
-      select email_kind, email_display from contacts
-      where user_id = ${context.userId} and id = ${row.contact_id}
-    `;
-    if (!contact || contact.email_kind === "suggestion") {
-      throw new Error("The contact is no longer eligible.");
-    }
-    const blocks = await sql<{ kind: string; value: string }>`
-      select kind, value from suppressions where user_id = ${context.userId}
-    `;
-    if (suppressed(row.to_email, blocks)) {
-      await sql`
-        update outreach_messages
-        set status = ${"blocked"}, blocked_reason = ${"Suppressed at send time."}
-        where id = ${row.id}
-      `;
-      throw new Error("Suppression won at send time. Nothing was opened.");
-    }
-    const leaseUntil = new Date(Date.now() + SEND_LEASE_MS).toISOString();
-    const leaseToken = idFor(context.userId, `lease:${row.id}:${Date.now()}`);
-    await sql`
-      update outreach_messages
-      set lease_until = ${leaseUntil}, lease_token = ${leaseToken}
-      where id = ${row.id} and user_id = ${context.userId}
-    `;
-    const user = await getSecret(sql, context.userId, "gmail_user");
-    const pass = await getSecret(sql, context.userId, "gmail_pass");
-    if (user && pass) {
-      try {
-        const result = await sendViaGmail({
-          user,
-          pass,
-          to: row.to_email,
-          subject: row.subject,
-          body: row.body,
-        });
-        await sql`
-          update outreach_messages
-          set status = ${"sent"},
-              dispatched_at = ${new Date().toISOString()},
-              blocked_reason = ${`Accepted by Gmail SMTP ${result.messageId}. PROspector will not resend automatically.`}
-          where user_id = ${context.userId} and id = ${row.id}
-        `;
-        return loadWorkspace(context.userId);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : "Gmail SMTP failed.";
-        await sql`
-          update outreach_messages
-          set status = ${"blocked"}, blocked_reason = ${reason}
-          where id = ${row.id}
-        `;
-        throw new Error(reason);
-      }
-    }
-    const url = gmailComposeUrl(row.to_email, row.subject, row.body);
-    await sql`
-      update outreach_messages
-      set status = ${"handed_to_gmail"},
-          gmail_url = ${url},
-          dispatched_at = ${new Date().toISOString()},
-          blocked_reason = ${"No Gmail app password saved. Opened compose instead. Delivery is not confirmed."}
-      where user_id = ${context.userId} and id = ${row.id}
-    `;
-    return loadWorkspace(context.userId);
+    const url = await handoffManualMessage(sql, context.userId, data.messageId, data.expectedDigest);
+    return { workspace: await loadWorkspace(context.userId), url };
   });
 
 export const preparePackage = createServerFn({ method: "POST" })
@@ -1722,41 +1388,26 @@ export const preparePackage = createServerFn({ method: "POST" })
 
 export const approvePackage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { packageId: string }) => ({ packageId: input.packageId }))
+  .validator((input: { packageId: string; expectedDigest: string }) => input)
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
-    const [pack] = await sql<{ id: string; body: string }>`
-      select id, body from outreach_packages where user_id = ${context.userId} and id = ${data.packageId}
-    `;
-    if (!pack) throw new Error("That package is not in this workspace.");
-    const jev = await resolveJev(sql, context.userId);
-    if (jev.apiKey) {
-      const knowledgeRows = await sql<KnowledgeRow>`
-        select id, question_id, scope, question, proposed_answer, confirmed_answer, status,
-               evidence, inference, recommendation, sort_order
-        from knowledge_items where user_id = ${context.userId} order by sort_order asc
-      `;
-      const snapshot = snapshotFromKnowledge(knowledgeRows.map(mapKnowledge));
-      const limitations =
-        knowledgeRows.find((row) => row.question_id === "product.limitations")?.confirmed_answer ||
-        snapshot.promise;
-      const guard = await jevGuardCopy({
-        apiKey: jev.apiKey,
-        baseUrl: jev.baseUrl,
-        limitations,
-        promise: snapshot.promise,
-        body: pack.body,
-      }).catch(() => ({ block: false, reason: "" }));
-      if (guard.block) throw new Error(guard.reason);
-    }
-    const rows = await sql<{ id: string }>`
-      update outreach_packages
-      set status = ${"approved"}, approved_at = ${new Date().toISOString()}
+    const [pack] = await sql<{ subject: string; body: string; prospect_id: string; digest: string }>`
+      select subject, body, prospect_id, digest from outreach_packages
       where user_id = ${context.userId} and id = ${data.packageId}
-      returning id
     `;
-    if (rows.length === 0) throw new Error("That package is not in this workspace.");
+    if (!pack || pack.digest !== data.expectedDigest || pack.digest !== packageDigest(pack.subject, pack.body, pack.prospect_id)) {
+      throw new Error("The package changed. Review the current exact package before approval.");
+    }
+    const rows = await sql`
+      update outreach_packages p set status = ${"approved"}, approved_at = coalesce(p.approved_at, now())
+      where p.user_id = ${context.userId} and p.id = ${data.packageId} and p.digest = ${data.expectedDigest}
+        and p.subject = ${pack.subject} and p.body = ${pack.body} and p.prospect_id = ${pack.prospect_id}
+        and exists (select 1 from prospects r where r.user_id = p.user_id and r.id = p.prospect_id
+          and r.state = ${"approved"} and r.outcome = ${"Passed"})
+      returning p.id
+    `;
+    if (!rows.length) throw new Error("The prospect or package is no longer eligible.");
     return loadWorkspace(context.userId);
   });
 
@@ -1823,16 +1474,9 @@ export const saveConnections = createServerFn({ method: "POST" })
     if (data.llmProvider) await putSecret(sql, context.userId, "llm_provider", data.llmProvider);
     if (data.llmModel) await putSecret(sql, context.userId, "llm_model", data.llmModel);
     if (data.llmBaseUrl) await putSecret(sql, context.userId, "llm_base_url", data.llmBaseUrl);
-    if (data.scheduleEnabled === true) await putSecret(sql, context.userId, "schedule_enabled", "1");
-    if (data.scheduleEnabled === false) await putSecret(sql, context.userId, "schedule_enabled", "0");
-    if (data.apollo) {
-      await putSecret(sql, context.userId, "apollo", data.apollo);
-      try {
-        await putSecret(sql, context.userId, "apollo_credits", JSON.stringify(await fetchApolloCredits(data.apollo)));
-      } catch {
-        /* key saved; ledger refreshes on next tick */
-      }
-    }
+    // A saved or restored setting cannot enable scheduled processing.
+    if (data.scheduleEnabled !== undefined) await putSecret(sql, context.userId, "schedule_enabled", "0");
+    if (data.apollo) await putSecret(sql, context.userId, "apollo", data.apollo);
     if (Number.isFinite(Number(data.huntBatch))) {
       const batch = Math.min(20, Math.max(4, Math.round(Number(data.huntBatch))));
       await putSecret(sql, context.userId, "hunt_batch", String(batch));
@@ -1860,17 +1504,8 @@ export const saveConnections = createServerFn({ method: "POST" })
 export const exportCrmCsv = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const workspace = await loadWorkspace(context.userId);
-    const rows = workspace.contacts.filter((item) => item.emailKind !== "suggestion");
-    const header = "prospect_id,account_name,full_name,role,email,phone,source";
-    const body = rows
-      .map((item) =>
-        [item.prospectId, item.accountName, item.fullName, item.role, item.emailDisplay, item.phoneDisplay ?? "", item.source]
-          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
-          .join(","),
-      )
-      .join("\n");
-    return { filename: "prospector-crm-handoff.csv", csv: `${header}\n${body}\n` };
+    const sql = await getSql();
+    return { filename: "prospector-crm-handoff.csv", csv: await manualCrmCsv(sql, context.userId) };
   });
 
 export const exportArchive = createServerFn({ method: "GET" })
@@ -1920,66 +1555,14 @@ export const restoreArchive = createServerFn({ method: "POST" })
     return loadWorkspace(context.userId);
   });
 
+// Kept for API compatibility. No scheduled work, inbox scan or credit refresh.
 export const tickSchedule = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const sql = await getSql();
-    await ensureWorkspace(sql, context.userId);
-    const flags = await connectionFlags(sql, context.userId);
-    if (flags.gmail) {
-      try {
-        const user = await getSecret(sql, context.userId, "gmail_user");
-        const pass = await getSecret(sql, context.userId, "gmail_pass");
-        await scanGmailInbox({ sql, userId: context.userId, user, pass });
-      } catch {
-        await putSecret(sql, context.userId, "inbox_scanned_at", new Date().toISOString());
-      }
-    }
-    if (flags.apollo) {
-      try {
-        const key = await getSecret(sql, context.userId, "apollo");
-        if (key) await putSecret(sql, context.userId, "apollo_credits", JSON.stringify(await fetchApolloCredits(key)));
-      } catch {
-        /* keep last ledger */
-      }
-    }
-    const toronto = torontoParts();
-    let workspace = await loadWorkspace(context.userId);
-    if (!flags.llm || !flags.scheduleEnabled) return workspace;
-    if (workspace.product.status === "active") {
-      const ranMonth = workspace.discoveryRuns.some(
-        (item) => item.startedAt.startsWith(toronto.month) && item.status !== "failed",
-      );
-      if (!ranMonth) {
-        const knowledge = workspace.knowledge;
-        const snapshot = snapshotFromKnowledge(knowledge);
-        const digest = digestSnapshot(snapshot);
-        const runId = idFor(context.userId, `disc:${Date.now()}`);
-        await sql`
-          insert into discovery_runs (id, user_id, configuration_digest, trigger, status, started_at)
-          values (${runId}, ${context.userId}, ${digest}, ${"monthly"}, ${"running"}, ${new Date().toISOString()})
-        `;
-        try {
-          await executeDiscovery({ sql, userId: context.userId, runId, digest, snapshot });
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : "Monthly discovery failed.";
-          await sql`
-            update discovery_runs set status = ${"failed"}, terminal_reason = ${reason}, finished_at = ${new Date().toISOString()}
-            where id = ${runId}
-          `;
-        }
-        workspace = await loadWorkspace(context.userId);
-      }
-    }
-    if (workspace.profile.status === "active" && toronto.isWeekday && toronto.hour >= 6 && workspace.morningDue) {
-      try {
-        return await startHunt(context.userId, "scheduled");
-      } catch {
-        return loadWorkspace(context.userId);
-      }
-    }
-    return workspace;
-  });
+  .validator((input: { manual: true }) => {
+    if (input?.manual !== true) throw new Error("Morning work requires an explicit manual action.");
+    return input;
+  })
+  .handler(async ({ context }) => startHunt(context.userId, "manual"));
 
 export const recordDeliveryEvent = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

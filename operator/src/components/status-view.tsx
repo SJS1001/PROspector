@@ -13,7 +13,7 @@ function toneFor(status: CapabilityStatus) {
 }
 
 function overallCopy(status: CapabilityStatus) {
-  if (status === "proven") return "Private site is operating inside its proven boundary.";
+  if (status === "proven") return "The workspace reports its current capability evidence.";
   if (status === "blocked") return "Some later gates remain blocked on purpose.";
   return "Capability evidence is still being gathered.";
 }
@@ -48,8 +48,8 @@ export function StatusView() {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Owner-only · private site"
-        title="Private pilot boundary"
+        eyebrow="Owner workspace"
+        title="Workspace status"
         copy="See what is proven, what is blocked, and what remains unproven before any broader operation can begin."
         action={
           <Link
@@ -68,7 +68,7 @@ export function StatusView() {
           <Badge tone={toneFor(overall)}>{overall}</Badge>
           <h2 className="mt-3 font-display text-xl">{overallCopy(overall)}</h2>
           <p className="mt-1 text-sm text-muted">
-            {action.copy} Add Apollo, Gmail, and xAI in Connections when you want paid reveal or mailbox send.
+            {action.copy} Paid contact reveal is unavailable; approved messages may be handed to Gmail compose with delivery unconfirmed.
           </p>
         </div>
         <dl className="grid grid-cols-3 gap-3">
@@ -100,12 +100,11 @@ export function StatusView() {
           <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Still locked</span>
           <h2 className="mt-2 font-display text-lg">External effects</h2>
           <p className="mt-2 text-sm text-muted">
-            This is a private operating site, not a sender. No Gmail, no paid reveal, no CRM
-            file leaves this workspace.
+            Paid contact reveal is unavailable. An approved message can be handed to Gmail compose; sending and delivery are not confirmed here.
           </p>
           <ul className="mt-4 grid gap-2 text-sm text-muted">
-            <li>Contact suggestions cannot become enriched contacts.</li>
-            <li>Outreach packages cannot be dispatched.</li>
+            <li>Contact suggestions are not sendable; public-source reveal is an explicit action.</li>
+            <li>Each outreach message requires approval before Gmail handoff.</li>
             <li>Seeded mining fixtures remain labelled until a live run replaces the queue.</li>
           </ul>
         </Panel>
@@ -139,7 +138,7 @@ function SampleOffer() {
       <h2 className="mt-2 font-display text-lg">Load ONE for Mining sample</h2>
       <p className="mt-2 max-w-2xl text-sm text-muted">
         Confirms Digitalrain, ONE, and the operating-plants play so you can walk this private
-        site without a blank interview. Paid enrichment, Gmail send, and CRM files stay locked.
+        workspace without a blank interview. Paid contact reveal remains unavailable.
       </p>
       <Button className="mt-4" disabled={load.isPending} onClick={() => load.mutate(undefined)}>
         {load.isPending ? "Loading sample…" : "Load ONE for Mining sample"}

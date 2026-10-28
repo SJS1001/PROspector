@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
@@ -14,7 +13,7 @@ import {
 } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { useTickSchedule, useWorkspace } from "@/lib/workspace";
+import { useWorkspace } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 import { AccessScreen } from "@/components/access-screen";
 import { TASKS, taskUnlocked } from "@/lib/domain/journey";
@@ -56,13 +55,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const task = taskFromPath(pathname);
   const workspace = useWorkspace(Boolean(user));
-  const tick = useTickSchedule();
-  const ticked = useRef(false);
-  useEffect(() => {
-    if (!user || ticked.current) return;
-    ticked.current = true;
-    tick.mutate();
-  }, [user]);
   const company = workspace.data?.companyName ?? "New company";
   const queueCount = workspace.data?.brief.qualified ?? 0;
   const gate = workspace.data ?? EMPTY;

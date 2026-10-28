@@ -3,10 +3,11 @@ import { PageHeading, Panel, ErrorNote } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { nextAction } from "@/lib/domain/journey";
-import { useWorkspace } from "@/lib/workspace";
+import { mutationMessage, useTickSchedule, useWorkspace } from "@/lib/workspace";
 
 export function BriefView() {
   const { data, isPending, isError } = useWorkspace();
+  const morning = useTickSchedule();
   if (isPending) return <p className="text-sm text-muted">Reading persisted Phase 4 state…</p>;
   if (isError || !data) return <ErrorNote message="Morning Brief unavailable. No action was attempted." />;
 
@@ -21,9 +22,9 @@ export function BriefView() {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Read-only operating view"
+        eyebrow="Owner operating view"
         title="Morning Brief"
-        copy="Weekday operating snapshot in America/Toronto. If a morning run is due, start it from Prospects."
+        copy="Weekday operating snapshot in America/Toronto. Start a manual morning prospect run below."
         action={
           <Link
             to={action.href}
@@ -49,7 +50,7 @@ export function BriefView() {
         </header>
         <p className="mt-4 text-sm text-muted">{action.copy}</p>
         {data.morningDue ? (
-          <p className="mt-3 text-sm text-amber">Morning cycle is due. Run Find Prospects from the Prospects view.</p>
+          <p className="mt-3 text-sm text-amber">Morning cycle is due. Start the manual morning run below.</p>
         ) : null}
         <dl className="mt-6 grid gap-3 sm:grid-cols-2">
           <Stat label="Qualified in queue" value={data.brief.qualified} />
@@ -111,9 +112,19 @@ export function BriefView() {
       </Panel>
 
       <Panel className="p-6">
+        <h2 className="text-lg font-medium">Manual morning run</h2>
+        <p className="mt-2 text-sm text-muted">Starts a manual prospect run. This action does not scan the inbox or run discovery.</p>
+        <Button className="mt-4" disabled={morning.isPending} onClick={() => morning.mutate()}>
+          {morning.isPending ? "Running…" : "Run morning prospects"}
+        </Button>
+        {morning.error ? <div className="mt-3"><ErrorNote message={mutationMessage(morning.error)} /></div> : null}
+        {morning.isSuccess ? <p className="mt-3 text-sm text-muted">Morning run completed; the workspace has been refreshed.</p> : null}
+      </Panel>
+
+      <Panel className="p-6">
         <h2 className="text-lg font-medium">Operating notes</h2>
         <p className="mt-2 text-sm text-muted">
-          Morning hunts fire weekdays after 06:00 Toronto when an xAI key is saved. Monthly discovery runs once per month. Restore a workspace JSON from Connections.
+          Morning prospect runs require an explicit owner action. Discovery is started separately. Restore a workspace JSON from Connections.
         </p>
         <div className="mt-5">
           <Link to={action.href}>
