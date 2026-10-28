@@ -26,8 +26,11 @@ export function ReviewView() {
           application-calculated qualification passes. Review the current run
           evidence or find prospects when the active configuration permits.
           <div className="mt-4">
-            <Link to="/prospects">
-              <Button variant="outline">View prospect evidence</Button>
+            <Link
+              to="/prospects"
+              className="inline-flex min-h-11 items-center rounded-sm border border-line px-3.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal"
+            >
+              View prospect evidence
             </Link>
           </div>
         </Panel>

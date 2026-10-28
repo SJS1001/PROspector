@@ -195,7 +195,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
           <p className="mt-1 font-mono text-xs">{item.toEmail}</p>
         </div>
         <Badge tone={item.status === "approved" || item.status === "handed_off" ? "ok" : item.status === "blocked" ? "danger" : "warn"}>
-          {item.status === "handed_off" ? "Handed off · delivery unconfirmed" : item.status.replaceAll("_", " ")}
+          {(item.status === "handed_off" || item.status === "handed_to_gmail") ? "Handed off · delivery unconfirmed" : item.status.replaceAll("_", " ")}
         </Badge>
       </header>
       <p className="whitespace-pre-wrap text-sm text-muted">{item.body}</p>

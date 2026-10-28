@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Panel, ErrorNote } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { mutationMessage, useExportArchive, useRestoreArchive } from "@/lib/workspace";
@@ -10,6 +10,13 @@ export function WorkspaceArchivePanel() {
   const [confirmed, setConfirmed] = useState(false);
   const [fileError, setFileError] = useState("");
   const readGeneration = useRef(0);
+  const errorId = useId();
+  const feedback = useRef<HTMLDivElement>(null);
+  const status = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (fileError || archive.error || restore.error) feedback.current?.focus();
+    else if (restore.isSuccess) status.current?.focus();
+  }, [fileError, archive.error, restore.error, restore.isSuccess]);
   const busy = archive.isPending || restore.isPending;
 
   return (
@@ -26,6 +33,8 @@ export function WorkspaceArchivePanel() {
       <label className="grid gap-2 text-sm">
         Choose a version 1 workspace backup (JSON, up to 20 MiB)
         <input
+          aria-invalid={Boolean(fileError)}
+          aria-describedby={fileError ? errorId : undefined}
           type="file"
           accept="application/json,.json"
           disabled={busy}
@@ -33,6 +42,8 @@ export function WorkspaceArchivePanel() {
           onChange={async (event) => {
             const generation = ++readGeneration.current;
             const file = event.target.files?.[0];
+            // Permit selecting the same file again after a read/validation failure.
+            event.target.value = "";
             setSelected(null);
             setConfirmed(false);
             setFileError("");
@@ -90,10 +101,12 @@ export function WorkspaceArchivePanel() {
           </Button>
         </>
       ) : null}
-      {fileError ? <ErrorNote message={fileError} /> : null}
-      {archive.error ? <ErrorNote message={mutationMessage(archive.error)} /> : null}
-      {restore.error ? <ErrorNote message={mutationMessage(restore.error)} /> : null}
-      <p role="status" className="text-sm text-muted">
+      <div ref={feedback} tabIndex={-1} id={errorId}>
+        {fileError ? <ErrorNote message={fileError} /> : null}
+        {archive.error ? <ErrorNote message={mutationMessage(archive.error)} /> : null}
+        {restore.error ? <ErrorNote message={mutationMessage(restore.error)} /> : null}
+      </div>
+      <p ref={status} tabIndex={-1} role="status" className="text-sm text-muted">
         {restore.isSuccess
           ? "Restore committed. Reload the app to view the recovered workspace. No provider work was requested by restore."
           : "The complete file is validated before an atomic restore. A failed restore leaves the previous workspace in place."}
