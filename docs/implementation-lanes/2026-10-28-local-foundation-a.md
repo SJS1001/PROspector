@@ -27,3 +27,34 @@
 - HTTP evidence: owner sign-in 200, unauthenticated protected workspace 401, wrong password 401, foreign/missing Origin and raw hostile Host/proxy/fetch metadata 403, blocked signup/OAuth/change-password 404, form encoding 415. Sessions and seven fictional table snapshots survive process restart; logout and password reset revoke sessions. Dev login/manifest 200 and private file requests 403. Credential stub decrypts persisted fictional ciphertext after restart; no secret output.
 - Exact unmodified SQL migrations remain `0001_auth.sql` through `0008_operating_complete.sql`; no schema reset or migration rewrite. Existing migrations have filename-only journal identity; checksum migration hardening is not claimed.
 - Security re-review after final deltas: GO, no high/medium finding; explicitly bounded to Lane A foundation. Mac/owner/provider acceptance remains unperformed.
+
+## Final clean-checkout evidence and integration instructions
+
+Implementation source: `4abf8ef1d01a5f6e7fae12e9893af928a9ce21a4` (following `948fbe5dc972c57366fb2733f9d78ce160f7a50c`); both descend directly from `operator-os` base `2d476b9d2e6bc37f1352444dd95de58b5537f798`. The final follow-up commit updates this evidence only. Clean detached worktree: `/tmp/prospector-lane-a-clean`, with no private sandbox config/assets. Linux Node `v24.19.0`, npm `11.9.0`.
+
+| Command / check | Exact result |
+| --- | --- |
+| `npm ci --no-audit --no-fund` | exit 0; 479 packages installed |
+| `npm run owner:setup` with a fictional password on stdin and a new temporary `OPERATOR_DATA_DIR` | exit 0; password not echoed |
+| `npm run build` | exit 0; generated Node server and package-supplied PGlite assets |
+| `npm run typecheck` | exit 0 |
+| `npm run test:foundation` | exit 0; **2/2 DB tests + 10/10 HTTP/recovery tests** (9 HTTP leaf cases and enclosing lifecycle); 0 failures |
+| ESLint on all changed TS/TSX/JS foundation files | exit 0 |
+| `git diff --check` | exit 0 |
+| `npm run lint` | exit 1; **1 existing error / 5 warnings**; error remains `src/lib/app-data/client.server.ts:281` (`no-empty`) |
+| Canonical `npm test` | exit 1; script stage **188 pass / 19 fail / 207 total**; chained domain stage therefore not executed by this command |
+| Separate exact domain/auth/retrieval command from package.json | exit 0; all 6 files pass; direct execution exposes **64 cases passed / 0 failed** (25 + 3 + 24 + 3 + 7 + 2) |
+
+Canonical failures are preserved and explicitly handed to Lane D: `brand-check.test.mjs` (3), `check-auth-invariant.test.mjs` (1), `grok-pwa-plugin.test.mjs` (10), `migration-plan.test.mjs` (1), `with-app-env.test.mjs` (3), `write-atomic.test.mjs` (1). They assert missing sandbox skill/config/assets or old template/hosting/auth wiring. The Nitro serverDir assertion is incompatible with the intentional local build; reconcile it to the local contract rather than re-enabling hosted middleware. No existing test assertion was deleted or weakened. A new direct-Node import extension regression was found and fixed in `4abf8ef`; the domain/auth/retrieval cases then passed 64/64.
+
+The clean-checkout HTTP gate additionally proves authenticated owner workspace read 200 with fictional company content, active-session invalidation and old-password refusal after reset, and dev-mode password throttling (401/401/401/429). It launches production and development servers on loopback in foreground child processes, stops them within bounded waits, and removes only its own fictional temporary directories.
+
+Integration:
+
+1. Integrate the Lane A commits into `operator-os`; do not target main or replace the checklist branch. Preserve other lane commits.
+2. Lane C: call `await sql.transaction(async tx => { ... })` for atomic restore; use only callback `tx`, await every operation, throw on any failure. No `fns.ts` hunk is supplied by Lane A; combine Lane B/C's distinct function patches without wholesale file replacement.
+3. Lane B: use the persisted server-derived owner ID from unchanged middleware context. Foundation startup does not implement manual-only workflow/scheduler/provider controls; retain your server-side safeguards.
+4. Lane D: retain new foundation tests, local manifest and Node build assets, adapt obsolete template checks to the supported local contract, and fix general lint/test issues in your lane. `npm run test:foundation` requires a build and free port 8080; run it sequentially with other app-server tests.
+5. Owner/Mac verification remains required. LOCAL-01/03 implementation and Linux fixture evidence do not mark Mac launch, real provider acceptance, daily workflow, versioned archive recovery, or LOCAL-07 owner acceptance complete. No deployment, merge, SMTP delivery, paid reveal, real provider call/spend, workflow change, hosted provisioning or retired-project access occurred.
+
+Draft PR title: **Local app: durable startup and owner access**. Branch: `codex/local-foundation-a`; base: `operator-os`. Stop after draft PR creation; no CI polling, reminders or scheduled follow-up.
