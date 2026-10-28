@@ -91,7 +91,7 @@ export default defineConfig(({ command, isPreview }) => ({
     tailwindcss(),
     tanstackStart(),
     ...(command === "build" || isPreview
-      ? [nitro({ preset: "node-server", serverDir: false })]
+      ? [nitro({ preset: "node-server", serverDir: false, entry: "./server/local-node-entry.ts" })]
       : []),
     viteReact(),
   ],
