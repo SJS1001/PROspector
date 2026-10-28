@@ -1,13 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
-import {
-  Outlet,
-  createRootRoute,
-  HeadContent,
-  Scripts,
-} from "@tanstack/react-router";
+import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
-import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "PROspector";
@@ -37,8 +31,7 @@ export const Route = createRootRoute({
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
     ],
   }),
   component: RootDocument,
@@ -51,7 +44,6 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body className="bg-paper font-sans text-ink antialiased">
-        <PreviewHostBridge />
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
             <Outlet />

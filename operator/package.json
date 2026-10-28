@@ -1,5 +1,5 @@
 {
-  "name": "app-builder-workspace",
+  "name": "prospector-local-operator",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -7,11 +7,11 @@
     "nf3": "0.3.17"
   },
   "scripts": {
-    "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/with-app-env.mjs vite build && npm run db:migrate",
+    "dev": "node scripts/local-start.mjs dev",
+    "build": "vite build && node scripts/local-build-assets.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
-    "preview": "node scripts/with-app-env.mjs vite preview",
+    "preview": "node scripts/local-start.mjs",
     "preview:restart": "node scripts/preview.mjs restart",
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
@@ -19,7 +19,11 @@
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/domain/qualify.test.ts src/lib/server/retrieve.test.ts",
     "desktop": "electron ./desktop/main.mjs",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "owner:setup": "node scripts/owner-setup.mjs",
+    "owner:reset": "node scripts/owner-setup.mjs --reset-password",
+    "start": "node scripts/local-start.mjs",
+    "test:foundation": "node scripts/local-database.test.mjs && node scripts/local-foundation.test.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -98,5 +102,8 @@
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }
