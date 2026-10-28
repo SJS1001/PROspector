@@ -13,7 +13,7 @@ Architecture: React presentation changes using the existing workspace DTO, mutat
 - [x] Daily work/search: next action and review counts first; collapse completed setup, diagnostics and run history.
 - [x] Review/outreach: compact records with details/forms on demand; preserve uncertainty and approval consequences.
 - [x] Verify typecheck, lint, production build, full source/script regressions, isolated browser workflow, keyboard, 320px layout and error recovery.
-- [ ] Review diff, document evidence, build/restart local app, synchronize branch to GitHub.
+- [x] Review diff, document evidence, build/restart local app, synchronize branch to GitHub.
 
 ## Review focus
 
