@@ -7,7 +7,7 @@ import { executeHunt } from "@/lib/server/hunt";
 import { revealFromPages } from "@/lib/server/reveal";
 import { connectionFlags, putSecret } from "@/lib/server/secrets";
 import { prepareManualMessage, approveManualMessage, handoffManualMessage, manualCrmCsv, eligibleCrmContacts, packageDigest } from "@/lib/server/manual-workflow";
-import { INTERVIEW, WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
+import { WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
 import { digestSnapshot, productReadinessFromKnowledge, readinessFromKnowledge, snapshotFromKnowledge } from "@/lib/server/profile";
 import { torontoParts } from "@/lib/server/toronto";
 import { ensureWorkspace, idFor, seedMiningSample } from "@/lib/server/seed";
@@ -1508,51 +1508,35 @@ export const exportCrmCsv = createServerFn({ method: "GET" })
     return { filename: "prospector-crm-handoff.csv", csv: await manualCrmCsv(sql, context.userId) };
   });
 
-export const exportArchive = createServerFn({ method: "GET" })
+export const exportArchive = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const workspace = await loadWorkspace(context.userId);
-    const payload = {
-      version: 2,
-      exportedAt: new Date().toISOString(),
-      company: workspace.companyLegal,
-      knowledge: workspace.knowledge,
-      proposals: workspace.proposals,
-      prospects: workspace.prospects,
-      contacts: workspace.contacts,
-      packages: workspace.packages,
-      suppressions: workspace.suppressions,
-    };
-    return {
-      filename: "prospector-workspace.json",
-      json: JSON.stringify({ ...payload, digest: digestOf(payload) }, null, 2),
-    };
+    const { getRequest } = await import("@tanstack/react-start/server");
+    const { assertArchiveRequest, MAX_ARCHIVE_BYTES } = await import("@/lib/server/archive-request");
+    assertArchiveRequest(getRequest(), context.userId);
+    const { exportWorkspaceArchive } = await import("@/lib/server/archive");
+    const { getArchiveAdapter } = await import("@/lib/server/archive-db");
+    const payload = await exportWorkspaceArchive(context.userId, await getArchiveAdapter());
+    const json = JSON.stringify(payload, null, 2);
+    if (Buffer.byteLength(json, "utf8") > MAX_ARCHIVE_BYTES) {
+      throw new Error("This workspace exceeds the 20 MiB portable archive limit.");
+    }
+    return { filename: "prospector-workspace-v1.json", json };
   });
 
 export const restoreArchive = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { json: string }) => ({ json: input.json }))
+  .validator((input: { json: string }) => input)
   .handler(async ({ context, data }) => {
-    let parsed: { knowledge?: { questionId: string; confirmedAnswer: string | null; proposedAnswer: string | null; status: string }[] };
-    try {
-      parsed = JSON.parse(data.json) as typeof parsed;
-    } catch {
-      throw new Error("That file is not valid JSON.");
-    }
-    const sql = await getSql();
-    await ensureWorkspace(sql, context.userId);
-    const allowed = new Set<string>(INTERVIEW.map((item) => item.questionId));
-    for (const item of parsed.knowledge ?? []) {
-      if (!item.questionId || !allowed.has(item.questionId)) continue;
-      await sql`
-        update knowledge_items
-        set proposed_answer = ${item.proposedAnswer},
-            confirmed_answer = ${item.confirmedAnswer},
-            status = ${item.status === "confirmed" ? "confirmed" : item.status === "proposed" ? "proposed" : "pending"}
-        where user_id = ${context.userId} and question_id = ${item.questionId}
-      `;
-    }
-    return loadWorkspace(context.userId);
+    const { getRequest } = await import("@tanstack/react-start/server");
+    const { assertArchiveRequest, parseArchiveInput } = await import("@/lib/server/archive-request");
+    const request = getRequest();
+    assertArchiveRequest(request, context.userId);
+    const input = parseArchiveInput(data);
+    const { restoreWorkspaceArchive } = await import("@/lib/server/archive");
+    const { getArchiveAdapter } = await import("@/lib/server/archive-db");
+    await restoreWorkspaceArchive(context.userId, input, await getArchiveAdapter(), { signal: request.signal });
+    return { restored: true };
   });
 
 // Kept for API compatibility. No scheduled work, inbox scan or credit refresh.

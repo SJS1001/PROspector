@@ -1,16 +1,15 @@
 import { useState } from "react";
+import { WorkspaceArchivePanel } from "@/components/workspace-archive-panel";
 import { PageHeading, Panel, ErrorNote } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LLM_PROVIDERS, llmProvider } from "@/lib/domain/llm";
-import { mutationMessage, useExportArchive, useExportCrm, useRestoreArchive, useSaveConnections, useWorkspace } from "@/lib/workspace";
+import { mutationMessage, useExportCrm, useSaveConnections, useWorkspace } from "@/lib/workspace";
 
 export function SettingsView() {
   const { data, isPending, isError } = useWorkspace();
   const save = useSaveConnections();
   const csv = useExportCrm();
-  const archive = useExportArchive();
-  const restore = useRestoreArchive();
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -237,26 +236,10 @@ export function SettingsView() {
         <Button variant="outline" disabled={csv.isPending} onClick={() => csv.mutate()}>
           {csv.isPending ? "Building…" : "Download CRM CSV"}
         </Button>
-        <Button variant="outline" disabled={archive.isPending} onClick={() => archive.mutate()}>
-          {archive.isPending ? "Building…" : "Download workspace"}
-        </Button>
-        <label className="inline-flex min-h-11 items-center">
-          <input
-            type="file"
-            accept="application/json"
-            className="text-xs text-muted"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              void file.text().then((text) => restore.mutate({ json: text }));
-            }}
-          />
-        </label>
       </div>
+      <WorkspaceArchivePanel />
       {save.error ? <ErrorNote message={mutationMessage(save.error)} /> : null}
       {csv.error ? <ErrorNote message={mutationMessage(csv.error)} /> : null}
-      {archive.error ? <ErrorNote message={mutationMessage(archive.error)} /> : null}
-      {restore.error ? <ErrorNote message={mutationMessage(restore.error)} /> : null}
       {save.isSuccess ? <p className="text-sm text-muted">Saved. Keys are not shown again.</p> : null}
     </div>
   );

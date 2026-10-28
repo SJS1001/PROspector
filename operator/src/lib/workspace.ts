@@ -234,7 +234,11 @@ export function useExportArchive() {
 }
 
 export function useRestoreArchive() {
-  return useWorkspaceMutation((input: { json: string }) => restoreArchive({ data: input }));
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { json: string }) => restoreArchive({ data: input }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workspaceKey, refetchType: "none" }),
+  });
 }
 
 export function mutationMessage(error: unknown) {
