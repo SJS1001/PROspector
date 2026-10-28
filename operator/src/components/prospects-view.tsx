@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +24,7 @@ export function ProspectsView() {
   const { data, isPending, isError } = useWorkspace();
   const [filter, setFilter] = useState<"all" | ProspectState>("all");
   if (isPending) return <p className="text-sm text-muted">Reading prospect workspace…</p>;
-  if (isError || !data) return <ErrorNote message="Prospects could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Prospects could not be loaded." />;
 
   const rows = data.prospects.filter((item) => filter === "all" || item.state === filter);
   const live = data.prospects.filter((item) => item.origin === "run").length;
@@ -76,6 +76,32 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
   const playReady = data.draftPlays.some((play) => play.status === "confirmed");
   const error = activate.error ?? find.error;
   const pending = activate.isPending || find.isPending;
+  const confirmation = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (!confirming) {
+      if (returnFocus.current) {
+        opener.current?.querySelector<HTMLButtonElement>("button")?.focus();
+        returnFocus.current = false;
+      }
+      return;
+    }
+    confirmation.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || pending) return;
+      event.preventDefault();
+      returnFocus.current = true;
+      setConfirming(null);
+    };
+    document.addEventListener("keydown", dismiss);
+    return () => document.removeEventListener("keydown", dismiss);
+  }, [confirming, pending]);
+
+  function cancelConfirmation() {
+    returnFocus.current = true;
+    setConfirming(null);
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -126,7 +152,7 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         ) : null}
 
         {confirming ? (
-          <div className="mt-5 rounded-[10px] border border-line bg-paper p-4">
+          <div ref={confirmation} className="mt-5 rounded-[10px] border border-line bg-paper p-4">
             <p className="text-sm">
               {confirming === "activate"
                 ? "Activation preserves history, queues one initial prospecting run, and starts this profile’s schedule. It does not authorize contact, spend, export, or outreach."
@@ -143,13 +169,13 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
               >
                 {pending ? "Working…" : "Confirm"}
               </Button>
-              <Button variant="outline" disabled={pending} onClick={() => setConfirming(null)}>
+              <Button variant="outline" disabled={pending} onClick={cancelConfirmation}>
                 Cancel
               </Button>
             </div>
           </div>
         ) : (
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div ref={opener} className="mt-5 flex flex-wrap gap-2">
             {data.profile.status !== "active" ? (
               <Button disabled={!ready || !playReady || pending} onClick={() => setConfirming("activate")}>
                 Activate profile configuration
@@ -269,7 +295,7 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
   const reenter = useReenterDueProspect();
   const [reason, setReason] = useState("");
   if (isPending) return <p className="text-sm text-muted">Reading assessment…</p>;
-  if (isError || !data) return <ErrorNote message="Assessment could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Assessment could not be loaded." />;
   const item = data.prospects.find((row) => row.id === prospectId);
   if (!item) {
     return (

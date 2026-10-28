@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { mutationMessage, useRequestEnrichmentGrant, useWorkspace } from "@/lib/workspace";
@@ -8,7 +8,7 @@ import type { Contact } from "@/lib/domain/types";
 export function ContactsView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Reading contacts…</p>;
-  if (isError || !data) return <ErrorNote message="Contacts could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Contacts could not be loaded." />;
 
   const visible = data.contacts.filter((item) => item.prospectState === "approved");
   const hidden = data.contacts.length - visible.length;

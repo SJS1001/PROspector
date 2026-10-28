@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +19,7 @@ import type { Contact, OutreachMessage, OutreachPackage, Prospect, Suppression }
 export function OutreachView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Reading outreach packages…</p>;
-  if (isError || !data) return <ErrorNote message="Outreach could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Outreach could not be loaded." />;
 
   const approved = data.prospects.filter((item) => item.state === "approved");
   const packaged = new Set(data.packages.map((item) => item.prospectId));

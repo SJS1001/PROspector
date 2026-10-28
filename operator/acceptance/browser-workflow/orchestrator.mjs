@@ -470,6 +470,9 @@ try {
     evidence,
     assertIdle,
   });
+  stage = "browser-recovery";
+  const { runRecovery } = await import("./recovery.mjs");
+  await runRecovery({ page, origin: ORIGIN, snapshot, evidence });
   const actual = eventRows();
   assert.equal(
     actual.filter((x) => x.kind === "denied").length,

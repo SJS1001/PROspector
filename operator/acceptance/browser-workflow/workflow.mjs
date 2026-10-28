@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { createKeyboardJourney } from "./usability.mjs";
 
 // The parent owns process/database lifecycle and both outbound network fences.
 // Every product transition below goes through the rendered owner interface.
@@ -25,9 +26,11 @@ export const fictionalAnswers = [
 export { parseCsv } from "./csv.mjs";
 import { parseCsvBytes } from "./csv.mjs";
 
-export async function downloadCsv(page, expectedEmails, validateRows = () => {}) {
+export async function downloadCsv(page, expectedEmails, validateRows = () => {}, activate) {
   const pending = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download CRM CSV", exact: true }).click();
+  const button = page.getByRole("button", { name: "Download CRM CSV", exact: true });
+  if (activate) await activate(button, "Download CRM CSV");
+  else await button.click(); // Unit consumer doubles and separate non-journey callers.
   const download = await pending;
   assert.match(download.suggestedFilename(), /\.csv$/);
   const stream = await download.createReadStream();
@@ -92,43 +95,27 @@ export async function runWorkflow({
 }) {
   page.setDefaultTimeout(30_000);
   await page.setViewportSize({ width: 360, height: 800 });
-  const layout = async (checkpoint) => {
-    const measured = await page.evaluate(() => {
-      const task = document.querySelector("#operator-task");
-      const controls = [...task.querySelectorAll("button,input,textarea,select,a.inline-flex")]
-        .map((node) => node.getBoundingClientRect())
-        .filter((rect) => rect.width && rect.height);
-      return {
-        width: innerWidth,
-        documentFits:
-          document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
-        taskFits: task.scrollWidth <= task.clientWidth + 1,
-        controlsFit: controls.every((rect) => rect.left >= -1 && rect.right <= innerWidth + 1),
-        controls: controls.length,
-      };
-    });
-    evidence.layout ??= [];
-    evidence.layout.push({ checkpoint, ...measured });
-    assert.equal(measured.width, 360);
-    assert.equal(measured.documentFits, true, checkpoint + ": document reflow");
-    assert.equal(measured.taskFits, true, checkpoint + ": task reflow");
-    assert.equal(measured.controlsFit, true, checkpoint + ": controls visible horizontally");
-    assert.ok(measured.controls > 0);
-  };
+  const keyboard = createKeyboardJourney(page, evidence);
+  const { layout } = keyboard;
   const task = () => page.locator("#operator-task");
   const go = async (route) => {
-    await page.goto(`${origin}${route}`);
+    const link = page.locator('nav[aria-label="Workspace"]').locator(`a[href="${route}"]`);
+    await keyboard.activate(link, `workspace navigation ${route}`);
+    await page.waitForURL((url) => url.pathname === route);
     await task().waitFor();
+    await keyboard.skip();
+    await layout(`screen ${route}`);
   };
   const visible = async (locator) => {
     await locator.waitFor({ state: "visible" });
   };
-  const click = async (name) => page.getByRole("button", { name, exact: true }).click();
+  const click = async (name) => keyboard.activate(page.getByRole("button", { name, exact: true }), name);
+  const csv = (emails, validateRows) => downloadCsv(page, emails, validateRows, keyboard.activate);
   const unlock = async () => {
     await page.goto(origin);
     await page.getByLabel("Owner password").or(task()).first().waitFor();
     if (await page.getByLabel("Owner password").isVisible()) {
-      await page.getByLabel("Owner password").fill(password);
+      await keyboard.type(page.getByLabel("Owner password"), password, "owner password after restart");
       await click("Unlock workspace");
       await task().waitFor();
     }
@@ -137,8 +124,8 @@ export async function runWorkflow({
   await page.goto(origin);
   const passwordField = page.locator("#owner-password");
   await passwordField.waitFor({ state: "visible" });
-  await page.keyboard.press("Tab");
-  assert.equal(await passwordField.evaluate((node) => node === document.activeElement), true);
+  await layout("owner unlock");
+  await keyboard.reach(passwordField, "owner password");
   await page.keyboard.type("Fictional incorrect keyboard password");
   await page.keyboard.press("Tab");
   assert.equal(
@@ -153,6 +140,7 @@ export async function runWorkflow({
     const field = document.querySelector("#owner-password");
     return field === document.activeElement && field.value === "";
   });
+  await layout("owner password error");
   assert.equal(await passwordField.getAttribute("aria-invalid"), "true");
   assert.equal(await passwordField.getAttribute("aria-describedby"), "owner-password-error");
   await page.keyboard.type(password);
@@ -165,39 +153,64 @@ export async function runWorkflow({
     keyboardRecovery: true,
   };
   await visible(task().getByRole("heading", { name: "Workspace status", exact: true }));
+  await keyboard.skip();
   await layout("home");
   await go("/knowledge");
   for (let index = 0; index < fictionalAnswers.length; index++) {
     await visible(task().getByText(new RegExp(`^Question ${index + 1} ·`)));
-    await task()
-      .getByRole("textbox", { name: /^Answer/ })
-      .fill(fictionalAnswers[index]);
+    await layout(`interview answer ${index + 1}`);
+    await keyboard.type(task().getByRole("textbox", { name: /^Answer/ }), fictionalAnswers[index], `answer ${index + 1}`);
     await click("Submit answer for confirmation");
+    await visible(page.getByRole("button", { name: "Confirm submitted answer", exact: true }));
+    await layout(`interview proposed ${index + 1}`);
     await click("Confirm submitted answer");
   }
   await visible(page.getByText("Confirmed knowledge is in force.", { exact: true }));
   console.log("Browser checkpoint: interview confirmed");
   evidence.interview = { submitted: 16, confirmed: 16, fictional: true };
 
+  // Inline confirmations remain part of normal tab order. Both cancellation
+  // methods must return focus to their opener without performing provider work.
+  const confirmAction = async (name, checkpoint, exerciseCancellation = false) => {
+    const opener = page.getByRole("button", { name, exact: true });
+    if (exerciseCancellation) {
+      for (const method of ["Cancel", "Escape"]) {
+        await keyboard.activate(opener, name);
+        await visible(page.getByRole("button", { name: "Confirm", exact: true }));
+        await layout(`${checkpoint} cancellation ${method}`);
+        if (method === "Cancel") await click("Cancel");
+        else {
+          await keyboard.reach(page.getByRole("button", { name: "Confirm", exact: true }), `${name} confirmation`);
+          await page.keyboard.press("Escape");
+        }
+        await page.getByRole("button", { name: "Confirm", exact: true }).waitFor({ state: "detached" });
+        await keyboard.focused(opener, `${name} focus after ${method}`);
+        (evidence.confirmationCancellation ??= []).push({ checkpoint, method, openerFocused: true });
+      }
+    }
+    await keyboard.activate(opener, name);
+    await visible(page.getByRole("button", { name: "Confirm", exact: true }));
+    await layout(`${checkpoint} confirmation`);
+    await click("Confirm");
+  };
   await go("/discovery");
-  await click("Activate product configuration");
-  await click("Confirm");
+  await confirmAction("Activate product configuration", "product activation", true);
   await visible(page.getByRole("button", { name: "Discover markets", exact: true }));
   // Exercise the explicit manual discovery control as well as initial activation.
-  await click("Discover markets");
-  await click("Confirm");
+  await confirmAction("Discover markets", "manual market discovery", true);
   const proposal = task()
     .locator("article")
     .filter({ has: page.getByRole("button", { name: "Explore", exact: true }) })
     .first();
   await visible(proposal);
-  await proposal
-    .getByLabel("Reason", { exact: true })
-    .fill("Fictional evidence fits the confirmed diagnostic capability.");
-  await proposal.getByRole("button", { name: "Explore", exact: true }).click();
-  await page.getByLabel("Audience", { exact: true }).fill("Fictional operating processing plants");
-  await page.getByLabel("Likely buyer", { exact: true }).fill("Fictional Person, plant GM");
-  await page.getByLabel("Offer", { exact: true }).fill("eight-week-diagnostic");
+  await layout("market proposals");
+  await keyboard.type(proposal.getByLabel("Reason", { exact: true }), "Fictional evidence fits the confirmed diagnostic capability.", "market exploration reason");
+  await keyboard.activate(proposal.getByRole("button", { name: "Explore", exact: true }), "Explore");
+  await visible(page.getByLabel("Audience", { exact: true }));
+  await layout("draft market play");
+  await keyboard.type(page.getByLabel("Audience", { exact: true }), "Fictional operating processing plants", "Audience");
+  await keyboard.type(page.getByLabel("Likely buyer", { exact: true }), "Fictional Person, plant GM", "Likely buyer");
+  await keyboard.type(page.getByLabel("Offer", { exact: true }), "eight-week-diagnostic", "Offer");
   await click("Confirm draft play");
   await visible(page.getByText(/Audience: Fictional operating processing plants/));
   console.log("Browser checkpoint: discovery confirmed");
@@ -208,14 +221,13 @@ export async function runWorkflow({
   for (const cycle of [1, 2]) {
     console.log(`Browser checkpoint: workflow ${cycle} prospects`);
     await go("/prospects");
-    if (cycle === 1) await click("Activate profile configuration");
+    if (cycle === 1) await confirmAction("Activate profile configuration", "profile activation", true);
     else {
       const remaining = 20_100 - (Date.now() - lastHuntAt);
       if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
-      await click("Find Prospects");
+      await confirmAction("Find Prospects", "manual prospect run", true);
     }
     lastHuntAt = Date.now();
-    await click("Confirm");
     try {
       await visible(task().getByText(`Fictional Plant ${cycle}`, { exact: true }));
     } finally {
@@ -238,23 +250,21 @@ export async function runWorkflow({
         ].filter((value) => text.includes(value)),
       };
     }
+    await layout(`prospect results ${cycle}`);
     await go("/review");
     const review = task()
       .locator("article")
       .filter({ hasText: `Fictional Plant ${cycle}` });
     await visible(review);
-    await review
-      .getByLabel("Reason", { exact: true })
-      .fill(
-        "Fictional retrieved evidence passes the application rubric and fits the confirmed profile.",
-      );
-    await review.getByRole("button", { name: "Approve", exact: true }).click();
+    await layout(`review candidate ${cycle}`);
+    await keyboard.type(review.getByLabel("Reason", { exact: true }), "Fictional retrieved evidence passes the application rubric and fits the confirmed profile.", `review reason ${cycle}`);
+    await keyboard.activate(review.getByRole("button", { name: "Approve", exact: true }), "Approve prospect");
     await review.waitFor({ state: "detached" });
 
     console.log(`Browser checkpoint: workflow ${cycle} contacts`);
     await go("/contacts");
     const email = `person${cycle}@fictionalquarry.example`;
-    // Suggestions share their account label. Click their actual UI controls until
+    // Suggestions share their account label. Activate their actual UI controls until
     // the current prospect's published source appears; never insert a contact.
     const reveals = page.getByRole("button", { name: "Run public-source reveal", exact: true });
     const revealCount = await reveals.count();
@@ -263,7 +273,8 @@ export async function runWorkflow({
       const response = page.waitForResponse(
         (item) => item.request().method() === "POST" && new URL(item.url()).origin === origin,
       );
-      await reveals.nth(index).click();
+      await layout(`contact reveal ${cycle}-${index}`);
+      await keyboard.activate(reveals.nth(index), `Run public-source reveal ${cycle}-${index}`);
       await (await response).finished();
       await page.reload();
       await visible(task().getByRole("heading", { name: "Contacts", exact: true }));
@@ -273,13 +284,14 @@ export async function runWorkflow({
     const approved = task()
       .locator("article")
       .filter({ hasText: `Fictional Plant ${cycle}` });
-    await approved.getByRole("button", { name: "Prepare package", exact: true }).click();
+    await keyboard.activate(approved.getByRole("button", { name: "Prepare package", exact: true }), "Prepare package");
     const packageCard = task()
       .locator("article")
       .filter({ has: page.getByRole("button", { name: "Approve package", exact: true }) });
     await visible(packageCard);
     assert.match(await packageCard.innerText(), /Digest [a-f0-9]{64}/);
-    await packageCard.getByRole("button", { name: "Approve package", exact: true }).click();
+    await layout(`package review ${cycle}`);
+    await keyboard.activate(packageCard.getByRole("button", { name: "Approve package", exact: true }), "Approve package");
     await click(`Draft message to ${email}`);
     const message = task()
       .locator("article")
@@ -293,8 +305,11 @@ export async function runWorkflow({
       await message.getByRole("button", { name: "Approve this message", exact: true }).isDisabled(),
       true,
     );
-    await message.getByRole("checkbox").check();
-    await message.getByRole("button", { name: "Approve this message", exact: true }).click();
+    await keyboard.activate(message.getByRole("checkbox"), "exact message acknowledgement", "Space");
+    assert.equal(await message.getByRole("checkbox").isChecked(), true);
+    await keyboard.activate(message.getByRole("button", { name: "Approve this message", exact: true }), "Approve this message");
+    await visible(message.getByRole("button", { name: "Open in Gmail", exact: true }));
+    await layout(`approved message ${cycle}`);
     let stale;
     if (cycle === 2) {
       assert.equal(
@@ -302,6 +317,8 @@ export async function runWorkflow({
         "function",
         "Parent must provide stopped-database fictional fixture mutation",
       );
+      // Negative authority probes deliberately use isolated tabs and pointer
+      // activation. They are separate from the keyboard-only primary journey.
       const approvedTab = async () => {
         const tab = await context.newPage();
         await tab.goto(`${origin}/outreach`);
@@ -341,8 +358,9 @@ export async function runWorkflow({
       await rejectStaleHandoff(invalidatedTab);
       await page.reload();
       await click(`Draft message to ${email}`);
-      await message.getByRole("checkbox").check();
-      await message.getByRole("button", { name: "Approve this message", exact: true }).click();
+      await keyboard.activate(message.getByRole("checkbox"), "renewed exact message acknowledgement", "Space");
+      assert.equal(await message.getByRole("checkbox").isChecked(), true);
+      await keyboard.activate(message.getByRole("button", { name: "Approve this message", exact: true }), "Approve renewed message");
       const suppressedTab = await approvedTab();
       await mutateFixture("add-probe-suppression");
       try {
@@ -352,7 +370,7 @@ export async function runWorkflow({
         evidence.suppressionBeforeHandoff = {
           denied: true,
           newGmailRequests: 0,
-          csv: await downloadCsv(page, ["person1@fictionalquarry.example"]),
+          csv: await csv(["person1@fictionalquarry.example"]),
         };
       } finally {
         // Removes only the exact harness-created probe; ordinary suppressions
@@ -378,7 +396,7 @@ export async function runWorkflow({
     const composePromise = context.waitForEvent("request", {
       predicate: (request) => request.url().startsWith("https://mail.google.com/"),
     });
-    await message.getByRole("button", { name: "Open in Gmail", exact: true }).click();
+    await keyboard.activate(message.getByRole("button", { name: "Open in Gmail", exact: true }), "Open in Gmail");
     const popup = await popupPromise;
     const compose = new URL((await composePromise).url());
     assert.equal(compose.searchParams.get("to"), email);
@@ -390,6 +408,7 @@ export async function runWorkflow({
       0,
     );
     await popup.close();
+    await layout(`handoff unconfirmed ${cycle}`);
     if (stale) {
       const attemptedGmail = [];
       const record = (request) => {
@@ -412,12 +431,13 @@ export async function runWorkflow({
     await page.reload();
     await visible(task().getByText("Handed off · delivery unconfirmed", { exact: true }).first());
     await assertIdle(page);
+    await go("/brief");
+    await layout(`brief after handoff ${cycle}`);
     await go("/settings");
     await visible(page.getByRole("button", { name: "Download workspace backup", exact: true }));
     await layout("settings-cycle-" + cycle);
     csvEvidence.push(
-      await downloadCsv(
-        page,
+      await csv(
         Array.from({ length: cycle }, (_, i) => `person${i + 1}@fictionalquarry.example`),
       ),
     );
@@ -447,15 +467,14 @@ export async function runWorkflow({
     selects: await page.locator("select").count(),
     namedKind: await page.getByRole("combobox", { name: /^Kind/ }).count(),
   };
-  await page
-    .locator("form")
-    .filter({ has: page.getByRole("button", { name: "Add suppression", exact: true }) })
-    .getByRole("combobox")
-    .selectOption("email");
-  await page.getByLabel("Email", { exact: true }).fill("person2@fictionalquarry.example");
-  await page
-    .getByLabel("Reason", { exact: true })
-    .fill("Fictional owner suppression for browser acceptance.");
+  const suppressionForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Add suppression", exact: true }) });
+  const kind = suppressionForm.getByRole("combobox", { name: /^Kind/ });
+  await keyboard.select(kind, "domain", "suppression Kind domain");
+  await visible(suppressionForm.getByLabel("Domain", { exact: true }));
+  await keyboard.select(kind, "email", "suppression Kind email");
+  await keyboard.type(suppressionForm.getByLabel("Email", { exact: true }), "person2@fictionalquarry.example", "suppression email");
+  await keyboard.type(suppressionForm.getByLabel("Reason", { exact: true }), "Fictional owner suppression for browser acceptance.", "suppression reason");
+  await layout("completed suppression form");
   await click("Add suppression");
   await visible(
     task().getByText("Fictional owner suppression for browser acceptance.", { exact: true }),
@@ -463,7 +482,7 @@ export async function runWorkflow({
   await go("/settings");
   evidence.suppression = {
     emailExcluded: true,
-    csv: await downloadCsv(page, ["person1@fictionalquarry.example"]),
+    csv: await csv(["person1@fictionalquarry.example"]),
   };
   const edge = await mutateFixture("csv-edge-contacts");
   const expectedNames = [
@@ -476,8 +495,7 @@ export async function runWorkflow({
   ];
   assert.equal(edge.names.length, expectedNames.length);
   await go("/settings");
-  evidence.csvEdgeCases = await downloadCsv(
-    page,
+  evidence.csvEdgeCases = await csv(
     [
       "person1@fictionalquarry.example",
       ...expectedNames.map((_, i) => `edge${i}@fictionalquarry.example`),

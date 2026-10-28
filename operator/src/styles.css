@@ -91,6 +91,13 @@
   background: var(--color-paper);
 }
 
+/* Let the horizontal navigation scroll without widening the workspace grid. */
+.app-window,
+.app-window > .grid,
+.app-window aside {
+  min-width: 0;
+}
+
 .app-titlebar {
   display: flex;
   align-items: center;

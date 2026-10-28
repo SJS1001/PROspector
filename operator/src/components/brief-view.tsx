@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { nextAction } from "@/lib/domain/journey";
@@ -9,7 +9,7 @@ export function BriefView() {
   const { data, isPending, isError } = useWorkspace();
   const morning = useTickSchedule();
   if (isPending) return <p className="text-sm text-muted">Reading persisted Phase 4 state…</p>;
-  if (isError || !data) return <ErrorNote message="Morning Brief unavailable. No action was attempted." />;
+  if (isError || !data) return <WorkspaceLoadError message="Morning Brief unavailable. No action was attempted." />;
 
   const generated = new Date(data.generatedAt).toLocaleString("en-CA", {
     timeZone: "America/Toronto",

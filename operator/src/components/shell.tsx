@@ -1,4 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 import {
   BookOpen,
   ClipboardCheck,
@@ -13,7 +16,7 @@ import {
 } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { useWorkspace } from "@/lib/workspace";
+import { useWorkspace, workspaceKey } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 import { AccessScreen } from "@/components/access-screen";
 import { TASKS, taskUnlocked } from "@/lib/domain/journey";
@@ -170,9 +173,20 @@ export function Panel({
 }
 
 export function ErrorNote({ message }: { message: string }) {
+  const alert = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { alert.current?.focus(); }, [message]);
   return (
-    <p role="alert" className="rounded-sm border border-red/30 bg-danger-bg px-3 py-2 text-xs text-red">
+    <p ref={alert} tabIndex={-1} role="alert" className="rounded-sm border border-red/30 bg-danger-bg px-3 py-2 text-xs text-red">
       {message}
     </p>
   );
+}
+
+export function WorkspaceLoadError({ message }: { message: string }) {
+  const queryClient = useQueryClient();
+  const isFetching = useIsFetching({ queryKey: workspaceKey }) > 0;
+  return <div className="grid gap-3">
+    <ErrorNote message={message} />
+    <Button disabled={isFetching} onClick={() => void queryClient.refetchQueries({ queryKey: workspaceKey })}>Retry loading workspace</Button>
+  </div>;
 }

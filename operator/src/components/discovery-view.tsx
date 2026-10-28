@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,7 @@ import type { MarketProposal, ProposalDecision, WorkspaceDTO } from "@/lib/domai
 export function DiscoveryView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Reading market discovery…</p>;
-  if (isError || !data) return <ErrorNote message="Discovery could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Discovery could not be loaded." />;
 
   const open = data.proposals.filter((item) => item.decision === "open");
 
@@ -77,6 +77,32 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
   const busyRun = data.discoveryRuns.some((run) => run.status === "queued" || run.status === "running");
   const error = activate.error ?? discover.error;
   const pending = activate.isPending || discover.isPending;
+  const confirmation = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (!confirming) {
+      if (returnFocus.current) {
+        opener.current?.querySelector<HTMLButtonElement>("button")?.focus();
+        returnFocus.current = false;
+      }
+      return;
+    }
+    confirmation.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || pending) return;
+      event.preventDefault();
+      returnFocus.current = true;
+      setConfirming(null);
+    };
+    document.addEventListener("keydown", dismiss);
+    return () => document.removeEventListener("keydown", dismiss);
+  }, [confirming, pending]);
+
+  function cancelConfirmation() {
+    returnFocus.current = true;
+    setConfirming(null);
+  }
 
   return (
     <Panel className="p-6">
@@ -123,7 +149,7 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
       ) : null}
 
       {confirming ? (
-        <div className="mt-5 rounded-[10px] border border-line bg-paper p-4">
+        <div ref={confirmation} className="mt-5 rounded-[10px] border border-line bg-paper p-4">
           <p className="text-sm">
             {confirming === "activate"
               ? "Activation queues one discovery run and does not start prospecting. It does not create a customer profile or authorize outreach."
@@ -140,13 +166,13 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
             >
               {pending ? "Working…" : "Confirm"}
             </Button>
-            <Button variant="outline" disabled={pending} onClick={() => setConfirming(null)}>
+            <Button variant="outline" disabled={pending} onClick={cancelConfirmation}>
               Cancel
             </Button>
           </div>
         </div>
       ) : (
-        <div className="mt-5 grid gap-3">
+        <div ref={opener} className="mt-5 grid gap-3">
           {!active ? (
             <>
               <p className="text-xs text-muted">

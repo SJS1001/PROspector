@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { mutationMessage, useParkGreenfield, useReviewProspect, useWorkspace } from "@/lib/workspace";
@@ -9,7 +9,7 @@ import type { Prospect, ReviewDecision } from "@/lib/domain/types";
 export function ReviewView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Loading the review queue…</p>;
-  if (isError || !data) return <ErrorNote message="The review queue could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="The review queue could not be loaded." />;
 
   const queue = data.prospects.filter((item) => item.state === "qualified" && item.outcome === "Passed");
 

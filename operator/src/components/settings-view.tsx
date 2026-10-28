@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { WorkspaceArchivePanel } from "@/components/workspace-archive-panel";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LLM_PROVIDERS, llmProvider } from "@/lib/domain/llm";
@@ -24,7 +24,7 @@ export function SettingsView() {
   const [batch, setBatch] = useState("");
 
   if (isPending) return <p className="text-sm text-muted">Loading connections…</p>;
-  if (isError || !data) return <ErrorNote message="Connections could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Connections could not be loaded." />;
 
   const selected = llmProvider(provider || data.connections.llmProvider);
 

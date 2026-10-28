@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +17,7 @@ import type { KnowledgeItem } from "@/lib/domain/types";
 export function KnowledgeView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Reading confirmed knowledge…</p>;
-  if (isError || !data) return <ErrorNote message="Knowledge could not be loaded." />;
+  if (isError || !data) return <WorkspaceLoadError message="Knowledge could not be loaded." />;
 
   const current = data.currentQuestion;
 

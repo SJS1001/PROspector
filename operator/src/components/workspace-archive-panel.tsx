@@ -109,7 +109,7 @@ export function WorkspaceArchivePanel() {
       <p ref={status} tabIndex={-1} role="status" className="text-sm text-muted">
         {restore.isSuccess
           ? "Restore committed. Reload the app to view the recovered workspace. No provider work was requested by restore."
-          : "The complete file is validated before an atomic restore. A failed restore leaves the previous workspace in place."}
+          : "The complete file is validated before an atomic restore. Validation failures leave the previous workspace in place. If the connection is interrupted, reload and check the workspace before trying again."}
       </p>
     </Panel>
   );
