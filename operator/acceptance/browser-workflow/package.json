@@ -1,0 +1,11 @@
+{
+  "name": "prospector-isolated-browser-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test fences.test.mjs stubs.test.mjs && node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
