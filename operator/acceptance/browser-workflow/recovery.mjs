@@ -9,6 +9,8 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   const navigate = async (path) => {
     await keyboard.activate(page.locator(`nav[aria-label="Workspace"] a[href="${path}"]`), `recovery navigation ${path}`);
     await page.waitForURL(origin + path);
+    const heading = path === '/settings' ? 'Connections' : 'Packages, then messages, then Gmail';
+    await page.locator('#operator-task').getByRole('heading', { name: heading, exact: true }).waitFor();
   };
   const fn = (request, method) => request.method() === method &&
     new URL(request.url()).origin === origin && new URL(request.url()).pathname.startsWith('/_serverFn/');
@@ -43,7 +45,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   await keyboard.select(form.getByRole('combobox', { name: /^Kind/ }), 'email', 'recovery suppression kind');
   const value = 'recovery@fictionalquarry.example';
   await keyboard.type(form.getByLabel('Email', { exact: true }), value, 'recovery suppression email');
-  await keyboard.type(form.getByLabel('Reason', { exact: true }), 'Fictional response-loss recovery check.', 'recovery suppression reason');
+  await keyboard.type(form.getByRole('textbox', { name: 'Reason', exact: true }), 'Fictional response-loss recovery check.', 'recovery suppression reason');
   const beforeLoss = await snapshot('recovery-before-lost-response');
   let committed = 0;
   const loseResponse = async (route) => {

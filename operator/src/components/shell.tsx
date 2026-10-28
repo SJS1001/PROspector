@@ -69,7 +69,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-window">
-      <a className="skip-link" href="#operator-task">
+      <a className="skip-link" href="#operator-task" onClick={(event) => {
+        // Keep this local focus action out of router hash/history restoration.
+        // Otherwise a later render can scroll away from the owner's form field.
+        event.preventDefault();
+        const task = document.getElementById("operator-task");
+        task?.focus({ preventScroll: true });
+        task?.scrollIntoView({ block: "start" });
+      }}>
         Skip to workspace
       </a>
       <div className="app-titlebar">
@@ -95,6 +102,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={item.id}
                   to={item.href}
+                  onFocus={(event) => {
+                    // Rapid tabbing through the narrow horizontal navigation can
+                    // leave the final link clipped by an earlier native scroll.
+                    const link = event.currentTarget;
+                    requestAnimationFrame(() => {
+                      if (link === document.activeElement)
+                        link.scrollIntoView({ block: "nearest", inline: "nearest" });
+                    });
+                  }}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex min-h-11 shrink-0 items-center gap-2.5 rounded-sm px-2.5 text-sm text-muted",

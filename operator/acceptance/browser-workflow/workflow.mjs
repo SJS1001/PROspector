@@ -102,7 +102,9 @@ export async function runWorkflow({
     const link = page.locator('nav[aria-label="Workspace"]').locator(`a[href="${route}"]`);
     await keyboard.activate(link, `workspace navigation ${route}`);
     await page.waitForURL((url) => url.pathname === route);
-    await task().waitFor();
+    // URL updates can precede the new route shell; wait for its content before tabbing.
+    const heading = { "/knowledge": "Company & products", "/discovery": "Market play proposals", "/prospects": "Prospect workspace", "/review": "Review prospects", "/contacts": "Contacts", "/outreach": "Packages, then messages, then Gmail", "/settings": "Connections", "/brief": "Morning Brief" }[route];
+    await task().getByRole("heading", { name: heading, exact: true }).waitFor();
     await keyboard.skip();
     await layout(`screen ${route}`);
   };
@@ -204,7 +206,7 @@ export async function runWorkflow({
     .first();
   await visible(proposal);
   await layout("market proposals");
-  await keyboard.type(proposal.getByLabel("Reason", { exact: true }), "Fictional evidence fits the confirmed diagnostic capability.", "market exploration reason");
+  await keyboard.type(proposal.getByRole("textbox", { name: "Reason", exact: true }), "Fictional evidence fits the confirmed diagnostic capability.", "market exploration reason");
   await keyboard.activate(proposal.getByRole("button", { name: "Explore", exact: true }), "Explore");
   await visible(page.getByLabel("Audience", { exact: true }));
   await layout("draft market play");
@@ -257,7 +259,7 @@ export async function runWorkflow({
       .filter({ hasText: `Fictional Plant ${cycle}` });
     await visible(review);
     await layout(`review candidate ${cycle}`);
-    await keyboard.type(review.getByLabel("Reason", { exact: true }), "Fictional retrieved evidence passes the application rubric and fits the confirmed profile.", `review reason ${cycle}`);
+    await keyboard.type(review.getByRole("textbox", { name: "Reason", exact: true }), "Fictional retrieved evidence passes the application rubric and fits the confirmed profile.", `review reason ${cycle}`);
     await keyboard.activate(review.getByRole("button", { name: "Approve", exact: true }), "Approve prospect");
     await review.waitFor({ state: "detached" });
 
@@ -473,7 +475,7 @@ export async function runWorkflow({
   await visible(suppressionForm.getByLabel("Domain", { exact: true }));
   await keyboard.select(kind, "email", "suppression Kind email");
   await keyboard.type(suppressionForm.getByLabel("Email", { exact: true }), "person2@fictionalquarry.example", "suppression email");
-  await keyboard.type(suppressionForm.getByLabel("Reason", { exact: true }), "Fictional owner suppression for browser acceptance.", "suppression reason");
+  await keyboard.type(suppressionForm.getByRole("textbox", { name: "Reason", exact: true }), "Fictional owner suppression for browser acceptance.", "suppression reason");
   await layout("completed suppression form");
   await click("Add suppression");
   await visible(

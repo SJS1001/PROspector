@@ -17,7 +17,7 @@ export function createKeyboardJourney(page, evidence = {}) {
     // Observe it; never scroll or focus the element through the test driver.
     await page.waitForFunction((node) => {
       const r = node.getBoundingClientRect();
-      return r.top >= -1 && r.bottom <= innerHeight + 1;
+      return r.top >= -1 && r.bottom <= innerHeight + 1 && r.left >= -1 && r.right <= innerWidth + 1;
     }, await locator.elementHandle(), { timeout: 1500 }).catch(() => {});
     const state = await locator.evaluate((node) => {
       const rect = node.getBoundingClientRect();
@@ -76,8 +76,8 @@ export function createKeyboardJourney(page, evidence = {}) {
   };
   const type = async (locator, text, label = "field") => {
     await reach(locator, label);
-    // Home/End works on every platform; Control/Meta+A is platform dependent.
-    await page.keyboard.press("Home");
+    // Select text with the platform modifier. macOS Home scrolls the page
+    // and can leave a pending native scroll that outlives subsequent Tab keys.
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type(text);
     assert.equal(await locator.inputValue(), text, `${label}: keyboard text value`);
@@ -96,8 +96,10 @@ export function createKeyboardJourney(page, evidence = {}) {
     actions.push({ kind: "select", label });
   };
   const skip = async () => {
+    const before = page.url();
     await activate(page.getByRole("link", { name: "Skip to workspace", exact: true }), "skip link");
     assert.equal(await active(page.locator("#operator-task")), true, "Skip link moves focus into workspace");
+    assert.equal(page.url(), before, "Skip focus does not create a persistent route hash");
     actions.push({ kind: "skip", label: "workspace focus" });
   };
   const layout = async (checkpoint) => {
