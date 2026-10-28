@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +51,24 @@ function ReviewCard({ item }: { item: Prospect }) {
   const [reason, setReason] = useState("");
   const [reviewAt, setReviewAt] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const confirmation = useRef<HTMLSpanElement>(null);
+  const opener = useRef<HTMLSpanElement>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (!confirming) {
+      if (returnFocus.current) {
+        opener.current?.querySelector<HTMLButtonElement>("button")?.focus();
+        returnFocus.current = false;
+      }
+      return;
+    }
+    confirmation.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [confirming]);
+
+  function cancelConfirmation() {
+    returnFocus.current = true;
+    setConfirming(false);
+  }
 
   function submit(decision: ReviewDecision) {
     review.mutate({
@@ -121,16 +139,22 @@ function ReviewCard({ item }: { item: Prospect }) {
         <Button disabled={review.isPending} onClick={() => submit("approve")}>Approve</Button>
         <Button variant="outline" disabled={review.isPending} onClick={() => submit("defer")}>Defer</Button>
         {confirming ? (
-          <>
+          <span ref={confirmation} className="contents" onKeyDown={(event) => {
+            if (event.key !== "Escape" || review.isPending) return;
+            event.preventDefault();
+            cancelConfirmation();
+          }}>
             <Button variant="danger" disabled={review.isPending} onClick={() => submit("reject")}>
               Confirm rejection
             </Button>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
-          </>
+            <Button variant="ghost" disabled={review.isPending} onClick={cancelConfirmation}>Cancel</Button>
+          </span>
         ) : (
-          <Button variant="danger" disabled={review.isPending} onClick={() => setConfirming(true)}>
-            Reject
-          </Button>
+          <span ref={opener} className="contents">
+            <Button variant="danger" disabled={review.isPending} onClick={() => setConfirming(true)}>
+              Reject
+            </Button>
+          </span>
         )}
         <Button
           variant="outline"

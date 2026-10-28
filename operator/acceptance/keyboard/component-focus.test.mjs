@@ -37,7 +37,7 @@ function mount(file, exportName, mocks, props = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const exports = {};
-  vm.runInNewContext(compiled, {
+  vm.runInNewContext(`${compiled}\nexports.${exportName} = ${exportName};`, {
     exports,
     require(name) {
       if (name === "react") return react;
@@ -62,7 +62,21 @@ function mount(file, exportName, mocks, props = {}) {
     effects = [];
     tree = exports[exportName](props);
     for (const node of all()) {
-      if (node.props.ref) node.props.ref.current = { focus() { focused = node; } };
+      if (node.props.ref) node.props.ref.current = {
+        focus() { focused = node; },
+        querySelector(selector) {
+          assert.equal(selector, "button");
+          const buttons = [];
+          const visit = (child) => {
+            if (Array.isArray(child)) return child.forEach(visit);
+            if (!child || typeof child !== "object") return;
+            if (child.type === "button") buttons.push(child);
+            visit(child.props?.children);
+          };
+          visit(node.props.children);
+          return buttons[0] ? { focus() { focused = buttons[0]; } } : null;
+        },
+      };
     }
     effects.forEach((effect) => effect());
   };
@@ -160,3 +174,33 @@ test("component double: unreadable file can be selected again and recovered", as
   assert.equal(app.find((node) => node.type === "error-note"), undefined);
   assert.ok(app.find(input("checkbox")));
 });
+
+for (const dismissal of ["Cancel", "Escape"]) {
+  test(`component double: rejection ${dismissal} restores Reject focus without reviewing`, () => {
+    let mutations = 0;
+    const app = mount("review-view.tsx", "ReviewCard", {
+      "@tanstack/react-router": { Link: "a" },
+      "@/components/shell": shell,
+      "@/components/ui/button": button,
+      "@/components/ui/badge": { Badge: "badge" },
+      "@/lib/workspace": {
+        useReviewProspect: () => ({ isPending: false, mutate() { mutations++; } }),
+        useParkGreenfield: () => ({ isPending: false }),
+      },
+    }, { item: { id: "fictional", assessment: { dimensions: [] } } });
+    const findButton = (label) => app.find((node) => node.type === "button" && node.props.children === label);
+    findButton("Reject").props.onClick();
+    app.render();
+    assert.equal(app.focused(), findButton("Confirm rejection"));
+    if (dismissal === "Cancel") findButton("Cancel").props.onClick();
+    else {
+      let prevented = false;
+      app.find((node) => node.props.onKeyDown).props.onKeyDown({ key: "Escape", preventDefault() { prevented = true; } });
+      assert.equal(prevented, true);
+    }
+    app.render();
+    assert.equal(findButton("Confirm rejection"), undefined);
+    assert.equal(app.focused(), findButton("Reject"));
+    assert.equal(mutations, 0);
+  });
+}
