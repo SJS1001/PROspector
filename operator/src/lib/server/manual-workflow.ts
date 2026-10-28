@@ -216,6 +216,7 @@ export function csvCell(value: unknown) {
   return `"${safe.replaceAll('"', '""')}"`;
 }
 export async function eligibleCrmContacts(sql: Sql, userId: string) {
+  // JSON framing preserves leading U+FEFF that PGlite strips from plain text fields.
   const rows = await sql.query<{
     prospect_id: string;
     contact_id: string;
@@ -229,7 +230,7 @@ export async function eligibleCrmContacts(sql: Sql, userId: string) {
     body: string;
     digest: string;
   }>(
-    `select p.prospect_id, c.id as contact_id, r.account_name, c.full_name, c.role, c.email_display as email,
+    `select p.prospect_id, c.id as contact_id, r.account_name, to_json(c.full_name) as full_name, c.role, c.email_display as email,
       coalesce(c.phone_display, '') as phone, c.source, p.subject, p.body, p.digest ${joins}
       where ${eligible} order by p.prospect_id, c.id`,
     [userId],

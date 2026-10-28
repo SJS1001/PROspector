@@ -442,7 +442,16 @@ export async function runWorkflow({
     csv: csvEvidence,
   };
   await go("/outreach");
-  await page.getByRole("combobox", { name: /^Kind/ }).selectOption("email");
+  await page.getByRole("heading", { name: "Suppressions", exact: true }).waitFor();
+  evidence.suppressionForm = {
+    selects: await page.locator("select").count(),
+    namedKind: await page.getByRole("combobox", { name: /^Kind/ }).count(),
+  };
+  await page
+    .locator("form")
+    .filter({ has: page.getByRole("button", { name: "Add suppression", exact: true }) })
+    .getByRole("combobox")
+    .selectOption("email");
   await page.getByLabel("Email", { exact: true }).fill("person2@fictionalquarry.example");
   await page
     .getByLabel("Reason", { exact: true })
