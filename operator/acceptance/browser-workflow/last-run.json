@@ -1,13 +1,331 @@
 {
-  "status": "BLOCKED_NATIVE_CONTAINMENT",
-  "node": "v24.22.1",
-  "platform": "linux",
-  "cases": [],
-  "snapshots": [],
-  "workflowExecuted": false,
-  "nativeContainment": "unavailable",
-  "error": {
-    "stage": "native-containment-preflight",
-    "code": "ACCEPTANCE_NATIVE_CONTAINMENT_UNAVAILABLE"
-  }
+  "base": "5eb5c1ef14520ff3c5bb117fb0a10155d01bf53c",
+  "node": "v24.16.0",
+  "platform": "darwin",
+  "playwright": "1.63.0",
+  "browserRevision": "1243",
+  "status": "PASS",
+  "nativeContainment": "macos-seatbelt-localhost-tcp-8080-8082",
+  "cases": [
+    "real built server starts with outbound guard",
+    "anonymous denied; owner login; no signup; missing/foreign Origin and cross-site POST refused; zero workspace delta",
+    "startup/reload observation window: zero automatic provider work and canonical state delta",
+    "startup/reload observation window: zero automatic provider work and canonical state delta"
+  ],
+  "snapshots": [
+    {
+      "label": "before-negative-http",
+      "counts": {
+        "workspaces": 0,
+        "knowledge_items": 0,
+        "product_configurations": 0,
+        "draft_plays": 0,
+        "profile_configurations": 0,
+        "discovery_runs": 0,
+        "prospecting_runs": 0,
+        "prospects": 0,
+        "contacts": 0,
+        "outreach_packages": 0,
+        "outreach_messages": 0,
+        "suppressions": 0,
+        "delivery_events": 0
+      },
+      "digest": "6777b76549d213243743c84d39e1acca7052ab15eccd0f89c9a576f0650e665c"
+    },
+    {
+      "label": "after-negative-http",
+      "counts": {
+        "workspaces": 0,
+        "knowledge_items": 0,
+        "product_configurations": 0,
+        "draft_plays": 0,
+        "profile_configurations": 0,
+        "discovery_runs": 0,
+        "prospecting_runs": 0,
+        "prospects": 0,
+        "contacts": 0,
+        "outreach_packages": 0,
+        "outreach_messages": 0,
+        "suppressions": 0,
+        "delivery_events": 0
+      },
+      "digest": "6777b76549d213243743c84d39e1acca7052ab15eccd0f89c9a576f0650e665c"
+    },
+    {
+      "label": "before-idle-reload",
+      "counts": {
+        "workspaces": 1,
+        "knowledge_items": 16,
+        "product_configurations": 1,
+        "draft_plays": 1,
+        "profile_configurations": 1,
+        "discovery_runs": 2,
+        "prospecting_runs": 1,
+        "prospects": 1,
+        "contacts": 3,
+        "outreach_packages": 1,
+        "outreach_messages": 1,
+        "suppressions": 0,
+        "delivery_events": 1
+      },
+      "digest": "bcd892a11f3475203fe867cb8f9450cc5c9df61b37474b0b5aa51d24e0f90aec"
+    },
+    {
+      "label": "after-idle-reload",
+      "counts": {
+        "workspaces": 1,
+        "knowledge_items": 16,
+        "product_configurations": 1,
+        "draft_plays": 1,
+        "profile_configurations": 1,
+        "discovery_runs": 2,
+        "prospecting_runs": 1,
+        "prospects": 1,
+        "contacts": 3,
+        "outreach_packages": 1,
+        "outreach_messages": 1,
+        "suppressions": 0,
+        "delivery_events": 1
+      },
+      "digest": "bcd892a11f3475203fe867cb8f9450cc5c9df61b37474b0b5aa51d24e0f90aec"
+    },
+    {
+      "label": "workflow-before-restart",
+      "counts": {
+        "workspaces": 1,
+        "knowledge_items": 16,
+        "product_configurations": 1,
+        "draft_plays": 1,
+        "profile_configurations": 1,
+        "discovery_runs": 2,
+        "prospecting_runs": 1,
+        "prospects": 1,
+        "contacts": 3,
+        "outreach_packages": 1,
+        "outreach_messages": 1,
+        "suppressions": 0,
+        "delivery_events": 1
+      },
+      "digest": "bcd892a11f3475203fe867cb8f9450cc5c9df61b37474b0b5aa51d24e0f90aec"
+    },
+    {
+      "label": "workflow-after-restart",
+      "counts": {
+        "workspaces": 1,
+        "knowledge_items": 16,
+        "product_configurations": 1,
+        "draft_plays": 1,
+        "profile_configurations": 1,
+        "discovery_runs": 2,
+        "prospecting_runs": 1,
+        "prospects": 1,
+        "contacts": 3,
+        "outreach_packages": 1,
+        "outreach_messages": 1,
+        "suppressions": 0,
+        "delivery_events": 1
+      },
+      "digest": "bcd892a11f3475203fe867cb8f9450cc5c9df61b37474b0b5aa51d24e0f90aec"
+    },
+    {
+      "label": "before-idle-reload",
+      "counts": {
+        "workspaces": 1,
+        "knowledge_items": 16,
+        "product_configurations": 1,
+        "draft_plays": 1,
+        "profile_configurations": 1,
+        "discovery_runs": 2,
+        "prospecting_runs": 2,
+        "prospects": 2,
+        "contacts": 6,
+        "outreach_packages": 2,
+        "outreach_messages": 2,
+        "suppressions": 0,
+        "delivery_events": 2
+      },
+      "digest": "f674b3da8809dc89bd6a092df42fdf12694b9623aae0dda0f1c294f7024bd60b"
+    },
+    {
+      "label": "after-idle-reload",
+      "counts": {
+        "workspaces": 1,
+        "knowledge_items": 16,
+        "product_configurations": 1,
+        "draft_plays": 1,
+        "profile_configurations": 1,
+        "discovery_runs": 2,
+        "prospecting_runs": 2,
+        "prospects": 2,
+        "contacts": 6,
+        "outreach_packages": 2,
+        "outreach_messages": 2,
+        "suppressions": 0,
+        "delivery_events": 2
+      },
+      "digest": "f674b3da8809dc89bd6a092df42fdf12694b9623aae0dda0f1c294f7024bd60b"
+    }
+  ],
+  "reviewedSourceFiles": 29,
+  "interceptedProviders": [
+    "jev-tasks.ts",
+    "llm.ts",
+    "retrieve.ts"
+  ],
+  "browser": "153.0.8010.12",
+  "keyboardUnlock": {
+    "wrongPasswordRefocused": true,
+    "passwordCleared": true,
+    "keyboardRecovery": true
+  },
+  "layout": [
+    {
+      "checkpoint": "home",
+      "width": 360,
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "controls": 2
+    },
+    {
+      "checkpoint": "message-cycle-1",
+      "width": 360,
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "settings-cycle-1",
+      "width": 360,
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "message-cycle-2",
+      "width": 360,
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "controls": 13
+    },
+    {
+      "checkpoint": "settings-cycle-2",
+      "width": 360,
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "controls": 15
+    }
+  ],
+  "interview": {
+    "submitted": 16,
+    "confirmed": 16,
+    "fictional": true
+  },
+  "discovery": {
+    "productActivated": true,
+    "manualRun": true,
+    "draftPlayConfirmed": true
+  },
+  "prospectProbe": {
+    "cycle": 2,
+    "plantOne": 1,
+    "plantTwo": 1,
+    "alerts": 0,
+    "alertMessages": [],
+    "classifications": []
+  },
+  "suppressionBeforeHandoff": {
+    "denied": true,
+    "newGmailRequests": 0,
+    "csv": {
+      "filename": "prospector-crm-handoff.csv",
+      "bytes": 344,
+      "sha256": "a36b1b9e7d191c44a6ad520342572dd5284ad63a02fdba37ef1065c68ef7cd6c",
+      "rows": 1,
+      "identities": [
+        "75c0a523526c55784b236daf:889f789d5d307b34e1766cc3"
+      ]
+    }
+  },
+  "changedAfterApproval": {
+    "denied": true,
+    "freshDraftAndApprovalRequired": true,
+    "newGmailRequests": 0
+  },
+  "staleTab": {
+    "replayRefused": true,
+    "newGmailRequests": 0
+  },
+  "workflows": {
+    "completed": 2,
+    "afterRestart": true,
+    "gmailDelivery": "unconfirmed",
+    "csv": [
+      {
+        "filename": "prospector-crm-handoff.csv",
+        "bytes": 344,
+        "sha256": "a36b1b9e7d191c44a6ad520342572dd5284ad63a02fdba37ef1065c68ef7cd6c",
+        "rows": 1,
+        "identities": [
+          "75c0a523526c55784b236daf:889f789d5d307b34e1766cc3"
+        ]
+      },
+      {
+        "filename": "prospector-crm-handoff.csv",
+        "bytes": 617,
+        "sha256": "a48b4c9e4b76051108da19a3cf692ab4cf5f69a4723622e1c196de154cab0c58",
+        "rows": 2,
+        "identities": [
+          "75c0a523526c55784b236daf:889f789d5d307b34e1766cc3",
+          "ea0862c317a321d6fbf28d62:bdc4563b290dd8c517b723d6"
+        ]
+      }
+    ]
+  },
+  "suppressionForm": {
+    "selects": 1,
+    "namedKind": 1
+  },
+  "suppression": {
+    "emailExcluded": true,
+    "csv": {
+      "filename": "prospector-crm-handoff.csv",
+      "bytes": 344,
+      "sha256": "a36b1b9e7d191c44a6ad520342572dd5284ad63a02fdba37ef1065c68ef7cd6c",
+      "rows": 1,
+      "identities": [
+        "75c0a523526c55784b236daf:889f789d5d307b34e1766cc3"
+      ]
+    }
+  },
+  "csvEdgeCases": {
+    "filename": "prospector-crm-handoff.csv",
+    "bytes": 1578,
+    "sha256": "77449734bf9cb65a25ebc7066fc6f3a7c6f89d0d4bc45602fab0a1f469caf91b",
+    "rows": 7,
+    "identities": [
+      "75c0a523526c55784b236daf:889f789d5d307b34e1766cc3",
+      "75c0a523526c55784b236daf:csv-edge-0",
+      "75c0a523526c55784b236daf:csv-edge-1",
+      "75c0a523526c55784b236daf:csv-edge-2",
+      "75c0a523526c55784b236daf:csv-edge-3",
+      "75c0a523526c55784b236daf:csv-edge-4",
+      "75c0a523526c55784b236daf:csv-edge-5"
+    ]
+  },
+  "stubCounts": {
+    "hunt": 2,
+    "discovery": 2,
+    "retrieve": 6
+  },
+  "browserCounts": {
+    "local": 398,
+    "composeAborted": 2,
+    "unexpected": 0
+  },
+  "forbiddenAttempts": 0
 }

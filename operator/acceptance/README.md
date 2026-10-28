@@ -47,9 +47,26 @@ digests, published contact provenance, a returned-only Gmail URL with a
 Adapter/format changes must preserve these safety semantics. These cases are not a complete restore inventory,
 transaction failure-injection proof, concurrent-send proof, or browser test.
 
-## Browser/manual acceptance matrix (not performed)
+## Combined verification scope and remaining browser/manual matrix
 
-Prerequisite: integrate A/B/C/D in a disposable worktree. Review all new imports
+The combined candidate integrates PRs #127–#141, including A/B/C/D and the additional acceptance lanes. Fixed-port HTTP suites must run serially; concurrent runs against 8080 invalidate their evidence.
+
+Additional automated commands:
+
+```sh
+node --test acceptance/archive-recovery/recovery.test.mjs acceptance/concurrent-actions/*.test.mjs acceptance/keyboard/*.test.mjs acceptance/responsive/*.test.mjs
+node --test acceptance/durable-restart/*.test.mjs
+node --test acceptance/auth-runtime/*.test.mjs
+cd acceptance/browser-workflow && npm ci && npx playwright install chromium && npm test
+```
+
+The final combined Mac handler/archive/concurrency/component-focus/CSS rerun passed 49/49; separate durable HTTP restart passed 2/2, preserving the saved ciphertext digest and workflow-table counts with zero automatic or outbound calls. Handler contracts include a real-driver timestamp regression (18/18), and the combined Mac HTTP auth checks passed 18/18. The production shutdown bridge now drains HTTP requests before closing PGlite. Browser harness units passed 46/46, including stale-PASS invalidation before a failing unit stage.
+
+The final serial `npm test` passed 255 script + 64 source tests, and `test-all.mjs` passed 255 + 84, with zero failures. Typecheck passed; lint has zero errors and 3 existing warnings. The CSV contact projection now preserves leading BOM bytes through PGlite/PostgreSQL decoding, with 31/31 real-database manual-workflow cases passing. The final build passed.
+
+The contained Mac browser run at source `5eb5c1ef14520ff3c5bb117fb0a10155d01bf53c` passed, including 46 units and two fictional workflows across restart with matching canonical digests. It verified stale/replay/changed-approval refusal, email suppression and CSV exclusion, and seven exact CSV edge rows including BOM bytes. Two compose navigations were aborted; unexpected/forbidden network counts were both zero. Fictional stubs recorded 2 hunt, 2 discovery and 6 retrieve calls; teardown passed. The native macOS policy isolates network access only and makes no filesystem isolation claim. Actual browser keyboard evidence currently covers unlock/error recovery; 360px horizontal checks cover Home, message and Settings. Component/CSS checks and these browser checkpoints leave full keyboard-only workflow usability and the broader matrix below open. See the integration report for current evidence. This bounded browser PASS does not complete owner acceptance.
+
+Prerequisite for browser/manual work: use a disposable worktree. Review all new imports
 before widening the harness allowlist. Use A's documented local owner setup
 and data-directory option with a newly created disposable directory, not the
 owner's ordinary data directory. Use the pinned Playwright browser if automating;

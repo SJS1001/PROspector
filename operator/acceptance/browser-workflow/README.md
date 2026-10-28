@@ -1,10 +1,10 @@
 # Isolated browser workflow acceptance
 
-**Status: native containment candidate added; Mac validation and workflow acceptance remain open.** This lane starts from
+**Status: Mac native containment verified; integrated workflow results are recorded in EVIDENCE.md and last-run.json.** This lane started from
 `8838363ef64698f92ac57ac06d564b3d72d4701f` on
 `codex/local-app-integration`. It adds no production seam, auth bypass, dependency,
 route, migration, workflow, or default change. Other lanes need not import it.
-LOCAL-07, Mac acceptance, and real-provider quality remain open.
+LOCAL-07 owner acceptance and real-provider quality remain open.
 
 ## Run
 
@@ -23,7 +23,7 @@ npm run test:native # macOS: OS policy + native descendant/worker probes
 npm test
 ```
 
-`npm test` runs fence/adapter tests, then a foreground orchestrator. A missing
+`npm test` clears old workflow evidence before running fence/adapter tests, then a foreground orchestrator. A failed unit stage cannot retain a prior PASS. A missing
 browser or any denial/failure exits nonzero. No retries, skip, alternate browser,
 executable override, external credentials, deployment, or CI polling exists.
 Playwright is pinned to **1.63.0**, Chromium **1243 / 153.0.8010.12**, with its own
@@ -49,9 +49,9 @@ stubs return only labelled Fictional Quarry / Fictional Plant data under
 adapters hard-fail and count attempted invocation. Expected stub calls are
 separate from actual provider/network attempts, which must remain zero.
 
-`graph.mjs` traverses runtime imports from real `fns.ts` and owner auth, including
+`graph.mjs` traverses runtime imports from the production shutdown entry, real `fns.ts` and owner auth, including
 literal dynamic imports. It rejects unreviewed source/package edges. The runner
-compares its 27-file path/import/hash result with `reviewed-graph.json`. New source
+compares its 29-file path/import/hash result with `reviewed-graph.json`. New source
 requires explicit review and manifest regeneration; do not regenerate merely to
 hide drift. UI/framework dependency code is outside that source manifest and
 remains pinned by the operator lockfile. This is a reviewed-source test fence,
@@ -112,7 +112,7 @@ requires redirect-free responses. DNS/background browser flags supplement these
 routes. Direct foreign/alternate-loopback negative probes run before workflows;
 redirect refusal and WebSocket closure also have deterministic route-contract tests.
 The historical browser probes ran with the acquired pinned headless shell and refused both targets;
-the new OS-contained Mac path still requires its own execution evidence.
+the integrated Mac execution is recorded separately in EVIDENCE.md.
 They use a disposable page, closed before opening the workflow page.
 
 ## Auth and workflow evidence
