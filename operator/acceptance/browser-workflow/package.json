@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test fences.test.mjs stubs.test.mjs && node run.mjs"
+    "test": "npm run test:unit && node run.mjs",
+    "test:unit": "node --test fences.test.mjs stubs.test.mjs csv.test.mjs native-boundary.test.mjs",
+    "test:native": "/usr/bin/sandbox-exec -f macos-network.sb node native-probe.mjs --positive"
   },
   "devDependencies": {
     "playwright": "1.63.0"

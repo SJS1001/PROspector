@@ -23,12 +23,12 @@ const probes = [
   "require('node:net').createServer().listen(8080,'0.0.0.0')",
 ];
 for (const [i, probe] of probes.entries())
-  test(`server fence blocks primitive ${i + 1}`, () => {
+  test(`supplemental JS instrumentation blocks primitive ${i + 1}`, () => {
     const result = spawnSync(
       process.execPath,
       [
         "--import",
-        new URL("./guard.mjs", import.meta.url).href,
+        new URL("./instrumentation.mjs", import.meta.url).href,
         "-e",
         `try { ${probe}; process.exit(7) } catch(e) { if(!e.message.startsWith('Acceptance fence denied:')) throw e; }`,
       ],

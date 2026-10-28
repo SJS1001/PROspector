@@ -22,34 +22,8 @@ export const fictionalAnswers = [
   "I acknowledge guidance is advisory; exact approval and suppression checks remain required.",
 ];
 
-export function parseCsv(text) {
-  const rows = [];
-  let row = [],
-    cell = "",
-    quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '"') {
-      if (quoted && text[i + 1] === '"') {
-        cell += '"';
-        i++;
-      } else quoted = !quoted;
-    } else if (ch === "," && !quoted) {
-      row.push(cell);
-      cell = "";
-    } else if (ch === "\r" && text[i + 1] === "\n" && !quoted) {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-      i++;
-    } else cell += ch;
-  }
-  assert.equal(quoted, false, "CSV must have balanced quotes");
-  assert.deepEqual(row, [], "CSV must end in CRLF");
-  assert.equal(cell, "");
-  return rows;
-}
+export { parseCsv } from "./csv.mjs";
+import { parseCsvBytes } from "./csv.mjs";
 
 export async function downloadCsv(page, expectedEmails, validateRows = () => {}) {
   const pending = page.waitForEvent("download");
@@ -61,8 +35,7 @@ export async function downloadCsv(page, expectedEmails, validateRows = () => {})
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
   const bytes = Buffer.concat(chunks);
-  const csv = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const rows = parseCsv(csv);
+  const rows = parseCsvBytes(bytes);
   assert.deepEqual(rows[0], [
     "prospect_id",
     "contact_id",
@@ -431,7 +404,7 @@ export async function runWorkflow({
     "' \t+1",
     "'\u0001-1",
     "'\ufeff@SUM(1,1)",
-    'Fictional \"Person\", Quarry\né',
+    'Fictional "Person", Quarry\né',
     "'\nFictional Person",
   ];
   assert.equal(edge.names.length, expectedNames.length);
@@ -452,7 +425,7 @@ export async function runWorkflow({
         );
         assert.equal(
           row[7],
-          'Published on https://fictionalquarry.example/evidence/1, \"fictional\"\nUnicode é',
+          'Published on https://fictionalquarry.example/evidence/1, "fictional"\nUnicode é',
         );
       }
     },
