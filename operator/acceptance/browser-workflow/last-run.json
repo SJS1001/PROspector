@@ -1,0 +1,63 @@
+{
+  "base": "8838363ef64698f92ac57ac06d564b3d72d4701f",
+  "node": "v24.22.1",
+  "platform": "linux",
+  "playwright": "1.63.0",
+  "browserRevision": "1243",
+  "status": "BLOCKED_OR_FAILED",
+  "cases": [
+    "real built server starts with outbound guard",
+    "anonymous denied; owner login; no signup; missing/foreign Origin and cross-site POST refused; zero workspace delta"
+  ],
+  "snapshots": [
+    {
+      "label": "before-negative-http",
+      "counts": {
+        "workspaces": 0,
+        "knowledge_items": 0,
+        "product_configurations": 0,
+        "draft_plays": 0,
+        "profile_configurations": 0,
+        "discovery_runs": 0,
+        "prospecting_runs": 0,
+        "prospects": 0,
+        "contacts": 0,
+        "outreach_packages": 0,
+        "outreach_messages": 0,
+        "suppressions": 0,
+        "delivery_events": 0
+      },
+      "digest": "6777b76549d213243743c84d39e1acca7052ab15eccd0f89c9a576f0650e665c"
+    },
+    {
+      "label": "after-negative-http",
+      "counts": {
+        "workspaces": 0,
+        "knowledge_items": 0,
+        "product_configurations": 0,
+        "draft_plays": 0,
+        "profile_configurations": 0,
+        "discovery_runs": 0,
+        "prospecting_runs": 0,
+        "prospects": 0,
+        "contacts": 0,
+        "outreach_packages": 0,
+        "outreach_messages": 0,
+        "suppressions": 0,
+        "delivery_events": 0
+      },
+      "digest": "6777b76549d213243743c84d39e1acca7052ab15eccd0f89c9a576f0650e665c"
+    }
+  ],
+  "reviewedSourceFiles": 27,
+  "interceptedProviders": [
+    "jev-tasks.ts",
+    "llm.ts",
+    "retrieve.ts"
+  ],
+  "error": {
+    "stage": "pinned-browser-launch",
+    "name": "Error"
+  },
+  "forbiddenAttempts": 0
+}
