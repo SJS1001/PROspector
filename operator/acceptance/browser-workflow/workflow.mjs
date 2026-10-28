@@ -260,6 +260,36 @@ export async function runWorkflow({
     await visible(review);
     await layout(`review candidate ${cycle}`);
     await keyboard.type(review.getByRole("textbox", { name: "Reason", exact: true }), "Fictional retrieved evidence passes the application rubric and fits the confirmed profile.", `review reason ${cycle}`);
+    if (cycle === 1) {
+      const mutations = [];
+      const recordMutation = (request) => {
+        if (request.method() === "POST" && new URL(request.url()).origin === origin) mutations.push(request.url());
+      };
+      page.on("request", recordMutation);
+      try {
+        for (const method of ["Cancel", "Escape"]) {
+          const opener = review.getByRole("button", { name: "Reject", exact: true });
+          const confirm = review.getByRole("button", { name: "Confirm rejection", exact: true });
+          await keyboard.activate(opener, "Reject prospect");
+          await visible(confirm);
+          await keyboard.focused(confirm, "Rejection confirmation");
+          await layout(`prospect rejection cancellation ${method}`);
+          if (method === "Cancel") await keyboard.activate(review.getByRole("button", { name: "Cancel", exact: true }), "Cancel rejection");
+          else {
+            await keyboard.reach(confirm, "Rejection confirmation");
+            await page.keyboard.press("Escape");
+          }
+          await confirm.waitFor({ state: "detached" });
+          await keyboard.focused(opener, `Reject focus after ${method}`);
+          await visible(review);
+          assert.equal(await review.getByRole("textbox", { name: "Reason", exact: true }).inputValue(), "Fictional retrieved evidence passes the application rubric and fits the confirmed profile.");
+          assert.deepEqual(mutations, [], "Cancelling rejection must not submit any mutation");
+          (evidence.confirmationCancellation ??= []).push({ checkpoint: "prospect rejection", method, openerFocused: true, noMutation: true });
+        }
+      } finally {
+        page.off("request", recordMutation);
+      }
+    }
     await keyboard.activate(review.getByRole("button", { name: "Approve", exact: true }), "Approve prospect");
     await review.waitFor({ state: "detached" });
 
