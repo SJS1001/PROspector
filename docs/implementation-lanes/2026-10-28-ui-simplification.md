@@ -71,3 +71,38 @@ lock was recovered using the documented stopped-process/backup procedure;
 1,099 backup files were hash-verified before removing only the empty lock
 folder. Read-only inspection confirms desktop and 320px rendering and access
 to full answers. Owner data was not edited.
+
+## App-wide copy follow-up — 28 October 2026
+
+Applied the same compact approach beyond Company:
+
+- Today shows one next-action button; weekly details and recent work are folded
+  away. Failed work stays expanded and morning-run feedback stays visible.
+- Target markets separates open proposals from collapsed reviewed/confirmed
+  markets and hides empty history.
+- Searches, prospect details and Review place provider history, scoring and
+  additional sources under their relevant categories.
+- Contacts keeps names, addresses and actions visible, with provenance and
+  contact-source help collapsed. Verified contacts no longer show the incorrect
+  unverified-mailbox warning.
+- Outreach removes duplicate prepared-prospect rows, groups version details,
+  delivery history and the do-not-contact list, and keeps approval controls and
+  failure messages available.
+- Settings groups each connection and search preference inside its own section;
+  export, backup/restore and diagnostics stay separate, collapsed categories.
+
+The existing dark color tokens are unchanged. Explicit confirmations, source
+records, disqualifiers and operational errors are retained. No backend or
+workflow authorization rules changed.
+
+Verification: typecheck/build passed; lint has zero errors and three existing
+warnings. Operator regressions passed 319 tests before the final contact-warning
+condition; focused UI tests passed 4/4 afterward. Changed-file React Doctor
+reported no issues. Final contained acceptance passed 46 units, two workflows,
+558 keyboard actions, 312 layout samples, 10 cancellation cases and four recovery
+scenarios, including keyboard access to all seven Settings groups. Zero unexpected
+requests or forbidden provider attempts; Gmail compose was intercepted.
+
+The rebuilt owner app is listening on 127.0.0.1:8080. Read-only Today/Settings
+inspection confirms the compact layout and existing dark palette. No owner data
+was edited. The saved screenshot is outside Git in the local UI review folder.

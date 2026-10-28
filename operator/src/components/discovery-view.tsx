@@ -22,11 +22,7 @@ export function DiscoveryView() {
 
   return (
     <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Target markets"
-        title="Market play proposals"
-        copy="Discover up to three markets, then explore a proposal to define your target. Prospecting requires a separate profile activation."
-      />
+      <PageHeading title="Target markets" />
 
       {!data.interviewComplete ? <InterviewBlocked /> : null}
 
@@ -45,21 +41,30 @@ export function DiscoveryView() {
         ))}
       <DraftPlays data={data} />
 
-      <p className="text-xs font-semibold text-muted">
-        {open.length} open · {data.proposals.length} in this workspace · at most 3 proposals per run
-      </p>
+      <p className="text-xs font-semibold text-muted">{open.length} to review</p>
       {data.proposals.length === 0 ? (
         <Panel className="p-10 text-center text-sm text-muted">
-          No market play proposals yet. Activate the product, then Discover markets. A run surfaces
-          at most three proposals.
+          No markets yet. Use the action above to find markets.
         </Panel>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {data.proposals.map((proposal) => (
+          {open.map((proposal) => (
             <ProposalCard key={proposal.id} proposal={proposal} />
           ))}
         </div>
       )}
+      {data.proposals.some((proposal) => proposal.decision !== "open") ? (
+        <details className="rounded-[12px] border border-line bg-cream p-5">
+          <summary className="cursor-pointer text-sm font-medium">Reviewed markets</summary>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            {data.proposals
+              .filter((proposal) => proposal.decision !== "open")
+              .map((proposal) => (
+                <ProposalCard key={proposal.id} proposal={proposal} />
+              ))}
+          </div>
+        </details>
+      ) : null}
       <DiscoveryLedger data={data} />
     </div>
   );
@@ -68,11 +73,7 @@ export function DiscoveryView() {
 function InterviewBlocked() {
   return (
     <Panel className="p-8">
-      <Badge tone="warn">Interview incomplete</Badge>
-      <h2 className="mt-3 font-display text-2xl">Market discovery is blocked</h2>
-      <p className="mt-2 max-w-xl text-sm text-muted">
-        Confirm your company details to enable market discovery.
-      </p>
+      <h2 className="font-display text-xl">Complete your company details first</h2>
       <Link to="/knowledge" className="mt-5 inline-flex">
         <Button>Complete company details</Button>
       </Link>
@@ -122,10 +123,7 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
     <Panel className="p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-            {active ? "Saved product" : "Product readiness"}
-          </span>
-          <h2 className="mt-2 font-display text-xl">
+          <h2 className="font-display text-xl">
             {data.product.snapshot?.product || "Product configuration"}
           </h2>
         </div>
@@ -162,13 +160,12 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
 
       {!ready ? (
         <p role="alert" className="mt-4 text-xs text-red">
-          This product is not ready. Confirm the required company details before activation.
+          Confirm the missing company details before activation.
         </p>
       ) : null}
       {data.product.status === "stale" ? (
         <p role="alert" className="mt-4 text-xs text-amber">
-          Confirmed knowledge changed after activation. Load the current product configuration
-          before continuing.
+          Company details changed. Activate the updated product to continue.
         </p>
       ) : null}
 
@@ -199,19 +196,12 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
         <div ref={opener} className="mt-5 grid gap-3">
           {!active ? (
             <>
-              <p className="text-xs text-muted">
-                Activation queues one discovery run and does not start prospecting.
-              </p>
               <Button disabled={!ready || pending} onClick={() => setConfirming("activate")}>
                 Activate product configuration
               </Button>
             </>
           ) : (
             <>
-              <p className="text-xs text-muted">
-                Manual discovery produces at most three proposals per run and does not start
-                prospecting.
-              </p>
               <Button disabled={pending || busyRun} onClick={() => setConfirming("discover")}>
                 Discover markets
               </Button>
@@ -222,7 +212,7 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
 
       {pending ? (
         <p className="mt-3 text-xs text-muted" aria-live="polite">
-          Queuing market discovery against the product configuration. Prospecting stays off.
+          Starting market discovery…
         </p>
       ) : null}
       {error ? (
@@ -235,30 +225,28 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
 }
 
 function DraftPlays({ data }: { data: WorkspaceDTO }) {
+  if (!data.draftPlays.length) return null;
   return (
     <Panel className="p-6">
-      <h2 className="font-display text-lg">
-        Draft markets · {data.draftPlays.filter((play) => play.status !== "confirmed").length}{" "}
-        awaiting confirmation
-      </h2>
-      {data.draftPlays.length === 0 ? (
-        <p className="mt-3 text-sm text-muted">
-          Explore a proposal below, then confirm its audience and buyer. This does not activate
-          prospecting.
-        </p>
-      ) : (
-        <ol className="mt-4 grid gap-3">
-          {data.draftPlays
-            .filter((play) => play.status !== "confirmed")
-            .map((play) => (
-              <DraftPlayCard key={play.id} play={play} />
-            ))}
-        </ol>
-      )}
+      {data.draftPlays.some((play) => play.status !== "confirmed") ? (
+        <>
+          <h2 className="font-display text-lg">
+            Draft markets · {data.draftPlays.filter((play) => play.status !== "confirmed").length}{" "}
+            awaiting confirmation
+          </h2>
+          <ol className="mt-4 grid gap-3">
+            {data.draftPlays
+              .filter((play) => play.status !== "confirmed")
+              .map((play) => (
+                <DraftPlayCard key={play.id} play={play} />
+              ))}
+          </ol>
+        </>
+      ) : null}
       {data.draftPlays.some((play) => play.status === "confirmed") ? (
         <details className="mt-4">
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-            Confirmed draft markets ·{" "}
+            Confirmed markets ·{" "}
             {data.draftPlays.filter((play) => play.status === "confirmed").length}
           </summary>
           <ol className="mt-3 grid gap-3">
@@ -290,8 +278,7 @@ function DraftPlayCard({ play }: { play: WorkspaceDTO["draftPlays"][number] }) {
       {play.notes ? <p className="mt-2 text-xs text-muted">{play.notes}</p> : null}
       {confirmed ? (
         <p className="mt-3 text-xs text-muted">
-          Audience: {play.audience}. Buyer: {play.likelyBuyer}. Offer: {play.offer}. Prospecting
-          still needs a separate profile activation.
+          Audience: {play.audience}. Buyer: {play.likelyBuyer}. Offer: {play.offer}.
         </p>
       ) : (
         <form
@@ -338,21 +325,7 @@ function DraftPlayCard({ play }: { play: WorkspaceDTO["draftPlays"][number] }) {
 }
 
 function DiscoveryLedger({ data }: { data: WorkspaceDTO }) {
-  if (data.discoveryRuns.length === 0) {
-    return (
-      <Panel className="p-6">
-        <details open={data.discoveryRuns.some((run) => run.status !== "succeeded")}>
-          <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-            Discovery history · {data.discoveryRuns.length} runs
-          </summary>
-          <p className="mt-2 text-sm text-muted">
-            No discovery runs yet. Activation queues one initial run. Manual Discover markets queues
-            another, each capped at three proposals.
-          </p>
-        </details>
-      </Panel>
-    );
-  }
+  if (data.discoveryRuns.length === 0) return null;
   return (
     <Panel className="p-6">
       <details open={data.discoveryRuns.some((run) => run.status !== "succeeded")}>

@@ -1,3 +1,35 @@
+# App-wide copy verification — 2026-10-28
+
+Tested the working-tree delta on base `5c2c09d26a5dd144b80eb744c55fef3fbbd2eb37`
+on `codex/local-app-integration`; this commit includes that tested source delta.
+This section and `last-run.json` supersede the browser counts below.
+
+- Simplified Today, Target markets, Searches/prospects, Review, Contacts, Outreach,
+  Settings, Diagnostics and backup/restore. Supporting information is collapsed
+  under its category; errors, approval controls and action consequences remain.
+  No theme tokens or backend authorization rules changed.
+- Typecheck and production build passed. Lint: zero errors, three existing
+  unused-variable warnings. Operator regressions: 255 script + 64 source tests
+  passed before the final verified-contact warning condition; the final focused
+  UI suite passed 4/4. Changed-file React Doctor reported no issues.
+- Final contained browser acceptance: PASS, 46 units, two fictional workflows,
+  558 keyboard actions, 312 layout samples at 320/360/768px, 10 cancellation
+  cases and four recovery scenarios. Zero unexpected browser requests or
+  forbidden provider attempts; both Gmail compose requests were aborted.
+- All seven Settings groups are keyboard-accessible and initially collapsed.
+  Version details remain accessible. Verified contact fixtures no longer display
+  an unverified-mailbox warning. Existing confirmation, restart, CSV, suppression
+  and recovery checks passed with the simplified layouts.
+- Rebuilt owner app is running on loopback port 8080. Today and Settings were
+  inspected read-only with saved owner data; Settings screenshot retained in
+  the local UI review folder outside Git. No owner records were changed.
+
+Fictional/provider-stubbed acceptance does not establish real-provider quality,
+email delivery, native file chooser usability, physical-device or assistive-
+technology coverage, overnight behavior, or owner acceptance.
+
+---
+
 # Company follow-up verification — 2026-10-28
 
 Tested the working-tree changes on base `fb3672bb71f51341dbb3f5dc7726e178f0906d5b`

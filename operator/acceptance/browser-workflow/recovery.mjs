@@ -9,7 +9,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   const navigate = async (path) => {
     await keyboard.activate(page.locator(`nav[aria-label="Workspace"] a[href="${path}"]`), `recovery navigation ${path}`);
     await page.waitForURL(origin + path);
-    const heading = path === '/settings' ? 'Settings' : 'Contacts & drafts';
+    const heading = path === '/settings' ? 'Settings' : 'Outreach';
     await page.locator('#operator-task').getByRole('heading', { includeHidden: true, name: heading, exact: true }).waitFor();
     await keyboard.expose(button(path === '/settings' ? 'Download workspace backup' : 'Add suppression'), 'recovery controls');
   };
@@ -131,7 +131,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   assert.equal(await page.getByRole('alert').count(), 0, 'Reselect clears prior error');
   await keyboard.activate(ack, 'valid backup confirmation', 'Space');
   await keyboard.activate(restore, 'valid backup recovery');
-  const success = page.getByRole('status').filter({ hasText: 'Restore committed.' });
+  const success = page.getByRole('status').filter({ hasText: 'Restored. Reload to view your workspace.' });
   await success.waitFor();
   assert.equal(await success.evaluate((node) => node === document.activeElement), true);
   const restored = await snapshot('recovery-after-valid-restore');

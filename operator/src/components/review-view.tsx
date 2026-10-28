@@ -23,22 +23,16 @@ export function ReviewView() {
 
   return (
     <div className="grid gap-6">
-      <PageHeading
-        eyebrow={`${queue.length} awaiting your decision`}
-        title="Review prospects"
-        copy="Open a prospect, check its evidence, then approve, reject or defer with a reason. Each decision applies to this assessment revision."
-      />
+      <PageHeading eyebrow={`${queue.length} awaiting your decision`} title="Review prospects" />
       {queue.length === 0 ? (
         <Panel className="p-10 text-center text-sm text-muted">
-          No qualified prospects to review. Prospects appear here only after application-calculated
-          qualification passes. Review the current run evidence or find prospects when the active
-          configuration permits.
+          No prospects awaiting review.
           <div className="mt-4">
             <Link
               to="/prospects"
               className="inline-flex min-h-11 items-center rounded-sm border border-line px-3.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal"
             >
-              View prospect evidence
+              View prospects
             </Link>
           </div>
         </Panel>
@@ -99,22 +93,23 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
         <span className="ml-2 inline-flex max-w-full flex-wrap items-center gap-x-4 gap-y-2 align-middle">
           <span className="font-display text-xl">{item.accountName}</span>
           <span className="text-sm text-muted">{item.targetName}</span>
-          <Badge tone="ok">Qualified · passed</Badge>
+          <Badge tone="ok">Qualified</Badge>
           <span className="text-sm font-semibold">{item.score}/10</span>
           <span className="text-xs text-muted">
             Tier {item.evidenceTier} · {item.evidenceDate}
           </span>
         </span>
-        <span className="mt-2 block text-xs text-muted">
-          {item.assessment.hardDisqualifier ?? item.assessment.passRule}
-        </span>
+        {item.assessment.hardDisqualifier ? (
+          <span className="mt-2 block text-xs text-red">{item.assessment.hardDisqualifier}</span>
+        ) : null}
       </summary>
       <div className="mt-4 grid gap-4">
         <p className="text-sm leading-6 text-muted">{item.evidenceExcerpt}</p>
         <details>
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-            Assessment & technical details
+            Assessment details
           </summary>
+          <p className="mt-2 text-xs text-muted">{item.assessment.passRule}</p>
           <dl className="grid gap-2 text-xs">
             <Row term="Offer" value={item.offerId} />
             <Row term="Account" value={`${item.accountName} · ${item.accountId}`} />

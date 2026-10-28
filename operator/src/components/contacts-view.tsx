@@ -11,28 +11,29 @@ export function ContactsView() {
   if (isError || !data) return <WorkspaceLoadError message="Contacts could not be loaded." />;
 
   const visible = data.contacts.filter((item) => item.prospectState === "approved");
-  const hidden = data.contacts.length - visible.length;
 
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Outreach"
         title="Contacts"
-        copy="Explicitly search published pages for a mailbox. Paid contact reveal is unavailable in this release; guessed addresses stay suggestions."
+        action={
+          visible.length ? (
+            <Link to="/outreach">
+              <Button variant="outline">Open outreach</Button>
+            </Link>
+          ) : undefined
+        }
       />
 
       {visible.length === 0 ? (
         <Panel className="p-8">
           <h2 className="font-display text-xl">No contacts to review yet</h2>
           <p className="mt-2 max-w-xl text-sm text-muted">
-            Approve a passed prospect in Review. Suggestions for that account then become visible
-            here, still labelled as suggestions until a verified mailbox exists.
+            Approve a prospect to see its contacts.
           </p>
-          {hidden > 0 ? (
-            <p className="mt-3 text-xs text-muted">
-              {hidden} synthetic suggestions remain hidden behind unapproved prospects.
-            </p>
-          ) : null}
+          <Link to="/review" className="mt-4 inline-block">
+            <Button variant="outline">Review prospects</Button>
+          </Link>
         </Panel>
       ) : (
         <div className="grid gap-3">
@@ -42,15 +43,12 @@ export function ContactsView() {
         </div>
       )}
 
-      <Panel className="p-6">
-        <h2 className="text-lg font-medium">Next: outreach</h2>
-        <p className="mt-2 max-w-2xl text-sm text-muted">
-          After message approval, you can hand it to Gmail compose. Delivery is unconfirmed.
+      <details className="rounded-[12px] border border-line bg-cream p-5">
+        <summary className="cursor-pointer text-sm font-medium">Contact sources</summary>
+        <p className="mt-3 text-sm text-muted">
+          Public-source searches look for published mailboxes. Paid contact reveal is unavailable.
         </p>
-        <Link to="/outreach" className="mt-4 inline-block">
-          <Button variant="outline">Open outreach</Button>
-        </Link>
-      </Panel>
+      </details>
     </div>
   );
 }
@@ -76,9 +74,7 @@ function ContactCard({ item }: { item: Contact }) {
           <a className="text-teal underline" href={`tel:${item.phoneDisplay}`}>
             {item.phoneDisplay}
           </a>
-          <span className="ml-2 text-2xs text-subtle">
-            Opens your phone. PROspector does not place the call.
-          </span>
+          <span className="ml-2 text-2xs text-subtle">Opens your phone app.</span>
         </p>
       ) : null}
       <details className="mt-3 text-sm">
@@ -92,16 +88,12 @@ function ContactCard({ item }: { item: Contact }) {
         </p>
       </details>
       {suggestion ? (
-        <p className="mt-3 text-xs text-amber">
-          Contact Suggestion — not sendable, not exportable. Run a public-source reveal to look for
-          a published mailbox.
-        </p>
-      ) : (
+        <p className="mt-3 text-xs text-amber">Suggestion only. Cannot send or export.</p>
+      ) : item.emailKind === "public_source" ? (
         <p className="mt-3 text-xs text-muted">
-          Public-source only. Mailbox not verified. Eligible for a message draft, not for CRM file
-          export.
+          Unverified mailbox. Drafts allowed; CRM export unavailable.
         </p>
-      )}
+      ) : null}
       <Button
         className="mt-4"
         variant="outline"

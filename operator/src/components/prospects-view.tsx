@@ -31,11 +31,7 @@ export function ProspectsView() {
 
   return (
     <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Searches & saved prospects"
-        title="Prospect workspace"
-        copy="Activate a confirmed target, search public sources, then review qualified prospects."
-      />
+      <PageHeading title="Searches & prospects" />
       <ProfileGate data={data} />
       {data.runs
         .filter((run) => run.status !== "succeeded")
@@ -84,10 +80,7 @@ export function ProspectsView() {
         </p>
       </div>
       {rows.length === 0 ? (
-        <Panel className="p-10 text-center text-sm text-muted">
-          No prospects in this filter. Evidence appears only after a permitted run records validated
-          observations.
-        </Panel>
+        <Panel className="p-10 text-center text-sm text-muted">No prospects in this filter.</Panel>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((item) => (
@@ -95,8 +88,13 @@ export function ProspectsView() {
           ))}
         </div>
       )}
-      <RunnerRecord data={data} />
-      <RunLedger data={data} />
+      <details className="rounded-[12px] border border-line bg-cream p-5">
+        <summary className="cursor-pointer text-sm font-medium">Search details</summary>
+        <div className="mt-4 grid gap-3">
+          <RunLedger data={data} />
+          <RunnerRecord data={data} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -141,10 +139,7 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
       <Panel className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-              {data.profile.status === "active" ? "Active configuration" : "Profile readiness"}
-            </span>
-            <h2 className="mt-2 font-display text-xl">
+            <h2 className="font-display text-xl">
               {data.profile.snapshot?.play || "Customer profile"}
             </h2>
           </div>
@@ -187,12 +182,12 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         </details>
         {!playReady ? (
           <p role="alert" className="mt-4 text-xs text-red">
-            Confirm a Draft Market Play first. Explore does not start prospecting.
+            Confirm a target market first.
           </p>
         ) : null}
         {!ready ? (
           <p role="alert" className="mt-4 text-xs text-red">
-            This profile is not ready. Confirm the missing search settings before activation.
+            Confirm the missing search settings before activation.
           </p>
         ) : null}
         {data.profile.status === "stale" ? (
@@ -247,8 +242,7 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         )}
         {pending ? (
           <p className="mt-3 text-xs text-muted" aria-live="polite">
-            Searching public sources, then retrieving and scoring. This stays on the owner’s
-            authority.
+            Searching public sources…
           </p>
         ) : null}
         {error ? (
@@ -257,10 +251,6 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
           </div>
         ) : null}
       </Panel>
-      <p className="text-xs text-muted">
-        Review changes prospect status only. Contacts require approval; paid reveal, Gmail and CRM
-        export remain separate actions.
-      </p>
     </div>
   );
 }
@@ -271,11 +261,8 @@ function RunnerRecord({ data }: { data: WorkspaceDTO }) {
     <Panel className="p-6">
       <details>
         <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-          Search provider & technical details
+          Search provider
         </summary>
-        <span className="mt-3 block text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-          Untrusted runner
-        </span>
         <h2 className="mt-2 font-display text-lg">
           {runner.provider} · {runner.model}
         </h2>
@@ -298,10 +285,7 @@ function RunLedger({ data }: { data: WorkspaceDTO }) {
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
             Search history · {data.runs.length} runs
           </summary>
-          <p className="mt-2 text-sm text-muted">
-            No evidence submitted yet. Evidence appears only after a bounded run records validated
-            observations.
-          </p>
+          <p className="mt-2 text-sm text-muted">No searches yet.</p>
         </details>
       </Panel>
     );
@@ -425,17 +409,15 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
           <Badge tone={item.outcome === "Passed" ? "ok" : "warn"}>{item.outcome}</Badge>
           <span className="font-display text-3xl">{item.score}/10</span>
         </div>
-        <p className="mt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-          Application-calculated qualification
-        </p>
         <p className="mt-4 max-w-3xl text-sm leading-6">{item.evidenceExcerpt}</p>
         <p className="mt-3 break-all font-mono text-[11px] text-muted">
           Tier {item.evidenceTier} · {item.evidenceDate} · {item.evidenceUrl}
         </p>
         <details className="mt-4">
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-            Scoring & configuration details
+            Scoring details
           </summary>
+          <p className="mt-2 text-xs text-muted">{item.assessment.passRule}</p>
           <p className="mt-2 break-all font-mono text-[11px] text-muted">
             {item.configurationDigest}
           </p>
@@ -457,40 +439,40 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
           <p className="mt-4 text-sm text-red">
             Hard disqualifier: {item.assessment.hardDisqualifier}
           </p>
-        ) : (
-          <p className="mt-4 text-xs text-muted">{item.assessment.passRule}</p>
-        )}
+        ) : null}
       </Panel>
 
       <Panel className="p-6">
-        <h2 className="font-display text-lg">Evidence</h2>
-        {evidence.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">
-            Seeded fixtures carry a stored excerpt. Live runs attach retrieved pages here.
-          </p>
-        ) : (
-          <ul className="mt-4 grid gap-3">
-            {evidence.map((row) => (
-              <li key={row.id} className="rounded-[10px] border border-line bg-paper p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <b className="text-sm">{row.title}</b>
-                  <Badge tone={row.tier === 1 ? "ok" : row.tier === 2 ? "lime" : "warn"}>
-                    Tier {row.tier}
-                  </Badge>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-muted">{row.excerpt}</p>
-                <a
-                  className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-green"
-                  href={row.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open source (external)
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">
+            Sources · {evidence.length}
+          </summary>
+          {evidence.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">No additional source pages.</p>
+          ) : (
+            <ul className="mt-4 grid gap-3">
+              {evidence.map((row) => (
+                <li key={row.id} className="rounded-[10px] border border-line bg-paper p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <b className="text-sm">{row.title}</b>
+                    <Badge tone={row.tier === 1 ? "ok" : row.tier === 2 ? "lime" : "warn"}>
+                      Tier {row.tier}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-muted">{row.excerpt}</p>
+                  <a
+                    className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-green"
+                    href={row.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open source (external)
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
       </Panel>
 
       {(item.state === "rejected" || item.state === "deferred") && (

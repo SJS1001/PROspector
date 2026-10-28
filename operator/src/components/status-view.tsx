@@ -19,13 +19,7 @@ export function CapabilityDiagnostics() {
   if (!data) return null;
   return (
     <details className="rounded-[12px] border border-line bg-cream p-5">
-      <summary className="cursor-pointer text-sm font-medium">
-        Diagnostics · capability evidence
-      </summary>
-      <p className="mt-3 text-sm text-muted">
-        Evidence describes availability; it does not enable an action. Paid contact reveal is
-        unavailable. Gmail handoff does not confirm delivery.
-      </p>
+      <summary className="cursor-pointer text-sm font-medium">Diagnostics</summary>
       <div className="mt-4 grid gap-3">
         {data.capabilities.map((item) => (
           <article key={item.id} className="rounded-[10px] border border-line p-4">
@@ -51,15 +45,15 @@ function SampleOffer() {
   const load = useLoadMiningSample();
   return (
     <Panel className="p-6">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Sample</span>
-      <h2 className="mt-2 font-display text-lg">Load ONE for Mining sample</h2>
-      <p className="mt-2 max-w-2xl text-sm text-muted">
-        Confirms Digitalrain, ONE, and the operating-plants play so you can walk this private
-        workspace without a blank interview. Paid contact reveal remains unavailable.
-      </p>
-      <Button className="mt-4" disabled={load.isPending} onClick={() => load.mutate(undefined)}>
-        {load.isPending ? "Loading sample…" : "Load ONE for Mining sample"}
-      </Button>
+      <details>
+        <summary className="cursor-pointer text-sm font-medium">Try sample data</summary>
+        <p className="mt-2 max-w-2xl text-sm text-muted">
+          Adds confirmed Digitalrain, ONE and operating-plant sample answers.
+        </p>
+        <Button className="mt-4" disabled={load.isPending} onClick={() => load.mutate(undefined)}>
+          {load.isPending ? "Loading sample…" : "Load ONE for Mining sample"}
+        </Button>
+      </details>
       {load.error ? (
         <div className="mt-3">
           <ErrorNote message={mutationMessage(load.error)} />

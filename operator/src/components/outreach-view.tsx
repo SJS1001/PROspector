@@ -32,11 +32,7 @@ export function OutreachView() {
 
   return (
     <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Outreach"
-        title="Contacts & drafts"
-        copy="Approve each brief and message before Gmail compose. Suppressions are rechecked. You decide whether to send in Gmail; delivery is unconfirmed."
-      />
+      <PageHeading title="Outreach" />
 
       <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
         <span>
@@ -53,20 +49,22 @@ export function OutreachView() {
         <Panel className="p-8">
           <h2 className="font-display text-xl">No approved prospects</h2>
           <p className="mt-2 max-w-xl text-sm text-muted">
-            Approve a passed prospect in Review before a package can be prepared.
+            Approve a prospect to prepare its brief.
           </p>
           <Link to="/review" className="mt-4 inline-block">
             <Button variant="outline">Open review queue</Button>
           </Link>
         </Panel>
-      ) : (
+      ) : approved.some((item) => !packaged.has(item.id)) ? (
         <div className="grid gap-4">
-          <h2 className="font-display text-lg">Approved prospects</h2>
-          {approved.map((item) => (
-            <ApprovedProspectRow key={item.id} item={item} prepared={packaged.has(item.id)} />
-          ))}
+          <h2 className="font-display text-lg">Ready for a brief</h2>
+          {approved
+            .filter((item) => !packaged.has(item.id))
+            .map((item) => (
+              <ApprovedProspectRow key={item.id} item={item} prepared={false} />
+            ))}
         </div>
-      )}
+      ) : null}
 
       {data.packages.length > 0 ? (
         <div className="grid gap-4">
@@ -93,14 +91,16 @@ export function OutreachView() {
 
       {data.deliveryEvents.length > 0 ? (
         <Panel className="p-5">
-          <h2 className="text-lg font-medium">Delivery events</h2>
-          <ul className="mt-3 grid gap-2 text-sm text-muted">
-            {data.deliveryEvents.slice(0, 8).map((item) => (
-              <li key={item.id}>
-                {item.kind} · {item.note}
-              </li>
-            ))}
-          </ul>
+          <details>
+            <summary className="cursor-pointer text-sm font-medium">Delivery history</summary>
+            <ul className="mt-3 grid gap-2 text-sm text-muted">
+              {data.deliveryEvents.slice(0, 8).map((item) => (
+                <li key={item.id}>
+                  {item.kind} · {item.note}
+                </li>
+              ))}
+            </ul>
+          </details>
         </Panel>
       ) : null}
 
@@ -114,8 +114,7 @@ function ApprovedProspectRow({ item, prepared }: { item: Prospect; prepared: boo
   return (
     <article className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-line bg-cream p-5">
       <div>
-        <Badge tone="ok">Approved</Badge>
-        <h3 className="mt-2 font-display text-lg">{item.accountName}</h3>
+        <h3 className="font-display text-lg">{item.accountName}</h3>
         <p className="text-xs text-muted">{item.targetName}</p>
       </div>
       <div className="grid gap-2">
@@ -168,9 +167,12 @@ function PackageCard({
           <p className="whitespace-pre-wrap break-words text-sm leading-6 text-muted">
             {item.body}
           </p>
-          <p className="break-all font-mono text-[11px] text-muted">Digest {item.digest}</p>
+          <details className="text-xs text-muted">
+            <summary className="cursor-pointer">Version details</summary>
+            <p className="mt-2 break-all font-mono">Digest {item.digest}</p>
+          </details>
           <p className="text-xs text-muted">
-            Package approval permits CRM eligibility only. Each email still needs its own approval.
+            Approves the brief for CRM export. Messages need separate approval.
           </p>
           <div className="flex flex-wrap gap-2">
             {draft ? (
@@ -184,35 +186,29 @@ function PackageCard({
           </div>
           {!draft ? (
             <div className="grid gap-2">
-              <p className="text-xs text-muted">
-                Draft a message only to a public-source or verified mailbox. Suggestions stay
-                ineligible.
-              </p>
-              {eligible.length === 0 ? (
-                <p className="text-xs text-amber">
-                  No eligible mailbox yet. Run a public-source reveal first.
-                </p>
-              ) : (
-                eligible.map((contact) => {
-                  const handedOff = messages.some(
-                    (message) =>
-                      message.contactId === contact.id &&
-                      ["handed_off", "handed_to_gmail", "sent"].includes(message.status),
-                  );
-                  return (
-                    <Button
-                      key={contact.id}
-                      variant="outline"
-                      disabled={draftMsg.isPending || handedOff}
-                      onClick={() => draftMsg.mutate({ packageId: item.id, contactId: contact.id })}
-                    >
-                      {handedOff
-                        ? `Already handed off: ${contact.emailDisplay}`
-                        : `Draft message to ${contact.emailDisplay}`}
-                    </Button>
-                  );
-                })
-              )}
+              {eligible.length === 0
+                ? null
+                : eligible.map((contact) => {
+                    const handedOff = messages.some(
+                      (message) =>
+                        message.contactId === contact.id &&
+                        ["handed_off", "handed_to_gmail", "sent"].includes(message.status),
+                    );
+                    return (
+                      <Button
+                        key={contact.id}
+                        variant="outline"
+                        disabled={draftMsg.isPending || handedOff}
+                        onClick={() =>
+                          draftMsg.mutate({ packageId: item.id, contactId: contact.id })
+                        }
+                      >
+                        {handedOff
+                          ? `Already handed off: ${contact.emailDisplay}`
+                          : `Draft message to ${contact.emailDisplay}`}
+                      </Button>
+                    );
+                  })}
             </div>
           ) : null}
         </div>
@@ -266,7 +262,10 @@ function MessageCard({ item }: { item: OutreachMessage }) {
         </summary>
         <div className="mt-4 grid gap-3">
           <p className="whitespace-pre-wrap break-words text-sm text-muted">{item.body}</p>
-          <p className="break-all font-mono text-[11px] text-muted">Digest {item.digest}</p>
+          <details className="text-xs text-muted">
+            <summary className="cursor-pointer">Version details</summary>
+            <p className="mt-2 break-all font-mono">Digest {item.digest}</p>
+          </details>
           {item.status === "draft" ? (
             <label className="flex items-start gap-2 text-xs">
               <input
@@ -383,8 +382,8 @@ function MessageCard({ item }: { item: OutreachMessage }) {
         </div>
       </details>
       {handoffError ? <ErrorNote message={handoffError} /> : null}
-      {approve.error || open.error ? (
-        <ErrorNote message={mutationMessage(approve.error ?? open.error)} />
+      {approve.error || open.error || event.error ? (
+        <ErrorNote message={mutationMessage(approve.error ?? open.error ?? event.error)} />
       ) : null}
     </article>
   );
@@ -398,14 +397,11 @@ function SuppressionPanel({ suppressions }: { suppressions: Suppression[] }) {
 
   return (
     <Panel className="p-6">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Hard stop</span>
-      <h2 className="mt-2 font-display text-lg">Do-not-contact list · {suppressions.length}</h2>
-      <p className="mt-2 max-w-2xl text-sm text-muted">
-        An email or domain on this list overrides approval. Nothing is sent from this site either
-        way.
-      </p>
-      <details className="mt-4">
-        <summary className="cursor-pointer text-sm font-medium">Manage do-not-contact list</summary>
+      <details>
+        <summary className="cursor-pointer text-sm font-medium">
+          Do-not-contact list · {suppressions.length}
+        </summary>
+        <p className="mt-3 text-sm text-muted">Blocks outreach even if previously approved.</p>
         <form
           className="mt-5 grid gap-3 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
           onSubmit={(event) => {

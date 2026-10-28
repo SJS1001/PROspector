@@ -1,5 +1,5 @@
 {
-  "base": "fb3672bb71f51341dbb3f5dc7726e178f0906d5b",
+  "base": "5c2c09d26a5dd144b80eb744c55fef3fbbd2eb37",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
+      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
+      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
+      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "ee43cd2275a477fb6bbeaad8e327f8701d9790236da4bf665f357a755ea5dd6d"
+      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "af4efa98efdf77c6a04ebcb7741f650d70ebd85d03c6883430cafff6cdf3ee2b"
+      "digest": "cc7cb6484808b43af3e945c1c200f2fc173423142a2a534b92b143382ccb2ae3"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "af4efa98efdf77c6a04ebcb7741f650d70ebd85d03c6883430cafff6cdf3ee2b"
+      "digest": "cc7cb6484808b43af3e945c1c200f2fc173423142a2a534b92b143382ccb2ae3"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "c5c73e90f7ce784bef8aace1cb79f2ca90f1c0b486fa9ae89ee66e67cedd6808"
+      "digest": "944e65c7dff03b8438eab5710f8708b2d0a9f52c3d17876e7b4e858903bef0f2"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "c5c73e90f7ce784bef8aace1cb79f2ca90f1c0b486fa9ae89ee66e67cedd6808"
+      "digest": "944e65c7dff03b8438eab5710f8708b2d0a9f52c3d17876e7b4e858903bef0f2"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "c5c73e90f7ce784bef8aace1cb79f2ca90f1c0b486fa9ae89ee66e67cedd6808"
+      "digest": "944e65c7dff03b8438eab5710f8708b2d0a9f52c3d17876e7b4e858903bef0f2"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "41a3120ad51937d6a00bc1224167cf3505e27a1a298e59d8ecf10b180a019397"
+      "digest": "5c380a9b553404fa986ece24abc92de57de4691fcaea8fa5d92116143f1e0d75"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "41a3120ad51937d6a00bc1224167cf3505e27a1a298e59d8ecf10b180a019397"
+      "digest": "5c380a9b553404fa986ece24abc92de57de4691fcaea8fa5d92116143f1e0d75"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "41a3120ad51937d6a00bc1224167cf3505e27a1a298e59d8ecf10b180a019397"
+      "digest": "5c380a9b553404fa986ece24abc92de57de4691fcaea8fa5d92116143f1e0d75"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "c04af0b961350d56a85f57a067017be7de1915b9946eb9512ec1f3b9c0b8b8e6"
+      "digest": "eb47904c73395b7629efbc95b5c4bff9893d227051746cb8fdf8091bd2834d03"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,7 +315,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "c04af0b961350d56a85f57a067017be7de1915b9946eb9512ec1f3b9c0b8b8e6"
+      "digest": "eb47904c73395b7629efbc95b5c4bff9893d227051746cb8fdf8091bd2834d03"
     }
   ],
   "reviewedSourceFiles": 29,
@@ -352,7 +352,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 7,
+        "tabs": 8,
         "direction": "Tab"
       },
       {
@@ -363,7 +363,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /knowledge",
-        "tabs": 11,
+        "tabs": 12,
         "direction": "Shift+Tab"
       },
       {
@@ -374,7 +374,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /knowledge",
-        "tabs": 13,
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -1383,7 +1383,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 16,
+        "tabs": 15,
         "direction": "Tab"
       },
       {
@@ -1394,7 +1394,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 20,
+        "tabs": 19,
         "direction": "Shift+Tab"
       },
       {
@@ -1528,7 +1528,7 @@
       {
         "kind": "reach",
         "label": "Run public-source reveal 1-0",
-        "tabs": 2,
+        "tabs": 4,
         "direction": "Tab"
       },
       {
@@ -1550,7 +1550,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 13,
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -1597,6 +1597,17 @@
       },
       {
         "kind": "reach",
+        "label": "Open version details",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open version details",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "Approve package",
         "tabs": 1,
         "direction": "Tab"
@@ -1626,6 +1637,17 @@
       {
         "kind": "activate",
         "label": "Open disclosure for message acknowledgement",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open version details",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open version details",
         "key": "Enter"
       },
       {
@@ -1675,7 +1697,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /",
-        "tabs": 14,
+        "tabs": 15,
         "direction": "Shift+Tab"
       },
       {
@@ -1701,7 +1723,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 6,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -1712,7 +1734,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 7,
+        "tabs": 8,
         "direction": "Shift+Tab"
       },
       {
@@ -1748,8 +1770,19 @@
       },
       {
         "kind": "reach",
-        "label": "Download CRM CSV",
+        "label": "Open disclosure for Download CRM CSV",
         "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Download CRM CSV",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Download CRM CSV",
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -1771,7 +1804,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /outreach",
-        "tabs": 8,
+        "tabs": 9,
         "direction": "Shift+Tab"
       },
       {
@@ -1782,7 +1815,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 12,
+        "tabs": 13,
         "direction": "Shift+Tab"
       },
       {
@@ -1808,7 +1841,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 7,
+        "tabs": 8,
         "direction": "Tab"
       },
       {
@@ -1819,7 +1852,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /prospects",
-        "tabs": 12,
+        "tabs": 13,
         "direction": "Shift+Tab"
       },
       {
@@ -1830,7 +1863,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /prospects",
-        "tabs": 16,
+        "tabs": 17,
         "direction": "Shift+Tab"
       },
       {
@@ -1917,7 +1950,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 18,
+        "tabs": 17,
         "direction": "Tab"
       },
       {
@@ -1928,7 +1961,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 22,
+        "tabs": 21,
         "direction": "Shift+Tab"
       },
       {
@@ -2023,7 +2056,7 @@
       {
         "kind": "reach",
         "label": "Run public-source reveal 2-0",
-        "tabs": 2,
+        "tabs": 4,
         "direction": "Tab"
       },
       {
@@ -2033,6 +2066,28 @@
       },
       {
         "kind": "reach",
+        "label": "Run public-source reveal 2-1",
+        "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Run public-source reveal 2-1",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Run public-source reveal 2-2",
+        "tabs": 11,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Run public-source reveal 2-2",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "Open workspace menu",
         "tabs": 2,
         "direction": "Tab"
@@ -2045,7 +2100,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 19,
+        "tabs": 20,
         "direction": "Shift+Tab"
       },
       {
@@ -2092,6 +2147,17 @@
       },
       {
         "kind": "reach",
+        "label": "Open version details",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open version details",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "Approve package",
         "tabs": 1,
         "direction": "Tab"
@@ -2121,6 +2187,17 @@
       {
         "kind": "activate",
         "label": "Open disclosure for message acknowledgement",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open version details",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open version details",
         "key": "Enter"
       },
       {
@@ -2170,7 +2247,7 @@
       {
         "kind": "reach",
         "label": "Draft message to person2@fictionalquarry.example",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -2192,7 +2269,7 @@
       {
         "kind": "reach",
         "label": "renewed exact message acknowledgement",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -2225,7 +2302,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 6,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -2236,7 +2313,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 12,
+        "tabs": 15,
         "direction": "Shift+Tab"
       },
       {
@@ -2258,11 +2335,22 @@
       {
         "kind": "skip",
         "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Download CRM CSV",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Download CRM CSV",
+        "key": "Enter"
       },
       {
         "kind": "reach",
         "label": "Download CRM CSV",
-        "tabs": 2,
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -2284,7 +2372,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /outreach",
-        "tabs": 9,
+        "tabs": 10,
         "direction": "Shift+Tab"
       },
       {
@@ -2295,7 +2383,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 13,
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -2343,7 +2431,7 @@
       {
         "kind": "reach",
         "label": "Open in Gmail",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -2365,7 +2453,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /",
-        "tabs": 16,
+        "tabs": 17,
         "direction": "Shift+Tab"
       },
       {
@@ -2391,7 +2479,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 6,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -2402,7 +2490,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 7,
+        "tabs": 8,
         "direction": "Shift+Tab"
       },
       {
@@ -2438,8 +2526,19 @@
       },
       {
         "kind": "reach",
-        "label": "Download CRM CSV",
+        "label": "Open disclosure for Download CRM CSV",
         "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Download CRM CSV",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Download CRM CSV",
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -2461,7 +2560,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /outreach",
-        "tabs": 11,
+        "tabs": 12,
         "direction": "Shift+Tab"
       },
       {
@@ -2472,7 +2571,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 15,
+        "tabs": 16,
         "direction": "Shift+Tab"
       },
       {
@@ -2498,7 +2597,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for do-not-contact controls",
-        "tabs": 6,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -2519,7 +2618,7 @@
       {
         "kind": "reach",
         "label": "suppression Kind email",
-        "tabs": 13,
+        "tabs": 14,
         "direction": "Tab"
       },
       {
@@ -2571,7 +2670,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 14,
+        "tabs": 15,
         "direction": "Shift+Tab"
       },
       {
@@ -2596,8 +2695,19 @@
       },
       {
         "kind": "reach",
-        "label": "Download CRM CSV",
+        "label": "Open disclosure for Download CRM CSV",
         "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Download CRM CSV",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Download CRM CSV",
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -2619,7 +2729,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 8,
+        "tabs": 9,
         "direction": "Shift+Tab"
       },
       {
@@ -2630,7 +2740,7 @@
       {
         "kind": "reach",
         "label": "skip link",
-        "tabs": 6,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -2645,7 +2755,7 @@
       {
         "kind": "reach",
         "label": "Download CRM CSV",
-        "tabs": 2,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -2657,6 +2767,309 @@
         "kind": "reach",
         "label": "Open workspace menu",
         "tabs": 5,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /contacts",
+        "tabs": 10,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /contacts",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /contacts",
+        "tabs": 15,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /contacts",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /settings",
+        "tabs": 35,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /settings",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open connection settings",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open connection settings",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: Provider",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: Provider",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: Provider",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: Provider",
+        "tabs": 18,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: Provider",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: Accounts per hunt (4–20)",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: Accounts per hunt (4–20)",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: Accounts per hunt (4–20)",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: Accounts per hunt (4–20)",
+        "tabs": 16,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: Accounts per hunt (4–20)",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: TypeSafe / Jev API key",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: TypeSafe / Jev API key",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: TypeSafe / Jev API key",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: TypeSafe / Jev API key",
+        "tabs": 17,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: TypeSafe / Jev API key",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: Apollo API key",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: Apollo API key",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: Apollo API key",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: Apollo API key",
+        "tabs": 16,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: Apollo API key",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: ZoomInfo API key",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: ZoomInfo API key",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: ZoomInfo API key",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: ZoomInfo API key",
+        "tabs": 16,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: ZoomInfo API key",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: Monthly spend cap in USD",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: Monthly spend cap in USD",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: Monthly spend cap in USD",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: Monthly spend cap in USD",
+        "tabs": 16,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: Monthly spend cap in USD",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Connection setting: Gmail email address",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Connection setting: Gmail email address",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Connection setting: Gmail email address",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection setting: Gmail email address",
+        "tabs": 17,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection setting: Gmail email address",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Close connection settings",
+        "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close connection settings",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 6,
         "direction": "Tab"
       },
       {
@@ -2755,7 +3168,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for recovery controls",
-        "tabs": 9,
+        "tabs": 10,
         "direction": "Tab"
       },
       {
@@ -2818,7 +3231,7 @@
       {
         "kind": "reach",
         "label": "recovery navigation /settings",
-        "tabs": 14,
+        "tabs": 15,
         "direction": "Shift+Tab"
       },
       {
@@ -6777,7 +7190,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "package review 1",
@@ -6799,7 +7212,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "package review 1",
@@ -6821,97 +7234,97 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
+      "controls": 6
+    },
+    {
+      "checkpoint": "message-cycle-1",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "message-cycle-1",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "message-cycle-1",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "approved message 1",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
       "controls": 7
     },
     {
-      "checkpoint": "message-cycle-1",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 9
-    },
-    {
-      "checkpoint": "message-cycle-1",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 9
-    },
-    {
-      "checkpoint": "message-cycle-1",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 9
-    },
-    {
-      "checkpoint": "approved message 1",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 8
-    },
-    {
       "checkpoint": "approved message 1",
       "width": 360,
       "scrollX": 0,
@@ -6931,7 +7344,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 7
     },
     {
       "checkpoint": "approved message 1",
@@ -6953,7 +7366,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 7
     },
     {
       "checkpoint": "handoff unconfirmed 1",
@@ -6975,7 +7388,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 9
     },
     {
       "checkpoint": "handoff unconfirmed 1",
@@ -6997,7 +7410,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 9
     },
     {
       "checkpoint": "handoff unconfirmed 1",
@@ -7019,7 +7432,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 9
     },
     {
       "checkpoint": "screen /",
@@ -7305,7 +7718,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 9
     },
     {
       "checkpoint": "screen /outreach",
@@ -7327,7 +7740,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 9
     },
     {
       "checkpoint": "screen /outreach",
@@ -7349,7 +7762,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 9
     },
     {
       "checkpoint": "screen /prospects",
@@ -7946,6 +8359,138 @@
       "controls": 7
     },
     {
+      "checkpoint": "contact reveal 2-1",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 7
+    },
+    {
+      "checkpoint": "contact reveal 2-1",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 7
+    },
+    {
+      "checkpoint": "contact reveal 2-1",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 7
+    },
+    {
+      "checkpoint": "contact reveal 2-2",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 7
+    },
+    {
+      "checkpoint": "contact reveal 2-2",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 7
+    },
+    {
+      "checkpoint": "contact reveal 2-2",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 7
+    },
+    {
       "checkpoint": "screen /outreach",
       "width": 320,
       "scrollX": 0,
@@ -7965,7 +8510,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 10
     },
     {
       "checkpoint": "screen /outreach",
@@ -7987,7 +8532,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 10
     },
     {
       "checkpoint": "screen /outreach",
@@ -8009,7 +8554,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 10
     },
     {
       "checkpoint": "package review 2",
@@ -8031,7 +8576,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 10
     },
     {
       "checkpoint": "package review 2",
@@ -8053,7 +8598,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 10
     },
     {
       "checkpoint": "package review 2",
@@ -8075,32 +8620,32 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
+      "controls": 10
+    },
+    {
+      "checkpoint": "message-cycle-2",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
       "controls": 12
     },
     {
       "checkpoint": "message-cycle-2",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 14
-    },
-    {
-      "checkpoint": "message-cycle-2",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -8119,7 +8664,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 12
     },
     {
       "checkpoint": "message-cycle-2",
@@ -8141,7 +8686,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 12
     },
     {
       "checkpoint": "approved message 2",
@@ -8163,7 +8708,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 11
     },
     {
       "checkpoint": "approved message 2",
@@ -8185,7 +8730,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 11
     },
     {
       "checkpoint": "approved message 2",
@@ -8207,7 +8752,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 11
     },
     {
       "checkpoint": "screen /settings",
@@ -8295,7 +8840,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 11
     },
     {
       "checkpoint": "screen /outreach",
@@ -8317,7 +8862,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 11
     },
     {
       "checkpoint": "screen /outreach",
@@ -8339,7 +8884,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 11
     },
     {
       "checkpoint": "handoff unconfirmed 2",
@@ -8361,7 +8906,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "handoff unconfirmed 2",
@@ -8383,7 +8928,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "handoff unconfirmed 2",
@@ -8405,7 +8950,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "screen /",
@@ -8691,7 +9236,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "screen /outreach",
@@ -8713,7 +9258,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "screen /outreach",
@@ -8735,7 +9280,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "completed suppression form",
@@ -8757,7 +9302,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "completed suppression form",
@@ -8779,10 +9324,76 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "completed suppression form",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 13
+    },
+    {
+      "checkpoint": "screen /settings",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "screen /settings",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "screen /settings",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -8870,6 +9481,72 @@
       "controls": 15
     },
     {
+      "checkpoint": "screen /contacts",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "screen /contacts",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "screen /contacts",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
       "checkpoint": "screen /settings",
       "width": 320,
       "scrollX": 0,
@@ -8915,6 +9592,468 @@
     },
     {
       "checkpoint": "screen /settings",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Provider",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Provider",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Provider",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Accounts per hunt (4–20)",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Accounts per hunt (4–20)",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Accounts per hunt (4–20)",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: TypeSafe / Jev API key",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: TypeSafe / Jev API key",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: TypeSafe / Jev API key",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Apollo API key",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Apollo API key",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Apollo API key",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: ZoomInfo API key",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: ZoomInfo API key",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: ZoomInfo API key",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Monthly spend cap in USD",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Monthly spend cap in USD",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Monthly spend cap in USD",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Gmail email address",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Gmail email address",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 15
+    },
+    {
+      "checkpoint": "Expanded connection setting: Gmail email address",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -8955,7 +10094,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 13
     },
     {
       "checkpoint": "recovered workspace load",
@@ -9073,17 +10212,17 @@
     "rect": {
       "left": 37,
       "right": 323,
-      "top": 600.5,
-      "bottom": 644.5
+      "top": 632,
+      "bottom": 676
     },
     "viewport": {
       "width": 360,
       "height": 800,
-      "scrollY": 222,
+      "scrollY": 0,
       "visualHeight": 800,
-      "rootHeight": 1022,
+      "rootHeight": 831,
       "clientHeight": 800,
-      "bodyHeight": 1022,
+      "bodyHeight": 831,
       "overflow": "visible"
     },
     "ancestors": [
@@ -9096,51 +10235,51 @@
       },
       {
         "tag": "DIV",
-        "height": 841,
-        "scrollHeight": 841,
+        "height": 650,
+        "scrollHeight": 650,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 889,
-        "scrollHeight": 889,
+        "height": 698,
+        "scrollHeight": 698,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "SECTION",
-        "height": 937,
-        "scrollHeight": 937,
+        "height": 746,
+        "scrollHeight": 746,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 982,
-        "scrollHeight": 982,
+        "height": 791,
+        "scrollHeight": 791,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 1022,
-        "scrollHeight": 1022,
+        "height": 831,
+        "scrollHeight": 831,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "BODY",
-        "height": 1022,
-        "scrollHeight": 1022,
+        "height": 831,
+        "scrollHeight": 831,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "HTML",
         "height": 800,
-        "scrollHeight": 1022,
-        "scrollTop": 222,
+        "scrollHeight": 831,
+        "scrollTop": 0,
         "overflow": "visible"
       }
     ],
@@ -9241,10 +10380,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "a38fafdd5a967d17ce135e495d5113e4d0b26343273a583b18ab23f7d9e69633",
+      "sha256": "815f7976ae3979db395c90e61d540481e8e9afcfed0e933fc106a8b74076a723",
       "rows": 1,
       "identities": [
-        "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
+        "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25"
       ]
     }
   },
@@ -9265,20 +10404,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "a38fafdd5a967d17ce135e495d5113e4d0b26343273a583b18ab23f7d9e69633",
+        "sha256": "815f7976ae3979db395c90e61d540481e8e9afcfed0e933fc106a8b74076a723",
         "rows": 1,
         "identities": [
-          "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
+          "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "675c39812efab017f66d84b9dc5b4692eca2a192784550e7a22f55ec124dd3da",
+        "sha256": "75e5cc94487a69ba8178e2bc53f68d9de70e5574edd8100591d5c06fa6f91729",
         "rows": 2,
         "identities": [
-          "4133329e762cd4c24d793f3d:da9a61a7557811a9a9f9ca3f",
-          "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
+          "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25",
+          "cbdb4897727296960103ee7f:6f194fcc7e6a3903103b9c78"
         ]
       }
     ]
@@ -9292,26 +10431,26 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "a38fafdd5a967d17ce135e495d5113e4d0b26343273a583b18ab23f7d9e69633",
+      "sha256": "815f7976ae3979db395c90e61d540481e8e9afcfed0e933fc106a8b74076a723",
       "rows": 1,
       "identities": [
-        "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
+        "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "48c765bc12460f98fb4d445650f2b318686e81c35b8bc9b9d59615786e73dff2",
+    "sha256": "28cc581be04d5e8fb570c16381c8f7c79c16def65337baa2fd9d44c1bcff89b0",
     "rows": 7,
     "identities": [
-      "d4c889893c624b8b91183557:csv-edge-0",
-      "d4c889893c624b8b91183557:csv-edge-1",
-      "d4c889893c624b8b91183557:csv-edge-2",
-      "d4c889893c624b8b91183557:csv-edge-3",
-      "d4c889893c624b8b91183557:csv-edge-4",
-      "d4c889893c624b8b91183557:csv-edge-5",
-      "d4c889893c624b8b91183557:e0d1a200bee1e103c75db61f"
+      "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25",
+      "45075792705c52a37cb588de:csv-edge-0",
+      "45075792705c52a37cb588de:csv-edge-1",
+      "45075792705c52a37cb588de:csv-edge-2",
+      "45075792705c52a37cb588de:csv-edge-3",
+      "45075792705c52a37cb588de:csv-edge-4",
+      "45075792705c52a37cb588de:csv-edge-5"
     ]
   },
   "recovery": [
@@ -9324,10 +10463,10 @@
   "stubCounts": {
     "hunt": 2,
     "discovery": 2,
-    "retrieve": 4
+    "retrieve": 6
   },
   "browserCounts": {
-    "local": 342,
+    "local": 383,
     "composeAborted": 2,
     "unexpected": 0
   },

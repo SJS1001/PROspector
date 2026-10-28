@@ -104,7 +104,7 @@ export async function runWorkflow({
     await keyboard.activate(link, `workspace navigation ${route}`);
     await page.waitForURL((url) => url.pathname === route);
     // URL updates can precede the new route shell; wait for its content before tabbing.
-    const heading = { "/knowledge": "Company & product", "/discovery": "Market play proposals", "/prospects": "Prospect workspace", "/review": "Review prospects", "/contacts": "Contacts", "/outreach": "Contacts & drafts", "/settings": "Settings", "/": "Today" }[route];
+    const heading = { "/knowledge": "Company & product", "/discovery": "Target markets", "/prospects": "Searches & prospects", "/review": "Review prospects", "/contacts": "Contacts", "/outreach": "Outreach", "/settings": "Settings", "/": "Today" }[route];
     await task().getByRole("heading", { includeHidden: true, name: heading, exact: true }).waitFor();
     await keyboard.skip();
     await layout(`screen ${route}`);
@@ -366,6 +366,9 @@ export async function runWorkflow({
       .filter({ has: page.getByRole("button", { includeHidden: true, name: "Approve package", exact: true }) });
     await visible(packageCard);
     await keyboard.expose(packageCard.getByRole("button", { includeHidden: true, name: "Approve package", exact: true }), "package approval");
+    const packageCardVersion = packageCard.locator("summary").filter({ hasText: /^Version details$/ }).locator("..");
+    assert.equal(await packageCardVersion.evaluate((node) => node.open), false, "Version details start collapsed");
+    await keyboard.activate(packageCardVersion.locator("summary"), "Open version details");
     assert.match(await packageCard.innerText(), /Digest [a-f0-9]{64}/);
     await layout(`package review ${cycle}`);
     await keyboard.activate(packageCard.getByRole("button", { includeHidden: true, name: "Approve package", exact: true }), "Approve package");
@@ -375,6 +378,9 @@ export async function runWorkflow({
       .filter({ has: page.getByText(email, { exact: true }) });
     await visible(message);
     await keyboard.expose(message.getByRole("checkbox", { includeHidden: true }), "message acknowledgement");
+    const messageVersion = message.locator("summary").filter({ hasText: /^Version details$/ }).locator("..");
+    assert.equal(await messageVersion.evaluate((node) => node.open), false, "Version details start collapsed");
+    await keyboard.activate(messageVersion.locator("summary"), "Open version details");
     assert.match(await message.innerText(), /Digest [a-f0-9]{64}/);
     await layout("message-cycle-" + cycle);
     const subject = await message.getByRole("heading", { includeHidden: true, level: 3 }).innerText();
@@ -596,6 +602,30 @@ export async function runWorkflow({
       }
     },
   );
+  await go("/contacts");
+  // This fixture was inserted directly while the runtime was stopped. Reload
+  // to discard the client query cache before checking its new contact records.
+  await page.reload();
+  await task().getByRole("heading", { name: "Contacts", exact: true }).waitFor();
+  const verifiedCards = task().locator("article").filter({ has: page.getByText("verified", { exact: true }) });
+  await verifiedCards.first().waitFor();
+  assert.ok(await verifiedCards.count() > 0, "Verified-contact check is non-vacuous");
+  assert.equal(await verifiedCards.getByText(/Unverified mailbox/).count(), 0, "Verified contacts are not labeled unverified");
+  await go("/settings");
+  const connections = task().locator("details").filter({ has: page.locator("summary").filter({ hasText: /^Connections & search settings$/ }) });
+  assert.equal(await connections.evaluate((node) => node.open), false, "Connection settings start collapsed");
+  await keyboard.activate(connections.locator(":scope > summary"), "Open connection settings");
+  const fields = ["Provider", "Accounts per hunt (4–20)", "TypeSafe / Jev API key", "Apollo API key", "ZoomInfo API key", "Monthly spend cap in USD", "Gmail email address"];
+  for (const label of fields) {
+    const field = label === "Provider"
+      ? connections.getByRole("combobox", { includeHidden: true, name: /^Provider/ })
+      : connections.getByLabel(label, { exact: true });
+    await keyboard.reach(field, `Connection setting: ${label}`);
+    await layout(`Expanded connection setting: ${label}`);
+    const section = field.locator("xpath=ancestor::details[1]");
+    await keyboard.activate(section.locator(":scope > summary"), `Close connection setting: ${label}`);
+  }
+  await keyboard.activate(connections.locator(":scope > summary"), "Close connection settings");
   return evidence;
 }
 

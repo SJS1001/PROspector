@@ -34,11 +34,9 @@ export function WorkspaceArchivePanel() {
 
   return (
     <Panel className="grid gap-4 p-5">
-      <h2 className="text-sm font-medium">Workspace backup and restore</h2>
       <p className="text-sm text-muted">
-        Back up workspace records, decisions, messages, history and suppressions. The JSON file is
-        unencrypted: store it privately. Connection credentials, sign-in sessions, spending grants
-        and active schedules are excluded.
+        Backups are unencrypted. Store them privately. Credentials, sign-in sessions, spending
+        grants and active schedules are excluded.
       </p>
       <Button variant="outline" disabled={busy} onClick={() => archive.mutate()}>
         {archive.isPending ? "Building backup…" : "Download workspace backup"}
@@ -121,10 +119,10 @@ export function WorkspaceArchivePanel() {
       </div>
       <p ref={status} tabIndex={-1} role="status" className="text-sm text-muted">
         {restore.isSuccess
-          ? "Restore committed. Reload the app to view the recovered workspace. No provider work was requested by restore."
+          ? "Restored. Reload to view your workspace."
           : archive.isSuccess
-            ? "Workspace backup downloaded. Store the unencrypted JSON file privately."
-            : "The complete file is validated before an atomic restore. Validation failures leave the previous workspace in place. If the connection is interrupted, reload and check the workspace before trying again."}
+            ? "Backup downloaded. Store it privately."
+            : ""}
       </p>
     </Panel>
   );

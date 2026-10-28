@@ -42,17 +42,9 @@ export function BriefView() {
 
   return (
     <div className="grid gap-5">
-      <PageHeading
-        eyebrow={data.companyName}
-        title="Today"
-        copy="Your next action and recent work."
-      />
+      <PageHeading title="Today" />
       <Panel className="p-5">
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-          Next action
-        </span>
-        <h2 className="mt-2 font-display text-xl">{action.label}</h2>
-        <p className="mt-2 text-sm text-muted">{action.copy}</p>
+        <h2 className="font-display text-lg">Next action</h2>
         <Link
           to={action.href}
           className="mt-4 inline-flex min-h-11 items-center justify-center rounded-[10px] border border-green bg-green px-4 text-sm font-semibold text-cream"
@@ -76,12 +68,10 @@ export function BriefView() {
           <strong className="text-ink">
             {data.brief.weekExportReady} / {data.brief.weekTarget}
           </strong>{" "}
-          newly export-ready operating prospects this Toronto week.
+          prospects newly ready to export.
         </p>
         <details className="mt-3 text-sm">
-          <summary className="cursor-pointer text-muted">
-            Weekly target, workspace totals and export preview
-          </summary>
+          <summary className="cursor-pointer text-muted">Details</summary>
           <p className="mt-3 text-muted">
             Toronto week {data.brief.weekStart} – {data.brief.weekEnd}. Greenfield Draft does not
             count toward the target.
@@ -111,49 +101,45 @@ export function BriefView() {
         </details>
       </Panel>
       <Panel className="p-5">
-        <h2 className="font-display text-lg">Recent work</h2>
-        {recent.length ? (
-          <ul className="mt-3 divide-y divide-line">
-            {recent.map((item) => (
-              <li key={item.id} className="py-3 text-sm">
-                <div className="flex flex-wrap justify-between gap-2">
-                  <strong>{item.title}</strong>
-                  <time className="text-xs text-muted" dateTime={item.date}>
-                    {new Date(item.date).toLocaleString("en-CA", { timeZone: "America/Toronto" })}{" "}
-                    Toronto
-                  </time>
-                </div>
-                <p className="mt-1 text-muted">{item.detail}</p>
-                {item.reason ? <p className="mt-1 text-amber">{item.reason}</p> : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-muted">
-            No searches or outreach activity yet. Follow the next action to get started.
-          </p>
-        )}
+        <details open={recent.some((item) => item.reason)}>
+          <summary className="cursor-pointer text-sm font-medium">Recent work</summary>
+          {recent.length ? (
+            <ul className="mt-3 divide-y divide-line">
+              {recent.map((item) => (
+                <li key={item.id} className="py-3 text-sm">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <strong>{item.title}</strong>
+                    <time className="text-xs text-muted" dateTime={item.date}>
+                      {new Date(item.date).toLocaleString("en-CA", { timeZone: "America/Toronto" })}{" "}
+                      Toronto
+                    </time>
+                  </div>
+                  <p className="mt-1 text-muted">{item.detail}</p>
+                  {item.reason ? <p className="mt-1 text-amber">{item.reason}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-muted">No activity yet.</p>
+          )}
+        </details>
       </Panel>
       <Panel className="p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-lg">Manual morning run</h2>
-          {data.morningDue ? <Badge tone="warn">Due</Badge> : null}
-        </div>
-        <p className="mt-2 text-sm text-muted">
-          Starts a manual prospect run. This action does not scan the inbox or run discovery.
-        </p>
-        <Button className="mt-3" disabled={morning.isPending} onClick={() => morning.mutate()}>
-          {morning.isPending ? "Running…" : "Run morning prospects"}
-        </Button>
+        <details open={data.morningDue}>
+          <summary className="cursor-pointer text-sm font-medium">
+            Morning prospects {data.morningDue ? <Badge tone="warn">Due</Badge> : null}
+          </summary>
+          <Button className="mt-3" disabled={morning.isPending} onClick={() => morning.mutate()}>
+            {morning.isPending ? "Running…" : "Run morning prospects"}
+          </Button>
+        </details>
         {morning.error ? (
           <div className="mt-3">
             <ErrorNote message={mutationMessage(morning.error)} />
           </div>
         ) : null}
         {morning.isSuccess ? (
-          <p className="mt-3 text-sm text-muted">
-            Morning run completed; the workspace has been refreshed.
-          </p>
+          <p className="mt-3 text-sm text-muted">Morning run complete.</p>
         ) : null}
       </Panel>
     </div>
