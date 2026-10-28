@@ -10,7 +10,7 @@ This checklist defines the local release separately from the hosted `site/` prog
 
 The combined candidate is now on `codex/local-app-integration`, based on `operator-os`, integrating PRs #127–#141 plus reviewed integration repairs. See [the integration report](implementation-lanes/2026-10-28-local-integration.md) for current evidence and remaining tasks. The unchecked detailed items below are the original release criteria, not a claim that implementation has not started. Owner acceptance remains open.
 
-Current Mac evidence includes 18/18 HTTP auth checks, the repaired production shutdown bridge and 31/31 real-database manual-workflow cases, including preserved CSV BOM bytes. Serial `npm test` passed 255 script + 64 source tests; `test-all.mjs` passed 255 + 84. Typecheck passed and lint has zero errors/3 existing warnings. The final build and contained Mac browser run passed at source `5eb5c1e`, including two fictional workflows across restart, canonical digest match and seven exact CSV edge rows. Candidate synchronization awaits the final documentation push. Full keyboard-only usability, provider-quality evaluation and owner/merge acceptance remain open.
+Current Mac evidence includes 18/18 HTTP auth checks, durable restart/archive checks and 31/31 real-database manual-workflow cases, including preserved CSV BOM bytes. Earlier serial `npm test` passed 255 script + 64 source tests; the expanded suite passed 255 + 84 immediately before the final ReviewCard UI/harness change, with no later server changes. After that change, build/typecheck passed, lint had zero errors/3 existing warnings and component checks passed 7/7. The final contained Mac browser `npm test` passed at `76976635c0267bd3f9a5d7f2b5392b2ef59dd3fd`: 46 units, 359 keyboard actions, 282 layout samples at 320/360/768px, 10 Cancel/Escape cases, two fictional workflows across restart, four recovery scenarios and seven exact CSV edge rows. Unexpected/forbidden network counts were zero. See the integration report for exact scope and earlier-source evidence. Real-provider usefulness, quality/cost evaluation and owner/merge acceptance remain open. The [owner acceptance guide](LOCAL-APP-FINAL-ACCEPTANCE.md) is the next step.
 
 ## Synchronization checkpoint
 
@@ -31,7 +31,7 @@ Integrate independent lanes into one candidate and run fixed-port runtime suites
 | 4 | LOCAL-04: complete backup and restore | LOCAL-03 | Empty-database round-trip, corruption rejection and rollback pass |
 | 5 | LOCAL-05: clean verification commands | LOCAL-01–04 | Install, build, typecheck, lint and the complete operator test command pass |
 | 6 | LOCAL-06: useful end-to-end workflow and CSV | LOCAL-01–05 | Browser journey and separately bounded provider-quality evidence |
-| 7 | LOCAL-07: owner acceptance and release checkpoint | LOCAL-06 | Two complete daily workflows, recovery drill, reviewed commit and owner acceptance |
+| 7 | LOCAL-07: owner acceptance and release checkpoint | LOCAL-06 | Automated fictional workflows/recovery evidence, reviewed commit and owner usefulness acceptance |
 
 ### LOCAL-01 — Make local startup and owner access reproducible
 
@@ -70,12 +70,12 @@ Review baseline, not a fresh result for future fixes: at operator head `2d476b9`
 ### LOCAL-06 — Prove one useful daily workflow
 
 - [x] Exercise the actual browser/server/database path with fictional provider stubs: company interview → confirmed knowledge → ready product/profile → manual prospect run → evidence-backed qualification → owner review → eligible contact → package approval → exact-message approval → explicit compose → CRM handoff.
-- [ ] Verify CSV escaping, spreadsheet-formula handling, eligible rows, suppression, useful error recovery, keyboard operation and narrow-screen use. Include reload, two tabs, interrupted requests and restart.
+- [x] Verify CSV escaping, spreadsheet-formula handling, eligible rows, suppression, focused error recovery, keyboard operation and 320/360/768px reflow. The final contained browser run includes reload, stale tabs, failed/lost responses and restart. Native file chooser, overnight-open simulation and a full assistive-technology/device audit are outside this bounded proof.
 - [ ] Configure one AI provider and one contact route only when their separately authorized bounded use is available. Compare a small owner-labelled sample with manual research; record useful matches, contact provenance/freshness, time and cost. Offline fixtures demonstrate mechanics, not real prospect quality.
 
 ### LOCAL-07 — Accept and checkpoint the local release
 
-- [ ] Complete the daily workflow twice, including restart and an empty-database recovery drill. Record remaining limitations plainly and obtain the owner's local-use acceptance.
+- [ ] Owner decision: assess two useful daily workflows with provenance, time and cost, record limitations, and accept or decline personal local use using [the short acceptance guide](LOCAL-APP-FINAL-ACCEPTANCE.md). Automated fictional workflows, restart and empty-database recovery are engineering checks; the owner need not repeat those drills. Real-provider work needs separately chosen bounds.
 - [x] Write a short runbook: start/stop, data location, backups/restore, provider setup, manual morning action and recovery from errors. Reconcile continuation pointers so future work finds this local target without changing hosted phase credit.
 - [ ] Review the final source and verification evidence before requesting merge approval for the local-app PR. After an authorized merge, fast-forward local main and verify clean status plus identical local/GitHub commits. Do not deploy as part of local acceptance.
 
@@ -87,4 +87,4 @@ Main's guarded demo smoke failure and review-retry ordering defect remain separa
 
 ## Next executable task
 
-Review the combined integration candidate and complete the remaining owner/browser acceptance in the linked integration report. Merge only after owner approval; then update the local release checkout to the approved branch. No hosted deployment is required.
+Review the verified combined integration candidate and complete the personal-use decision in the [owner acceptance guide](LOCAL-APP-FINAL-ACCEPTANCE.md). Merge only after owner approval; then update the local release checkout to the approved branch. No hosted deployment is required.

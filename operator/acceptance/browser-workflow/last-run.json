@@ -1,5 +1,5 @@
 {
-  "base": "9465064bbd0da6f2504191cd8f549fca7ff52f42",
+  "base": "76976635c0267bd3f9a5d7f2b5392b2ef59dd3fd",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "93c82bd358a146dcf15626c52d944943e68dde371a8f2a7d1bf655020ba39d67"
+      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "93c82bd358a146dcf15626c52d944943e68dde371a8f2a7d1bf655020ba39d67"
+      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "93c82bd358a146dcf15626c52d944943e68dde371a8f2a7d1bf655020ba39d67"
+      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "93c82bd358a146dcf15626c52d944943e68dde371a8f2a7d1bf655020ba39d67"
+      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "abc85c1dc19eb8b754b6d59926942551f65573cb5f2b6b929cb96af507987536"
+      "digest": "0e516dd46c28dab93d903473ba5eacf5e45801b206f3cb9efe7af6174fd5d953"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "abc85c1dc19eb8b754b6d59926942551f65573cb5f2b6b929cb96af507987536"
+      "digest": "0e516dd46c28dab93d903473ba5eacf5e45801b206f3cb9efe7af6174fd5d953"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "445c2c8b4f88709918223b2b1073b8a83bcde102292103ab048c495d6d470267"
+      "digest": "a00cb035cc8f8bedbeb3acb0a816d871b02655a8a3e8e9e78f23b6465aa159cf"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "445c2c8b4f88709918223b2b1073b8a83bcde102292103ab048c495d6d470267"
+      "digest": "a00cb035cc8f8bedbeb3acb0a816d871b02655a8a3e8e9e78f23b6465aa159cf"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "445c2c8b4f88709918223b2b1073b8a83bcde102292103ab048c495d6d470267"
+      "digest": "a00cb035cc8f8bedbeb3acb0a816d871b02655a8a3e8e9e78f23b6465aa159cf"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "7125ea7cff80b3333629f6d092adbb9a40f770f8279920866f98d90fff002d74"
+      "digest": "dbaa1d8cf4eb2d6bba86679f59da0c3693f674a3d8e7a49e67934457f598f4b7"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "7125ea7cff80b3333629f6d092adbb9a40f770f8279920866f98d90fff002d74"
+      "digest": "dbaa1d8cf4eb2d6bba86679f59da0c3693f674a3d8e7a49e67934457f598f4b7"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "7125ea7cff80b3333629f6d092adbb9a40f770f8279920866f98d90fff002d74"
+      "digest": "dbaa1d8cf4eb2d6bba86679f59da0c3693f674a3d8e7a49e67934457f598f4b7"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "1387ec20028c869f67564d28e9aadb906720a0a8cb11bdf69bdede5f4189e742"
+      "digest": "a6b3de8bb86f4a24937fb9130e6cc680e37ec3ed1ae42c546f55c62d377cf2ec"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,7 +315,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "1387ec20028c869f67564d28e9aadb906720a0a8cb11bdf69bdede5f4189e742"
+      "digest": "a6b3de8bb86f4a24937fb9130e6cc680e37ec3ed1ae42c546f55c62d377cf2ec"
     }
   ],
   "reviewedSourceFiles": 29,
@@ -1222,8 +1222,47 @@
       },
       {
         "kind": "reach",
+        "label": "Reject prospect",
+        "tabs": 7,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Reject prospect",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Cancel rejection",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Cancel rejection",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Reject prospect",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Reject prospect",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Rejection confirmation",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "reach",
         "label": "Approve prospect",
-        "tabs": 5,
+        "tabs": 20,
         "direction": "Tab"
       },
       {
@@ -5643,6 +5682,138 @@
       "controls": 7
     },
     {
+      "checkpoint": "prospect rejection cancellation Cancel",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "prospect rejection cancellation Cancel",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "prospect rejection cancellation Cancel",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "prospect rejection cancellation Escape",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "prospect rejection cancellation Escape",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
+      "checkpoint": "prospect rejection cancellation Escape",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 8
+    },
+    {
       "checkpoint": "screen /contacts",
       "width": 320,
       "scrollX": 0,
@@ -8407,6 +8578,18 @@
       "openerFocused": true
     },
     {
+      "checkpoint": "prospect rejection",
+      "method": "Cancel",
+      "openerFocused": true,
+      "noMutation": true
+    },
+    {
+      "checkpoint": "prospect rejection",
+      "method": "Escape",
+      "openerFocused": true,
+      "noMutation": true
+    },
+    {
       "checkpoint": "manual prospect run",
       "method": "Cancel",
       "openerFocused": true
@@ -8436,10 +8619,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "fe5a7c3be0bf6be6dc529f4874624f789660ae3cff96ed4c290fef9e1df04304",
+      "sha256": "520be95c3b92fba5e435454ed2afe64a63dbb42ba787e58ad7bc0740b4ca9313",
       "rows": 1,
       "identities": [
-        "0ec9c3541efbad16522a4a66:c1c87181a250c398870cb974"
+        "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8"
       ]
     }
   },
@@ -8460,20 +8643,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "fe5a7c3be0bf6be6dc529f4874624f789660ae3cff96ed4c290fef9e1df04304",
+        "sha256": "520be95c3b92fba5e435454ed2afe64a63dbb42ba787e58ad7bc0740b4ca9313",
         "rows": 1,
         "identities": [
-          "0ec9c3541efbad16522a4a66:c1c87181a250c398870cb974"
+          "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "9113eb3478f0a84da9cbb345df1644f714aaeb8da0e63ce17318c5dd4045a722",
+        "sha256": "217d651feda8c411ccacc1533dac7872d7b21fa1d62f0ed48f5ffef7adf969dd",
         "rows": 2,
         "identities": [
-          "0ec9c3541efbad16522a4a66:c1c87181a250c398870cb974",
-          "78b5be9724bf112c5d79c293:a11b8747fd28895c794f0210"
+          "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8",
+          "9ef721509bd80c0cf9b7e8cd:5ca9cdd547eac7066c9a0594"
         ]
       }
     ]
@@ -8487,26 +8670,26 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "fe5a7c3be0bf6be6dc529f4874624f789660ae3cff96ed4c290fef9e1df04304",
+      "sha256": "520be95c3b92fba5e435454ed2afe64a63dbb42ba787e58ad7bc0740b4ca9313",
       "rows": 1,
       "identities": [
-        "0ec9c3541efbad16522a4a66:c1c87181a250c398870cb974"
+        "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "b887bddf77a32b6fd920df6007db1ae30d796d17569b02e36ca59fe694f298d2",
+    "sha256": "fe45a8331350a7f96e42bc5e4613310e62ce4dd2c4d8bbbcc322c3848c440004",
     "rows": 7,
     "identities": [
-      "0ec9c3541efbad16522a4a66:c1c87181a250c398870cb974",
-      "0ec9c3541efbad16522a4a66:csv-edge-0",
-      "0ec9c3541efbad16522a4a66:csv-edge-1",
-      "0ec9c3541efbad16522a4a66:csv-edge-2",
-      "0ec9c3541efbad16522a4a66:csv-edge-3",
-      "0ec9c3541efbad16522a4a66:csv-edge-4",
-      "0ec9c3541efbad16522a4a66:csv-edge-5"
+      "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8",
+      "45c60d2d0f537f8488813ae4:csv-edge-0",
+      "45c60d2d0f537f8488813ae4:csv-edge-1",
+      "45c60d2d0f537f8488813ae4:csv-edge-2",
+      "45c60d2d0f537f8488813ae4:csv-edge-3",
+      "45c60d2d0f537f8488813ae4:csv-edge-4",
+      "45c60d2d0f537f8488813ae4:csv-edge-5"
     ]
   },
   "recovery": [
@@ -8522,7 +8705,7 @@
     "retrieve": 6
   },
   "browserCounts": {
-    "local": 286,
+    "local": 287,
     "composeAborted": 2,
     "unexpected": 0
   },

@@ -1,40 +1,69 @@
 # Integrated Mac verification — 2026-10-28
 
-Current tested source: `5eb5c1ef14520ff3c5bb117fb0a10155d01bf53c` on
-`codex/local-app-integration`. This record supersedes the historical Linux
-and earlier browser checkpoints below. `last-run.json` records the actual run.
-Darwin arm64, Node 24.16.0, isolated Playwright 1.63.0, Chromium 1243/153.0.8010.12.
+Final browser-tested source: `76976635c0267bd3f9a5d7f2b5392b2ef59dd3fd` on
+`codex/local-app-integration`. This section supersedes earlier browser coverage
+claims below. `last-run.json` records the actual run; the following evidence/docs
+checkpoint changes no production source. Darwin arm64, Node 24.16.0, isolated
+Playwright 1.63.0, Chromium 1243/153.0.8010.12.
 
-- Public `npm test`: exit 0, 46 unit tests pass and the contained browser verdict is PASS.
-- Whole-process-tree macOS Seatbelt network admission and descendant/worker probes pass.
-  This is network isolation; filesystem and IPC isolation are not claimed.
+- Public `npm test`: exit 0, 46 unit tests pass and contained browser verdict PASS.
+- Whole-process-tree macOS Seatbelt network admission and descendant/worker probes
+  pass. This is network isolation; filesystem and IPC isolation are not claimed.
 - Two complete fictional UI workflows pass, including all 16 interview confirmations,
-  manual discovery/prospecting, qualification, review, contact/package/message approvals,
-  and exact Gmail compose handoff. Both compose requests were aborted; delivery remains unconfirmed.
-- Graceful production shutdown/restart preserves the canonical workspace digest and
-  releases the database lock. Startup/reload observations show no automatic provider work.
-- Anonymous and foreign-origin requests, stale-tab replay, changed approvals and
-  suppression before handoff are refused. Suppression entered through the UI excludes
-  the contact from the next actual CSV download.
-- Actual download bytes pass strict UTF-8/CSV parsing, exact formula neutralization,
-  leading-BOM/control/newline/quote/Unicode checks, identity and eligibility checks.
-  The edge export contains 7 eligible rows. A real PGlite regression independently
-  verifies stored BOM bytes; the JSON projection preserves them across the driver.
-- Keyboard evidence covers wrong-password focus/clearing and keyboard unlock recovery.
-  Actual 360px horizontal-fit checks cover Home, both message cycles and Settings.
-- Expected fictional stub calls: hunt 2, discovery 2, retrieve 6. Aborted compose 2;
-  unexpected browser requests 0 and forbidden provider attempts 0. No live provider use.
+  manual discovery/prospecting, qualification, review, contact/package/message
+  approvals and exact Gmail compose handoff. Both compose requests were aborted;
+  delivery remains unconfirmed.
+- Primary journeys record 359 real keyboard actions through Tab/Shift+Tab,
+  Enter/Space, typing and native select type-ahead. Navigation uses visible links
+  and the skip link. Focus checks require active focus, focus-visible/indicator,
+  viewport fit and no obstruction. Separate stale/mutation/replay probe tabs may
+  use pointer activation; DOM inspection is not keyboard interaction.
+- 282 layout samples at 320/360/768px cover main screens, confirmation/error states
+  and actions, checking document/task/control horizontal fit and field labels.
+  The primary journey runs at 360px. This is not a full assistive-technology,
+  visual-contrast, physical-device or cross-browser audit.
+- 10 cancellation cases exercise Cancel and Escape with opener focus restored.
+  Review rejection additionally preserves the reason and produces no POST.
+- Four recovery scenarios pass: pre-dispatch download failure with unchanged
+  data; lost post-commit response with exactly one persisted mutation,
+  authoritative UI refresh and no replay; bounded failed workspace reads with
+  focused error and keyboard retry; oversized/truncated archive rejection,
+  same-file consent/error reset and valid restore with reload/restart preservation.
+  Archive bytes use the file-input API; native OS file chooser UX is excluded.
+- Graceful shutdown/restart preserves canonical workspace state and releases the
+  database lock. Bounded startup/reload observations show no automatic provider
+  work; they do not simulate an overnight-open browser.
+- Anonymous/foreign-origin requests, stale replay, changed approvals and
+  suppression before handoff are refused. UI suppression excludes the contact
+  from the next actual CSV download.
+- Download bytes pass strict UTF-8/CSV parsing, exact formula neutralization,
+  leading-BOM/control/newline/quote/Unicode, identity and eligibility checks.
+  The edge export has seven eligible rows. A separate real-PGlite regression
+  verifies stored BOM bytes and the JSON projection preserves driver output.
+- Fictional stub calls: hunt 2, discovery 2, retrieve 6. Aborted compose 2;
+  unexpected browser requests 0 and forbidden provider attempts 0. Teardown passed.
 
-The 29-file source graph includes the production shutdown entry/helper. Its changed
-CSV projection was independently reviewed before updating only that source hash.
-Production auth 18/18, operator 255+64, expanded 255+84, typecheck/build and lint
-(zero errors, three existing warnings) also pass; see the integration report.
-Full keyboard-only workflow, the broader responsive/recovery usability matrix,
-real-provider quality/cost and owner acceptance remain open. No GitHub merge or deployment.
+After the final ReviewCard UI/harness change, production build/typecheck passed,
+lint had zero errors/three existing warnings, and component checks passed 7/7.
+The expanded operator suite passed 255+84 immediately before that change, with
+no later server changes. Earlier operator 255+64, auth 18/18 and combined 49/49
+remain evidence at their recorded sources, not an exact-final-source rerun.
+See [the integration report](../../../docs/implementation-lanes/2026-10-28-local-integration.md).
+
+Real-provider usefulness, provenance/freshness, time/cost and owner acceptance
+remain open. Follow [the owner guide](../../../docs/LOCAL-APP-FINAL-ACCEPTANCE.md);
+the owner need not repeat the automated recovery drills. No live provider,
+email delivery, GitHub merge, deployment or hosted-plan completion is claimed.
 
 ---
 
-# Native boundary / strict CSV correction — 2026-10-28
+## Historical records below
+
+These records retain the limits and next steps observed at their original
+checkpoints. Their pending browser/keyboard/recovery items are superseded by
+the final Mac evidence above; they are not current instructions.
+
+# Historical native boundary / strict CSV correction — 2026-10-28
 
 Base: PR139 `cc2464645f52b50256b8acbdf5583c0e6129886b`.
 Ownership: only `operator/acceptance/browser-workflow/`.
@@ -97,7 +126,7 @@ owner data, secrets, settings/workflows, merge or deployment is claimed.
 
 ---
 
-# Artifact recovery and real-browser handoff — 2026-10-28
+# Historical artifact recovery and real-browser handoff — 2026-10-28
 
 PR132 start verified: `34bbfcde7f00679f80b922b2da9153dd16c893d8`.
 `git merge-base --is-ancestor 8838363ef64698f92ac57ac06d564b3d72d4701f HEAD`
@@ -172,7 +201,7 @@ normalization defect; no row-count/transaction-success inference is made from a
 failed workspace projection. Production timestamps must be normalized by their
 owning lane; do not change the provider stubs to conceal it or weaken auth.
 
-## Exact unexecuted assertions / next handoff
+## Historical unexecuted assertions / next handoff
 
 The first prospect's rendered qualification/owner review, public-source contact
 reveal/parser, package approval, exact-message approval, recipient/subject/body

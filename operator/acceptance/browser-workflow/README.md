@@ -138,16 +138,35 @@ and EVIDENCE.md for the exact executed subset:
   an email suppression after approval and checks refusal plus CSV exclusion.
   Removing only that harness-owned probe resets the disposable test; it supplies
   no production suppression-removal capability.
+- Primary journey actions use real Tab/Shift+Tab traversal, Enter/Space, typing
+  and native select type-ahead, including visible navigation links and the skip
+  link. The helper checks active focus, focus-visible/indicator, viewport fit and
+  obstruction. Separate stale/mutation/replay probe tabs may use pointer activation.
+- Layout samples at 320/360/768px check document/task/control horizontal fit and
+  associated field labels across main screens, confirmation states and actions.
+  Cancel/Escape checks require opener focus restoration; review rejection also
+  checks retained reason and no POST. These are bounded geometry/focus checks,
+  not a full assistive-technology or device-browser audit.
+- Recovery probes cover failed download before dispatch, lost post-commit mutation
+  response without replay, bounded workspace-read failure and keyboard retry,
+  oversized/truncated archive rejection, consent/error reset on same-file
+  reselection, valid restore and canonical reload/restart preservation. Fictional
+  bytes use the file-input API; the native OS file chooser is excluded.
 - Actual browser download bytes: strict UTF-8, CRLF, eight parsed columns,
   stable IDs, eligible rows, suggestion/suppression exclusions; fixture fields
   include quotes, commas, embedded newline, Unicode, `=`, whitespace/control
   before `+`/`-`, and BOM before `@`, with exact inert parsed-cell assertions.
 
 Archive/DB/auth production repairs belong to lane F and UI polish to lane G.
-This harness does not claim concurrent handoff election, interrupted response,
-every suppression scope, archive corruption/rollback, saved-provider restart,
-keyboard/mobile usability, real-provider quality, Mac recovery or owner
-acceptance. Keep the broader acceptance matrix open.
+The exact executed source and counts belong in EVIDENCE.md and last-run.json;
+the public run at `7697663` passed: 46 units, 359 keyboard actions, 282 layout
+samples, 10 cancellation cases, two workflows and four recovery scenarios.
+This harness does not claim concurrent handoff election, every suppression scope, every archive corruption/rollback
+variant, saved-provider restart, an overnight-open simulation, native file
+chooser usability, real-provider quality or owner acceptance. Separate suites
+cover additional database/auth/archive cases; keep their evidence distinct.
+The [owner guide](../../../docs/LOCAL-APP-FINAL-ACCEPTANCE.md) covers private setup
+and usefulness/provenance/time/cost judgment after engineering acceptance.
 
 ## Current handoff
 
