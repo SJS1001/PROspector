@@ -11,7 +11,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
     await page.waitForURL(origin + path);
     const heading = path === '/settings' ? 'Settings' : 'Outreach';
     await page.locator('#operator-task').getByRole('heading', { includeHidden: true, name: heading, exact: true }).waitFor();
-    await keyboard.expose(button(path === '/settings' ? 'Download workspace backup' : 'Add suppression'), 'recovery controls');
+    await keyboard.expose(button(path === '/settings' ? 'Download workspace backup' : 'Add to do-not-contact list'), 'recovery controls');
   };
   const fn = (request, method) => request.method() === method &&
     new URL(request.url()).origin === origin && new URL(request.url()).pathname.startsWith('/_serverFn/');
@@ -52,7 +52,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   assert.ok(JSON.parse(archiveBytes.toString()).version === 1);
 
   await navigate('/outreach');
-  const form = page.locator('form').filter({ has: button('Add suppression') });
+  const form = page.locator('form').filter({ has: button('Add to do-not-contact list') });
   await keyboard.select(form.getByRole('combobox', { includeHidden: true, name: /^Kind/ }), 'email', 'recovery suppression kind');
   const value = 'recovery@fictionalquarry.example';
   await keyboard.type(form.getByLabel('Email', { exact: true }), value, 'recovery suppression email');
@@ -68,7 +68,7 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
     await route.abort('connectionreset');
   };
   await page.route('**/*', loseResponse);
-  await keyboard.activate(button('Add suppression'), 'suppression with lost response');
+  await keyboard.activate(button('Add to do-not-contact list'), 'suppression with lost response');
   await page.getByRole('alert').filter({ hasText: 'may have completed' }).waitFor();
   await page.locator('#operator-task').getByText('Fictional response-loss recovery check.', { exact: true }).waitFor();
   await page.unroute('**/*', loseResponse);

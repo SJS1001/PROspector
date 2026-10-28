@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import { request as rawRequest } from "node:http";
 import { once } from "node:events";
+import { createServer as createPortProbe } from "node:net";
 import {
   mkdtempSync,
   readFileSync,
@@ -99,6 +100,13 @@ if (process.argv[2] === "fixture") {
     child = undefined;
   }
   async function start(dev = false) {
+    // Never mistake an already-running owner app for this disposable test server.
+    const probe = createPortProbe();
+    await new Promise((resolve, reject) => {
+      probe.once("error", () => reject(new Error("Port 8080 is occupied. Stop the local app before running foundation tests.")));
+      probe.listen(8080, "127.0.0.1", resolve);
+    });
+    await new Promise((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
     child = spawn(process.execPath, ["scripts/local-start.mjs", ...(dev ? ["dev"] : [])], {
       env,
       stdio: ["ignore", "pipe", "pipe"],

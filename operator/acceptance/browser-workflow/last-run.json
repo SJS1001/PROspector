@@ -1,5 +1,5 @@
 {
-  "base": "5c2c09d26a5dd144b80eb744c55fef3fbbd2eb37",
+  "base": "ad0427cb1627eeab29411c073564dfbdfaef397d",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
+      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
+      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
+      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "603c36fa37a65f7d17ef9b223c202740a7deee9d4eb0d4d14bf53cdf8d34c3b3"
+      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "cc7cb6484808b43af3e945c1c200f2fc173423142a2a534b92b143382ccb2ae3"
+      "digest": "f6585cd210beed40fcbaaf3da2ae2ad26b3451a1ebc2279f9f968c8b4355c4fd"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "cc7cb6484808b43af3e945c1c200f2fc173423142a2a534b92b143382ccb2ae3"
+      "digest": "f6585cd210beed40fcbaaf3da2ae2ad26b3451a1ebc2279f9f968c8b4355c4fd"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "944e65c7dff03b8438eab5710f8708b2d0a9f52c3d17876e7b4e858903bef0f2"
+      "digest": "1f8424dd25e9506d31b8375716af3da94817bc1a20f3400fb0ff177f6ac2c49c"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "944e65c7dff03b8438eab5710f8708b2d0a9f52c3d17876e7b4e858903bef0f2"
+      "digest": "1f8424dd25e9506d31b8375716af3da94817bc1a20f3400fb0ff177f6ac2c49c"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "944e65c7dff03b8438eab5710f8708b2d0a9f52c3d17876e7b4e858903bef0f2"
+      "digest": "1f8424dd25e9506d31b8375716af3da94817bc1a20f3400fb0ff177f6ac2c49c"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "5c380a9b553404fa986ece24abc92de57de4691fcaea8fa5d92116143f1e0d75"
+      "digest": "2d3ccc46bc71162fcba981dadf8e3db7b1cffeacb6ecebf74beed363ed5068ff"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "5c380a9b553404fa986ece24abc92de57de4691fcaea8fa5d92116143f1e0d75"
+      "digest": "2d3ccc46bc71162fcba981dadf8e3db7b1cffeacb6ecebf74beed363ed5068ff"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "5c380a9b553404fa986ece24abc92de57de4691fcaea8fa5d92116143f1e0d75"
+      "digest": "2d3ccc46bc71162fcba981dadf8e3db7b1cffeacb6ecebf74beed363ed5068ff"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "eb47904c73395b7629efbc95b5c4bff9893d227051746cb8fdf8091bd2834d03"
+      "digest": "edbabdbcbd97fefad6f21fc4539da3eea1c02dff0b98036f096b72cc8df7ca37"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,7 +315,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "eb47904c73395b7629efbc95b5c4bff9893d227051746cb8fdf8091bd2834d03"
+      "digest": "edbabdbcbd97fefad6f21fc4539da3eea1c02dff0b98036f096b72cc8df7ca37"
     }
   ],
   "reviewedSourceFiles": 29,
@@ -409,24 +409,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -441,24 +441,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -473,24 +473,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -505,24 +505,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -537,24 +537,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -569,24 +569,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -601,24 +601,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -633,24 +633,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -665,24 +665,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -697,24 +697,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -729,24 +729,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -761,24 +761,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -793,24 +793,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -825,24 +825,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -857,24 +857,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -889,24 +889,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -976,24 +976,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -1019,24 +1019,24 @@
       },
       {
         "kind": "reach",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Submit answer for confirmation",
+        "label": "Review answer",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm submitted answer",
+        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -1089,13 +1089,13 @@
       },
       {
         "kind": "reach",
-        "label": "Activate product configuration",
+        "label": "Confirm product & find markets",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Activate product configuration",
+        "label": "Confirm product & find markets",
         "key": "Enter"
       },
       {
@@ -1111,30 +1111,30 @@
       },
       {
         "kind": "reach",
-        "label": "Activate product configuration",
+        "label": "Confirm product & find markets",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Activate product configuration",
+        "label": "Confirm product & find markets",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Activate product configuration confirmation",
+        "label": "Confirm product & find markets confirmation",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "reach",
-        "label": "Activate product configuration",
+        "label": "Confirm product & find markets",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Activate product configuration",
+        "label": "Confirm product & find markets",
         "key": "Enter"
       },
       {
@@ -1150,13 +1150,13 @@
       },
       {
         "kind": "reach",
-        "label": "Discover markets",
+        "label": "Find target markets",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Discover markets",
+        "label": "Find target markets",
         "key": "Enter"
       },
       {
@@ -1172,30 +1172,30 @@
       },
       {
         "kind": "reach",
-        "label": "Discover markets",
+        "label": "Find target markets",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Discover markets",
+        "label": "Find target markets",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Discover markets confirmation",
+        "label": "Find target markets confirmation",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "reach",
-        "label": "Discover markets",
+        "label": "Find target markets",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Discover markets",
+        "label": "Find target markets",
         "key": "Enter"
       },
       {
@@ -1221,13 +1221,13 @@
       },
       {
         "kind": "reach",
-        "label": "Explore",
+        "label": "Choose market",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Explore",
+        "label": "Choose market",
         "key": "Enter"
       },
       {
@@ -1262,13 +1262,13 @@
       },
       {
         "kind": "reach",
-        "label": "Confirm draft play",
+        "label": "Confirm target market",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Confirm draft play",
+        "label": "Confirm target market",
         "key": "Enter"
       },
       {
@@ -1321,13 +1321,13 @@
       },
       {
         "kind": "reach",
-        "label": "Activate profile configuration",
+        "label": "Confirm settings & start searches",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Activate profile configuration",
+        "label": "Confirm settings & start searches",
         "key": "Enter"
       },
       {
@@ -1343,30 +1343,30 @@
       },
       {
         "kind": "reach",
-        "label": "Activate profile configuration",
+        "label": "Confirm settings & start searches",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Activate profile configuration",
+        "label": "Confirm settings & start searches",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Activate profile configuration confirmation",
+        "label": "Confirm settings & start searches confirmation",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "reach",
-        "label": "Activate profile configuration",
+        "label": "Confirm settings & start searches",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Activate profile configuration",
+        "label": "Confirm settings & start searches",
         "key": "Enter"
       },
       {
@@ -1527,13 +1527,13 @@
       },
       {
         "kind": "reach",
-        "label": "Run public-source reveal 1-0",
+        "label": "Find published contact details 1-0",
         "tabs": 4,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Run public-source reveal 1-0",
+        "label": "Find published contact details 1-0",
         "key": "Enter"
       },
       {
@@ -1575,13 +1575,13 @@
       },
       {
         "kind": "reach",
-        "label": "Prepare package",
+        "label": "Create brief",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Prepare package",
+        "label": "Create brief",
         "key": "Enter"
       },
       {
@@ -1608,13 +1608,13 @@
       },
       {
         "kind": "reach",
-        "label": "Approve package",
+        "label": "Approve brief",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Approve package",
+        "label": "Approve brief",
         "key": "Enter"
       },
       {
@@ -2055,35 +2055,35 @@
       },
       {
         "kind": "reach",
-        "label": "Run public-source reveal 2-0",
+        "label": "Find published contact details 2-0",
         "tabs": 4,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Run public-source reveal 2-0",
+        "label": "Find published contact details 2-0",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Run public-source reveal 2-1",
+        "label": "Find published contact details 2-1",
         "tabs": 9,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Run public-source reveal 2-1",
+        "label": "Find published contact details 2-1",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Run public-source reveal 2-2",
+        "label": "Find published contact details 2-2",
         "tabs": 11,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Run public-source reveal 2-2",
+        "label": "Find published contact details 2-2",
         "key": "Enter"
       },
       {
@@ -2125,13 +2125,13 @@
       },
       {
         "kind": "reach",
-        "label": "Prepare package",
+        "label": "Create brief",
         "tabs": 2,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Prepare package",
+        "label": "Create brief",
         "key": "Enter"
       },
       {
@@ -2158,13 +2158,13 @@
       },
       {
         "kind": "reach",
-        "label": "Approve package",
+        "label": "Approve brief",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Approve package",
+        "label": "Approve brief",
         "key": "Enter"
       },
       {
@@ -2647,13 +2647,13 @@
       },
       {
         "kind": "reach",
-        "label": "Add suppression",
+        "label": "Add to do-not-contact list",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Add suppression",
+        "label": "Add to do-not-contact list",
         "key": "Enter"
       },
       {
@@ -2889,30 +2889,30 @@
       },
       {
         "kind": "reach",
-        "label": "Open disclosure for Connection setting: Accounts per hunt (4–20)",
+        "label": "Open disclosure for Connection setting: Companies per search (4–20)",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Open disclosure for Connection setting: Accounts per hunt (4–20)",
+        "label": "Open disclosure for Connection setting: Companies per search (4–20)",
         "key": "Enter"
       },
       {
         "kind": "reach",
-        "label": "Connection setting: Accounts per hunt (4–20)",
+        "label": "Connection setting: Companies per search (4–20)",
         "tabs": 1,
         "direction": "Tab"
       },
       {
         "kind": "reach",
-        "label": "Close connection setting: Accounts per hunt (4–20)",
+        "label": "Close connection setting: Companies per search (4–20)",
         "tabs": 16,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Close connection setting: Accounts per hunt (4–20)",
+        "label": "Close connection setting: Companies per search (4–20)",
         "key": "Enter"
       },
       {
@@ -9679,7 +9679,7 @@
       "controls": 15
     },
     {
-      "checkpoint": "Expanded connection setting: Accounts per hunt (4–20)",
+      "checkpoint": "Expanded connection setting: Companies per search (4–20)",
       "width": 320,
       "scrollX": 0,
       "rootGeometry": {
@@ -9701,7 +9701,7 @@
       "controls": 15
     },
     {
-      "checkpoint": "Expanded connection setting: Accounts per hunt (4–20)",
+      "checkpoint": "Expanded connection setting: Companies per search (4–20)",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -9723,7 +9723,7 @@
       "controls": 15
     },
     {
-      "checkpoint": "Expanded connection setting: Accounts per hunt (4–20)",
+      "checkpoint": "Expanded connection setting: Companies per search (4–20)",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -10212,17 +10212,17 @@
     "rect": {
       "left": 37,
       "right": 323,
-      "top": 632,
-      "bottom": 676
+      "top": 652,
+      "bottom": 696
     },
     "viewport": {
       "width": 360,
       "height": 800,
       "scrollY": 0,
       "visualHeight": 800,
-      "rootHeight": 831,
+      "rootHeight": 851,
       "clientHeight": 800,
-      "bodyHeight": 831,
+      "bodyHeight": 851,
       "overflow": "visible"
     },
     "ancestors": [
@@ -10235,50 +10235,50 @@
       },
       {
         "tag": "DIV",
-        "height": 650,
-        "scrollHeight": 650,
+        "height": 670,
+        "scrollHeight": 670,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 698,
-        "scrollHeight": 698,
+        "height": 718,
+        "scrollHeight": 718,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "SECTION",
-        "height": 746,
-        "scrollHeight": 746,
+        "height": 766,
+        "scrollHeight": 766,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 791,
-        "scrollHeight": 791,
+        "height": 811,
+        "scrollHeight": 811,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 831,
-        "scrollHeight": 831,
+        "height": 851,
+        "scrollHeight": 851,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "BODY",
-        "height": 831,
-        "scrollHeight": 831,
+        "height": 851,
+        "scrollHeight": 851,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "HTML",
         "height": 800,
-        "scrollHeight": 831,
+        "scrollHeight": 851,
         "scrollTop": 0,
         "overflow": "visible"
       }
@@ -10380,10 +10380,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "815f7976ae3979db395c90e61d540481e8e9afcfed0e933fc106a8b74076a723",
+      "sha256": "4e669b53d85ae53006569cb2f7b81fb2c36e2749f147a1823411366d5214a061",
       "rows": 1,
       "identities": [
-        "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25"
+        "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
       ]
     }
   },
@@ -10404,20 +10404,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "815f7976ae3979db395c90e61d540481e8e9afcfed0e933fc106a8b74076a723",
+        "sha256": "4e669b53d85ae53006569cb2f7b81fb2c36e2749f147a1823411366d5214a061",
         "rows": 1,
         "identities": [
-          "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25"
+          "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "75e5cc94487a69ba8178e2bc53f68d9de70e5574edd8100591d5c06fa6f91729",
+        "sha256": "520eb0ac2f74233ccf05942501eccdad4e6eca16b135c32dec2fbeb97bbd8450",
         "rows": 2,
         "identities": [
-          "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25",
-          "cbdb4897727296960103ee7f:6f194fcc7e6a3903103b9c78"
+          "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5",
+          "d97b8d9790745672d59ce7cb:c14c2bee795eb036ff54b80c"
         ]
       }
     ]
@@ -10431,26 +10431,26 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "815f7976ae3979db395c90e61d540481e8e9afcfed0e933fc106a8b74076a723",
+      "sha256": "4e669b53d85ae53006569cb2f7b81fb2c36e2749f147a1823411366d5214a061",
       "rows": 1,
       "identities": [
-        "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25"
+        "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "28cc581be04d5e8fb570c16381c8f7c79c16def65337baa2fd9d44c1bcff89b0",
+    "sha256": "2d581b5265ae0eab8ba59f6dec9a1a655015ae820f8953a2cf0677fe0826c330",
     "rows": 7,
     "identities": [
-      "45075792705c52a37cb588de:5d71d237320c753b4e5e2b25",
-      "45075792705c52a37cb588de:csv-edge-0",
-      "45075792705c52a37cb588de:csv-edge-1",
-      "45075792705c52a37cb588de:csv-edge-2",
-      "45075792705c52a37cb588de:csv-edge-3",
-      "45075792705c52a37cb588de:csv-edge-4",
-      "45075792705c52a37cb588de:csv-edge-5"
+      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-0",
+      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-1",
+      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-2",
+      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-3",
+      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-4",
+      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-5",
+      "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
     ]
   },
   "recovery": [

@@ -51,21 +51,21 @@ export function nextAction(data: WorkspaceDTO) {
   if (data.product.status !== "active") {
     return {
       href: "/discovery",
-      label: "Make the product ready",
-      copy: "Review the product settings before starting market discovery.",
+      label: "Review product details",
+      copy: "Review your product details before finding target markets.",
     };
   }
   if (!data.draftPlays.some((play) => play.status === "confirmed")) {
     return {
       href: "/discovery",
-      label: "Confirm a draft play",
+      label: "Confirm your target market",
       copy: "Choose a market and confirm its audience and buyer.",
     };
   }
   if (data.profile.status !== "active") {
     return {
       href: "/prospects",
-      label: "Activate the customer profile",
+      label: "Set up prospect searches",
       copy: "Review your search settings before finding prospects.",
     };
   }
@@ -73,7 +73,7 @@ export function nextAction(data: WorkspaceDTO) {
     return {
       href: "/review",
       label: "Review qualified prospects",
-      copy: `${data.brief.qualified} waiting for an owner decision.`,
+      copy: `${data.brief.qualified} waiting for your review.`,
     };
   }
   if (data.brief.approved > 0) {
@@ -86,6 +86,6 @@ export function nextAction(data: WorkspaceDTO) {
   return {
     href: "/prospects",
     label: "Find Prospects",
-    copy: "Search public sources using your confirmed target profile.",
+    copy: "Search public sources using your saved search settings.",
   };
 }

@@ -1,3 +1,4 @@
+import { uiLabel } from "@/lib/domain/plain-language";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +47,7 @@ export function ContactsView() {
       <details className="rounded-[12px] border border-line bg-cream p-5">
         <summary className="cursor-pointer text-sm font-medium">Contact sources</summary>
         <p className="mt-3 text-sm text-muted">
-          Public-source searches look for published mailboxes. Paid contact reveal is unavailable.
+          Searches find publicly listed contact details. Paid contact lookups are unavailable.
         </p>
       </details>
     </div>
@@ -61,9 +62,9 @@ function ContactCard({ item }: { item: Contact }) {
   return (
     <article className="rounded-[12px] border border-line bg-cream p-5">
       <div className="flex items-start justify-between gap-3">
-        <Badge tone={tone}>{item.emailKind.replace("_", " ")}</Badge>
+        <Badge tone={tone}>{uiLabel(item.emailKind)}</Badge>
         <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-          {item.role.replaceAll("_", " ")}
+          {uiLabel(item.role)}
         </span>
       </div>
       <h2 className="mt-3 font-display text-lg">{item.fullName}</h2>
@@ -91,7 +92,7 @@ function ContactCard({ item }: { item: Contact }) {
         <p className="mt-3 text-xs text-amber">Suggestion only. Cannot send or export.</p>
       ) : item.emailKind === "public_source" ? (
         <p className="mt-3 text-xs text-muted">
-          Unverified mailbox. Drafts allowed; CRM export unavailable.
+          Unverified email address. You can draft a message, but cannot export this contact.
         </p>
       ) : null}
       <Button
@@ -105,7 +106,7 @@ function ContactCard({ item }: { item: Contact }) {
           })
         }
       >
-        {grant.isPending ? "Retrieving…" : "Run public-source reveal"}
+        {grant.isPending ? "Retrieving…" : "Find published contact details"}
       </Button>
       {grant.error ? (
         <div className="mt-3">

@@ -1,3 +1,4 @@
+import { sourceLabel, uiText } from "@/lib/domain/plain-language";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
@@ -96,7 +97,7 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
           <Badge tone="ok">Qualified</Badge>
           <span className="text-sm font-semibold">{item.score}/10</span>
           <span className="text-xs text-muted">
-            Tier {item.evidenceTier} · {item.evidenceDate}
+            {sourceLabel(item.evidenceTier)} · {item.evidenceDate}
           </span>
         </span>
         {item.assessment.hardDisqualifier ? (
@@ -109,28 +110,28 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
             Assessment details
           </summary>
-          <p className="mt-2 text-xs text-muted">{item.assessment.passRule}</p>
+          <p className="mt-2 text-xs text-muted">{uiText(item.assessment.passRule)}</p>
           <dl className="grid gap-2 text-xs">
             <Row term="Offer" value={item.offerId} />
             <Row term="Account" value={`${item.accountName} · ${item.accountId}`} />
             <Row term="Target" value={`${item.targetName} · ${item.targetId}`} />
             <Row
               term="Evidence"
-              value={`Tier ${item.evidenceTier} · ${item.evidenceDate} · ${item.evidenceUrl}`}
+              value={`${sourceLabel(item.evidenceTier)} · ${item.evidenceDate} · ${item.evidenceUrl}`}
             />
-            <Row term="Configuration" value={item.configurationDigest} />
+            <Row term="Search settings version" value={item.configurationDigest} />
           </dl>
 
           <div className="mt-3 grid gap-2 sm:grid-cols-5">
             {item.assessment.dimensions.map((dim) => (
               <div key={dim.id} className="rounded-[10px] border border-line bg-paper p-3">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                  {dim.label}
+                  {uiText(dim.label)}
                 </span>
                 <b className="mt-1 block font-display text-xl">
                   {dim.score}/{dim.max}
                 </b>
-                <p className="mt-1 text-[11px] leading-4 text-muted">{dim.note}</p>
+                <p className="mt-1 text-[11px] leading-4 text-muted">{uiText(dim.note)}</p>
               </div>
             ))}
           </div>
@@ -147,7 +148,7 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
           />
         </label>
         <label className="grid max-w-xs gap-1 text-xs text-muted">
-          Review date if deferred
+          Review again on
           <input
             type="date"
             value={reviewAt}
@@ -161,7 +162,7 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
             Approve
           </Button>
           <Button variant="outline" disabled={review.isPending} onClick={() => submit("defer")}>
-            Defer
+            Review later
           </Button>
           {confirming ? (
             <span
@@ -198,7 +199,7 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
               greenfield.mutate({ prospectId: item.id, expectedRevision: item.revision })
             }
           >
-            Greenfield Draft
+            Save as planned site
           </Button>
           <Link
             to="/prospects/$prospectId"

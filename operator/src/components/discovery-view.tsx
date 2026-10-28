@@ -1,3 +1,4 @@
+import { uiLabel, uiText } from "@/lib/domain/plain-language";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
@@ -15,8 +16,8 @@ import type { MarketProposal, ProposalDecision, WorkspaceDTO } from "@/lib/domai
 
 export function DiscoveryView() {
   const { data, isPending, isError } = useWorkspace();
-  if (isPending) return <p className="text-sm text-muted">Reading market discovery…</p>;
-  if (isError || !data) return <WorkspaceLoadError message="Discovery could not be loaded." />;
+  if (isPending) return <p className="text-sm text-muted">Loading target markets…</p>;
+  if (isError || !data) return <WorkspaceLoadError message="Target markets could not be loaded." />;
 
   const open = data.proposals.filter((item) => item.decision === "open");
 
@@ -35,8 +36,8 @@ export function DiscoveryView() {
             role={run.status === "failed" ? "alert" : "status"}
             className="text-sm text-muted"
           >
-            Discovery {run.status}
-            {run.terminalReason ? `: ${run.terminalReason}` : ""}
+            Market search: {uiLabel(run.status)}
+            {run.terminalReason ? `: ${uiText(run.terminalReason)}` : ""}
           </p>
         ))}
       <DraftPlays data={data} />
@@ -124,11 +125,11 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-xl">
-            {data.product.snapshot?.product || "Product configuration"}
+            {data.product.snapshot?.product || "Product details"}
           </h2>
         </div>
         <Badge tone={active ? "ok" : data.product.status === "stale" ? "warn" : "neutral"}>
-          {data.product.status}
+          {uiLabel(data.product.status)}
         </Badge>
       </div>
 
@@ -144,7 +145,7 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
               className="flex items-start justify-between gap-3 border-b border-line py-2 last:border-0"
             >
               <div>
-                <b className="block text-sm">{item.label}</b>
+                <b className="block text-sm">{uiText(item.label)}</b>
                 <span className="text-xs text-muted">{item.summary}</span>
               </div>
               <Badge tone={item.complete ? "ok" : "warn"}>
@@ -154,18 +155,18 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
           ))}
         </ol>
         <p className="mt-3 break-all font-mono text-[11px] text-muted">
-          {data.product.digest ?? "No configuration digest yet"}
+          {data.product.digest ?? "No saved version yet"}
         </p>
       </details>
 
       {!ready ? (
         <p role="alert" className="mt-4 text-xs text-red">
-          Confirm the missing company details before activation.
+          Complete the missing company details first.
         </p>
       ) : null}
       {data.product.status === "stale" ? (
         <p role="alert" className="mt-4 text-xs text-amber">
-          Company details changed. Activate the updated product to continue.
+          Company details changed. Confirm them to find markets again.
         </p>
       ) : null}
 
@@ -173,8 +174,8 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
         <div ref={confirmation} className="mt-5 rounded-[10px] border border-line bg-paper p-4">
           <p className="text-sm">
             {confirming === "activate"
-              ? "Activation queues one discovery run and does not start prospecting. It does not create a customer profile or authorize outreach."
-              : "This run produces at most three market play proposals. Explore, defer, or dismiss — none of these activate prospecting."}
+              ? "Save these product details and find target markets? This uses your connected AI service. It does not search for prospects or send messages."
+              : "Find up to three target markets using your connected AI service? You can review them before searching for prospects."}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -197,13 +198,13 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
           {!active ? (
             <>
               <Button disabled={!ready || pending} onClick={() => setConfirming("activate")}>
-                Activate product configuration
+                Confirm product & find markets
               </Button>
             </>
           ) : (
             <>
               <Button disabled={pending || busyRun} onClick={() => setConfirming("discover")}>
-                Discover markets
+                Find target markets
               </Button>
             </>
           )}
@@ -212,7 +213,7 @@ function ProductReadiness({ data }: { data: WorkspaceDTO }) {
 
       {pending ? (
         <p className="mt-3 text-xs text-muted" aria-live="polite">
-          Starting market discovery…
+          Finding target markets…
         </p>
       ) : null}
       {error ? (
@@ -231,7 +232,7 @@ function DraftPlays({ data }: { data: WorkspaceDTO }) {
       {data.draftPlays.some((play) => play.status !== "confirmed") ? (
         <>
           <h2 className="font-display text-lg">
-            Draft markets · {data.draftPlays.filter((play) => play.status !== "confirmed").length}{" "}
+            Markets to confirm · {data.draftPlays.filter((play) => play.status !== "confirmed").length}{" "}
             awaiting confirmation
           </h2>
           <ol className="mt-4 grid gap-3">
@@ -273,7 +274,7 @@ function DraftPlayCard({ play }: { play: WorkspaceDTO["draftPlays"][number] }) {
     <li className="rounded-[10px] border border-line bg-paper p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <b className="text-sm">{play.title}</b>
-        <Badge tone={confirmed ? "ok" : "warn"}>{play.status}</Badge>
+        <Badge tone={confirmed ? "ok" : "warn"}>{uiLabel(play.status)}</Badge>
       </div>
       {play.notes ? <p className="mt-2 text-xs text-muted">{play.notes}</p> : null}
       {confirmed ? (
@@ -315,7 +316,7 @@ function DraftPlayCard({ play }: { play: WorkspaceDTO["draftPlays"][number] }) {
             />
           </label>
           <Button type="submit" disabled={confirm.isPending}>
-            Confirm draft play
+            Confirm target market
           </Button>
           {confirm.error ? <ErrorNote message={mutationMessage(confirm.error)} /> : null}
         </form>
@@ -330,19 +331,19 @@ function DiscoveryLedger({ data }: { data: WorkspaceDTO }) {
     <Panel className="p-6">
       <details open={data.discoveryRuns.some((run) => run.status !== "succeeded")}>
         <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-          Discovery history · {data.discoveryRuns.length} runs
+          Market search history · {data.discoveryRuns.length} runs
         </summary>
         <ol className="mt-4 grid gap-3">
           {data.discoveryRuns.map((run) => (
             <li key={run.id} className="rounded-[10px] border border-line bg-paper p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <b className="text-sm">{run.trigger} run</b>
+                <b className="text-sm">{uiLabel(run.trigger)}</b>
                 <Badge
                   tone={
                     run.status === "succeeded" ? "ok" : run.status === "failed" ? "danger" : "warn"
                   }
                 >
-                  {run.status}
+                  {uiLabel(run.status)}
                 </Badge>
               </div>
               <p className="mt-2 text-xs text-muted">
@@ -352,7 +353,7 @@ function DiscoveryLedger({ data }: { data: WorkspaceDTO }) {
                   ? ` · finished ${new Date(run.finishedAt).toLocaleString("en-CA")}`
                   : ""}
               </p>
-              {run.terminalReason ? <p className="mt-2 text-xs">{run.terminalReason}</p> : null}
+              {run.terminalReason ? <p className="mt-2 text-xs">{uiText(run.terminalReason)}</p> : null}
             </li>
           ))}
         </ol>
@@ -383,7 +384,7 @@ function ProposalCard({ proposal }: { proposal: MarketProposal }) {
                 : "neutral"
           }
         >
-          {proposal.decision}
+          {uiLabel(proposal.decision)}
         </Badge>
       </header>
       <p className="text-sm text-muted">{proposal.problemMatch}</p>
@@ -421,13 +422,13 @@ function ProposalCard({ proposal }: { proposal: MarketProposal }) {
           </label>
           <div className="flex flex-wrap gap-2">
             <Button disabled={decide.isPending} onClick={() => act("explore")}>
-              Explore
+              Choose market
             </Button>
             <Button variant="outline" disabled={decide.isPending} onClick={() => act("defer")}>
-              Defer
+              Review later
             </Button>
             <Button variant="danger" disabled={decide.isPending} onClick={() => act("dismiss")}>
-              Dismiss
+              Skip market
             </Button>
           </div>
           {decide.error ? <ErrorNote message={mutationMessage(decide.error)} /> : null}

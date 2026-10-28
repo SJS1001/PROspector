@@ -1,3 +1,38 @@
+# Plain-language verification — 2026-10-28
+
+Tested the working-tree delta on base `ad0427cb1627eeab29411c073564dfbdfaef397d`
+on `codex/local-app-integration`. This section and `last-run.json` supersede the
+previous browser counts below.
+
+- Current local UI uses target market, search settings, published contact details,
+  brief, do-not-contact list and plain status/error labels. Saved owner answers,
+  backend identifiers, approval hashes and dark theme tokens remain unchanged.
+- Full operator regression suite: 258 script + 64 source tests passed. Production
+  build and typecheck passed; lint zero errors/three prior warnings. Changed-file
+  React Doctor reported no issues.
+- Contained browser acceptance PASS: 46 harness units, two complete fictional
+  workflows, 558 keyboard actions, 312 layouts at 320/360/768px, ten cancellation
+  cases and four recovery scenarios. Zero unexpected browser requests or forbidden
+  provider attempts; both Gmail compose requests aborted.
+- Initial browser attempt completed the workflows but failed on an obsolete
+  recovery button selector. Updated wording selectors and reran the whole suite.
+- Two final Settings help sentences changed “paid contact reveal” to “paid contact
+  lookups” after the browser build. Final production rebuild passed and the
+  generated Settings asset was checked; no additional browser run for these words.
+- Owner runtime restarted successfully on loopback 8080. Browser tab acquisition
+  failed despite successful tab listing; no refreshed owner-data UI inspection is
+  claimed. No intentional owner-data edits or real provider work were performed.
+- Added a foundation-test occupied-port preflight after an invalid initial
+  regression run contacted the owner listener. Verified rejection before HTTP,
+  stopped the owner app, then ran the passing isolated suite. See the audit report
+  for the incident scope.
+
+Fictional/provider-stubbed checks do not establish real-provider quality, email
+delivery, native file chooser usability, physical-device or assistive-technology
+coverage, overnight behavior, or owner acceptance.
+
+---
+
 # App-wide copy verification — 2026-10-28
 
 Tested the working-tree delta on base `5c2c09d26a5dd144b80eb744c55fef3fbbd2eb37`

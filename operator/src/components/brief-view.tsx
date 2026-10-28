@@ -1,3 +1,4 @@
+import { uiLabel, uiText } from "@/lib/domain/plain-language";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
@@ -18,22 +19,22 @@ export function BriefView() {
     ...data.runs.map((run) => ({
       id: `search-${run.id}`,
       date: run.startedAt,
-      title: `Prospect search · ${run.status}`,
+      title: `Prospect search · ${uiLabel(run.status)}`,
       detail: `${run.qualifiedCount} qualified of ${run.candidateCount} candidates`,
       reason: run.terminalReason,
     })),
     ...data.discoveryRuns.map((run) => ({
       id: `market-${run.id}`,
       date: run.startedAt,
-      title: `Market search · ${run.status}`,
+      title: `Market search · ${uiLabel(run.status)}`,
       detail: `${run.proposalCount} proposals`,
       reason: run.terminalReason,
     })),
     ...data.deliveryEvents.map((event) => ({
       id: `event-${event.id}`,
       date: event.createdAt,
-      title: event.kind,
-      detail: event.note,
+      title: uiLabel(event.kind),
+      detail: uiText(event.note),
       reason: null,
     })),
   ]
@@ -61,7 +62,7 @@ export function BriefView() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg">This week</h2>
           <Badge tone={data.profile.status === "active" ? "ok" : "warn"}>
-            {data.profile.status === "active" ? "Search ready" : `Profile ${data.profile.status}`}
+            {data.profile.status === "active" ? "Search ready" : `Search settings: ${uiLabel(data.profile.status)}`}
           </Badge>
         </div>
         <p className="mt-2 text-sm text-muted">
@@ -73,12 +74,11 @@ export function BriefView() {
         <details className="mt-3 text-sm">
           <summary className="cursor-pointer text-muted">Details</summary>
           <p className="mt-3 text-muted">
-            Toronto week {data.brief.weekStart} – {data.brief.weekEnd}. Greenfield Draft does not
-            count toward the target.
+            Toronto week {data.brief.weekStart} – {data.brief.weekEnd}. Planned sites do not count toward the target.
           </p>
           <p className="mt-2 text-muted">
             Workspace totals: {data.brief.reviewed} reviewed · {data.brief.approved} approved ·{" "}
-            {data.brief.rejected} rejected · {data.brief.greenfield} greenfield.
+            {data.brief.rejected} rejected · {data.brief.greenfield} planned sites.
           </p>
           <p className="mt-2 text-muted">
             CRM CSV: {data.crm.eligibleCount} eligible · {data.crm.excludedCount} excluded.
@@ -115,7 +115,7 @@ export function BriefView() {
                     </time>
                   </div>
                   <p className="mt-1 text-muted">{item.detail}</p>
-                  {item.reason ? <p className="mt-1 text-amber">{item.reason}</p> : null}
+                  {item.reason ? <p className="mt-1 text-amber">{uiText(item.reason)}</p> : null}
                 </li>
               ))}
             </ul>
@@ -127,10 +127,10 @@ export function BriefView() {
       <Panel className="p-5">
         <details open={data.morningDue}>
           <summary className="cursor-pointer text-sm font-medium">
-            Morning prospects {data.morningDue ? <Badge tone="warn">Due</Badge> : null}
+            Morning search {data.morningDue ? <Badge tone="warn">Due</Badge> : null}
           </summary>
           <Button className="mt-3" disabled={morning.isPending} onClick={() => morning.mutate()}>
-            {morning.isPending ? "Running…" : "Run morning prospects"}
+            {morning.isPending ? "Running…" : "Run morning search"}
           </Button>
         </details>
         {morning.error ? (
@@ -139,7 +139,7 @@ export function BriefView() {
           </div>
         ) : null}
         {morning.isSuccess ? (
-          <p className="mt-3 text-sm text-muted">Morning run complete.</p>
+          <p className="mt-3 text-sm text-muted">Morning search complete.</p>
         ) : null}
       </Panel>
     </div>

@@ -1,3 +1,4 @@
+import { uiText } from "@/lib/domain/plain-language";
 import { CapabilityDiagnostics } from "@/components/status-view";
 import { useState } from "react";
 import { WorkspaceArchivePanel } from "@/components/workspace-archive-panel";
@@ -40,7 +41,7 @@ export function SettingsView() {
           {data.connections.llm
             ? `${data.connections.llmProviderLabel} · ${data.connections.llmModel}`
             : "Not connected"}{" "}
-          · {data.connections.huntBatch} accounts per search.
+          · {data.connections.huntBatch} companies per search.
         </p>
         <p className="mt-2 text-sm text-muted">
           Spend: {Math.round(data.connections.spendUsedCents / 100)} /{" "}
@@ -66,7 +67,7 @@ export function SettingsView() {
             <div className="mt-4 grid gap-4">
               <details className="text-xs text-muted">
                 <summary className="cursor-pointer">Provider help</summary>
-                <p className="mt-2">{selected.hint}</p>
+                <p className="mt-2">{uiText(selected.hint)}</p>
               </details>
               <label className="grid gap-1 text-xs text-muted">
                 Provider
@@ -135,7 +136,7 @@ export function SettingsView() {
             <div className="mt-4 grid gap-4">
               <p className="text-sm text-muted">Start morning runs from Today.</p>
               <label className="grid gap-1 text-xs text-muted">
-                Accounts per hunt (4–20)
+                Companies per search (4–20)
                 <input
                   className="field"
                   inputMode="numeric"
@@ -189,7 +190,7 @@ export function SettingsView() {
             </summary>
             <div className="mt-4 grid gap-4">
               <p className="text-sm text-muted">
-                Paid contact reveal is unavailable. Use public sources in Contacts.
+                Paid contact lookups are unavailable. Use public sources in Contacts.
               </p>
               {data.connections.apolloLeadLeft != null ? (
                 <p className="text-sm">
@@ -222,7 +223,7 @@ export function SettingsView() {
             </summary>
             <div className="mt-4 grid gap-4">
               <p className="text-sm text-muted">
-                Paid contact reveal is unavailable in this release.
+                Paid contact lookups are unavailable in this release.
               </p>
               <input
                 className="field"

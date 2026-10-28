@@ -1,3 +1,4 @@
+import { uiLabel, uiText } from "@/lib/domain/plain-language";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
@@ -24,7 +25,7 @@ import type {
 
 export function OutreachView() {
   const { data, isPending, isError } = useWorkspace();
-  if (isPending) return <p className="text-sm text-muted">Reading outreach packages…</p>;
+  if (isPending) return <p className="text-sm text-muted">Loading messages…</p>;
   if (isError || !data) return <WorkspaceLoadError message="Outreach could not be loaded." />;
 
   const approved = data.prospects.filter((item) => item.state === "approved");
@@ -96,7 +97,7 @@ export function OutreachView() {
             <ul className="mt-3 grid gap-2 text-sm text-muted">
               {data.deliveryEvents.slice(0, 8).map((item) => (
                 <li key={item.id}>
-                  {item.kind} · {item.note}
+                  {uiLabel(item.kind)} · {uiText(item.note)}
                 </li>
               ))}
             </ul>
@@ -122,7 +123,7 @@ function ApprovedProspectRow({ item, prepared }: { item: Prospect; prepared: boo
           disabled={prepare.isPending || prepared}
           onClick={() => prepare.mutate({ prospectId: item.id })}
         >
-          {prepare.isPending ? "Preparing…" : prepared ? "Package prepared" : "Prepare package"}
+          {prepare.isPending ? "Creating…" : prepared ? "Brief created" : "Create brief"}
         </Button>
         {prepare.error ? <ErrorNote message={mutationMessage(prepare.error)} /> : null}
       </div>
@@ -152,11 +153,11 @@ function PackageCard({
           </span>
           <h3 className="mt-2 font-display text-xl">{item.subject}</h3>
         </div>
-        <Badge tone={draft ? "warn" : "ok"}>{item.status}</Badge>
+        <Badge tone={draft ? "warn" : "ok"}>{uiLabel(item.status)}</Badge>
       </header>
       {!draft && eligible.length === 0 ? (
         <p className="text-sm text-amber">
-          No eligible mailbox yet. Run a public-source reveal first.
+          No usable email address yet. Find published contact details first.
         </p>
       ) : null}
       <details>
@@ -169,7 +170,7 @@ function PackageCard({
           </p>
           <details className="text-xs text-muted">
             <summary className="cursor-pointer">Version details</summary>
-            <p className="mt-2 break-all font-mono">Digest {item.digest}</p>
+            <p className="mt-2 break-all font-mono">Version ID {item.digest}</p>
           </details>
           <p className="text-xs text-muted">
             Approves the brief for CRM export. Messages need separate approval.
@@ -180,7 +181,7 @@ function PackageCard({
                 disabled={approve.isPending}
                 onClick={() => approve.mutate({ packageId: item.id, expectedDigest: item.digest })}
               >
-                {approve.isPending ? "Approving…" : "Approve package"}
+                {approve.isPending ? "Approving…" : "Approve brief"}
               </Button>
             ) : null}
           </div>
@@ -204,7 +205,7 @@ function PackageCard({
                         }
                       >
                         {handedOff
-                          ? `Already handed off: ${contact.emailDisplay}`
+                          ? `Check Gmail before sending again: ${contact.emailDisplay}`
                           : `Draft message to ${contact.emailDisplay}`}
                       </Button>
                     );
@@ -247,11 +248,11 @@ function MessageCard({ item }: { item: OutreachMessage }) {
           }
         >
           {item.status === "handed_off" || item.status === "handed_to_gmail"
-            ? "Handed off · delivery unconfirmed"
-            : item.status.replaceAll("_", " ")}
+            ? "Gmail requested · delivery unconfirmed"
+            : uiLabel(item.status)}
         </Badge>
       </header>
-      {item.blockedReason ? <p className="text-sm text-amber">{item.blockedReason}</p> : null}
+      {item.blockedReason ? <p className="text-sm text-amber">{uiText(item.blockedReason)}</p> : null}
       <details>
         <summary className="cursor-pointer text-sm font-medium">
           {item.status === "draft"
@@ -264,7 +265,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
           <p className="whitespace-pre-wrap break-words text-sm text-muted">{item.body}</p>
           <details className="text-xs text-muted">
             <summary className="cursor-pointer">Version details</summary>
-            <p className="mt-2 break-all font-mono">Digest {item.digest}</p>
+            <p className="mt-2 break-all font-mono">Version ID {item.digest}</p>
           </details>
           {item.status === "draft" ? (
             <label className="flex items-start gap-2 text-xs">
@@ -275,8 +276,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
                 onChange={(event) => setAck(event.target.checked)}
               />
               <span>
-                I acknowledge compliance guidance is advisory. This approval queues a Gmail compose
-                handoff. It does not promise delivery.
+                I understand the guidance is not legal advice. I will review and send this message in Gmail. Approval does not send it.
               </span>
             </label>
           ) : null}
@@ -312,7 +312,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
                       onSuccess: (result) => {
                         if (!result.url) {
                           popup.close();
-                          setHandoffError("No new Gmail handoff is available for this message.");
+                          setHandoffError("This message cannot be opened again. Check Gmail before sending another copy.");
                           return;
                         }
                         try {
@@ -322,7 +322,7 @@ function MessageCard({ item }: { item: OutreachMessage }) {
                           popup.location.replace(destination.href);
                         } catch {
                           popup.close();
-                          setHandoffError("The Gmail handoff could not be opened.");
+                          setHandoffError("Gmail could not be opened. Check Gmail before trying to send this message again.");
                         }
                       },
                       onError: () => popup.close(),
@@ -449,21 +449,21 @@ function SuppressionPanel({ suppressions }: { suppressions: Suppression[] }) {
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               className="min-h-11 rounded-[10px] border border-line bg-cream px-3 text-sm text-ink"
-              placeholder="Why this suppression?"
+              placeholder="Why should they not be contacted?"
             />
           </label>
           <Button type="submit" disabled={add.isPending}>
-            {add.isPending ? "Saving…" : "Add suppression"}
+            {add.isPending ? "Saving…" : "Add to do-not-contact list"}
           </Button>
         </form>
         {suppressions.length === 0 ? (
-          <p className="mt-5 text-sm text-muted">No suppressions recorded.</p>
+          <p className="mt-5 text-sm text-muted">No entries yet.</p>
         ) : (
           <ul className="mt-5 grid gap-2">
             {suppressions.map((item) => (
               <li key={item.id} className="rounded-[10px] border border-line bg-paper p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Badge tone="danger">{item.kind}</Badge>
+                  <Badge tone="danger">{uiLabel(item.kind)}</Badge>
                   <span className="font-mono text-xs">{item.value}</span>
                 </div>
                 <p className="mt-2 text-xs text-muted">{item.reason}</p>

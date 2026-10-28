@@ -164,10 +164,10 @@ export async function runWorkflow({
     await visible(task().getByText(new RegExp(`^Question ${index + 1} ·`)));
     await layout(`interview answer ${index + 1}`);
     await keyboard.type(task().getByRole("textbox", { includeHidden: true, name: /^Answer/ }), fictionalAnswers[index], `answer ${index + 1}`);
-    await click("Submit answer for confirmation");
-    await visible(page.getByRole("button", { includeHidden: true, name: "Confirm submitted answer", exact: true }));
+    await click("Review answer");
+    await visible(page.getByRole("button", { includeHidden: true, name: "Confirm answer", exact: true }));
     await layout(`interview proposed ${index + 1}`);
-    await click("Confirm submitted answer");
+    await click("Confirm answer");
   }
   await visible(task().getByRole("heading", { includeHidden: true, name: "Fictional Quarry", exact: true }));
   console.log("Browser checkpoint: interview confirmed");
@@ -199,14 +199,14 @@ export async function runWorkflow({
     await visible(task().getByRole("textbox", { includeHidden: true, name: /^Answer/ }));
     assert.equal(await task().getByRole("textbox", { includeHidden: true, name: /^Answer/ }).inputValue(), savedAnswer);
     await keyboard.type(task().getByRole("textbox", { includeHidden: true, name: /^Answer/ }), proposedAnswer, "corrected company answer");
-    await click("Submit answer for confirmation");
-    await visible(task().getByText(`Proposed: ${proposedAnswer}`, { exact: true }));
+    await click("Review answer");
+    await visible(task().getByText(`Your answer: ${proposedAnswer}`, { exact: true }));
     await visible(task().getByRole("heading", { includeHidden: true, name: savedAnswer, exact: true }));
     await page.reload();
-    await visible(task().getByText(`Proposed: ${proposedAnswer}`, { exact: true }));
+    await visible(task().getByText(`Your answer: ${proposedAnswer}`, { exact: true }));
     await visible(task().getByRole("heading", { includeHidden: true, name: savedAnswer, exact: true }));
-    await click("Confirm submitted answer");
-    await page.getByRole("button", { includeHidden: true, name: "Confirm submitted answer", exact: true }).waitFor({ state: "detached" });
+    await click("Confirm answer");
+    await page.getByRole("button", { includeHidden: true, name: "Confirm answer", exact: true }).waitFor({ state: "detached" });
     await page.reload();
     await visible(task().getByRole("heading", { includeHidden: true, name: proposedAnswer, exact: true }));
     assert.equal(await task().getByRole("textbox", { includeHidden: true, name: /^Answer/ }).count(), 0);
@@ -239,24 +239,24 @@ export async function runWorkflow({
     await click("Confirm");
   };
   await go("/discovery");
-  await confirmAction("Activate product configuration", "product activation", true);
-  await visible(page.getByRole("button", { includeHidden: true, name: "Discover markets", exact: true }));
+  await confirmAction("Confirm product & find markets", "product activation", true);
+  await visible(page.getByRole("button", { includeHidden: true, name: "Find target markets", exact: true }));
   // Exercise the explicit manual discovery control as well as initial activation.
-  await confirmAction("Discover markets", "manual market discovery", true);
+  await confirmAction("Find target markets", "manual market discovery", true);
   const proposal = task()
     .locator("article")
-    .filter({ has: page.getByRole("button", { includeHidden: true, name: "Explore", exact: true }) })
+    .filter({ has: page.getByRole("button", { includeHidden: true, name: "Choose market", exact: true }) })
     .first();
   await visible(proposal);
   await layout("market proposals");
   await keyboard.type(proposal.getByRole("textbox", { includeHidden: true, name: "Reason", exact: true }), "Fictional evidence fits the confirmed diagnostic capability.", "market exploration reason");
-  await keyboard.activate(proposal.getByRole("button", { includeHidden: true, name: "Explore", exact: true }), "Explore");
+  await keyboard.activate(proposal.getByRole("button", { includeHidden: true, name: "Choose market", exact: true }), "Choose market");
   await visible(page.getByLabel("Audience", { exact: true }));
   await layout("draft market play");
   await keyboard.type(page.getByLabel("Audience", { exact: true }), "Fictional operating processing plants", "Audience");
   await keyboard.type(page.getByLabel("Likely buyer", { exact: true }), "Fictional Person, plant GM", "Likely buyer");
   await keyboard.type(page.getByLabel("Offer", { exact: true }), "eight-week-diagnostic", "Offer");
-  await click("Confirm draft play");
+  await click("Confirm target market");
   await visible(page.getByText(/Audience: Fictional operating processing plants/));
   console.log("Browser checkpoint: discovery confirmed");
   evidence.discovery = { productActivated: true, manualRun: true, draftPlayConfirmed: true };
@@ -266,7 +266,7 @@ export async function runWorkflow({
   for (const cycle of [1, 2]) {
     console.log(`Browser checkpoint: workflow ${cycle} prospects`);
     await go("/prospects");
-    if (cycle === 1) await confirmAction("Activate profile configuration", "profile activation", true);
+    if (cycle === 1) await confirmAction("Confirm settings & start searches", "profile activation", true);
     else {
       const remaining = 20_100 - (Date.now() - lastHuntAt);
       if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
@@ -342,7 +342,7 @@ export async function runWorkflow({
     const email = `person${cycle}@fictionalquarry.example`;
     // Suggestions share their account label. Activate their actual UI controls until
     // the current prospect's published source appears; never insert a contact.
-    const reveals = page.getByRole("button", { includeHidden: true, name: "Run public-source reveal", exact: true });
+    const reveals = page.getByRole("button", { includeHidden: true, name: "Find published contact details", exact: true });
     const revealCount = await reveals.count();
     for (let index = 0; index < revealCount; index++) {
       if (await task().getByText(email, { exact: true }).isVisible()) break;
@@ -350,7 +350,7 @@ export async function runWorkflow({
         (item) => item.request().method() === "POST" && new URL(item.url()).origin === origin,
       );
       await layout(`contact reveal ${cycle}-${index}`);
-      await keyboard.activate(reveals.nth(index), `Run public-source reveal ${cycle}-${index}`);
+      await keyboard.activate(reveals.nth(index), `Find published contact details ${cycle}-${index}`);
       await (await response).finished();
       await page.reload();
       await visible(task().getByRole("heading", { includeHidden: true, name: "Contacts", exact: true }));
@@ -360,18 +360,18 @@ export async function runWorkflow({
     const approved = task()
       .locator("article")
       .filter({ hasText: `Fictional Plant ${cycle}` });
-    await keyboard.activate(approved.getByRole("button", { includeHidden: true, name: "Prepare package", exact: true }), "Prepare package");
+    await keyboard.activate(approved.getByRole("button", { includeHidden: true, name: "Create brief", exact: true }), "Create brief");
     const packageCard = task()
       .locator("article")
-      .filter({ has: page.getByRole("button", { includeHidden: true, name: "Approve package", exact: true }) });
+      .filter({ has: page.getByRole("button", { includeHidden: true, name: "Approve brief", exact: true }) });
     await visible(packageCard);
-    await keyboard.expose(packageCard.getByRole("button", { includeHidden: true, name: "Approve package", exact: true }), "package approval");
+    await keyboard.expose(packageCard.getByRole("button", { includeHidden: true, name: "Approve brief", exact: true }), "package approval");
     const packageCardVersion = packageCard.locator("summary").filter({ hasText: /^Version details$/ }).locator("..");
     assert.equal(await packageCardVersion.evaluate((node) => node.open), false, "Version details start collapsed");
     await keyboard.activate(packageCardVersion.locator("summary"), "Open version details");
-    assert.match(await packageCard.innerText(), /Digest [a-f0-9]{64}/);
+    assert.match(await packageCard.innerText(), /Version ID [a-f0-9]{64}/);
     await layout(`package review ${cycle}`);
-    await keyboard.activate(packageCard.getByRole("button", { includeHidden: true, name: "Approve package", exact: true }), "Approve package");
+    await keyboard.activate(packageCard.getByRole("button", { includeHidden: true, name: "Approve brief", exact: true }), "Approve brief");
     await click(`Draft message to ${email}`);
     const message = task()
       .locator("article")
@@ -381,7 +381,7 @@ export async function runWorkflow({
     const messageVersion = message.locator("summary").filter({ hasText: /^Version details$/ }).locator("..");
     assert.equal(await messageVersion.evaluate((node) => node.open), false, "Version details start collapsed");
     await keyboard.activate(messageVersion.locator("summary"), "Open version details");
-    assert.match(await message.innerText(), /Digest [a-f0-9]{64}/);
+    assert.match(await message.innerText(), /Version ID [a-f0-9]{64}/);
     await layout("message-cycle-" + cycle);
     const subject = await message.getByRole("heading", { includeHidden: true, level: 3 }).innerText();
     const body = await message.locator("p.whitespace-pre-wrap").innerText();
@@ -428,7 +428,7 @@ export async function runWorkflow({
           const blank = await popupPromise;
           const alert = tab
             .getByRole("alert")
-            .filter({ hasText: /Approve|changed|eligible|review/i });
+            .filter({ hasText: /approv|changed|ready|review/i });
           await alert.waitFor();
           assert.deepEqual(gmailRequests, [], "Changed authority must refuse Gmail navigation");
           assert.equal(blank.isClosed(), true, "Denied handoff closes its reserved popup");
@@ -489,7 +489,7 @@ export async function runWorkflow({
     assert.equal(compose.searchParams.get("to"), email);
     assert.equal(compose.searchParams.get("su"), subject);
     assert.equal(compose.searchParams.get("body"), body);
-    await visible(message.getByText("Handed off · delivery unconfirmed", { exact: true }));
+    await visible(message.getByText("Gmail requested · delivery unconfirmed", { exact: true }));
     assert.equal(
       await message.getByRole("button", { includeHidden: true, name: "Open in Gmail", exact: true }).count(),
       0,
@@ -507,7 +507,7 @@ export async function runWorkflow({
       await stale.getByRole("button", { includeHidden: true, name: "Open in Gmail", exact: true }).click();
       const blank = await blankPromise;
       await stale
-        .getByText("No new Gmail handoff is available for this message.", { exact: true })
+        .getByText("This message cannot be opened again. Check Gmail before sending another copy.", { exact: true })
         .waitFor();
       assert.deepEqual(attemptedGmail, [], "A stale tab cannot replay a compose URL");
       assert.equal(blank.isClosed(), true, "Refused replay closes its reserved popup");
@@ -516,7 +516,7 @@ export async function runWorkflow({
       evidence.staleTab = { replayRefused: true, newGmailRequests: 0 };
     }
     await page.reload();
-    await visible(task().getByText("Handed off · delivery unconfirmed", { exact: true }).first());
+    await visible(task().getByText("Gmail requested · delivery unconfirmed", { exact: true }).first());
     await assertIdle(page);
     await go("/brief");
     await layout(`brief after handoff ${cycle}`);
@@ -539,7 +539,7 @@ export async function runWorkflow({
         "Canonical fictional records must survive full restart",
       );
       await go("/outreach");
-      await visible(task().getByText("Handed off · delivery unconfirmed", { exact: true }));
+      await visible(task().getByText("Gmail requested · delivery unconfirmed", { exact: true }));
     }
   }
   evidence.workflows = {
@@ -549,12 +549,12 @@ export async function runWorkflow({
     csv: csvEvidence,
   };
   await go("/outreach");
-  await keyboard.expose(page.getByRole("button", { includeHidden: true, name: "Add suppression", exact: true }), "do-not-contact controls");
+  await keyboard.expose(page.getByRole("button", { includeHidden: true, name: "Add to do-not-contact list", exact: true }), "do-not-contact controls");
   evidence.suppressionForm = {
     selects: await page.locator("select").count(),
     namedKind: await page.getByRole("combobox", { includeHidden: true, name: /^Kind/ }).count(),
   };
-  const suppressionForm = page.locator("form").filter({ has: page.getByRole("button", { includeHidden: true, name: "Add suppression", exact: true }) });
+  const suppressionForm = page.locator("form").filter({ has: page.getByRole("button", { includeHidden: true, name: "Add to do-not-contact list", exact: true }) });
   const kind = suppressionForm.getByRole("combobox", { includeHidden: true, name: /^Kind/ });
   await keyboard.select(kind, "domain", "suppression Kind domain");
   await visible(suppressionForm.getByLabel("Domain", { exact: true }));
@@ -562,7 +562,7 @@ export async function runWorkflow({
   await keyboard.type(suppressionForm.getByLabel("Email", { exact: true }), "person2@fictionalquarry.example", "suppression email");
   await keyboard.type(suppressionForm.getByRole("textbox", { includeHidden: true, name: "Reason", exact: true }), "Fictional owner suppression for browser acceptance.", "suppression reason");
   await layout("completed suppression form");
-  await click("Add suppression");
+  await click("Add to do-not-contact list");
   await visible(
     task().getByText("Fictional owner suppression for browser acceptance.", { exact: true }),
   );
@@ -607,15 +607,15 @@ export async function runWorkflow({
   // to discard the client query cache before checking its new contact records.
   await page.reload();
   await task().getByRole("heading", { name: "Contacts", exact: true }).waitFor();
-  const verifiedCards = task().locator("article").filter({ has: page.getByText("verified", { exact: true }) });
+  const verifiedCards = task().locator("article").filter({ has: page.getByText("Verified", { exact: true }) });
   await verifiedCards.first().waitFor();
   assert.ok(await verifiedCards.count() > 0, "Verified-contact check is non-vacuous");
-  assert.equal(await verifiedCards.getByText(/Unverified mailbox/).count(), 0, "Verified contacts are not labeled unverified");
+  assert.equal(await verifiedCards.getByText(/Unverified email address/).count(), 0, "Verified contacts are not labeled unverified");
   await go("/settings");
   const connections = task().locator("details").filter({ has: page.locator("summary").filter({ hasText: /^Connections & search settings$/ }) });
   assert.equal(await connections.evaluate((node) => node.open), false, "Connection settings start collapsed");
   await keyboard.activate(connections.locator(":scope > summary"), "Open connection settings");
-  const fields = ["Provider", "Accounts per hunt (4–20)", "TypeSafe / Jev API key", "Apollo API key", "ZoomInfo API key", "Monthly spend cap in USD", "Gmail email address"];
+  const fields = ["Provider", "Companies per search (4–20)", "TypeSafe / Jev API key", "Apollo API key", "ZoomInfo API key", "Monthly spend cap in USD", "Gmail email address"];
   for (const label of fields) {
     const field = label === "Provider"
       ? connections.getByRole("combobox", { includeHidden: true, name: /^Provider/ })

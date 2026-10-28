@@ -28,8 +28,8 @@ test('Gmail handoff uses only the response URL and cannot replay from stored mes
 
 test('contact reveal stays public-source and paid reveal is unavailable', () => {
   const contacts = read('components/contacts-view.tsx');
-  assert.match(contacts, /Run public-source reveal/);
-  assert.match(contacts, /Paid contact reveal is unavailable/);
+  assert.match(contacts, /Find published contact details/);
+  assert.match(contacts, /Paid contact lookups are unavailable/);
   assert.doesNotMatch(contacts, /Spend Apollo grant|Apollo people match/);
 });
 

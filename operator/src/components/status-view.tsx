@@ -1,3 +1,4 @@
+import { uiLabel, uiText } from "@/lib/domain/plain-language";
 import { BriefView } from "@/components/brief-view";
 import { Panel, ErrorNote } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
@@ -24,16 +25,16 @@ export function CapabilityDiagnostics() {
         {data.capabilities.map((item) => (
           <article key={item.id} className="rounded-[10px] border border-line p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-medium">{item.name}</h3>
+              <h3 className="text-sm font-medium">{uiText(item.name)}</h3>
               <Badge
                 tone={
                   item.status === "proven" ? "ok" : item.status === "blocked" ? "warn" : "neutral"
                 }
               >
-                {item.status}
+                {uiLabel(item.status)}
               </Badge>
             </div>
-            <p className="mt-2 text-sm text-muted">{item.reason}</p>
+            <p className="mt-2 text-sm text-muted">{uiText(item.reason)}</p>
           </article>
         ))}
       </div>

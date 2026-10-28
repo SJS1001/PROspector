@@ -80,7 +80,7 @@ export function WorkspaceArchivePanel() {
         <>
           <p className="break-words text-sm">Selected: {selected.name}</p>
           <p className="text-sm text-muted">
-            Restore replaces this owner's workspace records. Existing suppressions are retained.
+            Restore replaces this owner's workspace records. Your do-not-contact list is kept.
             Imported approvals remain history and must be approved again; schedules and spending
             grants stay disabled. Saved connection credentials on this machine stay in place. Back
             up the current workspace first.

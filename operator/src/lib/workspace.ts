@@ -1,3 +1,4 @@
+import { uiText } from "@/lib/domain/plain-language";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activateProduct,
@@ -252,6 +253,6 @@ export function mutationMessage(error: unknown) {
   if (error instanceof Error && error.message === "Unauthorized") {
     return "Sign in required.";
   }
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message) return uiText(error.message);
   return "The workspace could not complete that action.";
 }

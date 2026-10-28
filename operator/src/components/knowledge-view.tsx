@@ -1,3 +1,4 @@
+import { uiLabel, uiText } from "@/lib/domain/plain-language";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
@@ -15,8 +16,8 @@ import type { KnowledgeItem } from "@/lib/domain/types";
 
 export function KnowledgeView() {
   const { data, isPending, isError } = useWorkspace();
-  if (isPending) return <p className="text-sm text-muted">Reading confirmed knowledge…</p>;
-  if (isError || !data) return <WorkspaceLoadError message="Knowledge could not be loaded." />;
+  if (isPending) return <p className="text-sm text-muted">Loading company details…</p>;
+  if (isError || !data) return <WorkspaceLoadError message="Company details could not be loaded." />;
 
   const current = data.currentQuestion;
   const saved = data.knowledge.filter((item) => item.confirmedAnswer);
@@ -127,7 +128,7 @@ function SummaryAnswer({ item, label }: { item: KnowledgeItem; label: string }) 
 
 function EditAnswer({
   item,
-  label = `Edit ${item.question}`,
+  label = `Edit ${uiText(item.question)}`,
 }: {
   item: KnowledgeItem;
   label?: string;
@@ -157,11 +158,11 @@ function SampleLoadPanel() {
   return (
     <Panel className="p-6">
       <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
-        Optional fixture
+        Sample data
       </span>
       <h2 className="mt-2 font-display text-lg">Load ONE for Mining sample</h2>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        This loads Digitalrain fixtures so you can walk the rest of the OS.
+        Adds sample company and product answers so you can try the app.
       </p>
       <Button className="mt-4" disabled={load.isPending} onClick={() => load.mutate(undefined)}>
         {load.isPending ? "Loading sample…" : "Load ONE for Mining sample"}
@@ -180,7 +181,7 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
     Boolean(item.confirmedAnswer) && item.proposedAnswer === item.confirmedAnswer,
   );
   const [answer, setAnswer] = useState(
-    item.proposedAnswer ?? item.confirmedAnswer ?? item.recommendation,
+    item.proposedAnswer ?? item.confirmedAnswer ?? uiText(item.recommendation),
   );
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -194,35 +195,35 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
 
   useEffect(() => {
     if (item.proposedAnswer) setAnswer(item.proposedAnswer);
-    else setAnswer(item.confirmedAnswer ?? item.recommendation);
+    else setAnswer(item.confirmedAnswer ?? uiText(item.recommendation));
   }, [item.questionId, item.proposedAnswer, item.confirmedAnswer, item.recommendation]);
 
   return (
     <Panel className="p-5">
       <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-teal">
-        Question {item.sortOrder} · {item.scope}
+        Question {item.sortOrder} · {uiLabel(item.scope)}
       </span>
       <h2
         ref={heading}
         tabIndex={-1}
         className="mt-3 max-w-[680px] text-xl font-medium leading-snug"
       >
-        {item.question}
+        {uiText(item.question)}
       </h2>
       <details className="mt-4 rounded-md border border-line p-3 text-sm">
         <summary className="cursor-pointer text-muted">Research & suggested answer</summary>
         <div className="mt-3 grid gap-3">
           <div>
             <b className="text-xs">Evidence</b>
-            <p className="mt-1 text-xs text-muted">{item.evidence}</p>
+            <p className="mt-1 text-xs text-muted">{uiText(item.evidence)}</p>
           </div>
           <div>
             <b className="text-xs">Assessment</b>
-            <p className="mt-1 text-xs text-muted">{item.inference}</p>
+            <p className="mt-1 text-xs text-muted">{uiText(item.inference)}</p>
           </div>
           <div>
             <b className="text-xs">Suggested answer</b>
-            <p className="mt-1 text-sm">{item.recommendation}</p>
+            <p className="mt-1 text-sm">{uiText(item.recommendation)}</p>
           </div>
         </div>
       </details>
@@ -258,20 +259,20 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
               {research.isPending ? "Researching…" : "Research first"}
             </Button>
             <Button type="submit" disabled={busy}>
-              Submit answer for confirmation
+              Review answer
             </Button>
           </div>
         </form>
       ) : (
         <div className="mt-5 grid gap-3">
           <p className="rounded-[8px] bg-ok-bg px-3 py-2 text-xs text-teal">
-            Proposed: {item.proposedAnswer}
+            Your answer: {item.proposedAnswer}
           </p>
           <Button disabled={busy} onClick={() => confirm.mutate({ questionId: item.questionId })}>
-            Confirm submitted answer
+            Confirm answer
           </Button>
           <Button variant="outline" disabled={busy} onClick={() => setEditing(true)}>
-            Edit submitted answer
+            Edit answer
           </Button>
         </div>
       )}
@@ -287,11 +288,11 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
 function ConfirmedCard({ item }: { item: KnowledgeItem }) {
   return (
     <div className="rounded-md border border-line p-4">
-      <h3 className="text-sm font-medium">{item.question}</h3>
+      <h3 className="text-sm font-medium">{uiText(item.question)}</h3>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm">{item.confirmedAnswer}</p>
       <details className="mt-2 text-xs text-muted">
         <summary className="cursor-pointer">Evidence</summary>
-        <p className="mt-2">{item.evidence}</p>
+        <p className="mt-2">{uiText(item.evidence)}</p>
       </details>
       <div className="mt-3">
         <EditAnswer item={item} />
