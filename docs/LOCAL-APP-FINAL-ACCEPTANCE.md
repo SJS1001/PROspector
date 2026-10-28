@@ -1,6 +1,8 @@
 # Personal local-use acceptance
 
-Use the unmerged `codex/local-app-integration` candidate. Read the [integration report](implementation-lanes/2026-10-28-local-integration.md) for the exact reviewed source and engineering evidence; pending checks are not passing evidence. This is the owner's practical usefulness decision. The automated keyboard, narrow-screen, error-recovery, restart and archive checks belong to engineering acceptance and do not need repeating by the owner.
+**2026-10-28 decision:** the owner accepted personal local use by instruction and waived the remaining walkthrough. Use **App launcher → Start PROspector** for daily use. The steps below are optional future live-quality evaluation, not outstanding release requirements. Provider result quality and cost remain unmeasured. See the [launcher guide](../operator/launcher/README.md).
+
+Use the integrated `main` local app after PR #131 merges. Read the [integration report](implementation-lanes/2026-10-28-local-integration.md) for the exact reviewed source and engineering evidence; pending checks are not passing evidence. This is the owner's practical usefulness decision. The automated keyboard, narrow-screen, error-recovery, restart and archive checks belong to engineering acceptance and do not need repeating by the owner.
 
 1. **Start your private installation.** From the candidate checkout, with Node 22.13 or newer and `DATABASE_URL` unset:
 
@@ -36,4 +38,4 @@ Live-use bounds used, or: not run; real quality pending
 Remaining limitations / blockers:
 ```
 
-Merge approval is a separate decision for the exact final candidate and target PR. Local-use acceptance does not approve a merge, deployment, email delivery, ongoing provider spend or hosted-plan completion.
+The owner separately authorized final GitHub integration of PR #131 on 2026-10-28. Local-use acceptance does not approve a merge, deployment, email delivery, ongoing provider spend or hosted-plan completion.

@@ -1,8 +1,12 @@
 # PROspector local operator
 
-This is the one-owner local app from `operator-os`. It runs at **http://127.0.0.1:8080** with a private on-disk PGlite database. It needs Node **22.13 or newer**. It has no sandbox assets, OAuth, hosted project, or `DATABASE_URL` requirement.
+This is the one-owner local app. It runs at **http://127.0.0.1:8080** with a private on-disk PGlite database. It needs Node **22.13 or newer**. It has no sandbox assets, OAuth, hosted project, or `DATABASE_URL` requirement.
 
-## First launch
+## macOS menu bar launcher
+
+For everyday use, open **App launcher** in `~/Applications` and click **Start PROspector**. It starts the frontend and backend together and opens your browser. Stop and Restart are in the same panel. See the [launcher guide](launcher/README.md) for installation, updates and backup instructions.
+
+## Terminal launch
 
 ```sh
 cd operator
@@ -17,11 +21,11 @@ For optional password protection, stop the app, run `npm run owner:setup` for a 
 
 The server binds only IPv4 loopback. `localhost`, alternate ports, reverse proxies, foreign Host/Origin, and forwarded authority headers are deliberately unsupported. Do not expose this process using a tunnel or proxy. Default local access trusts processes running on your computer; there is no browser unlock or logout. Exact Host/Origin and fetch-metadata checks still protect local APIs from other websites. No sandbox OAuth or hosted identity is used. `VITE_AUTH_ENABLED=false` does not change access mode.
 
-For source development, use `npm run dev`. Production `npm start` uses the built Node server; `npm run build` copies PGlite's package-supplied WASM/data assets into its server bundle and never runs a remote database migration. `DATABASE_URL` must be unset. `npm run preview` is the same local launcher. The desktop launcher is outside this supported path.
+For source development, use `npm run dev`. Production `npm start` uses the built Node server; `npm run build` copies PGlite's package-supplied WASM/data assets into its server bundle and never runs a remote database migration. `DATABASE_URL` must be unset. `npm run preview` is the same local launcher. The native App launcher above uses this same built server. The older Electron development shell is outside this supported path.
 
 ## Stop, data and recovery
 
-Stop with **Ctrl-C** in the launch terminal and wait for exit before starting another process. Only one process can open a data directory. Never run dev and production against the same directory simultaneously.
+Click **Stop** in App launcher, or use **Ctrl-C** for a Terminal launch, and wait for exit before starting another process. Only one process can open a data directory. Never run dev and production against the same directory simultaneously.
 
 Default data directory:
 

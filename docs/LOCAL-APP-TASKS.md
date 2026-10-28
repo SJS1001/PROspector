@@ -6,18 +6,22 @@ Use the existing `operator/` application in [PR #125](https://github.com/SJS1001
 
 This checklist defines the local release separately from the hosted `site/` programme. It does not complete hosted plans or authorize provisioning, deployment, provider spend, email delivery or use of the retired original target. A checked implementation task needs its own recorded verification; writing this list does not accept the app.
 
-## Current integration checkpoint
+## Current release checkpoint — 2026-10-28
 
-The combined candidate is now on `codex/local-app-integration`, based on `operator-os`, integrating PRs #127–#141 plus reviewed integration repairs. See [the integration report](implementation-lanes/2026-10-28-local-integration.md) for current evidence and remaining tasks. The unchecked detailed items below are the original release criteria, not a claim that implementation has not started. Owner acceptance remains open.
+The owner accepted the app for personal local use by instruction ("assume the app is good") and authorized final GitHub integration. No further owner acceptance walkthrough is required. Real-provider result quality and cost have not been measured; that optional evaluation is not a blocker for the accepted local release.
 
-Current Mac evidence includes 18/18 HTTP auth checks, durable restart/archive checks and 31/31 real-database manual-workflow cases, including preserved CSV BOM bytes. Earlier serial `npm test` passed 255 script + 64 source tests; the expanded suite passed 255 + 84 immediately before the final ReviewCard UI/harness change, with no later server changes. After that change, build/typecheck passed, lint had zero errors/3 existing warnings and component checks passed 7/7. The final contained Mac browser `npm test` passed at `76976635c0267bd3f9a5d7f2b5392b2ef59dd3fd`: 46 units, 359 keyboard actions, 282 layout samples at 320/360/768px, 10 Cancel/Escape cases, two fictional workflows across restart, four recovery scenarios and seven exact CSV edge rows. Unexpected/forbidden network counts were zero. See the integration report for exact scope and earlier-source evidence. Real-provider usefulness, quality/cost evaluation and owner/merge acceptance remain open. The [owner acceptance guide](LOCAL-APP-FINAL-ACCEPTANCE.md) is the next step.
+The release adds **App launcher**, a native macOS menu bar app styled to match OPUS Master Control. Start opens the frontend/backend together; Stop and Restart shut down the managed server gracefully. The launcher opens at login; the backend starts on demand. See the [launcher guide](../operator/launcher/README.md).
+
+Final launcher verification: 267 script + 64 source tests pass (331 total), including nine new controller tests. Lint has zero errors and three existing warnings. Native compile/sign/install and actual start/stop pass. The [release setup report](implementation-lanes/2026-10-28-app-launcher.md) records final UI checks and remaining limits. Earlier browser/access/recovery evidence is retained in the integration report and handoff.
+
+PR #131 consolidates the local implementation into `main`; the final synchronization result is recorded in the release setup report. Hosted deployment and real-provider spending remain separate.
 
 ## Synchronization checkpoint
 
 - [x] **SYNC-01 — Update local main from GitHub.** Fast-forwarded the clean checkout from `599ed1bbbf1bab09a0fd372f88cb4007ada3b7c5` to `29af13c4e794e6cc3f7dabbcc792eacb488a89ef`; local main and live GitHub main matched, 0 ahead / 0 behind. No source conflicts or local source edits existed.
 - [x] **SYNC-02 — Refresh the proposed local-app source.** Fetched `operator-os`; PR #125 remains open at `2d476b9d2e6bc37f1352444dd95de58b5537f798`. Its source is available through `origin/operator-os`; it is not part of main and was not merged.
 
-Check the exact branch being used, rather than assuming a clean main includes the unmerged local app. The parent directory's ZIP and review files are outside the Git checkout.
+Check the exact branch being used, rather than assuming a clean main includes the unmerged local app. The entries above record the initial synchronization baseline. The parent directory's ZIP and review files are outside the Git checkout.
 
 ## Execution order
 
@@ -75,16 +79,16 @@ Review baseline, not a fresh result for future fixes: at operator head `2d476b9`
 
 ### LOCAL-07 — Accept and checkpoint the local release
 
-- [ ] Owner decision: assess two useful daily workflows with provenance, time and cost, record limitations, and accept or decline personal local use using [the short acceptance guide](LOCAL-APP-FINAL-ACCEPTANCE.md). Automated fictional workflows, restart and empty-database recovery are engineering checks; the owner need not repeat those drills. Real-provider work needs separately chosen bounds.
+- [x] Owner decision: personal local use accepted by explicit instruction on 2026-10-28. Further walkthrough waived. Live usefulness, provenance and cost evaluation remain optional and unmeasured.
 - [x] Write a short runbook: start/stop, data location, backups/restore, provider setup, manual morning action and recovery from errors. Reconcile continuation pointers so future work finds this local target without changing hosted phase credit.
-- [ ] Review the final source and verification evidence before requesting merge approval for the local-app PR. After an authorized merge, fast-forward local main and verify clean status plus identical local/GitHub commits. Do not deploy as part of local acceptance.
+- Final integration: the owner authorized PR #131 into main. The merge result and clean local/GitHub commit comparison are recorded in the release handoff and completion response.
 
 ## Keep outside this release's critical path
 
-Defer Cloudflare provisioning/Access/hosted proof, unattended scheduling, automatic SMTP, paid reveal, additional AI providers, Electron packaging and installers. Preserve their existing gates. Do not merge all remaining hosted PRs into the local app; reuse individual components only when they reduce a demonstrated local gap.
+Defer Cloudflare provisioning/Access/hosted proof, unattended scheduling, automatic SMTP, paid reveal, additional AI providers, Electron packaging and general distribution installers. The requested personal macOS menu bar launcher is included in this release. Preserve their existing gates. Do not merge all remaining hosted PRs into the local app; reuse individual components only when they reduce a demonstrated local gap.
 
 Main's guarded demo smoke failure and review-retry ordering defect remain separate `site/` work. This local checklist does not mark them fixed or close the hosted contact, quality, UI or browser-acceptance issues by analogy.
 
-## Next executable task
+## Daily use
 
-Review the verified combined integration candidate and complete the personal-use decision in the [owner acceptance guide](LOCAL-APP-FINAL-ACCEPTANCE.md). Merge only after owner approval; then update the local release checkout to the approved branch. No hosted deployment is required.
+Open **App launcher** and click **Start PROspector**. Review any live-provider connections privately before choosing a research run. No hosted deployment or further acceptance drill is required.

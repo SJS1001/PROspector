@@ -1,3 +1,5 @@
+> Superseded checkpoint: the owner accepted personal local use and authorized integration into `main` on 2026-10-28. See [App launcher and final setup](2026-10-28-app-launcher.md) for current status. Evidence below remains scoped to its recorded source; older pending-acceptance and `operator-os` target statements are historical.
+
 # Reliable local app: integration report and remaining tasks
 
 2026-10-28. Target: one-owner local app for personal use, using `operator/` on `operator-os`. No hosted phase credit changes.
