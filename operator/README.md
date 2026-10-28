@@ -31,7 +31,7 @@ For an alternate installation or isolated test, export `OPERATOR_DATA_DIR` as an
 
 Keep these together: `database/`, `owner.json` (owner ID, password hash and session signing material), and `operator.vault` (local encryption key). The vault encrypts saved provider values with AES-256-GCM. OS file permissions protect the key; this is not an OS keychain or protection from another process running as your OS user. No portable plaintext credential export is added.
 
-For a local safety backup, stop the app and copy the **entire private directory** to protected storage with the same permissions. Keep it out of Git, cloud sharing and public folders. Restore the whole matching directory while stopped; do not mix one database with another owner's file or key. This stopped-process copy is not the versioned portable archive/restore feature owned by Lane C.
+For a local safety backup, stop the app and copy the **entire private directory** to protected storage with the same permissions. Keep it out of Git, cloud sharing and public folders. Restore the whole matching directory while stopped; do not mix one database with another owner's file or key. The app also provides a versioned JSON workspace archive in Settings. It includes workspace records/history and suppressions, excludes credentials, and restores atomically after validation. Restore resets live approvals and keeps terminal handoff history; it rejects an older archive that would erase an already recorded handoff. Keep a current export before recovery. Use the complete stopped-process directory backup when recovering credentials or the vault.
 
 - **Forgotten password:** stop the app, keep a protected backup, then run `npm run owner:reset` using the same data directory. It preserves the owner ID, workspace and vault, rotates session signing material, and invalidates old sessions. Setup/reset holds the database lock for the whole operation.
 - **Missing/corrupt owner or vault file:** restore the matching protected backup. Do not delete the database or generate a replacement vault key; ciphertext cannot be recovered without its original key. Runtime decryption reports missing/malformed-key errors and never creates a key.
@@ -52,7 +52,7 @@ await sql.transaction(async (tx) => {
 });
 ```
 
-Use **only `tx` inside the callback**, await all work, and do not retain it after return. Nested transactions reject. PGlite uses its native transaction; the Postgres-compatible path pins one pool connection for BEGIN/COMMIT/ROLLBACK. Lane C should use this callback for archive restore and must not send separate BEGIN/COMMIT through pooled `sql.query`. `closeDatabase()` is for controlled shutdown/test teardown after outstanding operations finish, not live HMR reset. The remote Postgres path is retained for API compatibility but is not exercised or supported by the local launcher.
+Use **only `tx` inside the callback**, await all work, and do not retain it after return. Nested transactions reject. PGlite uses its native transaction; the Postgres-compatible path pins one pool connection for BEGIN/COMMIT/ROLLBACK. Archive restore uses this callback; do not send separate BEGIN/COMMIT through pooled `sql.query`. `closeDatabase()` is for controlled shutdown/test teardown after outstanding operations finish, not live HMR reset. The remote Postgres path is retained for API compatibility but is not exercised or supported by the local launcher.
 
 ```sh
 npm run build

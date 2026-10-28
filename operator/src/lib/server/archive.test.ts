@@ -588,7 +588,7 @@ test("sent and handed-to-Gmail classifications survive as historical audit recor
       );
       assert.ok(event);
       assert.deepEqual(JSON.parse(event.note as string), { status, acknowledged: true });
-      assert.equal(restored.tables.outreach_messages[0].status, "blocked");
+      assert.equal(restored.tables.outreach_messages[0].status, status);
     }
   } finally {
     await pg.close();

@@ -6,6 +6,10 @@
 **Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
+## Local personal-use candidate — 2026-10-28
+
+The owner-selected current local target is `operator/` on `codex/local-app-integration`, based on `operator-os`, combining PRs #127–#130. See [the integration report and remaining task list](implementation-lanes/2026-10-28-local-integration.md) and [local runbook](../operator/README.md). This is an unmerged review candidate; owner/browser acceptance remains open. Existing hosted plan credit and external gates are unchanged.
+
 ## Phase 3 release-evidence contract repair — 2026-09-09
 
 The repaired PR #111 candidate makes the private synthetic-proof release tuple explicit, adds immutable migration identity at checked migration `0020`, keeps legacy rows neutral and non-consumable, and restricts the disposable tuple to the complete `LOCAL_DEMO` fence. The offline preflight now binds the authorization to the exact migration and fixture tuple. See [`implementation-lanes/2026-09-09-phase3-release-evidence-contract.md`](implementation-lanes/2026-09-09-phase3-release-evidence-contract.md). This is local preparation only: it provides no hosted evidence and earns no plan or phase credit.

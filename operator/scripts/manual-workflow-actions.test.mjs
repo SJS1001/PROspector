@@ -15,13 +15,22 @@ function compiled(path, require, extra = "") {
 function harness(
   request = new Request("http://127.0.0.1:8080/", {
     method: "POST",
-    headers: { "sec-fetch-site": "same-origin" },
+    headers: {
+      host: "127.0.0.1:8080",
+      origin: "http://127.0.0.1:8080",
+      "sec-fetch-site": "same-origin",
+    },
   }),
 ) {
   const counts = { provider: 0, db: 0, hunt: 0, public: 0, approve: 0, handoff: 0 };
-  const isolation = compiled("../src/lib/auth/isolation.server.ts", () => ({
-    getRequest: () => request,
-  }));
+  const localRequest = compiled("../src/lib/auth/local-request.ts", () => {
+    throw Error("Unexpected local-request import");
+  });
+  const isolation = compiled("../src/lib/auth/isolation.server.ts", (name) => {
+    if (name === "./local-request.ts") return localRequest;
+    if (name === "@tanstack/react-start/server") return { getRequest: () => request };
+    throw Error(`Unexpected isolation import ${name}`);
+  });
   let auth;
   compiled("../src/lib/auth/middleware.ts", (name) => {
     if (name === "@tanstack/react-start")
@@ -36,6 +45,7 @@ function harness(
           },
         }),
       };
+    if (name === "@tanstack/react-start/server") return { setResponseStatus: () => {} };
     if (name === "./isolation.server") return isolation;
     if (name === "./verify.server") return { requireUserId: async () => "fixture-owner" };
     throw Error(`Unexpected auth import ${name}`);
@@ -166,7 +176,11 @@ for (const site of ["cross-site", "same-site"])
   test(`${site} foreign-origin mutations are denied before database/provider access`, async () => {
     const request = new Request("http://127.0.0.1:8080/", {
       method: "POST",
-      headers: { origin: "https://foreign.example", "sec-fetch-site": site },
+      headers: {
+        host: "127.0.0.1:8080",
+        origin: "https://foreign.example",
+        "sec-fetch-site": site,
+      },
     });
     const { fns, counts } = harness(request);
     for (const name of ["openInGmail", "approveMessage", "tickSchedule", "requestEnrichmentGrant"])

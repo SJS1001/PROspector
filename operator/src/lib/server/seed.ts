@@ -4,10 +4,7 @@ import type { Assessment } from "@/lib/domain/types";
 import type { Sql } from "@/lib/db";
 
 export function idFor(userId: string, slug: string) {
-  return createHash("sha256")
-    .update(`prospector:${userId}:${slug}`)
-    .digest("hex")
-    .slice(0, 24);
+  return createHash("sha256").update(`prospector:${userId}:${slug}`).digest("hex").slice(0, 24);
 }
 
 function dimensions(
@@ -261,7 +258,8 @@ const PROPOSALS = [
     customerType: "Fleet operators with condition data siloed in OEM portals.",
     examples: "Not confirmed in this workspace.",
     likelyBuyer: "Fleet technical superintendent.",
-    risks: "Different buyers, proof, and claim guardrails. Treat as a separate product if they diverge.",
+    risks:
+      "Different buyers, proof, and claim guardrails. Treat as a separate product if they diverge.",
     productFit:
       "Possible later play only if capability, delivery and commercial identity stay with ONE.",
     evidence:
@@ -290,11 +288,7 @@ export async function ensureWorkspace(sql: Sql, userId: string) {
         ${item.question}, ${null}, ${null}, ${"pending"},
         ${item.evidence}, ${item.inference}, ${item.recommendation}, ${item.sortOrder}
       )
-      on conflict (user_id, question_id) do update
-      set question = excluded.question,
-          evidence = excluded.evidence,
-          inference = excluded.inference,
-          sort_order = excluded.sort_order
+      on conflict (user_id, question_id) do nothing
     `;
   }
 }
@@ -324,13 +318,12 @@ const MINING_ANSWERS: Record<string, string> = {
     "Plant champion and economic buyer (GM / VP Processing). Validator optional. Roles stay suggestions until revealed.",
   "profile.signals":
     "Company site, regulator, and named trade press. Public HTTPS only. Tier 3 cannot qualify alone.",
-  "profile.geo":
-    "English-language operating plants. Other languages need a later play.",
+  "profile.geo": "English-language operating plants. Other languages need a later play.",
   "profile.schedule":
     "Weekdays 06:00 America/Toronto. Greenfield Draft is excluded from the morning run.",
   "profile.compliance":
     "I acknowledge guidance is advisory. Suppression, digest, and sender checks still apply at send time.",
-};;
+};
 
 export async function seedMiningSample(sql: Sql, userId: string) {
   await ensureWorkspace(sql, userId);
@@ -339,7 +332,9 @@ export async function seedMiningSample(sql: Sql, userId: string) {
     where user_id = ${userId} and status = ${"confirmed"}
   `;
   if (Number(confirmed[0]?.n ?? 0) > 0) {
-    throw new Error("A company is already confirmed in this workspace. Start a corrected review instead of loading the sample.");
+    throw new Error(
+      "A company is already confirmed in this workspace. Start a corrected review instead of loading the sample.",
+    );
   }
 
   await sql`

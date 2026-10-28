@@ -253,12 +253,19 @@ export async function validateWorkspaceArchive(
     [
       "outreach_messages",
       "status",
-      ["draft", "approved", "sending", "blocked", "sent", "handed_to_gmail"],
+      ["draft", "approved", "sending", "blocked", "sent", "handed_to_gmail", "handed_off"],
     ],
     [
       "delivery_events",
       "kind",
-      ["bounce", "reply", "unsubscribe", "archive_restore_package", "archive_restore_message"],
+      [
+        "bounce",
+        "reply",
+        "unsubscribe",
+        "manual_handoff",
+        "archive_restore_package",
+        "archive_restore_message",
+      ],
     ],
     ["enrichment_grants", "status", ["apollo", "zoominfo", "public_source"]],
     ["suppressions", "kind", ["email", "domain", "phone", "contact", "org", "all"]],
@@ -381,9 +388,15 @@ export async function validateWorkspaceArchive(
           throw new Error("Invalid restore history");
       } else if (
         Object.keys(record).sort().join() !== "acknowledged,status" ||
-        !["draft", "approved", "sending", "blocked", "sent", "handed_to_gmail"].includes(
-          record.status as string,
-        ) ||
+        ![
+          "draft",
+          "approved",
+          "sending",
+          "blocked",
+          "sent",
+          "handed_to_gmail",
+          "handed_off",
+        ].includes(record.status as string) ||
         typeof record.acknowledged !== "boolean"
       )
         throw new Error("Invalid restore history");
@@ -493,6 +506,19 @@ export async function restoreWorkspaceArchive(
               );
           }
     }
+    // Match the ID used by prepareMessage after owner/package/contact remapping.
+    if (a.sourceOwner !== owner)
+      for (const row of a.tables.outreach_messages) {
+        const packageId = ids.get(row.package_id as string) ?? row.package_id;
+        const contactId = ids.get(row.contact_id as string) ?? row.contact_id;
+        ids.set(
+          row.id as string,
+          createHash("sha256")
+            .update(`prospector:${owner}:msg:${packageId}:${contactId}`)
+            .digest("hex")
+            .slice(0, 24),
+        );
+      }
     const refs: Record<string, string[]> = {
       prospects: ["run_id", "assessment_id"],
       review_commands: ["prospect_id"],
@@ -521,8 +547,7 @@ export async function restoreWorkspaceArchive(
             .slice(0, 24);
       }
       if (table === "outreach_messages") {
-        if (["approved", "sending", "handed_to_gmail", "sent"].includes(row.status as string))
-          row.status = "blocked";
+        if (["approved", "sending"].includes(row.status as string)) row.status = "blocked";
         row.acknowledged = false;
       }
       if (table === "outreach_packages" && row.status === "approved") row.status = "draft";
@@ -572,6 +597,43 @@ export async function restoreWorkspaceArchive(
         });
       }
     }
+    // Recovery must never erase consumed manual effects. An older backup that
+    // predates local terminal history is rejected atomically, not replayed.
+    const terminalStatuses = ["handed_off", "handed_to_gmail", "sent"];
+    const archivedMessages = a.tables.outreach_messages.map((row) =>
+      transform("outreach_messages", row),
+    );
+    const archivedEvents = a.tables.delivery_events.map((row) => transform("delivery_events", row));
+    const terminalMessages = await sql.query<Row>(
+      "select id from outreach_messages where user_id = $1 and (status in ('handed_off', 'handed_to_gmail', 'sent') or dispatched_at is not null)",
+      [owner],
+    );
+    const terminalEvents = await sql.query<Row>(
+      "select message_id from delivery_events where user_id = $1 and kind = 'manual_handoff'",
+      [owner],
+    );
+    for (const row of terminalMessages)
+      if (
+        !archivedMessages.some(
+          (candidate) =>
+            candidate.id === row.id &&
+            (terminalStatuses.includes(candidate.status as string) ||
+              candidate.dispatched_at !== null),
+        )
+      )
+        throw new Error(
+          "This backup predates recorded delivery or handoff history. Export the current workspace before recovery; restore cannot erase consumed handoffs.",
+        );
+    for (const row of terminalEvents)
+      if (
+        !archivedEvents.some(
+          (candidate) =>
+            candidate.message_id === row.message_id && candidate.kind === "manual_handoff",
+        )
+      )
+        throw new Error(
+          "This backup predates recorded handoff history. Restore cannot erase consumed handoffs.",
+        );
     // Detect owner-crossing primary-key collisions before changing any rows.
     // Deleted target rows may be replaced, but existing suppressions survive.
     for (const table of tables) {
