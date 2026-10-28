@@ -1,6 +1,6 @@
 # Isolated browser workflow acceptance
 
-**Status: browser execution BLOCKED, not accepted.** This lane starts from
+**Status: pinned browser acquired; workflow acceptance remains open.** This lane starts from
 `8838363ef64698f92ac57ac06d564b3d72d4701f` on
 `codex/local-app-integration`. It adds no production seam, auth bypass, dependency,
 route, migration, workflow, or default change. Other lanes need not import it.
@@ -73,7 +73,8 @@ aborted; Gmail is never navigated. Local requests use `route.fetch` with
 requires redirect-free responses. DNS/background browser flags supplement these
 routes. Direct foreign/alternate-loopback negative probes run before workflows;
 redirect refusal and WebSocket closure also have deterministic route-contract tests.
-These browser probes have **not run here** while the browser binary is unavailable.
+The browser probes ran with the acquired pinned headless shell and refused both targets.
+They use a disposable page, closed before opening the workflow page.
 
 ## Auth and workflow evidence
 
@@ -82,7 +83,8 @@ session state, signup absence, missing/foreign Origin and cross-site POST denial
 and unchanged canonical workspace rows. This app uses exact Origin/Host checks;
 there is no separate CSRF token to pretend to verify.
 
-The browser specification (written, **not executed here**) covers:
+The browser specification covers the following assertions; consult `last-run.json`
+and EVIDENCE.md for the exact executed subset:
 
 - Sixteen fictional interview submissions and confirmations; product activation,
   manual discovery, explored/confirmed draft play, profile activation and manual
@@ -110,8 +112,9 @@ acceptance. Keep the broader acceptance matrix open.
 
 ## Current handoff
 
-See [EVIDENCE.md](EVIDENCE.md) and [last-run.json](last-run.json). The environment
-returns a 195-byte HTML document for the pinned browser ZIP downloads. No browser
-binary is installed. Resume by making that exact pinned browser artifact
-available, then run the unchanged command and resolve real browser failures in
-this directory. Do not replace the browser or cite handler tests as completion.
+See [EVIDENCE.md](EVIDENCE.md) and [last-run.json](last-run.json). Official
+pinned-artifact acquisition is resolved; [ARTIFACT.md](ARTIFACT.md) records the
+failed CDN response and reproducible official Google download/cache recovery.
+Failure evidence retains harness code locations, fixed error classifications,
+network error codes and fence counts, never selector contents or runtime logs.
+No workflow, Mac or owner acceptance follows merely from browser launch.

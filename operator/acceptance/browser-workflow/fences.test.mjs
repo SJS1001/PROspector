@@ -84,3 +84,22 @@ test("browser fence never follows or fulfills a redirect", async () => {
   websocket({ close: () => actions.push("websocket-closed") });
   assert.ok(events.some((x) => x.kind === "websocket-denied"));
 });
+
+test("failure evidence retains code locations without secret-bearing diagnostics", async () => {
+  const { failureEvidence } = await import("./diagnostics.mjs");
+  const error = {
+    name: "TimeoutError",
+    stack:
+      "password=fictional-secret cookie=private\nlocator('private-value')\n    at runWorkflow (/tmp/private-root/workflow.mjs:140:12)\n    at /tmp/private-root/run.mjs:456:9",
+  };
+  assert.deepEqual(failureEvidence(error, "browser-workflow"), {
+    stage: "browser-workflow",
+    name: "TimeoutError",
+    locations: ["workflow.mjs:140:12", "run.mjs:456:9"],
+    category: "browser-timeout",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(failureEvidence(error, "browser-workflow")),
+    /private|secret|cookie|locator/,
+  );
+});

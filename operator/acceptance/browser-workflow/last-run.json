@@ -1,5 +1,5 @@
 {
-  "base": "8838363ef64698f92ac57ac06d564b3d72d4701f",
+  "base": "2aeb39e2f0dc86a8c0cdc58409f831beff2129d3",
   "node": "v24.22.1",
   "platform": "linux",
   "playwright": "1.63.0",
@@ -55,9 +55,48 @@
     "llm.ts",
     "retrieve.ts"
   ],
+  "browser": "153.0.8010.12",
+  "interview": {
+    "submitted": 16,
+    "confirmed": 16,
+    "fictional": true
+  },
+  "discovery": {
+    "productActivated": true,
+    "manualRun": true,
+    "draftPlayConfirmed": true
+  },
+  "prospectProbe": {
+    "cycle": 1,
+    "plantOne": 0,
+    "plantTwo": 0,
+    "alerts": 1,
+    "alertMessages": [
+      "item.startedAt.startsWith is not a function"
+    ],
+    "classifications": []
+  },
   "error": {
-    "stage": "pinned-browser-launch",
-    "name": "Error"
+    "stage": "browser-workflow",
+    "name": "TimeoutError",
+    "locations": [
+      "workflow.mjs:127:19",
+      "workflow.mjs:192:13",
+      "run.mjs:451:3"
+    ],
+    "category": "browser-timeout"
+  },
+  "browserFenceCounts": {
+    "local": 89,
+    "denied": 0,
+    "redirect-denied": 0,
+    "websocket-denied": 0,
+    "compose": 0
+  },
+  "stubCounts": {
+    "hunt": 1,
+    "discovery": 2,
+    "retrieve": 1
   },
   "forbiddenAttempts": 0
 }

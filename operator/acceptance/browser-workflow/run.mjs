@@ -19,6 +19,7 @@ import { chromium } from "playwright";
 import { STUB_NAMES, stubSource } from "./stubs.mjs";
 import { fenceContext, ORIGIN } from "./browser-fence.mjs";
 import { auditGraph } from "./graph.mjs";
+import { failureEvidence } from "./diagnostics.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
@@ -421,17 +422,30 @@ try {
   browser = await chromium.connect(browserServer.wsEndpoint());
   evidence.browser = browser.version();
   const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: true });
+  context.setDefaultTimeout(30_000);
+  context.setDefaultNavigationTimeout(30_000);
   await fenceContext(context, browserEvents);
-  const page = await context.newPage();
   // Active negative proof: browser routing must refuse both external and alternate loopback origins.
   for (const target of [
     "https://example.invalid/fence-probe",
     "http://127.0.0.1:8081/fence-probe",
   ]) {
-    await assert.rejects(page.goto(target));
+    const probePage = await context.newPage();
+    console.log("Browser checkpoint: negative origin probe");
+    await assert.rejects(
+      probePage.goto(target, { timeout: 5000, waitUntil: "commit" }),
+      /net::ERR_BLOCKED_BY_CLIENT/,
+    );
+    await Promise.race([
+      probePage.close(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Probe page close timed out")), 5000),
+      ),
+    ]);
   }
   assert.equal(browserEvents.filter((x) => x.kind === "denied").length, 2);
   browserEvents.length = 0;
+  const page = await context.newPage();
   const { runWorkflow } = await import("./workflow.mjs");
   stage = "browser-workflow";
   await runWorkflow({
@@ -480,8 +494,13 @@ try {
   evidence.status = "PASS";
 } catch (error) {
   evidence.status = "BLOCKED_OR_FAILED";
-  evidence.error = { stage, name: error.name };
-  writeFileSync(join(scratch, "diagnostic.txt"), String(error.stack), { mode: 0o600 });
+  evidence.error = failureEvidence(error, stage);
+  evidence.browserFenceCounts = Object.fromEntries(
+    ["local", "denied", "redirect-denied", "websocket-denied", "compose"].map((kind) => [
+      kind,
+      browserEvents.filter((x) => x.kind === kind).length,
+    ]),
+  );
   console.error("Acceptance blocked or failed at " + stage + " (" + error.name + ")");
   process.exitCode = 1;
 } finally {
@@ -531,6 +550,12 @@ function finalize() {
       evidence.status = "FAILED_BROWSER_FENCE";
       process.exitCode = 1;
     }
+    evidence.stubCounts = Object.fromEntries(
+      ["hunt", "discovery", "retrieve"].map((name) => [
+        name,
+        finalEvents.filter((x) => x.kind === "stub" && x.name === name).length,
+      ]),
+    );
     evidence.forbiddenAttempts = finalEvents.filter(
       (x) =>
         x.kind === "denied" ||
