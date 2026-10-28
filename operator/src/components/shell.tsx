@@ -204,7 +204,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <UserButton />
             </div>
           </header>
-          <div id="operator-task" className="px-4 py-6 lg:px-8 lg:py-8" tabIndex={-1}>
+          <div
+            id="operator-task"
+            className="px-4 py-6 lg:px-8 lg:py-8"
+            tabIndex={-1}
+            onFocusCapture={(event) => {
+              const control = event.target;
+              if (!control.matches("input,textarea,select,button,a[href],summary")) return;
+              requestAnimationFrame(() => {
+                if (document.activeElement !== control) return;
+                const bounds = control.getBoundingClientRect();
+                if (bounds.top < 0 || bounds.bottom > window.innerHeight)
+                  control.scrollIntoView({ block: "nearest", inline: "nearest" });
+              });
+            }}
+          >
             {children}
           </div>
         </section>
