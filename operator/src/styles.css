@@ -139,3 +139,43 @@ textarea.field {
   padding: 10px 12px;
   resize: vertical;
 }
+
+/* Keep intrinsic content inside the local operator's narrow workspace. */
+@media (max-width: 639px) {
+  .app-window,
+  .app-window > .grid,
+  .app-window aside,
+  #operator-task .grid > *,
+  #operator-task .flex > * {
+    min-width: 0;
+  }
+
+  #operator-task {
+    overflow-wrap: anywhere;
+  }
+
+  #operator-task button,
+  #operator-task a.inline-flex {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    flex-shrink: 1;
+    padding-block: 0.5rem;
+  }
+
+  #operator-task .flex:has(> button) {
+    flex-wrap: wrap;
+  }
+
+  #operator-task input:not([type="checkbox"]):not([type="radio"]),
+  #operator-task textarea,
+  #operator-task select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Status counters have three padded cells at 360px. */
+  #operator-task dl.grid-cols-3 > div {
+    padding-inline: 0.5rem;
+  }
+}
