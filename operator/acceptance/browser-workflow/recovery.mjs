@@ -123,11 +123,35 @@ export async function runRecovery({ page, origin, snapshot, evidence }) {
   await success.waitFor();
   assert.equal(await success.evaluate((node) => node === document.activeElement), true);
   const restored = await snapshot('recovery-after-valid-restore');
-  for (const table of ['knowledge_items', 'prospects', 'contacts', 'suppressions', 'delivery_events'])
+  for (const table of ['knowledge_items', 'prospects', 'contacts', 'suppressions'])
     assert.equal(restored.counts[table], afterLoss.counts[table], `Restore inventory: ${table}`);
   const terminal = (rows) => rows.filter((row) => ['handed_off', 'handed_to_gmail', 'sent'].includes(row.status) || row.dispatched_at != null);
   assert.ok(terminal(afterLoss.tables.outreach_messages).length > 0, 'Terminal history assertion is non-vacuous');
-  assert.deepEqual(terminal(restored.tables.outreach_messages), terminal(afterLoss.tables.outreach_messages));
+  assert.deepEqual(terminal(restored.tables.outreach_messages), terminal(afterLoss.tables.outreach_messages).map((row) => ({ ...row, acknowledged: false })));
+  assert.deepEqual(restored.tables.outreach_messages, afterLoss.tables.outreach_messages.map((row) => ({
+    ...row, status: ['approved', 'sending'].includes(row.status) ? 'blocked' : row.status, acknowledged: false,
+  })));
+  assert.deepEqual(restored.tables.outreach_packages, afterLoss.tables.outreach_packages.map((row) => ({
+    ...row, status: row.status === 'approved' ? 'draft' : row.status,
+  })));
+  // Restore preserves every prior delivery event and appends exact prior-authority
+  // audit records when it resets package approval or message acknowledgement.
+  const oldEvents = afterLoss.tables.delivery_events;
+  const oldIds = new Set(oldEvents.map((row) => row.id));
+  assert.deepEqual(restored.tables.delivery_events.filter((row) => oldIds.has(row.id)), oldEvents);
+  const expectedAudit = [
+    ...afterLoss.tables.outreach_packages.filter((row) => row.status === 'approved').map((row) => ({
+      kind: 'archive_restore_package', message_id: row.id, history: { status: row.status },
+    })),
+    ...afterLoss.tables.outreach_messages.filter((row) => ['approved', 'sending'].includes(row.status) || row.acknowledged).map((row) => ({
+      kind: 'archive_restore_message', message_id: row.id, history: { status: row.status, acknowledged: row.acknowledged },
+    })),
+  ];
+  const audit = restored.tables.delivery_events.filter((row) => !oldIds.has(row.id));
+  const canonicalAudit = (rows) => rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  assert.equal(new Set(audit.map((row) => row.id)).size, expectedAudit.length);
+  assert.deepEqual(canonicalAudit(audit.map((row) => ({ kind: row.kind, message_id: row.message_id, history: JSON.parse(row.note) }))), canonicalAudit(expectedAudit));
+  assert.equal(restored.counts.delivery_events, oldEvents.length + expectedAudit.length);
   const handoffs = (rows) => rows.filter((row) => row.kind === 'manual_handoff');
   assert.ok(handoffs(afterLoss.tables.delivery_events).length > 0);
   assert.deepEqual(handoffs(restored.tables.delivery_events), handoffs(afterLoss.tables.delivery_events));
