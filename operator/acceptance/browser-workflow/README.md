@@ -159,7 +159,7 @@ and EVIDENCE.md for the exact executed subset:
 
 Archive/DB/auth production repairs belong to lane F and UI polish to lane G.
 The exact executed source and counts belong in EVIDENCE.md and last-run.json;
-the public run at `7697663` passed: 46 units, 359 keyboard actions, 282 layout
+the public run at `b411707` passed: 46 units, 483 keyboard actions, 285 layout
 samples, 10 cancellation cases, two workflows and four recovery scenarios.
 This harness does not claim concurrent handoff election, every suppression scope, every archive corruption/rollback
 variant, saved-provider restart, an overnight-open simulation, native file

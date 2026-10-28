@@ -1,5 +1,5 @@
 {
-  "base": "76976635c0267bd3f9a5d7f2b5392b2ef59dd3fd",
+  "base": "b411707ae6e3d1e5ce503bfc0276dd68afc48f81",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
+      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
+      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
+      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "48b75ec70e29cb90675c37702666c67e118ed6c059f409aa9dffbcb28c6db5d3"
+      "digest": "a3480dfd37ba3c75e2b4b9d83b4bbb2918517b780f54df6cc7a499878925bd6a"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "0e516dd46c28dab93d903473ba5eacf5e45801b206f3cb9efe7af6174fd5d953"
+      "digest": "60ab03e685f757c487302c8f53e6a691c467160c592faf8abb563df280bfe594"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "0e516dd46c28dab93d903473ba5eacf5e45801b206f3cb9efe7af6174fd5d953"
+      "digest": "60ab03e685f757c487302c8f53e6a691c467160c592faf8abb563df280bfe594"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "a00cb035cc8f8bedbeb3acb0a816d871b02655a8a3e8e9e78f23b6465aa159cf"
+      "digest": "7bcdd8781fc91cb82cd20acc59800ebbee30e7ded26b7d6e731ffb8785a82350"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "a00cb035cc8f8bedbeb3acb0a816d871b02655a8a3e8e9e78f23b6465aa159cf"
+      "digest": "7bcdd8781fc91cb82cd20acc59800ebbee30e7ded26b7d6e731ffb8785a82350"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "a00cb035cc8f8bedbeb3acb0a816d871b02655a8a3e8e9e78f23b6465aa159cf"
+      "digest": "7bcdd8781fc91cb82cd20acc59800ebbee30e7ded26b7d6e731ffb8785a82350"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "dbaa1d8cf4eb2d6bba86679f59da0c3693f674a3d8e7a49e67934457f598f4b7"
+      "digest": "72a93a70cb7107d924d31738bd8e76c50b48d7694ccb558eea1c5bb88380bac9"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "dbaa1d8cf4eb2d6bba86679f59da0c3693f674a3d8e7a49e67934457f598f4b7"
+      "digest": "72a93a70cb7107d924d31738bd8e76c50b48d7694ccb558eea1c5bb88380bac9"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "dbaa1d8cf4eb2d6bba86679f59da0c3693f674a3d8e7a49e67934457f598f4b7"
+      "digest": "72a93a70cb7107d924d31738bd8e76c50b48d7694ccb558eea1c5bb88380bac9"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "a6b3de8bb86f4a24937fb9130e6cc680e37ec3ed1ae42c546f55c62d377cf2ec"
+      "digest": "e7b603a10568ce37ffd6e7319e88e2ef6012fbd88b41c6b2f9cba5cf024bfb5f"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,7 +315,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "a6b3de8bb86f4a24937fb9130e6cc680e37ec3ed1ae42c546f55c62d377cf2ec"
+      "digest": "e7b603a10568ce37ffd6e7319e88e2ef6012fbd88b41c6b2f9cba5cf024bfb5f"
     }
   ],
   "reviewedSourceFiles": 29,
@@ -351,8 +351,30 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 7,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /knowledge",
+        "tabs": 11,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /knowledge",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /knowledge",
-        "tabs": 9,
+        "tabs": 13,
         "direction": "Shift+Tab"
       },
       {
@@ -363,7 +385,7 @@
       {
         "kind": "reach",
         "label": "skip link",
-        "tabs": 1,
+        "tabs": 6,
         "direction": "Tab"
       },
       {
@@ -378,7 +400,7 @@
       {
         "kind": "reach",
         "label": "answer 1",
-        "tabs": 2,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -399,7 +421,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -410,7 +432,7 @@
       {
         "kind": "reach",
         "label": "answer 2",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -431,7 +453,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -442,7 +464,7 @@
       {
         "kind": "reach",
         "label": "answer 3",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -463,7 +485,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -474,7 +496,7 @@
       {
         "kind": "reach",
         "label": "answer 4",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -495,7 +517,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -506,7 +528,7 @@
       {
         "kind": "reach",
         "label": "answer 5",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -527,7 +549,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -538,7 +560,7 @@
       {
         "kind": "reach",
         "label": "answer 6",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -559,7 +581,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -570,7 +592,7 @@
       {
         "kind": "reach",
         "label": "answer 7",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -591,7 +613,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -602,7 +624,7 @@
       {
         "kind": "reach",
         "label": "answer 8",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -623,7 +645,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -634,7 +656,7 @@
       {
         "kind": "reach",
         "label": "answer 9",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -655,7 +677,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -666,7 +688,7 @@
       {
         "kind": "reach",
         "label": "answer 10",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -687,7 +709,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -698,7 +720,7 @@
       {
         "kind": "reach",
         "label": "answer 11",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -719,7 +741,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -730,7 +752,7 @@
       {
         "kind": "reach",
         "label": "answer 12",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -751,7 +773,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -762,7 +784,7 @@
       {
         "kind": "reach",
         "label": "answer 13",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -783,7 +805,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -794,7 +816,7 @@
       {
         "kind": "reach",
         "label": "answer 14",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -815,7 +837,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -826,7 +848,7 @@
       {
         "kind": "reach",
         "label": "answer 15",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -847,7 +869,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -858,7 +880,7 @@
       {
         "kind": "reach",
         "label": "answer 16",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -879,7 +901,7 @@
       {
         "kind": "reach",
         "label": "Confirm submitted answer",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -889,8 +911,138 @@
       },
       {
         "kind": "reach",
+        "label": "Review saved product limits",
+        "tabs": 7,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Review saved product limits",
+        "key": "Space"
+      },
+      {
+        "kind": "reach",
+        "label": "Close saved product limits",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Close saved product limits",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Edit company",
+        "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Edit company",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "corrected company answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "type",
+        "label": "corrected company answer"
+      },
+      {
+        "kind": "reach",
+        "label": "Submit answer for confirmation",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Submit answer for confirmation",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Confirm submitted answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Confirm submitted answer",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Edit company",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Edit company",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "corrected company answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "type",
+        "label": "corrected company answer"
+      },
+      {
+        "kind": "reach",
+        "label": "Submit answer for confirmation",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Submit answer for confirmation",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Confirm submitted answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Confirm submitted answer",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /discovery",
+        "tabs": 17,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /discovery",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /discovery",
-        "tabs": 8,
+        "tabs": 23,
         "direction": "Shift+Tab"
       },
       {
@@ -916,7 +1068,7 @@
       {
         "kind": "reach",
         "label": "Activate product configuration",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -1038,7 +1190,7 @@
       {
         "kind": "reach",
         "label": "market exploration reason",
-        "tabs": 2,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -1059,7 +1211,7 @@
       {
         "kind": "reach",
         "label": "Audience",
-        "tabs": 18,
+        "tabs": 14,
         "direction": "Tab"
       },
       {
@@ -1099,8 +1251,30 @@
       },
       {
         "kind": "reach",
+        "label": "Open disclosure for control",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for control",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 10,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /prospects",
-        "tabs": 8,
+        "tabs": 17,
         "direction": "Shift+Tab"
       },
       {
@@ -1126,7 +1300,7 @@
       {
         "kind": "reach",
         "label": "Activate profile configuration",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -1186,8 +1360,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 16,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 6,
+        "tabs": 20,
         "direction": "Shift+Tab"
       },
       {
@@ -1213,7 +1398,7 @@
       {
         "kind": "reach",
         "label": "review reason 1",
-        "tabs": 1,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -1262,7 +1447,7 @@
       {
         "kind": "reach",
         "label": "Approve prospect",
-        "tabs": 20,
+        "tabs": 14,
         "direction": "Tab"
       },
       {
@@ -1272,8 +1457,30 @@
       },
       {
         "kind": "reach",
-        "label": "workspace navigation /contacts",
+        "label": "Open workspace menu",
         "tabs": 4,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /contacts",
+        "tabs": 6,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /contacts",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /contacts",
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -1299,7 +1506,7 @@
       {
         "kind": "reach",
         "label": "Run public-source reveal 1-0",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -1309,8 +1516,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 8,
+        "tabs": 13,
         "direction": "Shift+Tab"
       },
       {
@@ -1336,7 +1554,7 @@
       {
         "kind": "reach",
         "label": "Prepare package",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -1346,6 +1564,17 @@
       },
       {
         "kind": "reach",
+        "label": "Open disclosure for package approval",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for package approval",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "Approve package",
         "tabs": 1,
         "direction": "Tab"
@@ -1364,6 +1593,17 @@
       {
         "kind": "activate",
         "label": "Draft message to person1@fictionalquarry.example",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for message acknowledgement",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for message acknowledgement",
         "key": "Enter"
       },
       {
@@ -1401,75 +1641,130 @@
       },
       {
         "kind": "reach",
-        "label": "workspace navigation /brief",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /",
+        "tabs": 14,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /settings",
+        "tabs": 7,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /settings",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for control",
+        "tabs": 3,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for control",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Download CRM CSV",
+        "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Download CRM CSV",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /outreach",
+        "tabs": 8,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /outreach",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /outreach",
         "tabs": 12,
         "direction": "Shift+Tab"
       },
       {
         "kind": "activate",
-        "label": "workspace navigation /brief",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
-      },
-      {
-        "kind": "reach",
-        "label": "workspace navigation /settings",
-        "tabs": 2,
-        "direction": "Shift+Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "workspace navigation /settings",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
-      },
-      {
-        "kind": "reach",
-        "label": "Download CRM CSV",
-        "tabs": 13,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Download CRM CSV",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "workspace navigation /outreach",
-        "tabs": 4,
-        "direction": "Shift+Tab"
-      },
-      {
-        "kind": "activate",
         "label": "workspace navigation /outreach",
         "key": "Enter"
       },
@@ -1487,11 +1782,33 @@
       {
         "kind": "skip",
         "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 7,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /prospects",
+        "tabs": 12,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /prospects",
+        "key": "Enter"
       },
       {
         "kind": "reach",
         "label": "workspace navigation /prospects",
-        "tabs": 7,
+        "tabs": 16,
         "direction": "Shift+Tab"
       },
       {
@@ -1517,7 +1834,7 @@
       {
         "kind": "reach",
         "label": "Find Prospects",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -1577,8 +1894,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 18,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 6,
+        "tabs": 22,
         "direction": "Shift+Tab"
       },
       {
@@ -1604,7 +1932,7 @@
       {
         "kind": "reach",
         "label": "review reason 2",
-        "tabs": 1,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -1624,8 +1952,30 @@
       },
       {
         "kind": "reach",
-        "label": "workspace navigation /contacts",
+        "label": "Open workspace menu",
         "tabs": 4,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /contacts",
+        "tabs": 6,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /contacts",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /contacts",
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -1651,7 +2001,7 @@
       {
         "kind": "reach",
         "label": "Run public-source reveal 2-0",
-        "tabs": 1,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -1662,7 +2012,7 @@
       {
         "kind": "reach",
         "label": "Run public-source reveal 2-1",
-        "tabs": 13,
+        "tabs": 7,
         "direction": "Tab"
       },
       {
@@ -1673,7 +2023,7 @@
       {
         "kind": "reach",
         "label": "Run public-source reveal 2-2",
-        "tabs": 14,
+        "tabs": 9,
         "direction": "Tab"
       },
       {
@@ -1683,153 +2033,440 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /outreach",
+        "tabs": 19,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /outreach",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Prepare package",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Prepare package",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for package approval",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for package approval",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Approve package",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Approve package",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Draft message to person2@fictionalquarry.example",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Draft message to person2@fictionalquarry.example",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for message acknowledgement",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for message acknowledgement",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "exact message acknowledgement",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "exact message acknowledgement",
+        "key": "Space"
+      },
+      {
+        "kind": "reach",
+        "label": "Approve this message",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Approve this message",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for control",
+        "tabs": 13,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for control",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Draft message to person2@fictionalquarry.example",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Draft message to person2@fictionalquarry.example",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Draft message to person2@fictionalquarry.example",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Draft message to person2@fictionalquarry.example",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for renewed exact message acknowledgement",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for renewed exact message acknowledgement",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "renewed exact message acknowledgement",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "renewed exact message acknowledgement",
+        "key": "Space"
+      },
+      {
+        "kind": "reach",
+        "label": "Approve renewed message",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Approve renewed message",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for control",
+        "tabs": 13,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for control",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /settings",
+        "tabs": 12,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /settings",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Download CRM CSV",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Download CRM CSV",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 5,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /outreach",
+        "tabs": 9,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for workspace navigation /outreach",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /outreach",
+        "tabs": 13,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /outreach",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for control",
+        "tabs": 13,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for control",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for Open in Gmail",
+        "tabs": 4,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for Open in Gmail",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open in Gmail",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open in Gmail",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /",
+        "tabs": 16,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "workspace navigation /settings",
+        "tabs": 7,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "workspace navigation /settings",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "skip link",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "skip link",
+        "key": "Enter"
+      },
+      {
+        "kind": "skip",
+        "label": "workspace focus"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for control",
+        "tabs": 3,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for control",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Download CRM CSV",
+        "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Download CRM CSV",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 7,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for workspace navigation /outreach",
         "tabs": 11,
         "direction": "Shift+Tab"
       },
       {
         "kind": "activate",
-        "label": "workspace navigation /outreach",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
-      },
-      {
-        "kind": "reach",
-        "label": "Prepare package",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Prepare package",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Approve package",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Approve package",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Draft message to person2@fictionalquarry.example",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Draft message to person2@fictionalquarry.example",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "exact message acknowledgement",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "exact message acknowledgement",
-        "key": "Space"
-      },
-      {
-        "kind": "reach",
-        "label": "Approve this message",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Approve this message",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Draft message to person2@fictionalquarry.example",
-        "tabs": 12,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Draft message to person2@fictionalquarry.example",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "renewed exact message acknowledgement",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "renewed exact message acknowledgement",
-        "key": "Space"
-      },
-      {
-        "kind": "reach",
-        "label": "Approve renewed message",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Approve renewed message",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "workspace navigation /settings",
-        "tabs": 3,
-        "direction": "Shift+Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "workspace navigation /settings",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
-      },
-      {
-        "kind": "reach",
-        "label": "Download CRM CSV",
-        "tabs": 13,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Download CRM CSV",
+        "label": "Open disclosure for workspace navigation /outreach",
         "key": "Enter"
       },
       {
@@ -1860,108 +2497,19 @@
       },
       {
         "kind": "reach",
-        "label": "Open in Gmail",
-        "tabs": 2,
+        "label": "Open disclosure for do-not-contact controls",
+        "tabs": 6,
         "direction": "Tab"
       },
       {
         "kind": "activate",
-        "label": "Open in Gmail",
+        "label": "Open disclosure for do-not-contact controls",
         "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "workspace navigation /brief",
-        "tabs": 15,
-        "direction": "Shift+Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "workspace navigation /brief",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
-      },
-      {
-        "kind": "reach",
-        "label": "workspace navigation /settings",
-        "tabs": 2,
-        "direction": "Shift+Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "workspace navigation /settings",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
-      },
-      {
-        "kind": "reach",
-        "label": "Download CRM CSV",
-        "tabs": 13,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Download CRM CSV",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "workspace navigation /outreach",
-        "tabs": 15,
-        "direction": "Shift+Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "workspace navigation /outreach",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "skip link",
-        "tabs": 1,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "skip link",
-        "key": "Enter"
-      },
-      {
-        "kind": "skip",
-        "label": "workspace focus"
       },
       {
         "kind": "reach",
         "label": "suppression Kind domain",
-        "tabs": 7,
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -1971,7 +2519,7 @@
       {
         "kind": "reach",
         "label": "suppression Kind email",
-        "tabs": 21,
+        "tabs": 13,
         "direction": "Tab"
       },
       {
@@ -2011,8 +2559,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 3,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 11,
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -2038,7 +2597,7 @@
       {
         "kind": "reach",
         "label": "Download CRM CSV",
-        "tabs": 13,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -2048,8 +2607,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 5,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 14,
+        "tabs": 8,
         "direction": "Shift+Tab"
       },
       {
@@ -2060,7 +2630,7 @@
       {
         "kind": "reach",
         "label": "skip link",
-        "tabs": 18,
+        "tabs": 6,
         "direction": "Tab"
       },
       {
@@ -2075,7 +2645,7 @@
       {
         "kind": "reach",
         "label": "Download CRM CSV",
-        "tabs": 13,
+        "tabs": 2,
         "direction": "Tab"
       },
       {
@@ -2085,8 +2655,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 5,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "recovery navigation /settings",
-        "tabs": 14,
+        "tabs": 8,
         "direction": "Shift+Tab"
       },
       {
@@ -2096,41 +2677,96 @@
       },
       {
         "kind": "reach",
+        "label": "Open disclosure for recovery controls",
+        "tabs": 3,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for recovery controls",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "failed backup download",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "failed backup download",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Collapse backup during pending download",
+        "tabs": 8,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Collapse backup during pending download",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "explicit backup download retry",
+        "tabs": 1,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "explicit backup download retry",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for recovery navigation /outreach",
+        "tabs": 11,
+        "direction": "Shift+Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for recovery navigation /outreach",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "recovery navigation /outreach",
         "tabs": 15,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "failed backup download",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "explicit backup download retry",
-        "tabs": 25,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "explicit backup download retry",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "recovery navigation /outreach",
-        "tabs": 16,
         "direction": "Shift+Tab"
       },
       {
         "kind": "activate",
         "label": "recovery navigation /outreach",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for recovery controls",
+        "tabs": 9,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for recovery controls",
         "key": "Enter"
       },
       {
         "kind": "reach",
         "label": "recovery suppression kind",
-        "tabs": 25,
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -2170,8 +2806,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open workspace menu",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open workspace menu",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "recovery navigation /settings",
-        "tabs": 19,
+        "tabs": 14,
         "direction": "Shift+Tab"
       },
       {
@@ -2181,6 +2828,17 @@
       },
       {
         "kind": "reach",
+        "label": "Open disclosure for recovery controls",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for recovery controls",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "failed workspace load retry",
         "tabs": 1,
         "direction": "Tab"
@@ -2192,8 +2850,19 @@
       },
       {
         "kind": "reach",
+        "label": "Open disclosure for backup after reload",
+        "tabs": 3,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for backup after reload",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "invalid backup confirmation",
-        "tabs": 27,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -2215,7 +2884,7 @@
       {
         "kind": "reach",
         "label": "current recovery backup",
-        "tabs": 25,
+        "tabs": 1,
         "direction": "Tab"
       },
       {
@@ -2226,7 +2895,7 @@
       {
         "kind": "reach",
         "label": "valid backup confirmation",
-        "tabs": 2,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -2243,6 +2912,17 @@
       {
         "kind": "activate",
         "label": "valid backup recovery",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Open disclosure for backup after reload",
+        "tabs": 6,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Open disclosure for backup after reload",
         "key": "Enter"
       }
     ],
@@ -2401,7 +3081,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "home",
@@ -2423,7 +3103,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 4
     },
     {
       "checkpoint": "home",
@@ -2445,7 +3125,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 4
     },
     {
       "checkpoint": "screen /knowledge",
@@ -2599,7 +3279,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "interview proposed 1",
@@ -2621,7 +3301,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "interview proposed 1",
@@ -2643,7 +3323,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "interview answer 2",
@@ -2731,7 +3411,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "interview proposed 2",
@@ -2753,7 +3433,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "interview proposed 2",
@@ -2775,7 +3455,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 2
+      "controls": 3
     },
     {
       "checkpoint": "interview answer 3",
@@ -2863,7 +3543,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 3
+      "controls": 4
     },
     {
       "checkpoint": "interview proposed 3",
@@ -2885,7 +3565,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 3
+      "controls": 4
     },
     {
       "checkpoint": "interview proposed 3",
@@ -2907,7 +3587,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 3
+      "controls": 4
     },
     {
       "checkpoint": "interview answer 4",
@@ -2995,7 +3675,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 5
     },
     {
       "checkpoint": "interview proposed 4",
@@ -3017,7 +3697,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 5
     },
     {
       "checkpoint": "interview proposed 4",
@@ -3039,7 +3719,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 5
     },
     {
       "checkpoint": "interview answer 5",
@@ -3127,7 +3807,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 6
     },
     {
       "checkpoint": "interview proposed 5",
@@ -3149,7 +3829,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 6
     },
     {
       "checkpoint": "interview proposed 5",
@@ -3171,7 +3851,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 6
     },
     {
       "checkpoint": "interview answer 6",
@@ -3259,7 +3939,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 7
     },
     {
       "checkpoint": "interview proposed 6",
@@ -3281,7 +3961,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 7
     },
     {
       "checkpoint": "interview proposed 6",
@@ -3303,7 +3983,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 6
+      "controls": 7
     },
     {
       "checkpoint": "interview answer 7",
@@ -3391,7 +4071,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 8
     },
     {
       "checkpoint": "interview proposed 7",
@@ -3413,7 +4093,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 8
     },
     {
       "checkpoint": "interview proposed 7",
@@ -3435,7 +4115,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 8
     },
     {
       "checkpoint": "interview answer 8",
@@ -3523,7 +4203,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 9
     },
     {
       "checkpoint": "interview proposed 8",
@@ -3545,7 +4225,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 9
     },
     {
       "checkpoint": "interview proposed 8",
@@ -3567,7 +4247,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 9
     },
     {
       "checkpoint": "interview answer 9",
@@ -3655,7 +4335,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "interview proposed 9",
@@ -3677,7 +4357,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "interview proposed 9",
@@ -3699,7 +4379,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "interview answer 10",
@@ -3787,7 +4467,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 11
     },
     {
       "checkpoint": "interview proposed 10",
@@ -3809,7 +4489,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 11
     },
     {
       "checkpoint": "interview proposed 10",
@@ -3831,7 +4511,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 11
     },
     {
       "checkpoint": "interview answer 11",
@@ -3919,7 +4599,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 12
     },
     {
       "checkpoint": "interview proposed 11",
@@ -3941,7 +4621,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 12
     },
     {
       "checkpoint": "interview proposed 11",
@@ -3963,7 +4643,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 11
+      "controls": 12
     },
     {
       "checkpoint": "interview answer 12",
@@ -4051,7 +4731,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 13
     },
     {
       "checkpoint": "interview proposed 12",
@@ -4073,7 +4753,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 13
     },
     {
       "checkpoint": "interview proposed 12",
@@ -4095,7 +4775,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 13
     },
     {
       "checkpoint": "interview answer 13",
@@ -4183,7 +4863,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 14
     },
     {
       "checkpoint": "interview proposed 13",
@@ -4205,7 +4885,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 14
     },
     {
       "checkpoint": "interview proposed 13",
@@ -4227,7 +4907,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 13
+      "controls": 14
     },
     {
       "checkpoint": "interview answer 14",
@@ -4315,7 +4995,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "interview proposed 14",
@@ -4337,7 +5017,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "interview proposed 14",
@@ -4359,7 +5039,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "interview answer 15",
@@ -4447,7 +5127,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 16
     },
     {
       "checkpoint": "interview proposed 15",
@@ -4469,7 +5149,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 16
     },
     {
       "checkpoint": "interview proposed 15",
@@ -4491,7 +5171,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 16
     },
     {
       "checkpoint": "interview answer 16",
@@ -4579,7 +5259,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 17
     },
     {
       "checkpoint": "interview proposed 16",
@@ -4601,7 +5281,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 17
     },
     {
       "checkpoint": "interview proposed 16",
@@ -4623,7 +5303,73 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 16
+      "controls": 17
+    },
+    {
+      "checkpoint": "saved Company disclosure open",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 18
+    },
+    {
+      "checkpoint": "saved Company disclosure open",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 18
+    },
+    {
+      "checkpoint": "saved Company disclosure open",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 18
     },
     {
       "checkpoint": "screen /discovery",
@@ -5503,7 +6249,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "prospect results 1",
@@ -5525,7 +6271,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "prospect results 1",
@@ -5547,7 +6293,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "screen /review",
@@ -5965,7 +6711,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 6
     },
     {
       "checkpoint": "screen /outreach",
@@ -5987,7 +6733,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
+      "controls": 6
     },
     {
       "checkpoint": "screen /outreach",
@@ -6009,142 +6755,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 5
-    },
-    {
-      "checkpoint": "package review 1",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
       "controls": 6
     },
     {
       "checkpoint": "package review 1",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 6
-    },
-    {
-      "checkpoint": "package review 1",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 6
-    },
-    {
-      "checkpoint": "message-cycle-1",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 8
-    },
-    {
-      "checkpoint": "message-cycle-1",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 8
-    },
-    {
-      "checkpoint": "message-cycle-1",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 8
-    },
-    {
-      "checkpoint": "approved message 1",
       "width": 320,
       "scrollX": 0,
       "rootGeometry": {
@@ -6166,7 +6780,7 @@
       "controls": 7
     },
     {
-      "checkpoint": "approved message 1",
+      "checkpoint": "package review 1",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -6188,7 +6802,7 @@
       "controls": 7
     },
     {
-      "checkpoint": "approved message 1",
+      "checkpoint": "package review 1",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -6210,7 +6824,7 @@
       "controls": 7
     },
     {
-      "checkpoint": "handoff unconfirmed 1",
+      "checkpoint": "message-cycle-1",
       "width": 320,
       "scrollX": 0,
       "rootGeometry": {
@@ -6232,7 +6846,7 @@
       "controls": 9
     },
     {
-      "checkpoint": "handoff unconfirmed 1",
+      "checkpoint": "message-cycle-1",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -6254,7 +6868,7 @@
       "controls": 9
     },
     {
-      "checkpoint": "handoff unconfirmed 1",
+      "checkpoint": "message-cycle-1",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -6276,7 +6890,7 @@
       "controls": 9
     },
     {
-      "checkpoint": "screen /brief",
+      "checkpoint": "approved message 1",
       "width": 320,
       "scrollX": 0,
       "rootGeometry": {
@@ -6295,10 +6909,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 8
     },
     {
-      "checkpoint": "screen /brief",
+      "checkpoint": "approved message 1",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -6317,10 +6931,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 8
     },
     {
-      "checkpoint": "screen /brief",
+      "checkpoint": "approved message 1",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -6339,7 +6953,139 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 8
+    },
+    {
+      "checkpoint": "handoff unconfirmed 1",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 10
+    },
+    {
+      "checkpoint": "handoff unconfirmed 1",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 10
+    },
+    {
+      "checkpoint": "handoff unconfirmed 1",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 10
+    },
+    {
+      "checkpoint": "screen /",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 2
+    },
+    {
+      "checkpoint": "screen /",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 3
+    },
+    {
+      "checkpoint": "screen /",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 3
     },
     {
       "checkpoint": "brief after handoff 1",
@@ -6361,7 +7107,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "brief after handoff 1",
@@ -6383,7 +7129,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "brief after handoff 1",
@@ -6405,7 +7151,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "screen /settings",
@@ -6559,7 +7305,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "screen /outreach",
@@ -6581,7 +7327,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "screen /outreach",
@@ -6603,7 +7349,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "screen /prospects",
@@ -6889,7 +7635,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 11
     },
     {
       "checkpoint": "prospect results 2",
@@ -6911,7 +7657,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 11
     },
     {
       "checkpoint": "prospect results 2",
@@ -6933,7 +7679,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
+      "controls": 11
     },
     {
       "checkpoint": "screen /review",
@@ -7351,76 +8097,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 10
-    },
-    {
-      "checkpoint": "screen /outreach",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 10
-    },
-    {
-      "checkpoint": "screen /outreach",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 10
-    },
-    {
-      "checkpoint": "package review 2",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
       "controls": 11
     },
     {
-      "checkpoint": "package review 2",
+      "checkpoint": "screen /outreach",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -7442,7 +8122,7 @@
       "controls": 11
     },
     {
-      "checkpoint": "package review 2",
+      "checkpoint": "screen /outreach",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -7464,73 +8144,7 @@
       "controls": 11
     },
     {
-      "checkpoint": "message-cycle-2",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 13
-    },
-    {
-      "checkpoint": "message-cycle-2",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 13
-    },
-    {
-      "checkpoint": "message-cycle-2",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 13
-    },
-    {
-      "checkpoint": "approved message 2",
+      "checkpoint": "package review 2",
       "width": 320,
       "scrollX": 0,
       "rootGeometry": {
@@ -7552,7 +8166,7 @@
       "controls": 12
     },
     {
-      "checkpoint": "approved message 2",
+      "checkpoint": "package review 2",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -7574,7 +8188,7 @@
       "controls": 12
     },
     {
-      "checkpoint": "approved message 2",
+      "checkpoint": "package review 2",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -7594,6 +8208,138 @@
       "controlsFit": true,
       "labelledFields": true,
       "controls": 12
+    },
+    {
+      "checkpoint": "message-cycle-2",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 14
+    },
+    {
+      "checkpoint": "message-cycle-2",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 14
+    },
+    {
+      "checkpoint": "message-cycle-2",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 14
+    },
+    {
+      "checkpoint": "approved message 2",
+      "width": 320,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 320,
+        "width": 320,
+        "clientWidth": 320,
+        "scrollWidth": 320,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 13
+    },
+    {
+      "checkpoint": "approved message 2",
+      "width": 360,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 360,
+        "width": 360,
+        "clientWidth": 360,
+        "scrollWidth": 360,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 13
+    },
+    {
+      "checkpoint": "approved message 2",
+      "width": 768,
+      "scrollX": 0,
+      "rootGeometry": {
+        "tag": "div",
+        "type": null,
+        "id": "operator-task",
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "scrollLeft": 0
+      },
+      "offendingControls": [],
+      "documentFits": true,
+      "taskFits": true,
+      "controlsFit": true,
+      "labelledFields": true,
+      "controls": 13
     },
     {
       "checkpoint": "screen /settings",
@@ -7615,7 +8361,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 13
     },
     {
       "checkpoint": "screen /settings",
@@ -7681,7 +8427,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 13
     },
     {
       "checkpoint": "screen /outreach",
@@ -7703,7 +8449,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 13
     },
     {
       "checkpoint": "screen /outreach",
@@ -7725,7 +8471,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 12
+      "controls": 13
     },
     {
       "checkpoint": "handoff unconfirmed 2",
@@ -7747,7 +8493,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "handoff unconfirmed 2",
@@ -7769,7 +8515,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "handoff unconfirmed 2",
@@ -7791,10 +8537,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
-      "checkpoint": "screen /brief",
+      "checkpoint": "screen /",
       "width": 320,
       "scrollX": 0,
       "rootGeometry": {
@@ -7813,10 +8559,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 2
     },
     {
-      "checkpoint": "screen /brief",
+      "checkpoint": "screen /",
       "width": 360,
       "scrollX": 0,
       "rootGeometry": {
@@ -7835,10 +8581,10 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
-      "checkpoint": "screen /brief",
+      "checkpoint": "screen /",
       "width": 768,
       "scrollX": 0,
       "rootGeometry": {
@@ -7857,7 +8603,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "brief after handoff 2",
@@ -7879,7 +8625,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "brief after handoff 2",
@@ -7901,7 +8647,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "brief after handoff 2",
@@ -7923,7 +8669,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "screen /settings",
@@ -8077,7 +8823,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "screen /outreach",
@@ -8099,7 +8845,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "screen /outreach",
@@ -8121,7 +8867,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "completed suppression form",
@@ -8143,7 +8889,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "completed suppression form",
@@ -8165,7 +8911,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "completed suppression form",
@@ -8187,7 +8933,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 14
+      "controls": 15
     },
     {
       "checkpoint": "screen /settings",
@@ -8341,7 +9087,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 14
     },
     {
       "checkpoint": "recovered workspace load",
@@ -8455,78 +9201,78 @@
     }
   ],
   "lastFocusCheck": {
-    "label": "valid backup recovery",
+    "label": "Open disclosure for backup after reload",
     "rect": {
       "left": 37,
       "right": 323,
-      "top": 578.5,
-      "bottom": 622.5
+      "top": 600.5,
+      "bottom": 644.5
     },
     "viewport": {
       "width": 360,
       "height": 800,
-      "scrollY": 2415,
+      "scrollY": 222,
       "visualHeight": 800,
-      "rootHeight": 3215,
+      "rootHeight": 1022,
       "clientHeight": 800,
-      "bodyHeight": 3215,
+      "bodyHeight": 1022,
       "overflow": "visible"
     },
     "ancestors": [
       {
+        "tag": "DETAILS",
+        "height": 84,
+        "scrollHeight": 84,
+        "scrollTop": 0,
+        "overflow": "visible"
+      },
+      {
+        "tag": "DIV",
+        "height": 841,
+        "scrollHeight": 841,
+        "scrollTop": 0,
+        "overflow": "visible"
+      },
+      {
+        "tag": "DIV",
+        "height": 889,
+        "scrollHeight": 889,
+        "scrollTop": 0,
+        "overflow": "visible"
+      },
+      {
         "tag": "SECTION",
-        "height": 808,
-        "scrollHeight": 808,
+        "height": 937,
+        "scrollHeight": 937,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 3018,
-        "scrollHeight": 3018,
+        "height": 982,
+        "scrollHeight": 982,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 3066,
-        "scrollHeight": 3066,
-        "scrollTop": 0,
-        "overflow": "visible"
-      },
-      {
-        "tag": "SECTION",
-        "height": 3114,
-        "scrollHeight": 3114,
-        "scrollTop": 0,
-        "overflow": "visible"
-      },
-      {
-        "tag": "DIV",
-        "height": 3175,
-        "scrollHeight": 3175,
-        "scrollTop": 0,
-        "overflow": "visible"
-      },
-      {
-        "tag": "DIV",
-        "height": 3215,
-        "scrollHeight": 3215,
+        "height": 1022,
+        "scrollHeight": 1022,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "BODY",
-        "height": 3215,
-        "scrollHeight": 3215,
+        "height": 1022,
+        "scrollHeight": 1022,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "HTML",
         "height": 800,
-        "scrollHeight": 3215,
-        "scrollTop": 2415,
+        "scrollHeight": 1022,
+        "scrollTop": 222,
         "overflow": "visible"
       }
     ],
@@ -8545,6 +9291,14 @@
     "submitted": 16,
     "confirmed": 16,
     "fictional": true
+  },
+  "savedCompany": {
+    "summary": true,
+    "keyboardDisclosure": true,
+    "correctionProposals": 2,
+    "savedAnswerPreservedUntilConfirmation": true,
+    "changedAnswerSurvivesReload": true,
+    "fictionalNameRestoredForWorkflow": true
   },
   "confirmationCancellation": [
     {
@@ -8619,10 +9373,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "520be95c3b92fba5e435454ed2afe64a63dbb42ba787e58ad7bc0740b4ca9313",
+      "sha256": "56ca71dcdd832e88e9940822d93b30513cdc12a81ff6d8257124f766091d1164",
       "rows": 1,
       "identities": [
-        "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8"
+        "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe"
       ]
     }
   },
@@ -8643,20 +9397,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "520be95c3b92fba5e435454ed2afe64a63dbb42ba787e58ad7bc0740b4ca9313",
+        "sha256": "56ca71dcdd832e88e9940822d93b30513cdc12a81ff6d8257124f766091d1164",
         "rows": 1,
         "identities": [
-          "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8"
+          "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "217d651feda8c411ccacc1533dac7872d7b21fa1d62f0ed48f5ffef7adf969dd",
+        "sha256": "87e4f812b898bd4947d00911c1f4b77d406c151d7b961e2d4640aa2843268e0e",
         "rows": 2,
         "identities": [
-          "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8",
-          "9ef721509bd80c0cf9b7e8cd:5ca9cdd547eac7066c9a0594"
+          "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe",
+          "e09ae68f813893d605d2c309:ce161d787efe99c020785b79"
         ]
       }
     ]
@@ -8670,30 +9424,30 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "520be95c3b92fba5e435454ed2afe64a63dbb42ba787e58ad7bc0740b4ca9313",
+      "sha256": "56ca71dcdd832e88e9940822d93b30513cdc12a81ff6d8257124f766091d1164",
       "rows": 1,
       "identities": [
-        "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8"
+        "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "fe45a8331350a7f96e42bc5e4613310e62ce4dd2c4d8bbbcc322c3848c440004",
+    "sha256": "2c65f531859340efa023d57ebffd6ceff95ccde33e291ec4f6ff07b4521c36ee",
     "rows": 7,
     "identities": [
-      "45c60d2d0f537f8488813ae4:78eb73968db08f2e2bd618f8",
-      "45c60d2d0f537f8488813ae4:csv-edge-0",
-      "45c60d2d0f537f8488813ae4:csv-edge-1",
-      "45c60d2d0f537f8488813ae4:csv-edge-2",
-      "45c60d2d0f537f8488813ae4:csv-edge-3",
-      "45c60d2d0f537f8488813ae4:csv-edge-4",
-      "45c60d2d0f537f8488813ae4:csv-edge-5"
+      "0bc4ea2983d96ec8d2785907:78fb8823c669c152e5e48ffe",
+      "0bc4ea2983d96ec8d2785907:csv-edge-0",
+      "0bc4ea2983d96ec8d2785907:csv-edge-1",
+      "0bc4ea2983d96ec8d2785907:csv-edge-2",
+      "0bc4ea2983d96ec8d2785907:csv-edge-3",
+      "0bc4ea2983d96ec8d2785907:csv-edge-4",
+      "0bc4ea2983d96ec8d2785907:csv-edge-5"
     ]
   },
   "recovery": [
-    "Pre-dispatch download failure: focused uncertainty message, no data delta, no automatic retry",
+    "Pre-dispatch download failure: pending disclosure collapsed then reopened for focused uncertainty message, no data delta, no automatic retry",
     "Lost post-commit mutation response: one request, persisted exactly once, authoritative UI refresh, uncertainty message",
     "Workspace query failure: bounded read retry, focused error, keyboard retry succeeds without data delta",
     "Oversized/truncated archive rejection: unchanged authority; same-file reselection resets consent/error; valid restore focuses success and survives restart/reload"
@@ -8705,7 +9459,7 @@
     "retrieve": 6
   },
   "browserCounts": {
-    "local": 287,
+    "local": 347,
     "composeAborted": 2,
     "unexpected": 0
   },

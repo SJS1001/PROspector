@@ -1,3 +1,42 @@
+# UI simplification verification — 2026-10-28
+
+Browser-tested source: `b411707ae6e3d1e5ce503bfc0276dd68afc48f81` on
+`codex/local-app-integration`. This supersedes the earlier UI/browser checkpoint
+below. The following documentation/evidence commit changes no production source.
+
+- Public contained `npm test`: PASS, 46 unit tests and two complete fictional
+  workflows, including full server restart, exact compose checks and CSV bytes.
+- 483 real keyboard actions; 285 layout samples at 320/360/768px; 10 Cancel/Escape
+  cases; four error-recovery scenarios. Zero unexpected browser requests and
+  forbidden provider attempts; both Gmail compose requests aborted.
+- Company saved summaries and keyboard disclosures verified. Two correction
+  proposals preserve the saved answer until confirmation; confirmed changes
+  survive reload. The fictional company name is restored for subsequent checks.
+- A backup failure arriving after its section is collapsed reopens the section
+  and focuses visible feedback. Mobile focus scrolling keeps complete controls
+  in view; this defect was found by the browser suite and repaired before PASS.
+- Final source typecheck, lint and production build passed. Lint retains three
+  existing unused-variable warnings. Before the final focus-only shell patch,
+  expanded script/source regressions passed 255+84; contracts/archive/concurrency/
+  component/layout checks passed 51; durable restart 2; auth runtime 18;
+  passwordless local-access HTTP/browser 1; final component rerun 7.
+- The reviewed graph retains all 29 source paths/import edges. Five hashes were
+  reconciled after reviewing the preceding passwordless local-access change;
+  the UI implementation changes no backend behavior.
+- Actual local app rebuilt/restarted and inspected with the owner's existing
+  saved Company data: compact summaries, grouped navigation, existing dark
+  palette. At 320px, document width equals viewport width and mobile Menu opens.
+  This inspection made no owner data mutations or provider calls.
+
+The automated browser harness uses optional password mode; the separate local
+access suite verifies the default passwordless mode and request boundaries.
+These checks do not establish real-provider quality, email delivery, native OS
+file chooser usability, physical-device/cross-browser or assistive-technology
+coverage, overnight behavior, or owner acceptance. See the owner guide and the
+[UI implementation report](../../../docs/implementation-lanes/2026-10-28-ui-simplification.md).
+
+---
+
 # Integrated Mac verification — 2026-10-28
 
 Final browser-tested source: `76976635c0267bd3f9a5d7f2b5392b2ef59dd3fd` on
