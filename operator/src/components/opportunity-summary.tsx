@@ -25,6 +25,13 @@ export function OpportunitySummary({ item }: { item: Prospect }) {
             text={brief.problem?.text ?? "The source does not establish an unresolved problem."}
           />
           <Entry title={`Where ${brief.product} could help`} text={brief.possibleFit} />
+          {brief.decisionFit ? (
+            <details className="sm:col-span-2 text-sm">
+              <summary className="cursor-pointer font-semibold">Decision & data to check</summary>
+              <p className="mt-2">{brief.decisionFit.decision}</p>
+              <p className="mt-1 text-muted">{brief.decisionFit.dataToCheck}</p>
+            </details>
+          ) : null}
           <div className="sm:col-span-2 rounded-[10px] border border-line bg-paper p-4">
             <Entry title="What to find out next" text={brief.nextQuestion} />
           </div>
@@ -44,6 +51,18 @@ export function OpportunitySummary({ item }: { item: Prospect }) {
         >
           {explain.isPending ? "Reading source…" : "Explain this opportunity"}
         </Button>
+      ) : null}
+      {item.origin === "run" && brief ? (
+        <details className="mt-4 text-xs text-muted">
+          <summary className="cursor-pointer">Update summary</summary>
+          <Button
+            className="mt-3"
+            disabled={explain.isPending}
+            onClick={() => explain.mutate({ prospectId: item.id, expectedRevision: item.revision })}
+          >
+            {explain.isPending ? "Reading source…" : "Read source again"}
+          </Button>
+        </details>
       ) : null}
       {explain.isPending ? (
         <p role="status" className="mt-3 text-xs text-muted">

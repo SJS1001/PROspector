@@ -347,7 +347,8 @@ function ProspectCard({ item }: { item: Prospect }) {
       </div>
       <h2 className="mt-4 font-display text-xl">{item.accountName}</h2>
       <p className="mt-2 text-sm leading-6 text-muted">
-        {item.assessment.opportunity?.situation.text ??
+        {item.assessment.opportunity?.problem?.text ??
+          item.assessment.opportunity?.situation.text ??
           "Open to check the source and possible fit."}
       </p>
       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
@@ -422,7 +423,9 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
                   id: "brief-source",
                   url: item.assessment.opportunity.sourceUrl,
                   title: item.assessment.opportunity.sourceTitle,
-                  excerpt: item.assessment.opportunity.situation.text,
+                  excerpt:
+                    item.assessment.opportunity.problem?.text ??
+                    item.assessment.opportunity.situation.text,
                   retrievedAt: item.assessment.opportunity.checkedAt,
                 },
                 ...evidence.filter(
@@ -461,7 +464,12 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
                   ? row.excerpt
                   : "Source saved with this result; relevance has not yet been summarized."}
               </p>
-              <p className="mt-2 text-xs text-muted">Checked {row.retrievedAt.slice(0, 10)}</p>
+              <p className="mt-2 text-xs text-muted">
+                {row.id === "brief-source" && item.assessment.opportunity?.publishedOn
+                  ? `Published ${item.assessment.opportunity.publishedOn} · `
+                  : ""}
+                Checked {row.retrievedAt.slice(0, 10)}
+              </p>
               {row.id === "brief-source" && item.assessment.opportunity ? (
                 <details className="mt-3">
                   <summary className="cursor-pointer text-xs font-semibold">

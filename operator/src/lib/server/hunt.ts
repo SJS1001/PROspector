@@ -1,3 +1,4 @@
+import { searchPrompt, opportunityRejection } from "./search-strategy";
 import { buildOpportunity } from "./opportunity";
 import { parseCandidates } from "./search-response";
 import type { RunnerCandidate } from "./search-response";
@@ -29,6 +30,7 @@ type HuntInsert = {
   evidenceTier: number;
   evidenceDate: string;
   fingerprint: string;
+  publishedOn: string | null;
 };
 
 async function proposeCandidates(
@@ -37,23 +39,9 @@ async function proposeCandidates(
   snapshot: ProfileSnapshot,
   limit: number,
   onSearch: (count: number) => Promise<void>,
+  context: string,
 ): Promise<RunnerCandidate[]> {
-  const prompt = `You are an untrusted research runner for a private GTM workspace.
-Do not qualify, score, approve, or invent contact emails.
-Return JSON only: {"candidates":[{"accountName":"","targetName":"","url":"https://...","excerpt":"","notes":{"account_fit":"","pain_strength":"","timing":"","data_readiness":"","commercial":""}}]}
-Propose at most ${limit} currently operating accounts that match this profile.
-Each url must be a real public HTTPS HTML page on the company or a regulator/trade publisher. Do not link to PDFs, downloads, or binary files.
-Use live web search now, with at most five search queries. Today is ${new Date().toISOString().slice(0, 10)}.
-Return only candidates supported by pages you found in those results. Keep notes brief.
-targetName must be the plant or site name, never a person or contact caveat.
-Prefer named plants/sites, not conglomerate homepages. Do not use IP addresses or localhost.
-
-Company: ${snapshot.company}
-Product: ${snapshot.product}
-Promise: ${snapshot.promise}
-Play: ${snapshot.play}
-Fit: ${snapshot.fit}
-Offer: ${snapshot.offerId}`;
+  const prompt = searchPrompt(snapshot, limit, context);
 
   const text = await completeJson(sql, userId, prompt, onSearch);
   return parseCandidates(text, limit);
@@ -67,6 +55,7 @@ export async function executeHunt(opts: {
   snapshot: ProfileSnapshot;
   knownFingerprints: Set<string>;
   maxCandidates?: number;
+  researchContext?: string;
 }) {
   const limit = Math.min(20, Math.max(4, opts.maxCandidates ?? MAX_CANDIDATES));
   const progress: SearchProgress = {
@@ -81,113 +70,141 @@ export async function executeHunt(opts: {
     if (message) progress.activity = [...progress.activity, message].slice(-24);
     await opts.sql`update prospecting_runs set progress_json = ${JSON.stringify(progress)} where id = ${opts.runId} and user_id = ${opts.userId}`;
   };
-  await report("Searching public sources");
-  const proposed = await proposeCandidates(
-    opts.sql,
-    opts.userId,
-    opts.snapshot,
-    limit,
-    async (count) => {
-      progress.searches = count;
-      await report(`${count} web searches completed`);
-    },
-  );
-  progress.proposed = proposed.length;
-  progress.stage = "checking";
-  await report(`${proposed.length} candidates to check`);
   const profile = profileText(opts.snapshot);
   const jev = await resolveJev(opts.sql, opts.userId);
   const accepted: HuntInsert[] = [];
   const reasons: string[] = [];
-
-  for (let i = 0; i < proposed.length; i += 4) {
-    const batch = proposed.slice(i, i + 4);
-    const pages = await Promise.all(
-      batch.map(async (candidate) => {
-        try {
-          return { candidate, page: await retrieveHttps(candidate.url) };
-        } catch (error) {
-          return { candidate, error };
-        }
-      }),
+  let verifiedSources = 0;
+  const attempted = new Set<string>();
+  // One bounded follow-up uses rejection feedback instead of returning the same weak batch.
+  for (let pass = 0; pass < 2 && !accepted.length; pass++) {
+    progress.stage = "searching";
+    await report(
+      pass
+        ? "No usable evidence yet — checking another set of production reports"
+        : "Searching public sources",
     );
-    for (const item of pages) {
-      progress.checked++;
-      if ("error" in item && item.error) {
-        reasons.push(
-          `${item.candidate.accountName}: ${item.error instanceof Error ? item.error.message : "retrieval failed"}`,
-        );
-        await report(`${item.candidate.accountName}: source unavailable`);
-        continue;
-      }
-      if (!("page" in item) || !item.page) continue;
-      let qualified = qualifyCandidate({
-        accountName: item.candidate.accountName,
-        targetName: item.candidate.targetName,
-        source: {
-          url: item.page.url,
-          title: item.page.title,
-          text: item.page.text,
-          retrievedAt: item.page.retrievedAt,
-        },
-        profileText: profile,
-        runnerNotes: item.candidate.notes,
-      });
-      if (jev.apiKey) {
-        try {
-          const judged = await jevQualifyPage({
-            apiKey: jev.apiKey,
-            baseUrl: jev.baseUrl,
-            accountName: item.candidate.accountName,
-            targetName: item.candidate.targetName,
+    const searchOffset = progress.searches;
+    const proposed = await proposeCandidates(
+      opts.sql,
+      opts.userId,
+      opts.snapshot,
+      limit,
+      async (count) => {
+        progress.searches = searchOffset + count;
+        await report(`${progress.searches} web searches completed`);
+      },
+      (opts.researchContext ?? "") +
+        (pass
+          ? `\nPrevious candidates were not usable. Find different sites or better direct sources. Rejection feedback: ${JSON.stringify(reasons)}. Do not repeat these pages: ${JSON.stringify([...attempted])}`
+          : ""),
+    );
+    progress.proposed += proposed.length;
+    progress.stage = "checking";
+    await report(`${proposed.length} candidates to check`);
+    for (let i = 0; i < proposed.length; i += 4) {
+      const batch = proposed.slice(i, i + 4);
+      const pages = await Promise.all(
+        batch.map(async (candidate) => {
+          try {
+            return { candidate, page: await retrieveHttps(candidate.url) };
+          } catch (error) {
+            return { candidate, error };
+          }
+        }),
+      );
+      for (const item of pages) {
+        progress.checked++;
+        attempted.add(item.candidate.url);
+        if ("error" in item && item.error) {
+          reasons.push(
+            `${item.candidate.accountName}: ${item.error instanceof Error ? item.error.message : "retrieval failed"}`,
+          );
+          await report(`${item.candidate.accountName}: source unavailable`);
+          continue;
+        }
+        if (!("page" in item) || !item.page) continue;
+        verifiedSources++;
+        let qualified = qualifyCandidate({
+          accountName: item.candidate.accountName,
+          targetName: item.candidate.targetName,
+          source: {
             url: item.page.url,
             title: item.page.title,
-            pageText: item.page.text,
-            profileText: profile,
-          });
-          qualified = mergeJevQualification(qualified, judged);
-        } catch {
-          // Keyword rubric remains the fail-closed path.
+            text: item.page.text,
+            retrievedAt: item.page.retrievedAt,
+          },
+          profileText: profile,
+          runnerNotes: item.candidate.notes,
+        });
+        if (jev.apiKey) {
+          try {
+            const judged = await jevQualifyPage({
+              apiKey: jev.apiKey,
+              baseUrl: jev.baseUrl,
+              accountName: item.candidate.accountName,
+              targetName: item.candidate.targetName,
+              url: item.page.url,
+              title: item.page.title,
+              pageText: item.page.text,
+              profileText: profile,
+            });
+            qualified = mergeJevQualification(qualified, judged);
+          } catch {
+            // Keyword rubric remains the fail-closed path.
+          }
         }
+        if (opts.knownFingerprints.has(qualified.fingerprint)) {
+          reasons.push(`${item.candidate.accountName}: already in this workspace.`);
+          await report(`${item.candidate.accountName}: already saved`);
+          continue;
+        }
+        await report(`${item.candidate.accountName}: explaining the possible fit`);
+        try {
+          qualified.assessment.opportunity = await buildOpportunity(
+            opts.sql,
+            opts.userId,
+            `${item.candidate.accountName} — ${item.candidate.targetName}`,
+            item.page,
+            opts.snapshot,
+            opts.researchContext,
+          );
+        } catch {
+          reasons.push(`${item.candidate.accountName}: source explanation could not be verified.`);
+          await report(`${item.candidate.accountName}: explanation unavailable`);
+        }
+        const rejected = opportunityRejection(qualified.assessment.opportunity);
+        if (rejected) {
+          reasons.push(`${item.candidate.accountName}: ${rejected}.`);
+          await report(`${item.candidate.accountName}: skipped — ${rejected}`);
+          continue;
+        }
+        opts.knownFingerprints.add(qualified.fingerprint);
+        await report(`${item.candidate.accountName}: source checked · ${qualified.score}/10`);
+        accepted.push({
+          accountName: item.candidate.accountName,
+          targetName: item.candidate.targetName,
+          url: item.page.url,
+          title: item.page.title,
+          excerpt: qualified.evidenceExcerpt,
+          hash: item.page.hash,
+          retrievedAt: item.page.retrievedAt,
+          outcome: qualified.outcome,
+          score: qualified.score,
+          assessment: qualified.assessment,
+          evidenceTier: qualified.evidenceTier,
+          evidenceDate: item.page.publishedOn ?? qualified.evidenceDate,
+          fingerprint: qualified.fingerprint,
+          publishedOn: item.page.publishedOn ?? null,
+        });
       }
-      if (opts.knownFingerprints.has(qualified.fingerprint)) {
-        reasons.push(`${item.candidate.accountName}: already in this workspace.`);
-        await report(`${item.candidate.accountName}: already saved`);
-        continue;
-      }
-      await report(`${item.candidate.accountName}: explaining the possible fit`);
-      try {
-        qualified.assessment.opportunity = await buildOpportunity(opts.sql, opts.userId, item.candidate.accountName, item.page, opts.snapshot);
-      } catch {
-        reasons.push(`${item.candidate.accountName}: explanation unavailable; source saved for review.`);
-        await report(`${item.candidate.accountName}: explanation unavailable`);
-      }
-      // A keyword match alone cannot establish an unresolved customer need.
-      if (qualified.outcome === "Passed" && !qualified.assessment.opportunity?.problem)
-        qualified.outcome = "InsufficientEvidence";
-      opts.knownFingerprints.add(qualified.fingerprint);
-      await report(`${item.candidate.accountName}: source checked · ${qualified.score}/10`);
-      accepted.push({
-        accountName: item.candidate.accountName,
-        targetName: item.candidate.targetName,
-        url: item.page.url,
-        title: item.page.title,
-        excerpt: qualified.evidenceExcerpt,
-        hash: item.page.hash,
-        retrievedAt: item.page.retrievedAt,
-        outcome: qualified.outcome,
-        score: qualified.score,
-        assessment: qualified.assessment,
-        evidenceTier: qualified.evidenceTier,
-        evidenceDate: qualified.evidenceDate,
-        fingerprint: qualified.fingerprint,
-      });
     }
   }
 
   if (
-    proposed.length &&
+    progress.proposed &&
     !accepted.length &&
+    !verifiedSources &&
     !reasons.every((reason) => reason.endsWith("already in this workspace."))
   )
     throw new Error(`No new sources could be verified. ${reasons.slice(0, 2).join(" ")}`);
@@ -224,7 +241,7 @@ export async function executeHunt(opts: {
       ) values (
         ${idFor(opts.userId, `sig:${opts.runId}:${item.fingerprint}`)}, ${opts.userId}, ${opts.runId},
         ${prospectId}, ${item.url}, ${item.title}, ${item.excerpt}, ${item.evidenceTier},
-        ${item.hash}, ${item.retrievedAt}, ${item.evidenceDate}, ${"current"}
+        ${item.hash}, ${item.retrievedAt}, ${item.publishedOn}, ${item.publishedOn ? "dated source" : "unknown"}
       )
     `;
     }

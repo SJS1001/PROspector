@@ -27,6 +27,9 @@ export type OpportunityBrief = {
   situation: { text: string; quote: string };
   problem: { text: string; quote: string } | null;
   possibleFit: string;
+  problemStatus?: "ongoing" | "needs_update" | "not_established";
+  decisionFit?: { decision: string; dataToCheck: string } | null;
+  publishedOn?: string | null;
   nextQuestion: string;
   product: string;
   sourceUrl: string;

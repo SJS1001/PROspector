@@ -132,7 +132,45 @@ export function extractText(html: string) {
     $("body");
   root.find("header").remove();
   root.find("p, div, br, li, h1, h2, h3, h4, section").before(" ").after(" ");
-  return { title, text: clean(root.text()).slice(0, 16_000) };
+  // Quarterly reports often put site operations after financial tables.
+  return { title, text: clean(root.text()).slice(0, 64_000) };
+}
+
+/** Only explicit publication metadata; never substitute retrieval time or dateModified. */
+export function publicationDate(html: string): string | null {
+  const $ = load(html);
+  const values = [
+    $('meta[property="article:published_time"]').attr("content"),
+    $('meta[name="date"]').attr("content"),
+    $('[itemprop="datePublished"]').attr("content"),
+    $('time[itemprop="datePublished"]').attr("datetime"),
+    $("time.published[datetime]").first().attr("datetime"),
+  ];
+  $('script[type="application/ld+json"]').each((_index, node) => {
+    try {
+      const collect = (value: unknown) => {
+        if (Array.isArray(value)) value.forEach(collect);
+        else if (value && typeof value === "object") {
+          const row = value as Record<string, unknown>;
+          if (typeof row.datePublished === "string") values.push(row.datePublished);
+          if (row["@graph"]) collect(row["@graph"]);
+        }
+      };
+      collect(JSON.parse($(node).text()));
+    } catch {
+      /* Invalid metadata is not evidence of a date. */
+    }
+  });
+  for (const value of values) {
+    const date = value?.match(/^\d{4}-\d{2}-\d{2}(?=$|T|\s)/)?.[0];
+    if (
+      date &&
+      Number.isFinite(Date.parse(date)) &&
+      new Date(date).toISOString().slice(0, 10) === date
+    )
+      return date;
+  }
+  return null;
 }
 
 export type RetrievedPage = {
@@ -141,6 +179,7 @@ export type RetrievedPage = {
   text: string;
   hash: string;
   retrievedAt: string;
+  publishedOn?: string | null;
 };
 
 export async function retrieveHttps(urlString: string): Promise<RetrievedPage> {
@@ -178,6 +217,7 @@ export async function retrieveHttps(urlString: string): Promise<RetrievedPage> {
       url: current.toString(),
       title: extracted.title || current.hostname,
       text: extracted.text,
+      publishedOn: publicationDate(html),
       hash: createHash("sha256").update(html).digest("hex"),
       retrievedAt: new Date().toISOString(),
     };

@@ -947,6 +947,9 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
       snapshot,
       knownFingerprints: known,
       maxCandidates: flags.huntBatch,
+      researchContext: knowledge
+        .filter((item) => item.status === "confirmed" && /^(product\.(capability|limitations|delivery|proof)|profile\.(signals|geo))$/.test(item.questionId))
+        .map((item) => `${item.question}: ${item.confirmedAnswer}`).join("\n"),
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Prospecting run failed.";
@@ -1669,7 +1672,7 @@ export const explainProspect = createServerFn({ method: "POST" })
     const [profile] = await sql<ProfileRow>`select * from profile_configurations where user_id = ${context.userId} and digest = ${item.configuration_digest}`;
     if (!profile) throw new Error("The search settings have changed. Run a new search for an up-to-date explanation.");
     const page = await retrieveHttps(item.evidence_url);
-    const opportunity = await buildOpportunity(sql, context.userId, item.account_name, page, JSON.parse(profile.snapshot_json));
+    const opportunity = await buildOpportunity(sql, context.userId, `${item.account_name} — ${item.target_name}`, page, JSON.parse(profile.snapshot_json));
     const assessment: Assessment = JSON.parse(item.assessment_json);
     assessment.opportunity = opportunity;
     // This is explanatory research only: preserve the assessment outcome and score.

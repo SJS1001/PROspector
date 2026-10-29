@@ -6,6 +6,12 @@ export const opportunitySchema = z.object({
   company: fact,
   situation: fact,
   problem: fact.nullable(),
+  problemStatus: z.enum(["ongoing", "needs_update", "not_established"]).optional(),
+  decisionFit: z
+    .object({ decision: z.string().min(1).max(300), dataToCheck: z.string().min(1).max(300) })
+    .nullable()
+    .optional(),
+  publishedOn: z.iso.date().nullable().optional(),
   possibleFit: z.string().min(1).max(400),
   nextQuestion: z.string().min(1).max(300),
   product: z.string().min(1).max(100),
