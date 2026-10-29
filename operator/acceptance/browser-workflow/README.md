@@ -51,7 +51,7 @@ separate from actual provider/network attempts, which must remain zero.
 
 `graph.mjs` traverses runtime imports from the production shutdown entry, real `fns.ts` and owner auth, including
 literal dynamic imports. It rejects unreviewed source/package edges. The runner
-compares its 29-file path/import/hash result with `reviewed-graph.json`. New source
+compares its 33-file path/import/hash result with `reviewed-graph.json`. New source
 requires explicit review and manifest regeneration; do not regenerate merely to
 hide drift. UI/framework dependency code is outside that source manifest and
 remains pinned by the operator lockfile. This is a reviewed-source test fence,

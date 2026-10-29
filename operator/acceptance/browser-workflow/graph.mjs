@@ -6,12 +6,14 @@ import ts from "../../node_modules/typescript/lib/typescript.js";
 import { STUB_NAMES } from "./stubs.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const files =
-  `server/local-node-entry.ts server/local-shutdown.mjs src/lib/server/fns.ts src/lib/server/discover.ts src/lib/server/hunt.ts src/lib/server/reveal.ts src/lib/server/secrets.ts src/lib/server/vault.ts src/lib/server/manual-workflow.ts src/lib/server/profile.ts src/lib/server/toronto.ts src/lib/server/seed.ts src/lib/server/archive.ts src/lib/server/archive-db.ts src/lib/server/archive-request.ts src/lib/domain/catalog.ts src/lib/domain/types.ts src/lib/domain/llm.ts src/lib/domain/qualify.ts src/lib/domain/qualify-jev.ts src/lib/auth/middleware.ts src/lib/auth/isolation.server.ts src/lib/auth/verify.server.ts src/lib/auth/server.ts src/lib/auth/pglite-dialect.ts src/lib/auth/local-request.ts src/lib/db.ts scripts/local-owner.mjs scripts/local-data.mjs scripts/migration-plan.mjs`.split(
+  `server/local-node-entry.ts server/local-shutdown.mjs src/lib/server/fns.ts src/lib/server/discover.ts src/lib/server/hunt.ts src/lib/server/search-strategy.ts src/lib/server/search-response.ts src/lib/server/opportunity.ts src/lib/domain/opportunity.ts src/lib/server/reveal.ts src/lib/server/secrets.ts src/lib/server/vault.ts src/lib/server/manual-workflow.ts src/lib/server/profile.ts src/lib/server/toronto.ts src/lib/server/seed.ts src/lib/server/archive.ts src/lib/server/archive-db.ts src/lib/server/archive-request.ts src/lib/domain/catalog.ts src/lib/domain/types.ts src/lib/domain/llm.ts src/lib/domain/qualify.ts src/lib/domain/qualify-jev.ts src/lib/auth/middleware.ts src/lib/auth/isolation.server.ts src/lib/auth/verify.server.ts src/lib/auth/server.ts src/lib/auth/pglite-dialect.ts src/lib/auth/local-request.ts src/lib/db.ts scripts/local-owner.mjs scripts/local-data.mjs scripts/migration-plan.mjs`.split(
     " ",
   );
 const allowed = new Set(files);
 const external = new Set([
   "node:crypto",
+  "node:sqlite",
+  "zod",
   "node:fs",
   "node:fs/promises",
   "node:path",

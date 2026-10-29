@@ -483,7 +483,7 @@ try {
     actual.every(
       (x) =>
         x.kind === "listening" ||
-        (x.kind === "stub" && ["hunt", "discovery", "retrieve"].includes(x.name)),
+        (x.kind === "stub" && ["hunt", "discovery", "retrieve", "explain"].includes(x.name)),
     ),
     "unexpected provider adapter fails acceptance",
   );
@@ -495,7 +495,7 @@ try {
   );
   assert.equal(browserEvents.filter((x) => x.kind === "compose").length, 2);
   evidence.stubCounts = Object.fromEntries(
-    ["hunt", "discovery", "retrieve"].map((name) => [
+    ["hunt", "discovery", "retrieve", "explain"].map((name) => [
       name,
       actual.filter((x) => x.name === name).length,
     ]),
@@ -565,7 +565,7 @@ function finalize() {
       process.exitCode = 1;
     }
     evidence.stubCounts = Object.fromEntries(
-      ["hunt", "discovery", "retrieve"].map((name) => [
+      ["hunt", "discovery", "retrieve", "explain"].map((name) => [
         name,
         finalEvents.filter((x) => x.kind === "stub" && x.name === name).length,
       ]),
@@ -573,7 +573,7 @@ function finalize() {
     evidence.forbiddenAttempts = finalEvents.filter(
       (x) =>
         x.kind === "denied" ||
-        (x.kind === "stub" && !["hunt", "discovery", "retrieve"].includes(x.name)),
+        (x.kind === "stub" && !["hunt", "discovery", "retrieve", "explain"].includes(x.name)),
     ).length;
     if (evidence.forbiddenAttempts) {
       evidence.status = "FAILED_FENCE";

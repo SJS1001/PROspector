@@ -852,6 +852,12 @@ export const confirmDraftPlay = createServerFn({ method: "POST" })
     return loadWorkspace(context.userId);
   });
 
+function confirmedResearchContext(knowledge: KnowledgeItem[]) {
+  return knowledge
+    .filter((item) => item.status === "confirmed" && /^(product\.(capability|limitations|delivery|proof)|profile\.(signals|geo))$/.test(item.questionId))
+    .map((item) => `${item.question}: ${item.confirmedAnswer}`).join("\n");
+}
+
 async function startHunt(userId: string, trigger: "initial" | "manual" | "scheduled") {
   const sql = await getSql();
   await ensureWorkspace(sql, userId);
@@ -947,9 +953,7 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
       snapshot,
       knownFingerprints: known,
       maxCandidates: flags.huntBatch,
-      researchContext: knowledge
-        .filter((item) => item.status === "confirmed" && /^(product\.(capability|limitations|delivery|proof)|profile\.(signals|geo))$/.test(item.questionId))
-        .map((item) => `${item.question}: ${item.confirmedAnswer}`).join("\n"),
+      researchContext: confirmedResearchContext(knowledge),
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Prospecting run failed.";
@@ -1671,8 +1675,13 @@ export const explainProspect = createServerFn({ method: "POST" })
     if (!item || item.origin !== "run") throw new Error("Choose a current search result.");
     const [profile] = await sql<ProfileRow>`select * from profile_configurations where user_id = ${context.userId} and digest = ${item.configuration_digest}`;
     if (!profile) throw new Error("The search settings have changed. Run a new search for an up-to-date explanation.");
+    const knowledgeRows = await sql<KnowledgeRow>`
+      select id, question_id, scope, question, proposed_answer, confirmed_answer, status,
+             evidence, inference, recommendation, sort_order
+      from knowledge_items where user_id = ${context.userId} order by sort_order asc
+    `;
     const page = await retrieveHttps(item.evidence_url);
-    const opportunity = await buildOpportunity(sql, context.userId, `${item.account_name} — ${item.target_name}`, page, JSON.parse(profile.snapshot_json));
+    const opportunity = await buildOpportunity(sql, context.userId, `${item.account_name} — ${item.target_name}`, page, JSON.parse(profile.snapshot_json), confirmedResearchContext(knowledgeRows.map(mapKnowledge)));
     const assessment: Assessment = JSON.parse(item.assessment_json);
     assessment.opportunity = opportunity;
     // This is explanatory research only: preserve the assessment outcome and score.

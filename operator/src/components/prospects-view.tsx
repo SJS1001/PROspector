@@ -348,6 +348,9 @@ function ProspectCard({ item }: { item: Prospect }) {
         </span>
       </div>
       <h2 className="mt-4 font-display text-xl">{item.accountName}</h2>
+      {item.targetName.trim().toLowerCase() !== item.accountName.trim().toLowerCase() ? (
+        <p className="mt-1 text-xs text-muted">{item.targetName}</p>
+      ) : null}
       <p className="mt-2 text-sm leading-6 text-muted">
         {item.assessment.opportunity?.problem?.text ??
           item.assessment.opportunity?.situation.text ??
@@ -409,6 +412,7 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
       <PageHeading
         eyebrow={item.origin === "run" ? "Search result" : "Sample data"}
         title={item.accountName}
+        copy={item.targetName.trim().toLowerCase() !== item.accountName.trim().toLowerCase() ? item.targetName : undefined}
         action={
           <Link to="/prospects">
             <Button variant="outline">All prospects</Button>

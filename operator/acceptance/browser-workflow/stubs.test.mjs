@@ -11,7 +11,7 @@ test("generated providers are deterministic, counted, and reject unknown input",
   try {
     process.env.ACCEPTANCE_EVENTS = join(dir, "events");
     writeFileSync(process.env.ACCEPTANCE_EVENTS, "");
-    for (const name of ["llm", "retrieve", "mailer"])
+    for (const name of ["llm", "retrieve", "mailer", "jev"])
       writeFileSync(join(dir, name + ".mjs"), stubSource(name));
     const llm = await import(pathToFileURL(join(dir, "llm.mjs")).href);
     for (const n of [1, 2]) {
@@ -32,6 +32,16 @@ test("generated providers are deterministic, counted, and reject unknown input",
       (await retrieve.retrieveHttps("https://fictionalquarry.example/evidence/1")).text,
       /person1@fictionalquarry.example/,
     );
+    const page = await retrieve.retrieveHttps("https://fictionalquarry.example/evidence/1");
+    assert.equal(page.publishedOn, page.retrievedAt.slice(0, 10));
+    const explanation = JSON.parse(await llm.explainEvidence(null, null, '<source>' + JSON.stringify(page) + '</source>'));
+    for (const key of ["company", "situation", "problem"]) assert.ok(page.text.includes(explanation[key].quote));
+    assert.equal(explanation.problemStatus, "ongoing");
+    assert.ok(explanation.decisionFit.decision);
+    await assert.rejects(llm.explainEvidence(null, null, '<source>unreviewed</source>'));
+    const jev = await import(pathToFileURL(join(dir, "jev.mjs")).href);
+    assert.equal(jev.jevFailureMessage(), "Fictional JEV failure");
+    assert.throws(() => jev.jevRequest(), /Forbidden provider adapter/);
     for (const url of [
       "https://example.invalid",
       "http://fictionalquarry.example/evidence/1",
