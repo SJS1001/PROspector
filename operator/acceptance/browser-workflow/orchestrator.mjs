@@ -1,3 +1,4 @@
+import { isDatabaseLocked } from "../../scripts/local-data.mjs";
 // Defence against direct invocation. Only the SERVER installs JS patches;
 // the orchestrator needs build/process/HTTP APIs inside the inherited OS fence.
 import { requireNativeContainment } from "./native-boundary.mjs";
@@ -8,7 +9,6 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
-  existsSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
@@ -94,7 +94,7 @@ async function stop() {
   if (!server) return;
   if (server.exitCode !== null) {
     server = undefined;
-    assert.ok(!existsSync(join(data, ".database.lock")), "exited server must release DB lock");
+    assert.ok(!isDatabaseLocked(data), "exited server must release DB lock");
     return;
   }
   const current = server;
@@ -118,7 +118,7 @@ async function stop() {
     clearTimeout(timer);
   }
   if (forced) throw new Error("Server required forced termination");
-  assert.ok(!existsSync(join(data, ".database.lock")), "server must release DB lock");
+  assert.ok(!isDatabaseLocked(data), "server must release DB lock");
 }
 async function start() {
   if (interrupted) throw new Error("Acceptance interrupted");
@@ -483,7 +483,7 @@ try {
     actual.every(
       (x) =>
         x.kind === "listening" ||
-        (x.kind === "stub" && ["hunt", "discovery", "retrieve"].includes(x.name)),
+        (x.kind === "stub" && ["hunt", "discovery", "retrieve", "explain"].includes(x.name)),
     ),
     "unexpected provider adapter fails acceptance",
   );
@@ -495,7 +495,7 @@ try {
   );
   assert.equal(browserEvents.filter((x) => x.kind === "compose").length, 2);
   evidence.stubCounts = Object.fromEntries(
-    ["hunt", "discovery", "retrieve"].map((name) => [
+    ["hunt", "discovery", "retrieve", "explain"].map((name) => [
       name,
       actual.filter((x) => x.name === name).length,
     ]),
@@ -565,7 +565,7 @@ function finalize() {
       process.exitCode = 1;
     }
     evidence.stubCounts = Object.fromEntries(
-      ["hunt", "discovery", "retrieve"].map((name) => [
+      ["hunt", "discovery", "retrieve", "explain"].map((name) => [
         name,
         finalEvents.filter((x) => x.kind === "stub" && x.name === name).length,
       ]),
@@ -573,7 +573,7 @@ function finalize() {
     evidence.forbiddenAttempts = finalEvents.filter(
       (x) =>
         x.kind === "denied" ||
-        (x.kind === "stub" && !["hunt", "discovery", "retrieve"].includes(x.name)),
+        (x.kind === "stub" && !["hunt", "discovery", "retrieve", "explain"].includes(x.name)),
     ).length;
     if (evidence.forbiddenAttempts) {
       evidence.status = "FAILED_FENCE";

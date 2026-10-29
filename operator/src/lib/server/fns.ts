@@ -1,3 +1,7 @@
+import { opportunitySchema } from "@/lib/domain/opportunity";
+import { buildOpportunity } from "./opportunity";
+import { retrieveHttps } from "./retrieve";
+import { anthropicWorkspaceId } from "@/lib/domain/llm";
 import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { getSql, type Sql } from "@/lib/db";
@@ -117,6 +121,7 @@ type ProfileRow = {
 };
 
 type RunRow = {
+  progress_json: string | null;
   id: string;
   trigger: string;
   status: string;
@@ -229,6 +234,11 @@ function mapProspect(row: ProspectRow): Prospect {
   };
   try {
     assessment = JSON.parse(row.assessment_json) as Assessment;
+    if (assessment.opportunity) {
+      const parsed = opportunitySchema.safeParse(assessment.opportunity);
+      if (parsed.success) assessment.opportunity = parsed.data;
+      else delete assessment.opportunity;
+    }
   } catch {
     assessment = { passRule: "", hardDisqualifier: null, dimensions: [] };
   }
@@ -285,6 +295,7 @@ function mapContact(row: ContactRow): Contact {
 
 function mapRun(row: RunRow): ProspectingRun {
   return {
+    progress: row.progress_json ? JSON.parse(row.progress_json) : null,
     id: row.id,
     trigger: row.trigger,
     status: row.status as ProspectingRun["status"],
@@ -463,7 +474,7 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
   `;
   const runRows = await sql<RunRow>`
     select id, trigger, status, configuration_digest, candidate_count, qualified_count,
-           terminal_reason, started_at, finished_at
+           terminal_reason, started_at, finished_at, progress_json
     from prospecting_runs where user_id = ${userId}
     order by started_at desc
     limit 12
@@ -841,6 +852,12 @@ export const confirmDraftPlay = createServerFn({ method: "POST" })
     return loadWorkspace(context.userId);
   });
 
+function confirmedResearchContext(knowledge: KnowledgeItem[]) {
+  return knowledge
+    .filter((item) => item.status === "confirmed" && /^(product\.(capability|limitations|delivery|proof)|profile\.(signals|geo))$/.test(item.questionId))
+    .map((item) => `${item.question}: ${item.confirmedAnswer}`).join("\n");
+}
+
 async function startHunt(userId: string, trigger: "initial" | "manual" | "scheduled") {
   const sql = await getSql();
   await ensureWorkspace(sql, userId);
@@ -936,6 +953,7 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
       snapshot,
       knownFingerprints: known,
       maxCandidates: flags.huntBatch,
+      researchContext: confirmedResearchContext(knowledge),
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Prospecting run failed.";
@@ -1450,6 +1468,7 @@ export const saveConnections = createServerFn({ method: "POST" })
     llmModel?: string;
     llmBaseUrl?: string;
     llmKey?: string;
+    llmWorkspaceId?: string;
     scheduleEnabled?: boolean;
     huntBatch?: number;
     jev?: string;
@@ -1465,6 +1484,7 @@ export const saveConnections = createServerFn({ method: "POST" })
     llmModel: input.llmModel ?? "",
     llmBaseUrl: input.llmBaseUrl ?? "",
     llmKey: input.llmKey ?? "",
+    llmWorkspaceId: input.llmWorkspaceId === undefined ? undefined : anthropicWorkspaceId(input.llmWorkspaceId),
     scheduleEnabled: input.scheduleEnabled,
     huntBatch: input.huntBatch,
     jev: input.jev ?? "",
@@ -1478,6 +1498,7 @@ export const saveConnections = createServerFn({ method: "POST" })
       await putSecret(sql, context.userId, "llm_key", data.llmKey);
       await putSecret(sql, context.userId, "xai", data.llmKey);
     }
+    if (data.llmWorkspaceId !== undefined) await putSecret(sql, context.userId, "llm_workspace_id", data.llmWorkspaceId);
     if (data.llmProvider) await putSecret(sql, context.userId, "llm_provider", data.llmProvider);
     if (data.llmModel) await putSecret(sql, context.userId, "llm_model", data.llmModel);
     if (data.llmBaseUrl) await putSecret(sql, context.userId, "llm_base_url", data.llmBaseUrl);
@@ -1638,5 +1659,34 @@ export const parkGreenfield = createServerFn({ method: "POST" })
       returning id
     `;
     if (rows.length === 0) throw new Error("That revision is no longer current.");
+    return loadWorkspace(context.userId);
+  });
+
+export const explainProspect = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { prospectId: string; expectedRevision: number }) => {
+    if (!input || typeof input.prospectId !== "string" || !Number.isSafeInteger(input.expectedRevision))
+      throw new Error("Choose a current prospect.");
+    return input;
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const [item] = await sql<ProspectRow>`select * from prospects where id = ${data.prospectId} and user_id = ${context.userId} and revision = ${data.expectedRevision}`;
+    if (!item || item.origin !== "run") throw new Error("Choose a current search result.");
+    const [profile] = await sql<ProfileRow>`select * from profile_configurations where user_id = ${context.userId} and digest = ${item.configuration_digest}`;
+    if (!profile) throw new Error("The search settings have changed. Run a new search for an up-to-date explanation.");
+    const knowledgeRows = await sql<KnowledgeRow>`
+      select id, question_id, scope, question, proposed_answer, confirmed_answer, status,
+             evidence, inference, recommendation, sort_order
+      from knowledge_items where user_id = ${context.userId} order by sort_order asc
+    `;
+    const page = await retrieveHttps(item.evidence_url);
+    const opportunity = await buildOpportunity(sql, context.userId, `${item.account_name} — ${item.target_name}`, page, JSON.parse(profile.snapshot_json), confirmedResearchContext(knowledgeRows.map(mapKnowledge)));
+    const assessment: Assessment = JSON.parse(item.assessment_json);
+    assessment.opportunity = opportunity;
+    // This is explanatory research only: preserve the assessment outcome and score.
+    const updated = await sql`update prospects set assessment_json = ${JSON.stringify(assessment)}, revision = revision + 1
+      where id = ${data.prospectId} and user_id = ${context.userId} and revision = ${data.expectedRevision} returning id`;
+    if (!updated.length) throw new Error("This prospect changed while the explanation was being prepared. Reload and try again.");
     return loadWorkspace(context.userId);
   });

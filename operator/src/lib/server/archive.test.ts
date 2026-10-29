@@ -141,6 +141,43 @@ test("invalid archives, failures and interruption leave the owner unchanged", as
   }
 });
 
+test("opportunity explanations survive restore and unsafe source links are rejected", async () => {
+  const { pg, adapter } = await setup();
+  try {
+    await fixture(pg);
+    const archive = await exportWorkspaceArchive("a", adapter);
+    const assessment = JSON.parse(String(archive.tables.prospects[0].assessment_json));
+    assessment.opportunity = {
+      version: 1,
+      company: { text: "Operates a copper mine.", quote: "The company operates a copper mine." },
+      situation: { text: "Installed analytics.", quote: "The mine installed analytics last year." },
+      problem: null,
+      possibleFit: "If a decision remains slow, the product could help.",
+      nextQuestion: "Which decision still takes too long?",
+      product: "Product",
+      sourceUrl: "https://example.com/article",
+      sourceTitle: "Mine update",
+      sourceHash: "a".repeat(64),
+      checkedAt: "2026-10-29T12:00:00.000Z",
+    };
+    archive.tables.prospects[0].assessment_json = JSON.stringify(assessment);
+    rehash(archive);
+    await restoreWorkspaceArchive("b", archive, adapter);
+    const restored = await exportWorkspaceArchive("b", adapter);
+    assert.deepEqual(
+      JSON.parse(String(restored.tables.prospects[0].assessment_json)).opportunity,
+      assessment.opportunity,
+    );
+    assessment.opportunity.sourceUrl = "javascript:alert(1)";
+    archive.tables.prospects[0].assessment_json = JSON.stringify(assessment);
+    rehash(archive);
+    await assert.rejects(restoreWorkspaceArchive("b", archive, adapter), /opportunity/);
+    assert.deepEqual(await exportWorkspaceArchive("b", adapter), restored);
+  } finally {
+    await pg.close();
+  }
+});
+
 /** Every v1 table has a meaningful row, including decisions and historical events. */
 async function fillHistory(pg: PGlite) {
   await fixture(pg);

@@ -1,6 +1,8 @@
+import { JevConnectionTest } from "@/components/jev-connection-test";
 import { uiText } from "@/lib/domain/plain-language";
 import { CapabilityDiagnostics } from "@/components/status-view";
 import { useState } from "react";
+import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceArchivePanel } from "@/components/workspace-archive-panel";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +18,7 @@ export function SettingsView() {
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [llmKey, setLlmKey] = useState("");
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>();
   const [apollo, setApollo] = useState("");
   const [zoominfo, setZoominfo] = useState("");
   const [jev, setJev] = useState("");
@@ -24,6 +27,8 @@ export function SettingsView() {
   const [gmailPass, setGmailPass] = useState("");
   const [budget, setBudget] = useState("");
   const [batch, setBatch] = useState("");
+  const [aiOpen, setAiOpen] = useState(false);
+  const [modelRevision, setModelRevision] = useState(0);
 
   if (isPending) return <p className="text-sm text-muted">Loading connections…</p>;
   if (isError || !data) return <WorkspaceLoadError message="Connections could not be loaded." />;
@@ -53,7 +58,7 @@ export function SettingsView() {
           Connections & search settings
         </summary>
         <div className="mt-4 grid gap-4">
-          <details className="rounded-[12px] border border-line bg-cream p-4">
+          <details className="rounded-[12px] border border-line bg-cream p-4" onToggle={(event) => setAiOpen(event.currentTarget.open)}>
             <summary className="cursor-pointer text-sm font-medium">
               <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
                 <span>AI model</span>
@@ -77,7 +82,7 @@ export function SettingsView() {
                   onChange={(event) => {
                     setProvider(event.target.value);
                     const next = llmProvider(event.target.value);
-                    if (!model) setModel(next.defaultModel);
+                    setModel(next.defaultModel);
                   }}
                 >
                   {LLM_PROVIDERS.map((item) => (
@@ -87,16 +92,15 @@ export function SettingsView() {
                   ))}
                 </select>
               </label>
-              <label className="grid gap-1 text-xs text-muted">
-                Model id
-                <input
-                  className="field"
-                  autoComplete="off"
-                  placeholder={selected.defaultModel || "model-id"}
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
+              {aiOpen ? (
+                <ModelPicker
+                  provider={selected.id}
+                  value={model || data.connections.llmModel}
+                  onChange={setModel}
+                  enabled={Boolean(data.connections.llm) && selected.id === data.connections.llmProvider && !llmKey && !baseUrl && (selected.id !== "anthropic" || workspaceId === undefined || workspaceId === data.connections.llmWorkspaceId)}
+                  revision={modelRevision}
                 />
-              </label>
+              ) : null}
               {selected.id === "custom" ? (
                 <label className="grid gap-1 text-xs text-muted">
                   HTTPS base URL
@@ -120,6 +124,21 @@ export function SettingsView() {
                   onChange={(event) => setLlmKey(event.target.value)}
                 />
               </label>
+              {selected.id === "anthropic" ? (
+                <div className="grid gap-1">
+                  <label className="grid gap-1 text-xs text-muted">
+                    Anthropic workspace ID (if required by your key)
+                    <input
+                      className="field"
+                      autoComplete="off"
+                      placeholder="wrkspc_…"
+                      value={workspaceId ?? data.connections.llmWorkspaceId}
+                      onChange={(event) => setWorkspaceId(event.target.value)}
+                    />
+                  </label>
+                  <a className="text-xs text-muted underline" href="https://platform.claude.com/settings/workspaces" target="_blank" rel="noreferrer">Find your workspace ID</a>
+                </div>
+              ) : null}
               <p className="text-xs text-muted">
                 Live web search: {selected.search === "none" ? "Unavailable" : selected.search}.
               </p>
@@ -151,14 +170,14 @@ export function SettingsView() {
           <details className="rounded-[12px] border border-line bg-cream p-4">
             <summary className="cursor-pointer text-sm font-medium">
               <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
-                <span>Jev (TypeSafe)</span>
+                <span>JEV (TypeSafe)</span>
                 <Badge tone={data.connections.jev ? "ok" : "warn"}>
-                  {data.connections.jev ? "Ready" : "Optional"}
+                  {data.connections.jev ? "Key saved" : "Optional"}
                 </Badge>
               </span>
             </summary>
             <div className="mt-4 grid gap-4">
-              <p className="text-sm text-muted">Optional scoring and claim checks.</p>
+              <p className="text-sm text-muted">Checks how well each source matches your search.</p>
               <input
                 className="field"
                 type="password"
@@ -176,6 +195,7 @@ export function SettingsView() {
                 value={jevBase}
                 onChange={(event) => setJevBase(event.target.value)}
               />
+              <JevConnectionTest key={modelRevision} configured={data.connections.jev} unsaved={Boolean(jev || jevBase)} />
             </div>
           </details>
 
@@ -308,6 +328,7 @@ export function SettingsView() {
                   llmProvider: provider || data.connections.llmProvider,
                   llmModel: model,
                   llmBaseUrl: baseUrl,
+                  llmWorkspaceId: selected.id === "anthropic" ? workspaceId : undefined,
                   apollo,
                   gmailUser,
                   gmailPass,
@@ -316,7 +337,13 @@ export function SettingsView() {
                   jevBaseUrl: jevBase,
                   monthlyBudgetCents: budget ? Math.round(Number(budget) * 100) : undefined,
                   huntBatch: batch ? Number(batch) : undefined,
-                })
+                }, { onSuccess: () => {
+                  setLlmKey("");
+                  setJev("");
+                  setJevBase("");
+                  setBaseUrl("");
+                  setModelRevision((value) => value + 1);
+                } })
               }
             >
               {save.isPending ? "Saving…" : "Save connections"}

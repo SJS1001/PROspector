@@ -199,3 +199,20 @@ textarea.field {
     padding-inline: 0.5rem;
   }
 }
+
+.search-monitor {
+  border: 1px solid #3a3b40;
+  border-radius: 16px;
+  padding: 24px;
+  background: radial-gradient(ellipse at 0 0, #2a2c324d, transparent 65%), #141416;
+  box-shadow: 0 12px 40px #0004, inset 0 1px #ffffff09;
+  min-width: 0;
+}
+.search-orbit { width: 52px; height: 52px; border: 1px solid #62656e; border-radius: 50%; display: grid; place-items: center; position: relative; box-shadow: 0 0 24px #c5c7ce0c; }
+.search-orbit::after { content: ""; position: absolute; inset: -5px; border: 1px solid #34363c; border-top-color: #c5c7ce; border-radius: 50%; }
+.search-monitor-active .search-orbit::after { animation: search-orbit 3s linear infinite; }
+.search-step { border-top: 2px solid #34343a; padding-top: 8px; color: #9a9aa3; }
+.search-step-done { border-color: #8c909a; color: #f2f2f3; }
+.search-step-current { border-color: #ecece8; color: #f2f2f3; background: linear-gradient(#ffffff08, transparent); }
+@keyframes search-orbit { to { transform: rotate(360deg); } }
+@media (max-width: 400px) { .search-monitor { padding: 16px; } }

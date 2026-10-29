@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertPublicHttps } from "./retrieve.ts";
+import { assertPublicHttps, retrieveHttps } from "./retrieve.ts";
 
 test("rejects non-https and private hosts", () => {
   assert.throws(() => assertPublicHttps("http://example.com"), /HTTPS/);
@@ -13,4 +13,47 @@ test("rejects non-https and private hosts", () => {
 test("accepts public https", () => {
   const url = assertPublicHttps("https://www.nordicmining.com/operations/engebo/");
   assert.equal(url.hostname, "www.nordicmining.com");
+});
+
+test("retrieval rejects downloads and binary content before saving evidence", async (t) => {
+  for (const [body, contentType] of [
+    ["%PDF-1.7 binary", "application/pdf"],
+    ["%PDF-1.7 disguised", "text/html"],
+    ["<body>binary\0data</body>", "text/html"],
+    ["<html><body></body></html>", "text/html"],
+  ]) {
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () => new Response(body, { headers: { "content-type": contentType } }),
+    );
+    await assert.rejects(retrieveHttps("https://8.8.8.8/source"), /Source/);
+    t.mock.restoreAll();
+  }
+});
+
+test("retrieval extracts readable HTML evidence", async (t) => {
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        "<html><title>Mine operations</title><body><script>secret</script><p>Operating copper mine</p></body></html>",
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      ),
+  );
+  const page = await retrieveHttps("https://8.8.8.8/source");
+  assert.equal(page.title, "Mine operations");
+  assert.equal(page.text, "Operating copper mine");
+  assert.match(page.hash, /^[a-f0-9]{64}$/);
+});
+
+test("large style blocks before the body cannot swallow article evidence", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(
+    `<html><head><title>Plant report</title><style>${".x{color:red}".repeat(2000)}</style></head><body><nav>Subscribe</nav><article><p>The operating copper plant uses analytics to improve recovery.</p></article></body></html>`,
+    { headers: { "content-type": "text/html" } },
+  ));
+  const page = await retrieveHttps("https://8.8.8.8/source");
+  assert.equal(page.title, "Plant report");
+  assert.equal(page.text, "The operating copper plant uses analytics to improve recovery.");
 });

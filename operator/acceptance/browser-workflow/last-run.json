@@ -1,5 +1,5 @@
 {
-  "base": "ad0427cb1627eeab29411c073564dfbdfaef397d",
+  "base": "5590680e01efd5fe6b010b0c4f27bd07561c94db",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
+      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
+      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
+      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "c3b2ed243cee553ebd98746795aaccbd907a9a9b347edb833db7d47f88e23760"
+      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "f6585cd210beed40fcbaaf3da2ae2ad26b3451a1ebc2279f9f968c8b4355c4fd"
+      "digest": "88d15a746fbae5cff652412dfef8c140b533157f703be1c4968668b1b34b92e5"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "f6585cd210beed40fcbaaf3da2ae2ad26b3451a1ebc2279f9f968c8b4355c4fd"
+      "digest": "88d15a746fbae5cff652412dfef8c140b533157f703be1c4968668b1b34b92e5"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "1f8424dd25e9506d31b8375716af3da94817bc1a20f3400fb0ff177f6ac2c49c"
+      "digest": "6f23170df928a96ca7013d21e282ab30a82f829a202a2259da275cd6e76d94d0"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "1f8424dd25e9506d31b8375716af3da94817bc1a20f3400fb0ff177f6ac2c49c"
+      "digest": "6f23170df928a96ca7013d21e282ab30a82f829a202a2259da275cd6e76d94d0"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "1f8424dd25e9506d31b8375716af3da94817bc1a20f3400fb0ff177f6ac2c49c"
+      "digest": "6f23170df928a96ca7013d21e282ab30a82f829a202a2259da275cd6e76d94d0"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "2d3ccc46bc71162fcba981dadf8e3db7b1cffeacb6ecebf74beed363ed5068ff"
+      "digest": "f5511a54cdb6bafe58dfe01cc4b53a0088ac13314897ff7eed9145664909605d"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "2d3ccc46bc71162fcba981dadf8e3db7b1cffeacb6ecebf74beed363ed5068ff"
+      "digest": "f5511a54cdb6bafe58dfe01cc4b53a0088ac13314897ff7eed9145664909605d"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "2d3ccc46bc71162fcba981dadf8e3db7b1cffeacb6ecebf74beed363ed5068ff"
+      "digest": "f5511a54cdb6bafe58dfe01cc4b53a0088ac13314897ff7eed9145664909605d"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "edbabdbcbd97fefad6f21fc4539da3eea1c02dff0b98036f096b72cc8df7ca37"
+      "digest": "6a27ecf716e2836f8a69f190ebc40863c806583735cac0bc92c4c927ed6a548d"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,12 +315,13 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "edbabdbcbd97fefad6f21fc4539da3eea1c02dff0b98036f096b72cc8df7ca37"
+      "digest": "6a27ecf716e2836f8a69f190ebc40863c806583735cac0bc92c4c927ed6a548d"
     }
   ],
-  "reviewedSourceFiles": 29,
+  "reviewedSourceFiles": 33,
   "interceptedProviders": [
     "jev-tasks.ts",
+    "jev.ts",
     "llm.ts",
     "retrieve.ts"
   ],
@@ -1950,7 +1951,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 17,
+        "tabs": 16,
         "direction": "Tab"
       },
       {
@@ -1961,7 +1962,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 21,
+        "tabs": 20,
         "direction": "Shift+Tab"
       },
       {
@@ -2062,28 +2063,6 @@
       {
         "kind": "activate",
         "label": "Find published contact details 2-0",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Find published contact details 2-1",
-        "tabs": 9,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Find published contact details 2-1",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Find published contact details 2-2",
-        "tabs": 11,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Find published contact details 2-2",
         "key": "Enter"
       },
       {
@@ -8359,138 +8338,6 @@
       "controls": 7
     },
     {
-      "checkpoint": "contact reveal 2-1",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-1",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-1",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-2",
-      "width": 320,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 320,
-        "width": 320,
-        "clientWidth": 320,
-        "scrollWidth": 320,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-2",
-      "width": 360,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 360,
-        "width": 360,
-        "clientWidth": 360,
-        "scrollWidth": 360,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
-      "checkpoint": "contact reveal 2-2",
-      "width": 768,
-      "scrollX": 0,
-      "rootGeometry": {
-        "tag": "div",
-        "type": null,
-        "id": "operator-task",
-        "left": 0,
-        "right": 768,
-        "width": 768,
-        "clientWidth": 768,
-        "scrollWidth": 768,
-        "scrollLeft": 0
-      },
-      "offendingControls": [],
-      "documentFits": true,
-      "taskFits": true,
-      "controlsFit": true,
-      "labelledFields": true,
-      "controls": 7
-    },
-    {
       "checkpoint": "screen /outreach",
       "width": 320,
       "scrollX": 0,
@@ -9632,7 +9479,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 18
     },
     {
       "checkpoint": "Expanded connection setting: Provider",
@@ -9654,7 +9501,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 18
     },
     {
       "checkpoint": "Expanded connection setting: Provider",
@@ -9676,7 +9523,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 15
+      "controls": 18
     },
     {
       "checkpoint": "Expanded connection setting: Companies per search (4–20)",
@@ -10380,10 +10227,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "4e669b53d85ae53006569cb2f7b81fb2c36e2749f147a1823411366d5214a061",
+      "sha256": "6e17b703f3212ac037854028735a6079efefdd7832cf66cd1f49fc58b5622ed5",
       "rows": 1,
       "identities": [
-        "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
+        "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
       ]
     }
   },
@@ -10404,20 +10251,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "4e669b53d85ae53006569cb2f7b81fb2c36e2749f147a1823411366d5214a061",
+        "sha256": "6e17b703f3212ac037854028735a6079efefdd7832cf66cd1f49fc58b5622ed5",
         "rows": 1,
         "identities": [
-          "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
+          "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "520eb0ac2f74233ccf05942501eccdad4e6eca16b135c32dec2fbeb97bbd8450",
+        "sha256": "859a22d93a5a3c031f4c06a30c05e3e53dbd0051cb445f01a49ea4b9dd9f4294",
         "rows": 2,
         "identities": [
-          "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5",
-          "d97b8d9790745672d59ce7cb:c14c2bee795eb036ff54b80c"
+          "d0642ed900eaaea50a1e7c38:831440188f5958835c14ab34",
+          "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
         ]
       }
     ]
@@ -10431,26 +10278,26 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "4e669b53d85ae53006569cb2f7b81fb2c36e2749f147a1823411366d5214a061",
+      "sha256": "6e17b703f3212ac037854028735a6079efefdd7832cf66cd1f49fc58b5622ed5",
       "rows": 1,
       "identities": [
-        "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
+        "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "2d581b5265ae0eab8ba59f6dec9a1a655015ae820f8953a2cf0677fe0826c330",
+    "sha256": "d5260dc85558835f7796d9e2dab7788c048bddf9e270cc4e649753150e6af09b",
     "rows": 7,
     "identities": [
-      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-0",
-      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-1",
-      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-2",
-      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-3",
-      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-4",
-      "3b3dcbc86bbcbb3aa31dfc31:csv-edge-5",
-      "3b3dcbc86bbcbb3aa31dfc31:d198e383fa454ee2a7aceeb5"
+      "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f",
+      "eb4531ce69d960561a09eea3:csv-edge-0",
+      "eb4531ce69d960561a09eea3:csv-edge-1",
+      "eb4531ce69d960561a09eea3:csv-edge-2",
+      "eb4531ce69d960561a09eea3:csv-edge-3",
+      "eb4531ce69d960561a09eea3:csv-edge-4",
+      "eb4531ce69d960561a09eea3:csv-edge-5"
     ]
   },
   "recovery": [
@@ -10463,10 +10310,11 @@
   "stubCounts": {
     "hunt": 2,
     "discovery": 2,
-    "retrieve": 6
+    "retrieve": 4,
+    "explain": 2
   },
   "browserCounts": {
-    "local": 383,
+    "local": 359,
     "composeAborted": 2,
     "unexpected": 0
   },

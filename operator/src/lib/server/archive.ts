@@ -1,9 +1,10 @@
+import { opportunitySchema } from "../domain/opportunity.ts";
 import { createHash } from "node:crypto";
 import type { Sql } from "../db";
 
 /** Version 1 is the complete operator workspace schema from migrations 0002–0008.
  * Secrets, authentication, unspent grants, grant expiry authority, active leases
- * and schedules are deliberately excluded. Spent enrichment history is retained. Operating budget is reset; approval timestamps and
+ * schedules and transient search progress are deliberately excluded. Spent enrichment history is retained. Operating budget is reset; approval timestamps and
  * delivery history are retained, but imported approvals cannot authorize sends. */
 export const ARCHIVE_VERSION = 1;
 const columns = {
@@ -106,6 +107,7 @@ async function schema(sql: Sql) {
     const allowed = new Set([
       "user_id",
       ...names(table),
+      ...(table === "prospecting_runs" ? ["progress_json"] : []),
       ...(table === "outreach_messages"
         ? ["lease_until", "lease_token"]
         : table === "enrichment_grants"
@@ -286,6 +288,8 @@ export async function validateWorkspaceArchive(
     if (!assessment || typeof assessment !== "object" || Array.isArray(assessment))
       throw new Error("Invalid assessment JSON");
     const data = assessment as Record<string, unknown>;
+    if (data.opportunity !== undefined && !opportunitySchema.safeParse(data.opportunity).success)
+      throw new Error("Invalid opportunity explanation");
     if (
       typeof data.passRule !== "string" ||
       !(data.hardDisqualifier === null || typeof data.hardDisqualifier === "string") ||

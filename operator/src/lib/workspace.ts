@@ -1,6 +1,7 @@
 import { uiText } from "@/lib/domain/plain-language";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  explainProspect,
   activateProduct,
   activateProfile,
   addSuppression,
@@ -41,6 +42,7 @@ export function useWorkspace(enabled = true) {
     queryKey: workspaceKey,
     queryFn: () => getWorkspace(),
     staleTime: 8_000,
+    refetchInterval: query => query.state.data?.runs.some(run => run.status === "running" || run.status === "queued") ? 1500 : false,
     enabled,
   });
 }
@@ -180,6 +182,7 @@ export function useSaveConnections() {
       llmProvider?: string;
       llmModel?: string;
       llmBaseUrl?: string;
+      llmWorkspaceId?: string;
       llmKey?: string;
       scheduleEnabled?: boolean;
       huntBatch?: number;
@@ -255,4 +258,8 @@ export function mutationMessage(error: unknown) {
   }
   if (error instanceof Error && error.message) return uiText(error.message);
   return "The workspace could not complete that action.";
+}
+
+export function useExplainProspect() {
+  return useWorkspaceMutation((input: { prospectId: string; expectedRevision: number }) => explainProspect({ data: input }));
 }

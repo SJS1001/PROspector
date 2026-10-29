@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { qualifyCandidate } from "./qualify.ts";
-import { mergeJevQualification } from "./qualify-jev.ts";
+import { mergeJevQualification, jevContribution } from "./qualify-jev.ts";
 
 const source = {
   url: "https://www.nordicmining.com/operations/engebo/",
@@ -68,4 +68,14 @@ test("low-confidence disagreement blocks a keyword pass", () => {
     stuffed: 0.01,
   });
   assert.equal(merged.outcome, "NotQualified");
+});
+
+test("contribution distinguishes agreement, ignored answers and changed decisions", () => {
+  const keyword = { ...base(), outcome: "NotQualified" as const };
+  const ignored = { scores: { pain_strength: { score: 0, confidence: 0.1 } }, outcome: "NotQualified" as const, outcomeConfidence: 0.1, hardNo: 0, operating: 1, stuffed: 0 };
+  assert.deepEqual(jevContribution(keyword, mergeJevQualification(keyword, ignored), ignored), { applied: false, changed: false });
+  const agreed = { ...ignored, outcomeConfidence: 0.9 };
+  assert.deepEqual(jevContribution(keyword, mergeJevQualification(keyword, agreed), agreed), { applied: true, changed: false });
+  const blocked = { ...ignored, hardNo: 1 };
+  assert.deepEqual(jevContribution(keyword, mergeJevQualification(keyword, blocked), blocked), { applied: true, changed: true });
 });

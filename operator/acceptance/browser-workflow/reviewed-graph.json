@@ -1,11 +1,12 @@
 [
   {
     "path": "scripts/local-data.mjs",
-    "sha256": "4fdbc773706733d932117a55806ba648377c32a52e676df8c0ffd650095a1ac1",
+    "sha256": "47f60e7de7ea8bb776ac391422620ee762edf269aea901810abf2f838d1390ac",
     "imports": [
       "node:fs",
       "node:os",
       "node:path",
+      "node:sqlite",
       "node:url"
     ]
   },
@@ -108,12 +109,19 @@
   },
   {
     "path": "src/lib/domain/llm.ts",
-    "sha256": "cf394fb4990366688ab8304e7dfeedf7753b148b6bc0add420fa1662f3d8f97a",
+    "sha256": "ed4f956036b55df3a41a56bffc020064d02aa7a71e5b3ad564997b7363bd05d5",
     "imports": []
   },
   {
+    "path": "src/lib/domain/opportunity.ts",
+    "sha256": "bfada03092ac9371327ff8d903466316271cc93d727080737c9a8cf18c7d22e5",
+    "imports": [
+      "zod"
+    ]
+  },
+  {
     "path": "src/lib/domain/qualify-jev.ts",
-    "sha256": "70413bc4c42af051270932d0833bbc20e3e49712ec4fd9622769043194ba292d",
+    "sha256": "718fb15407a2512eef4762d3cf5eeb643bea36b56cc671cb21cde18e6b6df504",
     "imports": []
   },
   {
@@ -138,8 +146,9 @@
   },
   {
     "path": "src/lib/server/archive.ts",
-    "sha256": "53c384d4038131b59b3916ec74c4f74bcace86c55a9fdfcddfc9a9e168d051b2",
+    "sha256": "3a9a388cdf2352061c3d4be10063dccd073c6277605642aff213f58b2fec09cc",
     "imports": [
+      "../domain/opportunity.ts",
       "node:crypto"
     ]
   },
@@ -154,11 +163,15 @@
   },
   {
     "path": "src/lib/server/fns.ts",
-    "sha256": "43e16fd87c14c799497551398ccf03f86ab9b187de9399727052eae816d3fd16",
+    "sha256": "544824362cd0f8e89cc2d79b0af782c9ffa95b16f819cb44c11c04259301c6f9",
     "imports": [
+      "./opportunity",
+      "./retrieve",
       "@/lib/auth/middleware",
       "@/lib/db",
       "@/lib/domain/catalog",
+      "@/lib/domain/llm",
+      "@/lib/domain/opportunity",
       "@/lib/server/archive",
       "@/lib/server/archive-db",
       "@/lib/server/archive-request",
@@ -177,10 +190,14 @@
   },
   {
     "path": "src/lib/server/hunt.ts",
-    "sha256": "d2b087948432ff17fcc3abc54ab797717e213c6bc1d2e275ecc70089db47b7ca",
+    "sha256": "4513e3378fd88e1237c43cd7e37c3a4ac5e61129bf810555ea2a14855ea0a065",
     "imports": [
+      "./opportunity",
+      "./search-response",
+      "./search-strategy",
       "@/lib/domain/qualify",
       "@/lib/domain/qualify-jev",
+      "@/lib/server/jev",
       "@/lib/server/jev-tasks",
       "@/lib/server/llm",
       "@/lib/server/profile",
@@ -194,6 +211,14 @@
     "sha256": "cea0fd3d825527e397bcb9cc094d965925799d2926f5c5f1801459b620f7e3cc",
     "imports": [
       "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/opportunity.ts",
+    "sha256": "f2f0a35a0e15dcbeb584d4a30e8c9f2de272e407f313055587a1fa773a7fd192",
+    "imports": [
+      "./llm",
+      "@/lib/domain/opportunity"
     ]
   },
   {
@@ -212,8 +237,18 @@
     ]
   },
   {
+    "path": "src/lib/server/search-response.ts",
+    "sha256": "c33db9b781542dd5994de7f78d4f0da058f55b2f4caaeddf15b6b1297b579054",
+    "imports": []
+  },
+  {
+    "path": "src/lib/server/search-strategy.ts",
+    "sha256": "2ff950000ea4056ed3b91f224f6408c0b8162d4cf786d3a4acfcbd9c60b3b466",
+    "imports": []
+  },
+  {
     "path": "src/lib/server/secrets.ts",
-    "sha256": "269b7a6ab911744dcb3078444da7f27534cae6e48a49ae052376baac32a8f53b",
+    "sha256": "135304e3661241f370f66e8dd0e7f4479a058dcb69bc9adee0d77cc501a8e566",
     "imports": [
       "@/lib/domain/llm",
       "@/lib/server/vault"

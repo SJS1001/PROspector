@@ -1,3 +1,29 @@
+# PR #142 review verification — 2026-10-29
+
+Tested the working-tree review corrections on base
+`5590680e01efd5fe6b010b0c4f27bd07561c94db`. This section and `last-run.json`
+supersede prior browser results.
+
+- Full app suite: 384 passed (295 scripts + 89 source); typecheck and production
+  build passed. Lint: zero errors, three existing warnings.
+- Public contained browser test: PASS; 46 harness units, two complete fictional
+  workflows, 554 keyboard actions, 306 layouts, ten cancellation cases,
+  and four recovery scenarios. Startup/reload and managed restart preserve state.
+- Explicit review updated the 33-file runtime graph for SQLite locking and the
+  search/opportunity modules. Fictional evidence now includes current publication
+  metadata and exact-quote explanations required by the production evidence gate.
+  JEV requests remain forbidden; only its safe error formatter is available.
+- Stub counts: hunt 2, discovery 2, retrieve 4, explanation 2. Unexpected browser
+  requests and forbidden provider attempts: zero. Both compose requests aborted.
+- Restored distinct company/site labels and supplied confirmed product constraints
+  to opportunity refresh; focused regression included in the full suite.
+- Actual macOS reboot remains a guided owner check, distinct from server restart.
+  These fictional checks do not establish live provider quality or email delivery.
+
+See [the review report](../../../docs/implementation-lanes/2026-10-29-pr142-review.md).
+
+---
+
 # Plain-language verification — 2026-10-28
 
 Tested the working-tree delta on base `ad0427cb1627eeab29411c073564dfbdfaef397d`

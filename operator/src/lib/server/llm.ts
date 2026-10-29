@@ -1,4 +1,5 @@
-import { llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
+import { anthropicSearch } from "./anthropic-search";
+import { anthropicWorkspaceId, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
 import { assertPublicHttps } from "@/lib/server/retrieve";
 import { getSecret } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
@@ -8,6 +9,7 @@ export type LlmConfig = {
   model: string;
   baseUrl: string;
   apiKey: string;
+  workspaceId?: string;
   search: LlmSearchMode;
 };
 
@@ -29,7 +31,7 @@ function outputText(body: Record<string, unknown>) {
   const choices = body.choices as { message?: { content?: string } }[] | undefined;
   if (choices?.[0]?.message?.content) return choices[0].message.content;
   const content = body.content as { text?: string }[] | undefined;
-  if (Array.isArray(content) && content[0]?.text) return content[0].text;
+  if (Array.isArray(content)) return content.filter((part) => typeof part.text === "string").map((part) => part.text).join("\n");
   return "";
 }
 
@@ -56,6 +58,7 @@ export async function resolveLlmConfig(sql: Sql, userId: string): Promise<LlmCon
     model,
     baseUrl,
     apiKey: key,
+    workspaceId: spec.id === "anthropic" ? anthropicWorkspaceId(await getSecret(sql, userId, "llm_workspace_id")) : undefined,
     search: spec.search,
   };
 }
@@ -73,6 +76,8 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
       typeof json.error === "object" && json.error && "message" in json.error
         ? String((json.error as { message?: string }).message)
         : `Model request failed (${response.status}).`;
+    if (url.startsWith("https://api.anthropic.com/") && message.includes("anthropic-workspace-id"))
+      throw new Error("Your Anthropic key needs a workspace ID. Open Settings → Connections & search settings → AI model, add your Anthropic workspace ID, then save and try again.");
     throw new Error(message);
   }
   return json;
@@ -85,6 +90,7 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
       {
         "x-api-key": config.apiKey,
         "anthropic-version": "2023-06-01",
+        ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}),
       },
       { model: config.model, max_tokens: extra?.max_tokens ?? 2200, messages: [{ role: "user", content: prompt }] },
     );
@@ -103,13 +109,15 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
   return outputText(json);
 }
 
-export async function completeJson(sql: Sql, userId: string, prompt: string): Promise<string> {
+export async function completeJson(sql: Sql, userId: string, prompt: string, onSearch?: (count: number) => Promise<void>): Promise<string> {
   const config = await resolveLlmConfig(sql, userId);
   const searchNote =
     config.search === "none"
       ? "You have no live web search. Only propose HTTPS URLs you would bet already exist. Invented URLs will be dropped when retrieval fails."
       : "Use live web search. Every URL must be a real public HTTPS page.";
   const full = `${prompt}\n\n${searchNote}\nReturn JSON only.`;
+
+  if (config.search === "anthropic") return anthropicSearch(config, full, onSearch);
 
   if (config.search === "xai") {
     try {
@@ -161,4 +169,9 @@ export async function completeJson(sql: Sql, userId: string, prompt: string): Pr
   }
 
   return chatCompletions(config, full);
+}
+
+/** Grounded explanation of already-retrieved evidence; does not start another web search. */
+export async function explainEvidence(sql: Sql, userId: string, prompt: string) {
+  return chatCompletions(await resolveLlmConfig(sql, userId), prompt);
 }
