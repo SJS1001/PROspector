@@ -1,3 +1,4 @@
+import { OpportunitySummary } from "./opportunity-summary";
 import { SearchMonitor } from "@/components/search-monitor";
 import { useQueryClient } from "@tanstack/react-query";
 import { workspaceKey } from "@/lib/workspace";
@@ -30,7 +31,9 @@ export function ProspectsView() {
   if (isPending) return <p className="text-sm text-muted">Loading prospects…</p>;
   if (isError || !data) return <WorkspaceLoadError message="Prospects could not be loaded." />;
 
-  const rows = data.prospects.filter((item) => filter === "all" || item.state === filter).sort((a,b) => Number(b.origin === "run") - Number(a.origin === "run"));
+  const rows = data.prospects
+    .filter((item) => filter === "all" || item.state === filter)
+    .sort((a, b) => Number(b.origin === "run") - Number(a.origin === "run"));
   const live = data.prospects.filter((item) => item.origin === "run").length;
 
   return (
@@ -100,11 +103,15 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
   const playReady = data.draftPlays.some((play) => play.status === "confirmed");
   const error = activate.error ?? find.error;
   const pending = activate.isPending || find.isPending;
-  const busy = pending || data.runs.some(run => run.status === "running" || run.status === "queued");
+  const busy =
+    pending || data.runs.some((run) => run.status === "running" || run.status === "queued");
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!pending) return;
-    const timer = setInterval(() => void queryClient.invalidateQueries({ queryKey: workspaceKey }), 1500);
+    const timer = setInterval(
+      () => void queryClient.invalidateQueries({ queryKey: workspaceKey }),
+      1500,
+    );
     return () => clearInterval(timer);
   }, [pending, queryClient]);
   const confirmation = useRef<HTMLDivElement>(null);
@@ -168,7 +175,9 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
               >
                 <div>
                   <b className="block text-sm">{uiText(item.label)}</b>
-                  <span className="text-xs text-muted">{item.id === "rubric" ? uiText(item.summary) : item.summary}</span>
+                  <span className="text-xs text-muted">
+                    {item.id === "rubric" ? uiText(item.summary) : item.summary}
+                  </span>
                 </div>
                 <Badge tone={item.complete ? "ok" : "warn"}>
                   {item.complete ? "Complete" : "Needs confirmation"}
@@ -316,7 +325,9 @@ function RunLedger({ data }: { data: WorkspaceDTO }) {
                 {run.candidateCount} found · {run.qualifiedCount} match your criteria
                 {run.finishedAt ? ` · ${new Date(run.finishedAt).toLocaleString("en-CA")}` : ""}
               </p>
-              {run.terminalReason ? <p className="mt-2 text-xs">{uiText(run.terminalReason)}</p> : null}
+              {run.terminalReason ? (
+                <p className="mt-2 text-xs">{uiText(run.terminalReason)}</p>
+              ) : null}
             </li>
           ))}
         </ol>
@@ -330,10 +341,15 @@ function ProspectCard({ item }: { item: Prospect }) {
     <article className="flex flex-col rounded-[12px] border border-line bg-cream p-5">
       <div className="flex items-start justify-between gap-3">
         <Badge tone={tone(item.state)}>{uiLabel(item.state)}</Badge>
-        <span className="font-mono text-[11px] text-muted">{item.score}/10</span>
+        <span className="text-xs text-muted">
+          {item.assessment.opportunity?.problem ? "Possible need" : "Need not confirmed"}
+        </span>
       </div>
       <h2 className="mt-4 font-display text-xl">{item.accountName}</h2>
-      <p className="mt-1 text-xs text-muted">{item.targetName}</p>
+      <p className="mt-2 text-sm leading-6 text-muted">
+        {item.assessment.opportunity?.situation.text ??
+          "Open to check the source and possible fit."}
+      </p>
       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
         {item.origin === "run" ? "Search result" : "Sample data"} · {uiLabel(item.outcome)}
       </p>
@@ -343,12 +359,6 @@ function ProspectCard({ item }: { item: Prospect }) {
       {item.assessment.hardDisqualifier ? (
         <p className="mt-2 text-xs text-red">{item.assessment.hardDisqualifier}</p>
       ) : null}
-      <details className="mt-3">
-        <summary className="cursor-pointer text-xs font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-          Evidence summary
-        </summary>
-        <p className="mt-2 text-xs leading-5 text-muted">{item.evidenceExcerpt}</p>
-      </details>
       {item.lastReason ? (
         <p className="mt-3 text-xs text-ink">Last reason: {item.lastReason}</p>
       ) : null}
@@ -394,84 +404,116 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow={`${uiLabel(item.outcome)} · revision ${item.revision} · ${item.origin === "run" ? "search result" : "sample data"}`}
+        eyebrow={item.origin === "run" ? "Search result" : "Sample data"}
         title={item.accountName}
-        copy={item.targetName}
         action={
           <Link to="/prospects">
             <Button variant="outline">All prospects</Button>
           </Link>
         }
       />
+      <OpportunitySummary item={item} />
       <Panel className="p-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge tone={tone(item.state)}>{uiLabel(item.state)}</Badge>
-          <Badge tone={item.outcome === "Passed" ? "ok" : "warn"}>{uiLabel(item.outcome)}</Badge>
-          <span className="font-display text-3xl">{item.score}/10</span>
-        </div>
-        <p className="mt-4 max-w-3xl text-sm leading-6">{item.evidenceExcerpt}</p>
-        <p className="mt-3 break-all font-mono text-[11px] text-muted">
-          {sourceLabel(item.evidenceTier)} · {item.evidenceDate} · {item.evidenceUrl}
-        </p>
-        <details className="mt-4">
+        <h2 className="font-display text-lg">Sources</h2>
+        <ul className="mt-4 grid gap-4">
+          {(item.assessment.opportunity
+            ? [
+                {
+                  id: "brief-source",
+                  url: item.assessment.opportunity.sourceUrl,
+                  title: item.assessment.opportunity.sourceTitle,
+                  excerpt: item.assessment.opportunity.situation.text,
+                  retrievedAt: item.assessment.opportunity.checkedAt,
+                },
+                ...evidence.filter(
+                  (row) =>
+                    row.url !== item.evidenceUrl &&
+                    row.url !== item.assessment.opportunity?.sourceUrl,
+                ),
+              ]
+            : evidence.length
+              ? evidence
+              : [
+                  {
+                    id: "assessment-source",
+                    url: item.evidenceUrl,
+                    title: "Original source",
+                    excerpt: "",
+                    retrievedAt: item.evidenceDate,
+                  },
+                ]
+          ).map((row) => (
+            <li key={row.id} className="rounded-[10px] border border-line bg-paper p-4">
+              {/^https:\/\//i.test(row.url) ? (
+                <a
+                  className="font-semibold text-sm text-green underline underline-offset-4 break-words"
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {row.title} ↗
+                </a>
+              ) : (
+                <b className="text-sm">{row.title}</b>
+              )}
+              <p className="mt-2 text-sm leading-6 text-muted">
+                {row.id === "brief-source"
+                  ? row.excerpt
+                  : "Source saved with this result; relevance has not yet been summarized."}
+              </p>
+              <p className="mt-2 text-xs text-muted">Checked {row.retrievedAt.slice(0, 10)}</p>
+              {row.id === "brief-source" && item.assessment.opportunity ? (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-semibold">
+                    Supporting passages
+                  </summary>
+                  {[
+                    ...new Set(
+                      [
+                        item.assessment.opportunity.company.quote,
+                        item.assessment.opportunity.situation.quote,
+                        item.assessment.opportunity.problem?.quote,
+                      ].filter(Boolean),
+                    ),
+                  ].map((quote) => (
+                    <blockquote
+                      key={quote}
+                      className="mt-3 border-l-2 border-line pl-3 text-xs leading-5 text-muted"
+                    >
+                      “{quote}”
+                    </blockquote>
+                  ))}
+                </details>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </Panel>
+      <Panel className="p-6">
+        <details>
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-            Scoring details
+            Assessment details · {uiLabel(item.outcome)}
           </summary>
-          <p className="mt-2 text-xs text-muted">{uiText(item.assessment.passRule)}</p>
-          <p className="mt-2 break-all font-mono text-[11px] text-muted">
-            {item.configurationDigest}
+          <p className="mt-3 text-sm">
+            {item.score}/10 · Research score, not proof of buying intent
           </p>
+          <p className="mt-2 text-xs text-muted">{uiText(item.assessment.passRule)}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-5">
             {item.assessment.dimensions.map((dim) => (
               <div key={dim.id} className="rounded-[10px] border border-line bg-paper p-3">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                  {uiText(dim.label)}
-                </span>
-                <b className="mt-1 block font-display text-xl">
+                <span className="text-xs text-muted">{uiText(dim.label)}</span>
+                <b className="mt-1 block">
                   {dim.score}/{dim.max}
                 </b>
-                <p className="mt-1 text-[11px] leading-4 text-muted">{uiText(dim.note)}</p>
+                <p className="mt-1 text-xs leading-5 text-muted">{uiText(dim.note)}</p>
               </div>
             ))}
           </div>
-        </details>
-        {item.assessment.hardDisqualifier ? (
-          <p className="mt-4 text-sm text-red">
-            Reason to exclude: {item.assessment.hardDisqualifier}
-          </p>
-        ) : null}
-      </Panel>
-
-      <Panel className="p-6">
-        <details>
-          <summary className="cursor-pointer text-sm font-medium">
-            Sources · {evidence.length}
-          </summary>
-          {evidence.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">No additional source pages.</p>
-          ) : (
-            <ul className="mt-4 grid gap-3">
-              {evidence.map((row) => (
-                <li key={row.id} className="rounded-[10px] border border-line bg-paper p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <b className="text-sm">{row.title}</b>
-                    <Badge tone={row.tier === 1 ? "ok" : row.tier === 2 ? "lime" : "warn"}>
-                      {sourceLabel(row.tier)}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 text-xs leading-5 text-muted">{row.excerpt}</p>
-                  <a
-                    className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-green"
-                    href={row.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open source (external)
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
+          {item.assessment.hardDisqualifier ? (
+            <p className="mt-4 text-sm text-red">
+              Reason to exclude: {item.assessment.hardDisqualifier}
+            </p>
+          ) : null}
         </details>
       </Panel>
 
@@ -479,8 +521,8 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
         <Panel className="grid gap-3 p-6">
           <h2 className="font-display text-lg">Review again</h2>
           <p className="text-sm text-muted">
-            Review a rejected prospect after 90 days, or a saved prospect on its review date.
-            If something important changed, record it below to review sooner.
+            Review a rejected prospect after 90 days, or a saved prospect on its review date. If
+            something important changed, record it below to review sooner.
           </p>
           {item.cooldownUntil ? (
             <p className="text-xs text-muted">

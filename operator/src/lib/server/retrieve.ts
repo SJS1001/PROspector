@@ -1,3 +1,4 @@
+import { load } from "cheerio";
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -89,7 +90,9 @@ async function readHtml(response: Response) {
       if (idx >= 0) {
         inBody = true;
         body = prefix.slice(idx);
-        prefix = prefix.slice(0, Math.min(idx, 12_000));
+        // Keep the bounded head intact: cutting inside a style/script tag can
+        // cause an HTML parser to swallow the entire article as code.
+        prefix = prefix.slice(0, idx);
       } else if (prefix.length > 2_000_000) {
         await reader.cancel();
         break;
@@ -106,26 +109,30 @@ async function readHtml(response: Response) {
   return `${prefix}\n${body}`;
 }
 
-function extractText(html: string) {
-  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ") ?? "";
-  const body = html.includes("<body")
-    ? html.replace(/^[\s\S]*<body[^>]*>/i, " ")
-    : html.replace(/<head[\s\S]*?<\/head>/i, " ");
-  const stripped = body
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&/g, "&")
-    .replace(/"/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-  return {
-    title: title.replace(/\s+/g, " ").trim().slice(0, 180),
-    text: stripped.slice(0, 8_000),
-  };
+export function extractText(html: string) {
+  const $ = load(html);
+  const clean = (value: string) => value.replace(/\s+/g, " ").trim();
+  const title = clean($("title").text()).slice(0, 180);
+  $(
+    "script, style, noscript, nav, footer, aside, form, [role=navigation], [role=banner], [role=contentinfo], [hidden], .menu, .navigation, .sidebar, .related-posts, .share-buttons, .cookie-banner",
+  ).remove();
+  // Prefer the article body; site headers and related-story menus are not evidence.
+  const article = $(
+    "[itemprop=articleBody], .entry-content, .post-content, .article-content, article, main, [role=main]",
+  )
+    .toArray()
+    .map((node) => $(node))
+    .filter((node) => clean(node.text()).length > 100)
+    .sort((a, b) => clean(b.text()).length - clean(a.text()).length);
+  const root =
+    article.find((node) =>
+      node.is("[itemprop=articleBody], .entry-content, .post-content, .article-content"),
+    ) ??
+    article[0] ??
+    $("body");
+  root.find("header").remove();
+  root.find("p, div, br, li, h1, h2, h3, h4, section").before(" ").after(" ");
+  return { title, text: clean(root.text()).slice(0, 16_000) };
 }
 
 export type RetrievedPage = {

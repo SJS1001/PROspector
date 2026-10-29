@@ -1,3 +1,4 @@
+import { opportunitySchema } from "../domain/opportunity.ts";
 import { createHash } from "node:crypto";
 import type { Sql } from "../db";
 
@@ -287,6 +288,8 @@ export async function validateWorkspaceArchive(
     if (!assessment || typeof assessment !== "object" || Array.isArray(assessment))
       throw new Error("Invalid assessment JSON");
     const data = assessment as Record<string, unknown>;
+    if (data.opportunity !== undefined && !opportunitySchema.safeParse(data.opportunity).success)
+      throw new Error("Invalid opportunity explanation");
     if (
       typeof data.passRule !== "string" ||
       !(data.hardDisqualifier === null || typeof data.hardDisqualifier === "string") ||

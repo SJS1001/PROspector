@@ -47,3 +47,13 @@ test("retrieval extracts readable HTML evidence", async (t) => {
   assert.equal(page.text, "Operating copper mine");
   assert.match(page.hash, /^[a-f0-9]{64}$/);
 });
+
+test("large style blocks before the body cannot swallow article evidence", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(
+    `<html><head><title>Plant report</title><style>${".x{color:red}".repeat(2000)}</style></head><body><nav>Subscribe</nav><article><p>The operating copper plant uses analytics to improve recovery.</p></article></body></html>`,
+    { headers: { "content-type": "text/html" } },
+  ));
+  const page = await retrieveHttps("https://8.8.8.8/source");
+  assert.equal(page.title, "Plant report");
+  assert.equal(page.text, "The operating copper plant uses analytics to improve recovery.");
+});

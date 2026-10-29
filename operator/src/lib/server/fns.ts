@@ -1,3 +1,6 @@
+import { opportunitySchema } from "@/lib/domain/opportunity";
+import { buildOpportunity } from "./opportunity";
+import { retrieveHttps } from "./retrieve";
 import { anthropicWorkspaceId } from "@/lib/domain/llm";
 import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
@@ -231,6 +234,11 @@ function mapProspect(row: ProspectRow): Prospect {
   };
   try {
     assessment = JSON.parse(row.assessment_json) as Assessment;
+    if (assessment.opportunity) {
+      const parsed = opportunitySchema.safeParse(assessment.opportunity);
+      if (parsed.success) assessment.opportunity = parsed.data;
+      else delete assessment.opportunity;
+    }
   } catch {
     assessment = { passRule: "", hardDisqualifier: null, dimensions: [] };
   }
@@ -1644,5 +1652,29 @@ export const parkGreenfield = createServerFn({ method: "POST" })
       returning id
     `;
     if (rows.length === 0) throw new Error("That revision is no longer current.");
+    return loadWorkspace(context.userId);
+  });
+
+export const explainProspect = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { prospectId: string; expectedRevision: number }) => {
+    if (!input || typeof input.prospectId !== "string" || !Number.isSafeInteger(input.expectedRevision))
+      throw new Error("Choose a current prospect.");
+    return input;
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const [item] = await sql<ProspectRow>`select * from prospects where id = ${data.prospectId} and user_id = ${context.userId} and revision = ${data.expectedRevision}`;
+    if (!item || item.origin !== "run") throw new Error("Choose a current search result.");
+    const [profile] = await sql<ProfileRow>`select * from profile_configurations where user_id = ${context.userId} and digest = ${item.configuration_digest}`;
+    if (!profile) throw new Error("The search settings have changed. Run a new search for an up-to-date explanation.");
+    const page = await retrieveHttps(item.evidence_url);
+    const opportunity = await buildOpportunity(sql, context.userId, item.account_name, page, JSON.parse(profile.snapshot_json));
+    const assessment: Assessment = JSON.parse(item.assessment_json);
+    assessment.opportunity = opportunity;
+    // This is explanatory research only: preserve the assessment outcome and score.
+    const updated = await sql`update prospects set assessment_json = ${JSON.stringify(assessment)}, revision = revision + 1
+      where id = ${data.prospectId} and user_id = ${context.userId} and revision = ${data.expectedRevision} returning id`;
+    if (!updated.length) throw new Error("This prospect changed while the explanation was being prepared. Reload and try again.");
     return loadWorkspace(context.userId);
   });

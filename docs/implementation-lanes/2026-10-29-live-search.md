@@ -27,7 +27,7 @@ Saved source pages were independently opened and checked:
 - [International Mining, 27 March 2026](https://im-mining.com/2026/03/27/antofagasta-plc-copper-growth-delivery-going-hand-in-hand-with-innovation/) discusses SIRO deployment at Centinela and Los Pelambres.
 - [MMG, 20 July 2026](https://www.mmg.com/investors/news-centre/169701/) describes Dugald River's digital twin and names the staff mentioned in the result.
 
-These are real discoveries, not three qualified leads. Qualification rules were unchanged. No outreach was sent. Source snippets still include navigation boilerplate on some pages, and source-tier classification remains conservative; improving extraction and classification is a separate follow-up. Named people are source mentions, not verified contacts.
+These are real discoveries, not three qualified leads. Qualification rules were unchanged in this initial delivery. No outreach was sent. The subsequent [opportunity-explanation follow-up](2026-10-29-opportunity-explanations.md) improves article extraction, replaces raw snippets with source-backed explanations, and requires evidence of an unresolved problem before a new result can pass. Source-tier classification remains conservative. Named people are source mentions, not verified contacts.
 
 ## Checks
 

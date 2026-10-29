@@ -1,6 +1,7 @@
 import { uiText } from "@/lib/domain/plain-language";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  explainProspect,
   activateProduct,
   activateProfile,
   addSuppression,
@@ -257,4 +258,8 @@ export function mutationMessage(error: unknown) {
   }
   if (error instanceof Error && error.message) return uiText(error.message);
   return "The workspace could not complete that action.";
+}
+
+export function useExplainProspect() {
+  return useWorkspaceMutation((input: { prospectId: string; expectedRevision: number }) => explainProspect({ data: input }));
 }

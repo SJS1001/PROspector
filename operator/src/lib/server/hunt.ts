@@ -1,3 +1,4 @@
+import { buildOpportunity } from "./opportunity";
 import { parseCandidates } from "./search-response";
 import type { RunnerCandidate } from "./search-response";
 import type { SearchProgress } from "@/lib/domain/types";
@@ -44,6 +45,7 @@ Propose at most ${limit} currently operating accounts that match this profile.
 Each url must be a real public HTTPS HTML page on the company or a regulator/trade publisher. Do not link to PDFs, downloads, or binary files.
 Use live web search now, with at most five search queries. Today is ${new Date().toISOString().slice(0, 10)}.
 Return only candidates supported by pages you found in those results. Keep notes brief.
+targetName must be the plant or site name, never a person or contact caveat.
 Prefer named plants/sites, not conglomerate homepages. Do not use IP addresses or localhost.
 
 Company: ${snapshot.company}
@@ -153,6 +155,16 @@ export async function executeHunt(opts: {
         await report(`${item.candidate.accountName}: already saved`);
         continue;
       }
+      await report(`${item.candidate.accountName}: explaining the possible fit`);
+      try {
+        qualified.assessment.opportunity = await buildOpportunity(opts.sql, opts.userId, item.candidate.accountName, item.page, opts.snapshot);
+      } catch {
+        reasons.push(`${item.candidate.accountName}: explanation unavailable; source saved for review.`);
+        await report(`${item.candidate.accountName}: explanation unavailable`);
+      }
+      // A keyword match alone cannot establish an unresolved customer need.
+      if (qualified.outcome === "Passed" && !qualified.assessment.opportunity?.problem)
+        qualified.outcome = "InsufficientEvidence";
       opts.knownFingerprints.add(qualified.fingerprint);
       await report(`${item.candidate.accountName}: source checked · ${qualified.score}/10`);
       accepted.push({

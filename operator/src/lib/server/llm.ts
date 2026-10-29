@@ -170,3 +170,8 @@ export async function completeJson(sql: Sql, userId: string, prompt: string, onS
 
   return chatCompletions(config, full);
 }
+
+/** Grounded explanation of already-retrieved evidence; does not start another web search. */
+export async function explainEvidence(sql: Sql, userId: string, prompt: string) {
+  return chatCompletions(await resolveLlmConfig(sql, userId), prompt);
+}

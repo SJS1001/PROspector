@@ -1,18 +1,9 @@
 export type KnowledgeStatus = "pending" | "proposed" | "confirmed";
 export type ProposalDecision = "open" | "explore" | "defer" | "dismiss";
 export type ProspectState =
-  | "qualified"
-  | "approved"
-  | "rejected"
-  | "deferred"
-  | "assessed"
-  | "disqualified";
+  "qualified" | "approved" | "rejected" | "deferred" | "assessed" | "disqualified";
 export type ProspectOutcome =
-  | "Passed"
-  | "Failed"
-  | "NotQualified"
-  | "InsufficientEvidence"
-  | "Disqualified";
+  "Passed" | "Failed" | "NotQualified" | "InsufficientEvidence" | "Disqualified";
 export type ReviewDecision = "approve" | "reject" | "defer";
 export type CapabilityStatus = "proven" | "blocked" | "unproven";
 export type ContactRole = "champion" | "economic_buyer" | "validator";
@@ -30,7 +21,22 @@ export type ScoreDimension = {
   note: string;
 };
 
+export type OpportunityBrief = {
+  version: 1;
+  company: { text: string; quote: string };
+  situation: { text: string; quote: string };
+  problem: { text: string; quote: string } | null;
+  possibleFit: string;
+  nextQuestion: string;
+  product: string;
+  sourceUrl: string;
+  sourceTitle: string;
+  sourceHash: string;
+  checkedAt: string;
+};
+
 export type Assessment = {
+  opportunity?: OpportunityBrief;
   passRule: string;
   hardDisqualifier: string | null;
   dimensions: ScoreDimension[];
@@ -181,7 +187,10 @@ export type ProfileState = {
 
 export type SearchProgress = {
   stage: "searching" | "checking" | "saving" | "complete";
-  searches: number; proposed: number; checked: number; saved: number;
+  searches: number;
+  proposed: number;
+  checked: number;
+  saved: number;
   activity: string[];
 };
 
