@@ -107,3 +107,10 @@ export const LLM_PROVIDERS: LlmProvider[] = [
 export function llmProvider(id: string | null | undefined) {
   return LLM_PROVIDERS.find((item) => item.id === id) ?? LLM_PROVIDERS[0];
 }
+
+export function anthropicWorkspaceId(value: string): string {
+  const id = value.trim();
+  if (id && (!/^wrkspc_[A-Za-z0-9]+$/.test(id) || id.length > 128))
+    throw new Error("Enter a valid Anthropic workspace ID starting with wrkspc_, or leave it blank for a workspace-scoped key.");
+  return id;
+}

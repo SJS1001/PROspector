@@ -37,9 +37,11 @@ Control-C in that Terminal), then click Start. App launcher never kills a proces
 merely because it uses that port. If startup fails, open the log under Details.
 Fix the reported problem and click Start again. No automatic restart loop runs.
 
-For an old database lock, follow the stopped-data backup and lock-recovery steps
-in `operator/README.md`. The launcher deliberately never removes a database lock
-or force-quits the database. If Stop says the app is still closing, wait and retry.
+After a crash or Mac restart, click Start: the operating system releases the
+database lock automatically when its process ends. The persistent lock file is
+normal and must not be deleted. For an older version’s directory lock, follow the
+one-time upgrade steps in `operator/README.md`. The launcher never force-quits
+the database. If Stop says the app is still closing, wait and retry.
 
 ## Backups and restore
 

@@ -1,3 +1,4 @@
+import { anthropicWorkspaceId } from "@/lib/domain/llm";
 import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { getSql, type Sql } from "@/lib/db";
@@ -1450,6 +1451,7 @@ export const saveConnections = createServerFn({ method: "POST" })
     llmModel?: string;
     llmBaseUrl?: string;
     llmKey?: string;
+    llmWorkspaceId?: string;
     scheduleEnabled?: boolean;
     huntBatch?: number;
     jev?: string;
@@ -1465,6 +1467,7 @@ export const saveConnections = createServerFn({ method: "POST" })
     llmModel: input.llmModel ?? "",
     llmBaseUrl: input.llmBaseUrl ?? "",
     llmKey: input.llmKey ?? "",
+    llmWorkspaceId: input.llmWorkspaceId === undefined ? undefined : anthropicWorkspaceId(input.llmWorkspaceId),
     scheduleEnabled: input.scheduleEnabled,
     huntBatch: input.huntBatch,
     jev: input.jev ?? "",
@@ -1478,6 +1481,7 @@ export const saveConnections = createServerFn({ method: "POST" })
       await putSecret(sql, context.userId, "llm_key", data.llmKey);
       await putSecret(sql, context.userId, "xai", data.llmKey);
     }
+    if (data.llmWorkspaceId !== undefined) await putSecret(sql, context.userId, "llm_workspace_id", data.llmWorkspaceId);
     if (data.llmProvider) await putSecret(sql, context.userId, "llm_provider", data.llmProvider);
     if (data.llmModel) await putSecret(sql, context.userId, "llm_model", data.llmModel);
     if (data.llmBaseUrl) await putSecret(sql, context.userId, "llm_base_url", data.llmBaseUrl);

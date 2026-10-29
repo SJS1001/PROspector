@@ -14,6 +14,7 @@ export type SecretName =
   | "llm_model"
   | "llm_base_url"
   | "llm_key"
+  | "llm_workspace_id"
   | "schedule_enabled"
   | "hunt_batch"
   | "inbox_scanned_at"
@@ -79,6 +80,7 @@ export async function connectionFlags(sql: Sql, userId: string) {
     llmProviderLabel: provider.label,
     llmModel: map.llm_model || provider.defaultModel,
     llmSearch: provider.search,
+    llmWorkspaceId: map.llm_workspace_id || "",
     llmBaseUrl: provider.id === "custom" ? map.llm_base_url || "" : provider.baseUrl,
     scheduleEnabled: map.schedule_enabled === "1",
     huntBatch: Number.isFinite(batch) ? Math.min(20, Math.max(4, Math.round(batch))) : 12,

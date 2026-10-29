@@ -180,6 +180,7 @@ export function useSaveConnections() {
       llmProvider?: string;
       llmModel?: string;
       llmBaseUrl?: string;
+      llmWorkspaceId?: string;
       llmKey?: string;
       scheduleEnabled?: boolean;
       huntBatch?: number;

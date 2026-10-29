@@ -1,4 +1,4 @@
-import { llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
+import { anthropicWorkspaceId, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
 import { assertPublicHttps } from "@/lib/server/retrieve";
 import { getSecret } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
@@ -8,6 +8,7 @@ export type LlmConfig = {
   model: string;
   baseUrl: string;
   apiKey: string;
+  workspaceId?: string;
   search: LlmSearchMode;
 };
 
@@ -56,6 +57,7 @@ export async function resolveLlmConfig(sql: Sql, userId: string): Promise<LlmCon
     model,
     baseUrl,
     apiKey: key,
+    workspaceId: spec.id === "anthropic" ? anthropicWorkspaceId(await getSecret(sql, userId, "llm_workspace_id")) : undefined,
     search: spec.search,
   };
 }
@@ -73,6 +75,8 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
       typeof json.error === "object" && json.error && "message" in json.error
         ? String((json.error as { message?: string }).message)
         : `Model request failed (${response.status}).`;
+    if (url.startsWith("https://api.anthropic.com/") && message.includes("anthropic-workspace-id"))
+      throw new Error("Your Anthropic key needs a workspace ID. Open Settings → Connections & search settings → AI model, add your Anthropic workspace ID, then save and try again.");
     throw new Error(message);
   }
   return json;
@@ -85,6 +89,7 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
       {
         "x-api-key": config.apiKey,
         "anthropic-version": "2023-06-01",
+        ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}),
       },
       { model: config.model, max_tokens: extra?.max_tokens ?? 2200, messages: [{ role: "user", content: prompt }] },
     );

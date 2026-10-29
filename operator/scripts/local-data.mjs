@@ -8,10 +8,10 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  rmdirSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, parse, resolve, relative } from "node:path";
@@ -46,8 +46,8 @@ function checkPath(path) {
     }
   }
 }
-export function ensurePrivateDataDir() {
-  const dir = localDataDir();
+export function ensurePrivateDataDir(dir = localDataDir()) {
+  if (!isAbsolute(dir)) throw new Error("Data directory must be an absolute path");
   assertOutsideCheckout(dir);
   checkPath(dir);
   chmodSync(dir, 0o700);
@@ -82,22 +82,49 @@ export function writePrivateFile(name, data) {
     closeSync(fd);
   }
 }
-export function acquireDatabaseLock() {
-  const path = join(ensurePrivateDataDir(), ".database.lock");
+// Keep this file permanently: unlinking a locked inode permits a second owner.
+// SQLite holds an OS lock for the lifetime of the transaction. The OS releases
+// it on process death/reboot, without stale PID checks or deleting lock files.
+export function acquireDatabaseLock(dir = localDataDir()) {
+  const path = join(ensurePrivateDataDir(dir), ".database.lock");
   try {
-    mkdirSync(path, { mode: 0o700 });
+    // Only close our own newly created descriptor. Opening/closing an existing
+    // lock file can release POSIX locks held by this process's SQLite handle.
+    const fd = openSync(
+      path,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    closeSync(fd);
   } catch (err) {
-    if (err.code === "EEXIST")
-      throw new Error(
-        "Local database is locked; stop the other operator process. If it crashed, inspect and remove the lock manually.",
+    if (err.code !== "EEXIST") throw err;
+  }
+  const st = lstatSync(path);
+  if (st.isDirectory())
+    throw new Error(
+      "Legacy database lock found. Stop the older app before upgrading; consult the recovery guide if it crashed.",
+    );
+  if (!st.isFile() || st.nlink !== 1 || st.mode & 0o077)
+    throw new Error("Unsafe database lock file");
+  const guard = new DatabaseSync(path);
+  try {
+    guard.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE");
+  } catch (err) {
+    guard.close();
+    if (err.errcode === 5 || err.errcode === 6) {
+      const locked = new Error(
+        "Local database is locked by another running app. Stop that app, then try again.",
       );
+      locked.code = "OPERATOR_DATABASE_LOCKED";
+      throw locked;
+    }
     throw err;
   }
   let released = false;
   const release = () => {
     if (!released) {
+      guard.close();
       released = true;
-      rmdirSync(path);
     }
   };
   process.once("exit", release);
@@ -105,6 +132,15 @@ export function acquireDatabaseLock() {
     process.removeListener("exit", release);
     release();
   };
+}
+export function isDatabaseLocked(dir = localDataDir()) {
+  try {
+    acquireDatabaseLock(dir)();
+    return false;
+  } catch (err) {
+    if (err.code === "OPERATOR_DATABASE_LOCKED") return true;
+    throw err;
+  }
 }
 function secureTree(path) {
   for (const entry of readdirSync(path, { withFileTypes: true })) {

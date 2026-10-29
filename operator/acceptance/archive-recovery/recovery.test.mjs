@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, realpathSync, rmdirSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, realpathSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -19,7 +19,7 @@ function run(dir, mode, file = "", variant = "") {
   if (variant === "kill") {
     assert.equal(r.signal, "SIGKILL", r.stderr);
     assert.ok(existsSync(`${file}.interrupted`));
-    rmdirSync(join(dir, ".database.lock"));
+    // Restart must recover directly after SIGKILL, without deleting any lock file.
   } else assert.equal(r.status, 0, `${mode}/${variant}: ${r.stdout}\n${r.stderr}`);
 }
 function scratch(fn) {

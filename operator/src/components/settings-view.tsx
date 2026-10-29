@@ -16,6 +16,7 @@ export function SettingsView() {
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [llmKey, setLlmKey] = useState("");
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>();
   const [apollo, setApollo] = useState("");
   const [zoominfo, setZoominfo] = useState("");
   const [jev, setJev] = useState("");
@@ -120,6 +121,21 @@ export function SettingsView() {
                   onChange={(event) => setLlmKey(event.target.value)}
                 />
               </label>
+              {selected.id === "anthropic" ? (
+                <div className="grid gap-1">
+                  <label className="grid gap-1 text-xs text-muted">
+                    Anthropic workspace ID (if required by your key)
+                    <input
+                      className="field"
+                      autoComplete="off"
+                      placeholder="wrkspc_…"
+                      value={workspaceId ?? data.connections.llmWorkspaceId}
+                      onChange={(event) => setWorkspaceId(event.target.value)}
+                    />
+                  </label>
+                  <a className="text-xs text-muted underline" href="https://platform.claude.com/settings/workspaces" target="_blank" rel="noreferrer">Find your workspace ID</a>
+                </div>
+              ) : null}
               <p className="text-xs text-muted">
                 Live web search: {selected.search === "none" ? "Unavailable" : selected.search}.
               </p>
@@ -308,6 +324,7 @@ export function SettingsView() {
                   llmProvider: provider || data.connections.llmProvider,
                   llmModel: model,
                   llmBaseUrl: baseUrl,
+                  llmWorkspaceId: selected.id === "anthropic" ? workspaceId : undefined,
                   apollo,
                   gmailUser,
                   gmailPass,

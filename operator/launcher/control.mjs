@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access, readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const execute = promisify(execFile);
 export async function run(file, args) {
@@ -25,6 +25,14 @@ export function controller(config, deps = {}) {
         () => true,
         () => false,
       ));
+  const isLocked =
+    deps.isLocked ||
+    (async () => {
+      const { isDatabaseLocked } = await import(
+        pathToFileURL(`${config.root}/scripts/local-data.mjs`).href
+      );
+      return isDatabaseLocked(config.data);
+    });
   const ready =
     deps.ready ||
     (async () => {
@@ -112,7 +120,7 @@ export function controller(config, deps = {}) {
       const state = await status();
       if (!state.managed) {
         // Shutdown must release the database before a subsequent restart.
-        if (await exists(`${config.data}/.database.lock`))
+        if (await isLocked())
           throw new Error(
             "The app stopped but its data is still locked. Check the recovery guide before restarting.",
           );

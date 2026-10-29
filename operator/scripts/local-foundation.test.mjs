@@ -11,14 +11,13 @@ import {
   readdirSync,
   rmSync,
   statSync,
-  existsSync,
   realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { enrollOwner, readLocalOwner, LOCAL_ORIGIN, OWNER_EMAIL } from "./local-owner.mjs";
-import { acquireDatabaseLock, ensurePrivateDataDir } from "./local-data.mjs";
+import { acquireDatabaseLock, ensurePrivateDataDir, isDatabaseLocked } from "./local-data.mjs";
 
 const password = "fictional-local-owner-password";
 const fixtureTables = [
@@ -339,7 +338,7 @@ if (process.argv[2] === "fixture") {
       });
       await stop();
       fixture("read");
-      assert.equal(existsSync(join(dir, ".database.lock")), false);
+      assert.equal(isDatabaseLocked(dir), false);
       await start(true);
       await test("documented dev startup serves tracked login and public manifest with private files denied", async () => {
         const page = await request("/login");

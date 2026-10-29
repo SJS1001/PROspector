@@ -265,6 +265,7 @@ export type ConnectionFlags = {
   llmModel: string;
   llmSearch: string;
   llmBaseUrl: string;
+  llmWorkspaceId: string;
   scheduleEnabled: boolean;
   huntBatch: number;
   apollo: boolean;

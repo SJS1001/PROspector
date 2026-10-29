@@ -1,3 +1,4 @@
+import { isDatabaseLocked } from "../../scripts/local-data.mjs";
 import { toJSONAsync } from "seroval";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -135,7 +136,7 @@ test(
         child = undefined;
       }
       assert.equal(
-        existsSync(join(dir, ".database.lock")),
+        isDatabaseLocked(dir),
         false,
         "clean shutdown releases DB lock",
       );
@@ -170,6 +171,7 @@ test(
       await call("saveConnections", {
         llmKey: "FICTIONAL-DURABLE-KEY",
         llmProvider: "openai",
+        llmWorkspaceId: "wrkspc_fictionalDurable",
         scheduleEnabled: true,
       });
       // DTO decoding is unnecessary: question IDs are checked source metadata, while
@@ -196,6 +198,10 @@ test(
       let rows = snapshot("setup.json");
       const play = JSON.parse(rows.draft_plays[0]);
       await start();
+      assert.match(await call("getWorkspace"), /wrkspc_fictionalDurable/, "workspace selection survives app restart");
+      // Saving unrelated settings must preserve the workspace selection.
+      await call("saveConnections", { huntBatch: 8 });
+      assert.match(await call("getWorkspace"), /wrkspc_fictionalDurable/);
       await call("confirmDraftPlay", {
         playId: play.id,
         audience: "Fictional Quarry",

@@ -40,9 +40,14 @@ For a local safety backup, stop the app and copy the **entire private directory*
 
 - **Forgotten password:** stop the app, keep a protected backup, then run `npm run owner:reset` using the same data directory. It preserves the owner ID, workspace and vault, rotates session signing material, and invalidates old sessions. Setup/reset holds the database lock for the whole operation.
 - **Missing/corrupt owner or vault file:** restore the matching protected backup. Do not delete the database or generate a replacement vault key; ciphertext cannot be recovered without its original key. Runtime decryption reports missing/malformed-key errors and never creates a key.
-- **“Database is locked” after a crash:** first verify every operator process using this directory is stopped. Back up the directory. Only then remove the empty `.database.lock` directory with `rmdir` and restart. There is no automatic stale-lock takeover and no reset command.
+- **Restart or crash:** the operating system releases the database lock when its process exits, including a forced shutdown or reboot. Click Start again. The persistent `.database.lock` file is a SQLite coordination file, not application data; never delete it while an app may be running. A lock error now means another live process owns the directory.
+- **Upgrade from the old directory lock:** stop the older app cleanly before updating. If an older version crashed and left an empty `.database.lock` **directory**, verify every process using this data directory is stopped, make a complete private backup, then remove only that empty directory with `rmdir`. New versions fail closed on legacy directory locks; normal operation no longer needs stale-lock cleanup.
 - **Migration failure:** stop, preserve the data directory and error, and fix the new migration or restore a complete stopped-process backup with its matching application version. Each migration and its journal entry are atomic. Applied migrations are tracked by filename: never edit or remove an applied SQL file; add a new migration. Existing rows are never automatically erased or reassigned.
 - **Legacy key:** if a prior explicit vault file must be preserved, `OPERATOR_VAULT_PATH` may name its absolute private path outside the checkout. A legacy `operator/.data/operator.vault` is not silently abandoned; move it outside the checkout while stopped and point to it explicitly. Include this external key in protected backups. In-memory databases from the old fallback cannot be recovered after their process exits.
+
+## Anthropic workspace selection
+
+Under **Settings → Connections & search settings → AI model**, select Anthropic and save your API key. If Anthropic says the key is not scoped to a workspace, add the workspace ID from [Anthropic Workspaces](https://platform.claude.com/settings/workspaces) in the optional workspace field and save. The app sends `anthropic-workspace-id` only to Anthropic. Leave it blank for a workspace-scoped key; clearing it and saving removes the selection. Saved keys and settings survive app closure and restarts.
 
 ## Integration and verification
 

@@ -46,7 +46,8 @@ function fixture(options = {}) {
         }
         throw new Error(`Unexpected command ${file} ${args}`);
       },
-      exists: async (path) => (path.endsWith(".database.lock") ? state.locked : state.built),
+      exists: async () => state.built,
+      isLocked: async () => state.locked,
       ready: async () => state.ready,
       wait: async () => {},
     },
@@ -85,7 +86,7 @@ test("missing build cannot start a job", async () => {
     false,
   );
 });
-test("a leftover data lock prevents restart; it is never deleted", async () => {
+test("an active data lock prevents restart; it is never deleted", async () => {
   const f = fixture({ pid: 100, listener: 101, locked: true });
   await assert.rejects(f.control.restart(), /data is still locked/);
   assert.equal(

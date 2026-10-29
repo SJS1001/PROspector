@@ -1,3 +1,4 @@
+import { isDatabaseLocked } from "../../scripts/local-data.mjs";
 // Defence against direct invocation. Only the SERVER installs JS patches;
 // the orchestrator needs build/process/HTTP APIs inside the inherited OS fence.
 import { requireNativeContainment } from "./native-boundary.mjs";
@@ -8,7 +9,6 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
-  existsSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
@@ -94,7 +94,7 @@ async function stop() {
   if (!server) return;
   if (server.exitCode !== null) {
     server = undefined;
-    assert.ok(!existsSync(join(data, ".database.lock")), "exited server must release DB lock");
+    assert.ok(!isDatabaseLocked(data), "exited server must release DB lock");
     return;
   }
   const current = server;
@@ -118,7 +118,7 @@ async function stop() {
     clearTimeout(timer);
   }
   if (forced) throw new Error("Server required forced termination");
-  assert.ok(!existsSync(join(data, ".database.lock")), "server must release DB lock");
+  assert.ok(!isDatabaseLocked(data), "server must release DB lock");
 }
 async function start() {
   if (interrupted) throw new Error("Acceptance interrupted");
