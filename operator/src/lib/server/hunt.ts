@@ -4,9 +4,10 @@ import { parseCandidates } from "./search-response";
 import type { RunnerCandidate } from "./search-response";
 import type { SearchProgress } from "@/lib/domain/types";
 import { qualifyCandidate } from "@/lib/domain/qualify";
-import { mergeJevQualification } from "@/lib/domain/qualify-jev";
+import { mergeJevQualification, jevContribution } from "@/lib/domain/qualify-jev";
 import type { ProfileSnapshot } from "@/lib/domain/types";
 import { completeJson } from "@/lib/server/llm";
+import { jevFailureMessage } from "@/lib/server/jev";
 import { jevQualifyPage } from "@/lib/server/jev-tasks";
 import { profileText } from "@/lib/server/profile";
 import { retrieveHttps } from "@/lib/server/retrieve";
@@ -72,9 +73,14 @@ export async function executeHunt(opts: {
   };
   const profile = profileText(opts.snapshot);
   const jev = await resolveJev(opts.sql, opts.userId);
+  const jevProgress = progress.jev = {
+    configured: Boolean(jev.apiKey), attempted: 0, reviewed: 0, applied: 0,
+    changed: 0, failed: 0, savedWithJev: 0, errors: [],
+  } as NonNullable<SearchProgress["jev"]>;
   const accepted: HuntInsert[] = [];
   const reasons: string[] = [];
   let verifiedSources = 0;
+  let acceptedWithJev = 0;
   const attempted = new Set<string>();
   // One bounded follow-up uses rejection feedback instead of returning the same weak batch.
   for (let pass = 0; pass < 2 && !accepted.length; pass++) {
@@ -137,7 +143,10 @@ export async function executeHunt(opts: {
           profileText: profile,
           runnerNotes: item.candidate.notes,
         });
+        let jevApplied = false;
         if (jev.apiKey) {
+          jevProgress.attempted++;
+          await report(`${item.candidate.accountName}: JEV is checking the evidence`);
           try {
             const judged = await jevQualifyPage({
               apiKey: jev.apiKey,
@@ -149,9 +158,20 @@ export async function executeHunt(opts: {
               pageText: item.page.text,
               profileText: profile,
             });
-            qualified = mergeJevQualification(qualified, judged);
-          } catch {
-            // Keyword rubric remains the fail-closed path.
+            const before = qualified;
+            qualified = mergeJevQualification(before, judged);
+            jevProgress.reviewed++;
+            if (judged.model) jevProgress.model = judged.model;
+            const contribution = jevContribution(before, qualified, judged);
+            jevApplied = contribution.applied;
+            if (jevApplied) jevProgress.applied++;
+            if (contribution.changed) jevProgress.changed++;
+            await report(`${item.candidate.accountName}: ${jevApplied ? "JEV scoring used" : "JEV reviewed; basic scoring kept"}`);
+          } catch (error) {
+            jevProgress.failed++;
+            const message = jevFailureMessage(error);
+            jevProgress.errors = [...new Set([...jevProgress.errors, message])].slice(-3);
+            await report(`${item.candidate.accountName}: JEV unavailable; basic scoring kept`);
           }
         }
         if (opts.knownFingerprints.has(qualified.fingerprint)) {
@@ -181,6 +201,7 @@ export async function executeHunt(opts: {
         }
         opts.knownFingerprints.add(qualified.fingerprint);
         await report(`${item.candidate.accountName}: source checked · ${qualified.score}/10`);
+        if (jevApplied) acceptedWithJev++;
         accepted.push({
           accountName: item.candidate.accountName,
           targetName: item.candidate.targetName,
@@ -246,6 +267,7 @@ export async function executeHunt(opts: {
     `;
     }
 
+    jevProgress.savedWithJev = acceptedWithJev;
     progress.saved = accepted.length;
     progress.stage = "complete";
     progress.activity = [...progress.activity, `${accepted.length} results saved`].slice(-24);

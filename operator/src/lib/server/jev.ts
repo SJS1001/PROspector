@@ -1,7 +1,7 @@
 export type JevQuestion =
   | { type: "noul"; instructions: string; criteria?: Record<string, string> }
   | { type: "choice"; instructions: string; criteria: Record<string, string | null> }
-  | { type: "score"; instructions: string; criteria: Record<string, string> };
+  | { type: "score"; instructions: string; criteria: string[] };
 
 export type JevAnswer = {
   choice?: string;
@@ -12,8 +12,56 @@ export type JevAnswer = {
 };
 
 export type JevResponse = {
+  model?: string;
   answers?: Record<string, JevAnswer>;
 };
+
+export class JevError extends Error {}
+
+export function jevFailureMessage(error: unknown) {
+  return error instanceof JevError
+    ? error.message
+    : "JEV could not be reached. Try the connection test in Settings.";
+}
+
+function validNumber(value: unknown, max = 1): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max;
+}
+
+export function validateJevResponse(
+  value: unknown,
+  questions: Record<string, JevQuestion>,
+): JevResponse {
+  const result = value as JevResponse | null;
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !result.answers ||
+    typeof result.answers !== "object"
+  ) {
+    throw new JevError("JEV returned an incomplete response. Basic scoring was kept.");
+  }
+  for (const [id, question] of Object.entries(questions)) {
+    const answer = result.answers[id];
+    const valid =
+      answer &&
+      (question.type === "noul"
+        ? validNumber(answer.noul)
+        : validNumber(answer.confidence) &&
+          (question.type === "score"
+            ? validNumber(answer.score, question.criteria.length - 1)
+            : typeof answer.choice === "string" &&
+              Object.hasOwn(question.criteria, answer.choice)));
+    if (!valid) throw new JevError("JEV returned an incomplete response. Basic scoring was kept.");
+  }
+  if (
+    result.model !== undefined &&
+    (typeof result.model !== "string" || result.model.length > 120)
+  ) {
+    throw new JevError("JEV returned an invalid model name.");
+  }
+  return result;
+}
 
 const DEFAULT_BASE = "https://api.typesafe.ai/v1";
 
@@ -62,28 +110,37 @@ export async function jevDecide(opts: {
   model?: string;
 }): Promise<JevResponse> {
   const base = (opts.baseUrl || DEFAULT_BASE).replace(/\/+$/, "");
-  const response = await fetch(`${base}/systemone`, {
-    method: "POST",
-    signal: AbortSignal.timeout(12_000),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${opts.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: opts.model || "jev-latest",
-      state: opts.state,
-      questions: opts.questions,
-    }),
-  });
-  const json = (await response.json().catch(() => ({}))) as JevResponse & { error?: unknown; message?: string };
-  if (!response.ok) {
-    const message =
-      typeof json.message === "string"
-        ? json.message
-        : typeof json.error === "string"
-          ? json.error
-          : `Jev ${response.status}`;
-    throw new Error(message);
+  let response: Response;
+  try {
+    response = await fetch(`${base}/systemone`, {
+      method: "POST",
+      signal: AbortSignal.timeout(12_000),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: opts.model || "jev-latest",
+        state: opts.state,
+        questions: opts.questions,
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new JevError("JEV timed out. Try again from Settings.");
+    }
+    throw new JevError("JEV could not be reached. Check the connection URL in Settings.");
   }
-  return json;
+  if (!response.ok) {
+    const reason =
+      response.status === 401 || response.status === 403
+        ? "JEV rejected the saved key. Check your TypeSafe key and account access."
+        : response.status === 429
+          ? "JEV is rate limited or out of credits. Check your TypeSafe account."
+          : response.status === 400 || response.status === 422
+            ? "JEV rejected the scoring request."
+            : `JEV is unavailable (HTTP ${response.status}). Try again later.`;
+    throw new JevError(reason);
+  }
+  return validateJevResponse(await response.json().catch(() => null), opts.questions);
 }

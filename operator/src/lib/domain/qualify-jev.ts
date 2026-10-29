@@ -4,6 +4,7 @@ import type { QualificationResult } from "./qualify.ts";
 export type JevDimensionScore = { score: number; confidence: number };
 
 export type JevQualifyJudgment = {
+  model?: string;
   scores: Record<string, JevDimensionScore>;
   outcome: ProspectOutcome | null;
   outcomeConfidence: number;
@@ -63,4 +64,16 @@ export function mergeJevQualification(
       dimensions,
     },
   };
+}
+
+// Count applied judgments separately from changes: agreeing with basic scoring
+// can still contribute, while an ignored low-confidence answer cannot.
+export function jevContribution(before: QualificationResult, after: QualificationResult, jev: JevQualifyJudgment) {
+  const changed = after.outcome !== before.outcome || after.assessment.hardDisqualifier !== before.assessment.hardDisqualifier ||
+    after.assessment.dimensions.some((dim, index) => dim.score !== before.assessment.dimensions[index].score);
+  const eligibleOutcome = before.outcome !== "Disqualified" && before.outcome !== "InsufficientEvidence";
+  const usedDecision = jev.hardNo >= 0.7 || (eligibleOutcome && Boolean(jev.outcome) &&
+    (jev.outcomeConfidence >= 0.55 || (before.outcome === "Passed" && jev.outcome !== "Passed"))) || after.outcome === "Passed";
+  const applied = changed || usedDecision || after.assessment.dimensions.some((dim, index) => dim !== before.assessment.dimensions[index]);
+  return { changed, applied };
 }

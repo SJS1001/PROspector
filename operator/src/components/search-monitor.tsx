@@ -1,3 +1,4 @@
+import { JevSearchStatus } from "@/components/jev-search-status";
 import { useEffect, useState } from "react";
 import type { ProspectingRun } from "@/lib/domain/types";
 
@@ -85,6 +86,7 @@ export function SearchMonitor({ run }: { run: ProspectingRun }) {
           {seconds > 45 && current === 0 ? " · Waiting for the AI provider" : ""}
         </p>
       )}
+      <JevSearchStatus run={run} />
       {p?.activity.length ? (
         <details className="mt-3 border-t border-line pt-3">
           <summary className="cursor-pointer text-xs text-muted">Search activity</summary>

@@ -188,7 +188,20 @@ export type ProfileState = {
   readiness: ProfileReadinessItem[];
 };
 
+export type JevSearchProgress = {
+  configured: boolean;
+  attempted: number;
+  reviewed: number;
+  applied: number;
+  changed: number;
+  failed: number;
+  savedWithJev: number;
+  model?: string;
+  errors: string[];
+};
+
 export type SearchProgress = {
+  jev?: JevSearchProgress;
   stage: "searching" | "checking" | "saving" | "complete";
   searches: number;
   proposed: number;

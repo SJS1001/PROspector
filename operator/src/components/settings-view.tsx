@@ -1,3 +1,4 @@
+import { JevConnectionTest } from "@/components/jev-connection-test";
 import { uiText } from "@/lib/domain/plain-language";
 import { CapabilityDiagnostics } from "@/components/status-view";
 import { useState } from "react";
@@ -169,14 +170,14 @@ export function SettingsView() {
           <details className="rounded-[12px] border border-line bg-cream p-4">
             <summary className="cursor-pointer text-sm font-medium">
               <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
-                <span>Jev (TypeSafe)</span>
+                <span>JEV (TypeSafe)</span>
                 <Badge tone={data.connections.jev ? "ok" : "warn"}>
-                  {data.connections.jev ? "Ready" : "Optional"}
+                  {data.connections.jev ? "Key saved" : "Optional"}
                 </Badge>
               </span>
             </summary>
             <div className="mt-4 grid gap-4">
-              <p className="text-sm text-muted">Optional scoring and claim checks.</p>
+              <p className="text-sm text-muted">Checks how well each source matches your search.</p>
               <input
                 className="field"
                 type="password"
@@ -194,6 +195,7 @@ export function SettingsView() {
                 value={jevBase}
                 onChange={(event) => setJevBase(event.target.value)}
               />
+              <JevConnectionTest key={modelRevision} configured={data.connections.jev} unsaved={Boolean(jev || jevBase)} />
             </div>
           </details>
 
@@ -337,6 +339,8 @@ export function SettingsView() {
                   huntBatch: batch ? Number(batch) : undefined,
                 }, { onSuccess: () => {
                   setLlmKey("");
+                  setJev("");
+                  setJevBase("");
                   setBaseUrl("");
                   setModelRevision((value) => value + 1);
                 } })

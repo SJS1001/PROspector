@@ -35,27 +35,27 @@ export async function jevQualifyPage(opts: {
       account_fit: {
         type: "score",
         instructions: DIMS[0][1],
-        criteria: { "0": "No operating-site fit", "1": "Weak or implied", "2": "Clear operating site" },
+        criteria: ["No operating-site fit", "Weak or implied", "Clear operating site"],
       },
       pain_strength: {
         type: "score",
         instructions: DIMS[1][1],
-        criteria: { "0": "No pain", "1": "Implied constraint", "2": "Named operating pain" },
+        criteria: ["No pain", "Implied constraint", "Named operating pain"],
       },
       timing: {
         type: "score",
         instructions: DIMS[2][1],
-        criteria: { "0": "No urgency", "1": "Weak timing", "2": "Clear dated urgency" },
+        criteria: ["No urgency", "Weak timing", "Clear dated urgency"],
       },
       data_readiness: {
         type: "score",
         instructions: DIMS[3][1],
-        criteria: { "0": "No data stack", "1": "Implied OT/IT", "2": "Named historian/SCADA/OT" },
+        criteria: ["No data stack", "Implied OT/IT", "Named historian/SCADA/OT"],
       },
       commercial: {
         type: "score",
         instructions: DIMS[4][1],
-        criteria: { "0": "No buyer path", "1": "Weak commercial", "2": "Named operator or budget path" },
+        criteria: ["No buyer path", "Weak commercial", "Named operator or budget path"],
       },
       outcome: {
         type: "choice",
@@ -87,6 +87,7 @@ export async function jevQualifyPage(opts: {
     scores[id] = parseScore(answers[id]);
   }
   return {
+    model: result.model,
     scores,
     outcome: asOutcome(parseChoice(answers.outcome)),
     outcomeConfidence: answers.outcome?.confidence ?? 0,

@@ -1,3 +1,4 @@
+import { JevSearchStatus } from "@/components/jev-search-status";
 import { OpportunitySummary } from "./opportunity-summary";
 import { SearchMonitor } from "@/components/search-monitor";
 import { useQueryClient } from "@tanstack/react-query";
@@ -325,6 +326,7 @@ function RunLedger({ data }: { data: WorkspaceDTO }) {
                 {run.candidateCount} found · {run.qualifiedCount} match your criteria
                 {run.finishedAt ? ` · ${new Date(run.finishedAt).toLocaleString("en-CA")}` : ""}
               </p>
+              <JevSearchStatus run={run} />
               {run.terminalReason ? (
                 <p className="mt-2 text-xs">{uiText(run.terminalReason)}</p>
               ) : null}
