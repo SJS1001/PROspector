@@ -21,7 +21,13 @@ function isBlockedIp(ip: string) {
     if (a === 100 && b >= 64 && b <= 127) return true;
   }
   const lower = ip.toLowerCase();
-  if (lower === "::1" || lower === "::" || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80")) {
+  if (
+    lower === "::1" ||
+    lower === "::" ||
+    lower.startsWith("fc") ||
+    lower.startsWith("fd") ||
+    lower.startsWith("fe80")
+  ) {
     return true;
   }
   return false;
@@ -36,7 +42,11 @@ export function assertPublicHttps(urlString: string) {
   }
   if (url.protocol !== "https:") throw new Error("Only HTTPS evidence URLs are retrieved.");
   if (url.username || url.password) throw new Error("Evidence URLs may not include credentials.");
-  if (url.hostname === "localhost" || url.hostname.endsWith(".local") || url.hostname.endsWith(".internal")) {
+  if (
+    url.hostname === "localhost" ||
+    url.hostname.endsWith(".local") ||
+    url.hostname.endsWith(".internal")
+  ) {
     throw new Error("Private hosts are not retrieved.");
   }
   if (url.hostname.includes(".onion")) throw new Error("Onion hosts are not retrieved.");
@@ -69,6 +79,10 @@ async function readHtml(response: Response) {
     const { done, value } = await reader.read();
     if (done) break;
     const chunk = decoder.decode(value, { stream: true });
+    if (chunk.includes("\0") || (prefix + chunk).trimStart().startsWith("%PDF-")) {
+      await reader.cancel();
+      throw new Error("Source is a document or binary download; an HTML page is required.");
+    }
     if (!inBody) {
       prefix += chunk;
       const idx = prefix.search(/<body[\s>]/i);
@@ -94,7 +108,9 @@ async function readHtml(response: Response) {
 
 function extractText(html: string) {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ") ?? "";
-  const body = html.includes("<body") ? html.replace(/^[\s\S]*<body[^>]*>/i, " ") : html.replace(/<head[\s\S]*?<\/head>/i, " ");
+  const body = html.includes("<body")
+    ? html.replace(/^[\s\S]*<body[^>]*>/i, " ")
+    : html.replace(/<head[\s\S]*?<\/head>/i, " ");
   const stripped = body
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -128,7 +144,10 @@ export async function retrieveHttps(urlString: string): Promise<RetrievedPage> {
       method: "GET",
       redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "user-agent": "PROspectorRetrieval/1.0", accept: "text/html,application/xhtml+xml,text/plain" },
+      headers: {
+        "user-agent": "PROspectorRetrieval/1.0",
+        accept: "text/html,application/xhtml+xml,text/plain",
+      },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const next = response.headers.get("location");
@@ -137,8 +156,17 @@ export async function retrieveHttps(urlString: string): Promise<RetrievedPage> {
       continue;
     }
     if (!response.ok) throw new Error(`Evidence fetch failed (${response.status}).`);
+    const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (
+      contentType &&
+      !["text/html", "application/xhtml+xml", "text/plain"].includes(contentType)
+    ) {
+      await response.body?.cancel();
+      throw new Error("Source is not an HTML or text page.");
+    }
     const html = await readHtml(response);
     const extracted = extractText(html);
+    if (!extracted.text) throw new Error("Source page contains no readable text.");
     return {
       url: current.toString(),
       title: extracted.title || current.hostname,

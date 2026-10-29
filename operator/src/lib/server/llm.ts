@@ -1,3 +1,4 @@
+import { anthropicSearch } from "./anthropic-search";
 import { anthropicWorkspaceId, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
 import { assertPublicHttps } from "@/lib/server/retrieve";
 import { getSecret } from "@/lib/server/secrets";
@@ -30,7 +31,7 @@ function outputText(body: Record<string, unknown>) {
   const choices = body.choices as { message?: { content?: string } }[] | undefined;
   if (choices?.[0]?.message?.content) return choices[0].message.content;
   const content = body.content as { text?: string }[] | undefined;
-  if (Array.isArray(content) && content[0]?.text) return content[0].text;
+  if (Array.isArray(content)) return content.filter((part) => typeof part.text === "string").map((part) => part.text).join("\n");
   return "";
 }
 
@@ -108,13 +109,15 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
   return outputText(json);
 }
 
-export async function completeJson(sql: Sql, userId: string, prompt: string): Promise<string> {
+export async function completeJson(sql: Sql, userId: string, prompt: string, onSearch?: (count: number) => Promise<void>): Promise<string> {
   const config = await resolveLlmConfig(sql, userId);
   const searchNote =
     config.search === "none"
       ? "You have no live web search. Only propose HTTPS URLs you would bet already exist. Invented URLs will be dropped when retrieval fails."
       : "Use live web search. Every URL must be a real public HTTPS page.";
   const full = `${prompt}\n\n${searchNote}\nReturn JSON only.`;
+
+  if (config.search === "anthropic") return anthropicSearch(config, full, onSearch);
 
   if (config.search === "xai") {
     try {

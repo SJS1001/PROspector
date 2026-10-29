@@ -46,7 +46,8 @@ test("Anthropic workspace selection is validated, saved, projected, and sent onl
               },
             }
           : {
-              content: [{ text: '{"ok":true}' }],
+              stop_reason: "end_turn",
+              content: [{ type: "web_search_tool_result", content: [] }, { type: "text", text: '{"ok":true}' }],
               choices: [{ message: { content: '{"ok":true}' } }],
             },
       ),

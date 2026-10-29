@@ -1,3 +1,6 @@
+import { SearchMonitor } from "@/components/search-monitor";
+import { useQueryClient } from "@tanstack/react-query";
+import { workspaceKey } from "@/lib/workspace";
 import { sourceLabel, uiLabel, uiText } from "@/lib/domain/plain-language";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -27,25 +30,14 @@ export function ProspectsView() {
   if (isPending) return <p className="text-sm text-muted">Loading prospects…</p>;
   if (isError || !data) return <WorkspaceLoadError message="Prospects could not be loaded." />;
 
-  const rows = data.prospects.filter((item) => filter === "all" || item.state === filter);
+  const rows = data.prospects.filter((item) => filter === "all" || item.state === filter).sort((a,b) => Number(b.origin === "run") - Number(a.origin === "run"));
   const live = data.prospects.filter((item) => item.origin === "run").length;
 
   return (
     <div className="grid gap-6">
       <PageHeading title="Searches & prospects" />
       <ProfileGate data={data} />
-      {data.runs
-        .filter((run) => run.status !== "succeeded")
-        .map((run) => (
-          <p
-            key={run.id}
-            role={run.status === "failed" ? "alert" : "status"}
-            className="text-sm text-muted"
-          >
-            Search {uiLabel(run.status)}
-            {run.terminalReason ? `: ${uiText(run.terminalReason)}` : ""}
-          </p>
-        ))}
+      {data.runs[0] ? <SearchMonitor run={data.runs[0]} /> : null}
       {data.prospects.some((item) => item.state === "qualified" && item.outcome === "Passed") ? (
         <Link
           to="/review"
@@ -108,6 +100,13 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
   const playReady = data.draftPlays.some((play) => play.status === "confirmed");
   const error = activate.error ?? find.error;
   const pending = activate.isPending || find.isPending;
+  const busy = pending || data.runs.some(run => run.status === "running" || run.status === "queued");
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => void queryClient.invalidateQueries({ queryKey: workspaceKey }), 1500);
+    return () => clearInterval(timer);
+  }, [pending, queryClient]);
   const confirmation = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLDivElement>(null);
   const returnFocus = useRef(false);
@@ -224,13 +223,13 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
           <div ref={opener} className="mt-5 flex flex-wrap gap-2">
             {data.profile.status !== "active" ? (
               <Button
-                disabled={!ready || !playReady || pending}
+                disabled={!ready || !playReady || busy}
                 onClick={() => setConfirming("activate")}
               >
                 Confirm settings & start searches
               </Button>
             ) : (
-              <Button disabled={pending} onClick={() => setConfirming("find")}>
+              <Button disabled={busy} onClick={() => setConfirming("find")}>
                 Find Prospects
               </Button>
             )}

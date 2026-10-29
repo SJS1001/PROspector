@@ -1,3 +1,6 @@
+import { parseCandidates } from "./search-response";
+import type { RunnerCandidate } from "./search-response";
+import type { SearchProgress } from "@/lib/domain/types";
 import { qualifyCandidate } from "@/lib/domain/qualify";
 import { mergeJevQualification } from "@/lib/domain/qualify-jev";
 import type { ProfileSnapshot } from "@/lib/domain/types";
@@ -10,14 +13,6 @@ import { idFor } from "@/lib/server/seed";
 import type { Sql } from "@/lib/db";
 
 const MAX_CANDIDATES = 12;
-
-type RunnerCandidate = {
-  accountName: string;
-  targetName: string;
-  url: string;
-  excerpt?: string;
-  notes?: Record<string, string>;
-};
 
 type HuntInsert = {
   accountName: string;
@@ -35,27 +30,20 @@ type HuntInsert = {
   fingerprint: string;
 };
 
-function extractJson(text: string): { candidates?: RunnerCandidate[] } {
-  const fenced = text.match(/```json([\s\S]*?)```/i)?.[1] ?? text.match(/\{[\s\S]*\}/)?.[0];
-  if (!fenced) return {};
-  try {
-    return JSON.parse(fenced) as { candidates?: RunnerCandidate[] };
-  } catch {
-    return {};
-  }
-}
-
 async function proposeCandidates(
   sql: Sql,
   userId: string,
   snapshot: ProfileSnapshot,
   limit: number,
+  onSearch: (count: number) => Promise<void>,
 ): Promise<RunnerCandidate[]> {
   const prompt = `You are an untrusted research runner for a private GTM workspace.
 Do not qualify, score, approve, or invent contact emails.
 Return JSON only: {"candidates":[{"accountName":"","targetName":"","url":"https://...","excerpt":"","notes":{"account_fit":"","pain_strength":"","timing":"","data_readiness":"","commercial":""}}]}
 Propose at most ${limit} currently operating accounts that match this profile.
-Each url must be a real public HTTPS page on the company or a regulator/trade publisher.
+Each url must be a real public HTTPS HTML page on the company or a regulator/trade publisher. Do not link to PDFs, downloads, or binary files.
+Use live web search now, with at most five search queries. Today is ${new Date().toISOString().slice(0, 10)}.
+Return only candidates supported by pages you found in those results. Keep notes brief.
 Prefer named plants/sites, not conglomerate homepages. Do not use IP addresses or localhost.
 
 Company: ${snapshot.company}
@@ -65,18 +53,8 @@ Play: ${snapshot.play}
 Fit: ${snapshot.fit}
 Offer: ${snapshot.offerId}`;
 
-  const text = await completeJson(sql, userId, prompt);
-  const parsed = extractJson(text).candidates ?? [];
-  return parsed
-    .filter((item) => item?.accountName && item?.url?.startsWith("https://"))
-    .slice(0, limit)
-    .map((item) => ({
-      accountName: String(item.accountName).slice(0, 120),
-      targetName: String(item.targetName || item.accountName).slice(0, 160),
-      url: String(item.url).slice(0, 500),
-      excerpt: item.excerpt ? String(item.excerpt).slice(0, 400) : undefined,
-      notes: item.notes,
-    }));
+  const text = await completeJson(sql, userId, prompt, onSearch);
+  return parseCandidates(text, limit);
 }
 
 export async function executeHunt(opts: {
@@ -89,7 +67,32 @@ export async function executeHunt(opts: {
   maxCandidates?: number;
 }) {
   const limit = Math.min(20, Math.max(4, opts.maxCandidates ?? MAX_CANDIDATES));
-  const proposed = await proposeCandidates(opts.sql, opts.userId, opts.snapshot, limit);
+  const progress: SearchProgress = {
+    stage: "searching",
+    searches: 0,
+    proposed: 0,
+    checked: 0,
+    saved: 0,
+    activity: [],
+  };
+  const report = async (message?: string) => {
+    if (message) progress.activity = [...progress.activity, message].slice(-24);
+    await opts.sql`update prospecting_runs set progress_json = ${JSON.stringify(progress)} where id = ${opts.runId} and user_id = ${opts.userId}`;
+  };
+  await report("Searching public sources");
+  const proposed = await proposeCandidates(
+    opts.sql,
+    opts.userId,
+    opts.snapshot,
+    limit,
+    async (count) => {
+      progress.searches = count;
+      await report(`${count} web searches completed`);
+    },
+  );
+  progress.proposed = proposed.length;
+  progress.stage = "checking";
+  await report(`${proposed.length} candidates to check`);
   const profile = profileText(opts.snapshot);
   const jev = await resolveJev(opts.sql, opts.userId);
   const accepted: HuntInsert[] = [];
@@ -107,10 +110,12 @@ export async function executeHunt(opts: {
       }),
     );
     for (const item of pages) {
+      progress.checked++;
       if ("error" in item && item.error) {
         reasons.push(
           `${item.candidate.accountName}: ${item.error instanceof Error ? item.error.message : "retrieval failed"}`,
         );
+        await report(`${item.candidate.accountName}: source unavailable`);
         continue;
       }
       if (!("page" in item) || !item.page) continue;
@@ -120,7 +125,7 @@ export async function executeHunt(opts: {
         source: {
           url: item.page.url,
           title: item.page.title,
-          text: item.page.text || item.candidate.excerpt || "",
+          text: item.page.text,
           retrievedAt: item.page.retrievedAt,
         },
         profileText: profile,
@@ -145,9 +150,11 @@ export async function executeHunt(opts: {
       }
       if (opts.knownFingerprints.has(qualified.fingerprint)) {
         reasons.push(`${item.candidate.accountName}: already in this workspace.`);
+        await report(`${item.candidate.accountName}: already saved`);
         continue;
       }
       opts.knownFingerprints.add(qualified.fingerprint);
+      await report(`${item.candidate.accountName}: source checked · ${qualified.score}/10`);
       accepted.push({
         accountName: item.candidate.accountName,
         targetName: item.candidate.targetName,
@@ -166,11 +173,25 @@ export async function executeHunt(opts: {
     }
   }
 
-  for (const item of accepted) {
-    const prospectId = idFor(opts.userId, `hunt:${item.fingerprint}`);
-    const assessmentId = idFor(opts.userId, `assess:${item.fingerprint}:${opts.runId}`);
-    const state = item.outcome === "Passed" ? "qualified" : item.outcome === "Disqualified" ? "disqualified" : "assessed";
-    await opts.sql`
+  if (
+    proposed.length &&
+    !accepted.length &&
+    !reasons.every((reason) => reason.endsWith("already in this workspace."))
+  )
+    throw new Error(`No new sources could be verified. ${reasons.slice(0, 2).join(" ")}`);
+  progress.stage = "saving";
+  await report("Saving checked results");
+  await opts.sql.transaction(async (tx) => {
+    for (const item of accepted) {
+      const prospectId = idFor(opts.userId, `hunt:${item.fingerprint}`);
+      const assessmentId = idFor(opts.userId, `assess:${item.fingerprint}:${opts.runId}`);
+      const state =
+        item.outcome === "Passed"
+          ? "qualified"
+          : item.outcome === "Disqualified"
+            ? "disqualified"
+            : "assessed";
+      await tx`
       insert into prospects (
         id, user_id, account_name, account_id, target_name, target_id, offer_id,
         score, outcome, state, revision, configuration_digest, assessment_id,
@@ -184,7 +205,7 @@ export async function executeHunt(opts: {
         ${item.evidenceDate}, ${"run"}, ${opts.runId}, ${item.fingerprint}
       )
     `;
-    await opts.sql`
+      await tx`
       insert into signals (
         id, user_id, run_id, prospect_id, url, title, excerpt, tier, content_hash,
         retrieved_at, publication_date, recency
@@ -194,21 +215,26 @@ export async function executeHunt(opts: {
         ${item.hash}, ${item.retrievedAt}, ${item.evidenceDate}, ${"current"}
       )
     `;
-  }
+    }
 
-  const qualified = accepted.filter((item) => item.outcome === "Passed").length;
-  const terminal =
-    accepted.length === 0
-      ? reasons[0] ?? "The scoped source window completed without a qualifying candidate."
-      : `${accepted.length} retrieved · ${qualified} passed. ${reasons.slice(0, 2).join(" ")}`.trim();
+    progress.saved = accepted.length;
+    progress.stage = "complete";
+    progress.activity = [...progress.activity, `${accepted.length} results saved`].slice(-24);
+    const qualified = accepted.filter((item) => item.outcome === "Passed").length;
+    const terminal =
+      accepted.length === 0
+        ? (reasons[0] ?? "Live research returned a valid empty candidate list for this search.")
+        : `${accepted.length} retrieved · ${qualified} passed. ${reasons.slice(0, 2).join(" ")}`.trim();
 
-  await opts.sql`
+    await tx`
     update prospecting_runs
     set status = ${"succeeded"},
+        progress_json = ${JSON.stringify(progress)},
         candidate_count = ${accepted.length},
         qualified_count = ${qualified},
         terminal_reason = ${terminal},
         finished_at = ${new Date().toISOString()}
     where id = ${opts.runId} and user_id = ${opts.userId}
   `;
+  });
 }

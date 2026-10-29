@@ -41,6 +41,7 @@ export function useWorkspace(enabled = true) {
     queryKey: workspaceKey,
     queryFn: () => getWorkspace(),
     staleTime: 8_000,
+    refetchInterval: query => query.state.data?.runs.some(run => run.status === "running" || run.status === "queued") ? 1500 : false,
     enabled,
   });
 }

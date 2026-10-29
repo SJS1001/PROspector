@@ -118,6 +118,7 @@ type ProfileRow = {
 };
 
 type RunRow = {
+  progress_json: string | null;
   id: string;
   trigger: string;
   status: string;
@@ -286,6 +287,7 @@ function mapContact(row: ContactRow): Contact {
 
 function mapRun(row: RunRow): ProspectingRun {
   return {
+    progress: row.progress_json ? JSON.parse(row.progress_json) : null,
     id: row.id,
     trigger: row.trigger,
     status: row.status as ProspectingRun["status"],
@@ -464,7 +466,7 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
   `;
   const runRows = await sql<RunRow>`
     select id, trigger, status, configuration_digest, candidate_count, qualified_count,
-           terminal_reason, started_at, finished_at
+           terminal_reason, started_at, finished_at, progress_json
     from prospecting_runs where user_id = ${userId}
     order by started_at desc
     limit 12

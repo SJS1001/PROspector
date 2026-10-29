@@ -179,7 +179,14 @@ export type ProfileState = {
   readiness: ProfileReadinessItem[];
 };
 
+export type SearchProgress = {
+  stage: "searching" | "checking" | "saving" | "complete";
+  searches: number; proposed: number; checked: number; saved: number;
+  activity: string[];
+};
+
 export type ProspectingRun = {
+  progress?: SearchProgress | null;
   id: string;
   trigger: string;
   status: RunStatus;

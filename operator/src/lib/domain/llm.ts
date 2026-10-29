@@ -1,4 +1,4 @@
-export type LlmSearchMode = "xai" | "openai" | "openrouter" | "builtin" | "none";
+export type LlmSearchMode = "xai" | "openai" | "anthropic" | "openrouter" | "builtin" | "none";
 
 export type LlmProviderId =
   | "xai"
@@ -43,8 +43,8 @@ export const LLM_PROVIDERS: LlmProvider[] = [
     label: "Anthropic",
     baseUrl: "https://api.anthropic.com",
     defaultModel: "claude-sonnet-4-5",
-    search: "none",
-    hint: "No live search. Proposed URLs still have to retrieve.",
+    search: "anthropic",
+    hint: "Live web search. Source pages are checked before results are saved.",
   },
   {
     id: "openrouter",
