@@ -44,34 +44,39 @@ export function SearchMonitor({ run }: { run: ProspectingRun }) {
           </h2>
         </div>
       </div>
-      <ol className="mt-5 grid grid-cols-3 gap-2" aria-label="Search stages">
-        {steps.map((step, i) => (
-          <li
-            key={step}
-            className={`search-step ${(!active && !failed) || i < current ? "search-step-done" : ""} ${active && i === current ? "search-step-current" : ""}`}
-            aria-current={active && i === current ? "step" : undefined}
-          >
-            <span className="block text-[10px] text-muted">0{i + 1}</span>
-            <span className="text-xs">{step}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4">
-        <div>
-          <b className="font-mono text-xl">{p?.searches ?? "—"}</b>
-          <span className="mt-1 block text-xs text-muted">Web searches</span>
+      <details className="search-progress-details" open={active || failed}>
+        <summary className="mt-3 cursor-pointer text-xs text-muted">
+          Search progress & counts
+        </summary>
+        <ol className="mt-3 grid grid-cols-3 gap-2" aria-label="Search stages">
+          {steps.map((step, i) => (
+            <li
+              key={step}
+              className={`search-step ${(!active && !failed) || i < current ? "search-step-done" : ""} ${active && i === current ? "search-step-current" : ""}`}
+              aria-current={active && i === current ? "step" : undefined}
+            >
+              <span className="block text-[10px] text-muted">0{i + 1}</span>
+              <span className="text-xs">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4">
+          <div>
+            <b className="font-mono text-xl">{p?.searches ?? "—"}</b>
+            <span className="mt-1 block text-xs text-muted">Web searches</span>
+          </div>
+          <div>
+            <b className="font-mono text-xl">
+              {p && p.stage !== "searching" ? `${p.checked}/${p.proposed}` : "—"}
+            </b>
+            <span className="mt-1 block text-xs text-muted">Sources checked</span>
+          </div>
+          <div>
+            <b className="font-mono text-xl">{run.candidateCount}</b>
+            <span className="mt-1 block text-xs text-muted">Results saved</span>
+          </div>
         </div>
-        <div>
-          <b className="font-mono text-xl">
-            {p && p.stage !== "searching" ? `${p.checked}/${p.proposed}` : "—"}
-          </b>
-          <span className="mt-1 block text-xs text-muted">Sources checked</span>
-        </div>
-        <div>
-          <b className="font-mono text-xl">{run.candidateCount}</b>
-          <span className="mt-1 block text-xs text-muted">Results saved</span>
-        </div>
-      </div>
+      </details>
       {failed ? (
         <p role="alert" className="mt-4 text-sm text-red">
           {run.terminalReason}

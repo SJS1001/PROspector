@@ -19,8 +19,8 @@ export function ContactsView() {
         title="Contacts"
         action={
           visible.length ? (
-            <Link to="/outreach">
-              <Button variant="outline">Open outreach</Button>
+            <Link to="/outreach" className="action-link secondary-link">
+              Open outreach
             </Link>
           ) : undefined
         }
@@ -32,8 +32,8 @@ export function ContactsView() {
           <p className="mt-2 max-w-xl text-sm text-muted">
             Approve a prospect to see its contacts.
           </p>
-          <Link to="/review" className="mt-4 inline-block">
-            <Button variant="outline">Review prospects</Button>
+          <Link to="/review" className="action-link secondary-link mt-4">
+            Review prospects
           </Link>
         </Panel>
       ) : (

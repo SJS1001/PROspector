@@ -17,7 +17,8 @@ import type { KnowledgeItem } from "@/lib/domain/types";
 export function KnowledgeView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Loading company details…</p>;
-  if (isError || !data) return <WorkspaceLoadError message="Company details could not be loaded." />;
+  if (isError || !data)
+    return <WorkspaceLoadError message="Company details could not be loaded." />;
 
   const current = data.currentQuestion;
   const saved = data.knowledge.filter((item) => item.confirmedAnswer);
@@ -50,8 +51,8 @@ export function KnowledgeView() {
         title="Company & product"
         action={
           !current ? (
-            <Link to="/discovery">
-              <Button>Target markets</Button>
+            <Link to="/discovery" className="action-link">
+              Target markets <span aria-hidden="true">→</span>
             </Link>
           ) : undefined
         }

@@ -7,10 +7,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "border border-lime bg-lime text-paper",
-        lime: "border border-lime bg-lime text-paper",
-        outline: "border border-line bg-cream text-ink",
-        ghost: "border border-transparent bg-transparent text-muted",
+        primary: "border border-lime bg-lime text-paper hover:enabled:bg-white",
+        lime: "border border-lime bg-lime text-paper hover:enabled:bg-white",
+        outline:
+          "border border-line bg-cream text-ink hover:enabled:border-muted hover:enabled:bg-forest-2",
+        ghost:
+          "border border-transparent bg-transparent text-muted hover:enabled:bg-forest-2 hover:enabled:text-ink",
         danger: "border border-red/40 bg-danger-bg text-red",
       },
     },

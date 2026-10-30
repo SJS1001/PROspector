@@ -1,5 +1,5 @@
 {
-  "base": "5590680e01efd5fe6b010b0c4f27bd07561c94db",
+  "base": "1aa74bdbf019cd6630b2cfa67ddfa2e4eb991b11",
   "node": "v24.16.0",
   "platform": "darwin",
   "playwright": "1.63.0",
@@ -68,7 +68,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
+      "digest": "436a059ba1ec36b36489ae0113dbe22456adec0e950a11915311a8abb7f2e251"
     },
     {
       "label": "after-idle-reload",
@@ -87,7 +87,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
+      "digest": "436a059ba1ec36b36489ae0113dbe22456adec0e950a11915311a8abb7f2e251"
     },
     {
       "label": "workflow-before-restart",
@@ -106,7 +106,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
+      "digest": "436a059ba1ec36b36489ae0113dbe22456adec0e950a11915311a8abb7f2e251"
     },
     {
       "label": "workflow-after-restart",
@@ -125,7 +125,7 @@
         "suppressions": 0,
         "delivery_events": 1
       },
-      "digest": "55cd3456cf2a33540df6fb77e45a8e877c550c1aa69297618f3dca84ab6d941f"
+      "digest": "436a059ba1ec36b36489ae0113dbe22456adec0e950a11915311a8abb7f2e251"
     },
     {
       "label": "before-idle-reload",
@@ -144,7 +144,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "88d15a746fbae5cff652412dfef8c140b533157f703be1c4968668b1b34b92e5"
+      "digest": "d4ccd27d6d24d7b9bc5bf702ea96b6c55961c7f2ca272d8df935850dbf987d98"
     },
     {
       "label": "after-idle-reload",
@@ -163,7 +163,7 @@
         "suppressions": 0,
         "delivery_events": 2
       },
-      "digest": "88d15a746fbae5cff652412dfef8c140b533157f703be1c4968668b1b34b92e5"
+      "digest": "d4ccd27d6d24d7b9bc5bf702ea96b6c55961c7f2ca272d8df935850dbf987d98"
     },
     {
       "label": "recovery-before-failed-download",
@@ -182,7 +182,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "6f23170df928a96ca7013d21e282ab30a82f829a202a2259da275cd6e76d94d0"
+      "digest": "89fbc3f9962f32ae538680edc84d36145bd0aad05e0b32f5ebb28498efb97e42"
     },
     {
       "label": "recovery-after-failed-download",
@@ -201,7 +201,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "6f23170df928a96ca7013d21e282ab30a82f829a202a2259da275cd6e76d94d0"
+      "digest": "89fbc3f9962f32ae538680edc84d36145bd0aad05e0b32f5ebb28498efb97e42"
     },
     {
       "label": "recovery-before-lost-response",
@@ -220,7 +220,7 @@
         "suppressions": 2,
         "delivery_events": 2
       },
-      "digest": "6f23170df928a96ca7013d21e282ab30a82f829a202a2259da275cd6e76d94d0"
+      "digest": "89fbc3f9962f32ae538680edc84d36145bd0aad05e0b32f5ebb28498efb97e42"
     },
     {
       "label": "recovery-after-lost-response",
@@ -239,7 +239,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "f5511a54cdb6bafe58dfe01cc4b53a0088ac13314897ff7eed9145664909605d"
+      "digest": "b9156f47549b000cac50bbfccd067caae37550d3da6727a6fe297443d96fd0c2"
     },
     {
       "label": "recovery-after-load-retry",
@@ -258,7 +258,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "f5511a54cdb6bafe58dfe01cc4b53a0088ac13314897ff7eed9145664909605d"
+      "digest": "b9156f47549b000cac50bbfccd067caae37550d3da6727a6fe297443d96fd0c2"
     },
     {
       "label": "recovery-after-invalid-archive",
@@ -277,7 +277,7 @@
         "suppressions": 3,
         "delivery_events": 2
       },
-      "digest": "f5511a54cdb6bafe58dfe01cc4b53a0088ac13314897ff7eed9145664909605d"
+      "digest": "b9156f47549b000cac50bbfccd067caae37550d3da6727a6fe297443d96fd0c2"
     },
     {
       "label": "recovery-after-valid-restore",
@@ -296,7 +296,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "6a27ecf716e2836f8a69f190ebc40863c806583735cac0bc92c4c927ed6a548d"
+      "digest": "bb8ce6b40bbe8045c525e864312f409a4ef2e6e329185b870e12c32ca11acb90"
     },
     {
       "label": "recovery-after-restore-reload",
@@ -315,7 +315,7 @@
         "suppressions": 3,
         "delivery_events": 6
       },
-      "digest": "6a27ecf716e2836f8a69f190ebc40863c806583735cac0bc92c4c927ed6a548d"
+      "digest": "bb8ce6b40bbe8045c525e864312f409a4ef2e6e329185b870e12c32ca11acb90"
     }
   ],
   "reviewedSourceFiles": 33,
@@ -946,55 +946,12 @@
       {
         "kind": "reach",
         "label": "Close Company details",
-        "tabs": 13,
+        "tabs": 12,
         "direction": "Tab"
       },
       {
         "kind": "activate",
         "label": "Close Company details",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Edit company",
-        "tabs": 7,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Edit company",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "corrected company answer",
-        "tabs": 2,
-        "direction": "Tab"
-      },
-      {
-        "kind": "type",
-        "label": "corrected company answer"
-      },
-      {
-        "kind": "reach",
-        "label": "Review answer",
-        "tabs": 2,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Review answer",
-        "key": "Enter"
-      },
-      {
-        "kind": "reach",
-        "label": "Confirm answer",
-        "tabs": 2,
-        "direction": "Tab"
-      },
-      {
-        "kind": "activate",
-        "label": "Confirm answer",
         "key": "Enter"
       },
       {
@@ -1042,6 +999,49 @@
       },
       {
         "kind": "reach",
+        "label": "Edit company",
+        "tabs": 5,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Edit company",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "corrected company answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "type",
+        "label": "corrected company answer"
+      },
+      {
+        "kind": "reach",
+        "label": "Review answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Review answer",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
+        "label": "Confirm answer",
+        "tabs": 2,
+        "direction": "Tab"
+      },
+      {
+        "kind": "activate",
+        "label": "Confirm answer",
+        "key": "Enter"
+      },
+      {
+        "kind": "reach",
         "label": "Open workspace menu",
         "tabs": 2,
         "direction": "Tab"
@@ -1054,7 +1054,7 @@
       {
         "kind": "reach",
         "label": "Open disclosure for workspace navigation /discovery",
-        "tabs": 13,
+        "tabs": 12,
         "direction": "Shift+Tab"
       },
       {
@@ -1065,7 +1065,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /discovery",
-        "tabs": 19,
+        "tabs": 18,
         "direction": "Shift+Tab"
       },
       {
@@ -1384,7 +1384,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 15,
+        "tabs": 16,
         "direction": "Tab"
       },
       {
@@ -1395,7 +1395,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 19,
+        "tabs": 20,
         "direction": "Shift+Tab"
       },
       {
@@ -1529,7 +1529,7 @@
       {
         "kind": "reach",
         "label": "Find published contact details 1-0",
-        "tabs": 4,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -1551,7 +1551,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 14,
+        "tabs": 13,
         "direction": "Shift+Tab"
       },
       {
@@ -1951,7 +1951,7 @@
       {
         "kind": "reach",
         "label": "Open workspace menu",
-        "tabs": 16,
+        "tabs": 17,
         "direction": "Tab"
       },
       {
@@ -1962,7 +1962,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /review",
-        "tabs": 20,
+        "tabs": 21,
         "direction": "Shift+Tab"
       },
       {
@@ -2057,7 +2057,7 @@
       {
         "kind": "reach",
         "label": "Find published contact details 2-0",
-        "tabs": 4,
+        "tabs": 3,
         "direction": "Tab"
       },
       {
@@ -2079,7 +2079,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /outreach",
-        "tabs": 20,
+        "tabs": 19,
         "direction": "Shift+Tab"
       },
       {
@@ -2804,7 +2804,7 @@
       {
         "kind": "reach",
         "label": "workspace navigation /settings",
-        "tabs": 35,
+        "tabs": 34,
         "direction": "Shift+Tab"
       },
       {
@@ -5717,7 +5717,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 22
+      "controls": 21
     },
     {
       "checkpoint": "saved Company disclosure open",
@@ -5739,7 +5739,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 22
+      "controls": 21
     },
     {
       "checkpoint": "saved Company disclosure open",
@@ -5761,7 +5761,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 22
+      "controls": 21
     },
     {
       "checkpoint": "screen /discovery",
@@ -6377,7 +6377,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 9
     },
     {
       "checkpoint": "screen /prospects",
@@ -6399,7 +6399,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 9
     },
     {
       "checkpoint": "screen /prospects",
@@ -6421,7 +6421,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 9
     },
     {
       "checkpoint": "profile activation cancellation Cancel",
@@ -6443,7 +6443,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation cancellation Cancel",
@@ -6465,7 +6465,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation cancellation Cancel",
@@ -6487,7 +6487,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation cancellation Escape",
@@ -6509,7 +6509,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation cancellation Escape",
@@ -6531,7 +6531,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation cancellation Escape",
@@ -6553,7 +6553,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation confirmation",
@@ -6575,7 +6575,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation confirmation",
@@ -6597,7 +6597,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "profile activation confirmation",
@@ -6619,7 +6619,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 9
+      "controls": 10
     },
     {
       "checkpoint": "prospect results 1",
@@ -6971,7 +6971,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "screen /contacts",
@@ -6993,7 +6993,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "screen /contacts",
@@ -7015,7 +7015,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "contact reveal 1-0",
@@ -7037,7 +7037,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "contact reveal 1-0",
@@ -7059,7 +7059,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "contact reveal 1-0",
@@ -7081,7 +7081,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 4
+      "controls": 3
     },
     {
       "checkpoint": "screen /outreach",
@@ -8225,7 +8225,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "screen /contacts",
@@ -8247,7 +8247,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "screen /contacts",
@@ -8269,7 +8269,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "contact reveal 2-0",
@@ -8291,7 +8291,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "contact reveal 2-0",
@@ -8313,7 +8313,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "contact reveal 2-0",
@@ -8335,7 +8335,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 7
+      "controls": 6
     },
     {
       "checkpoint": "screen /outreach",
@@ -9347,7 +9347,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 7
     },
     {
       "checkpoint": "screen /contacts",
@@ -9369,7 +9369,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 7
     },
     {
       "checkpoint": "screen /contacts",
@@ -9391,7 +9391,7 @@
       "taskFits": true,
       "controlsFit": true,
       "labelledFields": true,
-      "controls": 8
+      "controls": 7
     },
     {
       "checkpoint": "screen /settings",
@@ -10059,17 +10059,17 @@
     "rect": {
       "left": 37,
       "right": 323,
-      "top": 652,
-      "bottom": 696
+      "top": 632,
+      "bottom": 676
     },
     "viewport": {
       "width": 360,
       "height": 800,
       "scrollY": 0,
       "visualHeight": 800,
-      "rootHeight": 851,
+      "rootHeight": 831,
       "clientHeight": 800,
-      "bodyHeight": 851,
+      "bodyHeight": 831,
       "overflow": "visible"
     },
     "ancestors": [
@@ -10082,50 +10082,50 @@
       },
       {
         "tag": "DIV",
-        "height": 670,
-        "scrollHeight": 670,
+        "height": 650,
+        "scrollHeight": 650,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 718,
-        "scrollHeight": 718,
+        "height": 698,
+        "scrollHeight": 698,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "SECTION",
-        "height": 766,
-        "scrollHeight": 766,
+        "height": 746,
+        "scrollHeight": 746,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 811,
-        "scrollHeight": 811,
+        "height": 791,
+        "scrollHeight": 791,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "DIV",
-        "height": 851,
-        "scrollHeight": 851,
+        "height": 831,
+        "scrollHeight": 831,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "BODY",
-        "height": 851,
-        "scrollHeight": 851,
+        "height": 831,
+        "scrollHeight": 831,
         "scrollTop": 0,
         "overflow": "visible"
       },
       {
         "tag": "HTML",
         "height": 800,
-        "scrollHeight": 851,
+        "scrollHeight": 831,
         "scrollTop": 0,
         "overflow": "visible"
       }
@@ -10227,10 +10227,10 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "6e17b703f3212ac037854028735a6079efefdd7832cf66cd1f49fc58b5622ed5",
+      "sha256": "2699ff3fbf13982ed16e38344af847874704e35e149afac9561e7b364c5768bd",
       "rows": 1,
       "identities": [
-        "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
+        "b008e3add3a377b8215bb3f3:b407738a7195f7754fec58c8"
       ]
     }
   },
@@ -10251,20 +10251,20 @@
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 344,
-        "sha256": "6e17b703f3212ac037854028735a6079efefdd7832cf66cd1f49fc58b5622ed5",
+        "sha256": "2699ff3fbf13982ed16e38344af847874704e35e149afac9561e7b364c5768bd",
         "rows": 1,
         "identities": [
-          "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
+          "b008e3add3a377b8215bb3f3:b407738a7195f7754fec58c8"
         ]
       },
       {
         "filename": "prospector-crm-handoff.csv",
         "bytes": 617,
-        "sha256": "859a22d93a5a3c031f4c06a30c05e3e53dbd0051cb445f01a49ea4b9dd9f4294",
+        "sha256": "82fe2d988555b27d5767127cc28f5ffabbaed1505d3752b06b0cb5bffd160a94",
         "rows": 2,
         "identities": [
-          "d0642ed900eaaea50a1e7c38:831440188f5958835c14ab34",
-          "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
+          "490c945b7a80b33b3cae617c:c5a335bb492228fb3aa4058b",
+          "b008e3add3a377b8215bb3f3:b407738a7195f7754fec58c8"
         ]
       }
     ]
@@ -10278,26 +10278,26 @@
     "csv": {
       "filename": "prospector-crm-handoff.csv",
       "bytes": 344,
-      "sha256": "6e17b703f3212ac037854028735a6079efefdd7832cf66cd1f49fc58b5622ed5",
+      "sha256": "2699ff3fbf13982ed16e38344af847874704e35e149afac9561e7b364c5768bd",
       "rows": 1,
       "identities": [
-        "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f"
+        "b008e3add3a377b8215bb3f3:b407738a7195f7754fec58c8"
       ]
     }
   },
   "csvEdgeCases": {
     "filename": "prospector-crm-handoff.csv",
     "bytes": 1578,
-    "sha256": "d5260dc85558835f7796d9e2dab7788c048bddf9e270cc4e649753150e6af09b",
+    "sha256": "6daf6c4c270842ab892195f0d64a84c0e17f13b9e10744981b75a2b6c596d4c4",
     "rows": 7,
     "identities": [
-      "eb4531ce69d960561a09eea3:3ceeb6259e5bd2e8806fd66f",
-      "eb4531ce69d960561a09eea3:csv-edge-0",
-      "eb4531ce69d960561a09eea3:csv-edge-1",
-      "eb4531ce69d960561a09eea3:csv-edge-2",
-      "eb4531ce69d960561a09eea3:csv-edge-3",
-      "eb4531ce69d960561a09eea3:csv-edge-4",
-      "eb4531ce69d960561a09eea3:csv-edge-5"
+      "b008e3add3a377b8215bb3f3:b407738a7195f7754fec58c8",
+      "b008e3add3a377b8215bb3f3:csv-edge-0",
+      "b008e3add3a377b8215bb3f3:csv-edge-1",
+      "b008e3add3a377b8215bb3f3:csv-edge-2",
+      "b008e3add3a377b8215bb3f3:csv-edge-3",
+      "b008e3add3a377b8215bb3f3:csv-edge-4",
+      "b008e3add3a377b8215bb3f3:csv-edge-5"
     ]
   },
   "recovery": [
@@ -10314,7 +10314,7 @@
     "explain": 2
   },
   "browserCounts": {
-    "local": 359,
+    "local": 360,
     "composeAborted": 2,
     "unexpected": 0
   },

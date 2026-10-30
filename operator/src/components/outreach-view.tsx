@@ -52,8 +52,8 @@ export function OutreachView() {
           <p className="mt-2 max-w-xl text-sm text-muted">
             Approve a prospect to prepare its brief.
           </p>
-          <Link to="/review" className="mt-4 inline-block">
-            <Button variant="outline">Open review queue</Button>
+          <Link to="/review" className="action-link secondary-link mt-4">
+            Open review queue
           </Link>
         </Panel>
       ) : approved.some((item) => !packaged.has(item.id)) ? (
@@ -252,7 +252,9 @@ function MessageCard({ item }: { item: OutreachMessage }) {
             : uiLabel(item.status)}
         </Badge>
       </header>
-      {item.blockedReason ? <p className="text-sm text-amber">{uiText(item.blockedReason)}</p> : null}
+      {item.blockedReason ? (
+        <p className="text-sm text-amber">{uiText(item.blockedReason)}</p>
+      ) : null}
       <details>
         <summary className="cursor-pointer text-sm font-medium">
           {item.status === "draft"
@@ -276,7 +278,8 @@ function MessageCard({ item }: { item: OutreachMessage }) {
                 onChange={(event) => setAck(event.target.checked)}
               />
               <span>
-                I understand the guidance is not legal advice. I will review and send this message in Gmail. Approval does not send it.
+                I understand the guidance is not legal advice. I will review and send this message
+                in Gmail. Approval does not send it.
               </span>
             </label>
           ) : null}
@@ -312,7 +315,9 @@ function MessageCard({ item }: { item: OutreachMessage }) {
                       onSuccess: (result) => {
                         if (!result.url) {
                           popup.close();
-                          setHandoffError("This message cannot be opened again. Check Gmail before sending another copy.");
+                          setHandoffError(
+                            "This message cannot be opened again. Check Gmail before sending another copy.",
+                          );
                           return;
                         }
                         try {
@@ -322,7 +327,9 @@ function MessageCard({ item }: { item: OutreachMessage }) {
                           popup.location.replace(destination.href);
                         } catch {
                           popup.close();
-                          setHandoffError("Gmail could not be opened. Check Gmail before trying to send this message again.");
+                          setHandoffError(
+                            "Gmail could not be opened. Check Gmail before trying to send this message again.",
+                          );
                         }
                       },
                       onError: () => popup.close(),

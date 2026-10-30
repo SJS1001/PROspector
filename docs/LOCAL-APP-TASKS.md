@@ -4,6 +4,11 @@ Updated: 2026-10-29. Owner's target: **a reliable local app for personal use**.
 
 ## Current checkpoint — 2026-10-29
 
+Three UI/UX revisions are complete: simpler summaries and disclosures, refined dark
+styling, and keyboard/mobile/recovery verification. The app test command passed 362
+tests; contained browser acceptance passed two complete workflows. See the
+[UI revision report](implementation-lanes/2026-10-29-ui-three-pass.md).
+
 The personal-use app is merged into `main` through PRs #131 and #142, and the owner completed the actual Mac reboot/persistence walkthrough. App launcher starts the installed app successfully. Fourteen older duplicate PRs were reconciled and closed; eleven separate hosted-app PRs remain open with unmerged changes. Fresh focused verification passed 57 tests. One authorized live search completed in 81 seconds, saved one possible-need record and qualified none; JEV contributed to three source scores. Useful opportunity/contact yield and actual provider cost still need evaluation. See the [closeout report](implementation-lanes/2026-10-29-local-release-closeout.md).
 
 The October 28 checkpoints below retain their original evidence and are historical where they describe pre-merge branches or pending synchronization.

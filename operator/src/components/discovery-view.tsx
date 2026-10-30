@@ -75,8 +75,8 @@ function InterviewBlocked() {
   return (
     <Panel className="p-8">
       <h2 className="font-display text-xl">Complete your company details first</h2>
-      <Link to="/knowledge" className="mt-5 inline-flex">
-        <Button>Complete company details</Button>
+      <Link to="/knowledge" className="action-link mt-5">
+        Complete company details
       </Link>
     </Panel>
   );
@@ -232,8 +232,9 @@ function DraftPlays({ data }: { data: WorkspaceDTO }) {
       {data.draftPlays.some((play) => play.status !== "confirmed") ? (
         <>
           <h2 className="font-display text-lg">
-            Markets to confirm · {data.draftPlays.filter((play) => play.status !== "confirmed").length}{" "}
-            awaiting confirmation
+            Markets to confirm ·{" "}
+            {data.draftPlays.filter((play) => play.status !== "confirmed").length} awaiting
+            confirmation
           </h2>
           <ol className="mt-4 grid gap-3">
             {data.draftPlays
@@ -353,7 +354,9 @@ function DiscoveryLedger({ data }: { data: WorkspaceDTO }) {
                   ? ` · finished ${new Date(run.finishedAt).toLocaleString("en-CA")}`
                   : ""}
               </p>
-              {run.terminalReason ? <p className="mt-2 text-xs">{uiText(run.terminalReason)}</p> : null}
+              {run.terminalReason ? (
+                <p className="mt-2 text-xs">{uiText(run.terminalReason)}</p>
+              ) : null}
             </li>
           ))}
         </ol>

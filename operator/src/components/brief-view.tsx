@@ -44,13 +44,17 @@ export function BriefView() {
   return (
     <div className="grid gap-5">
       <PageHeading title="Today" />
-      <Panel className="p-5">
-        <h2 className="font-display text-lg">Next action</h2>
+      <Panel className="next-action p-6 sm:p-7">
+        <div>
+          <p className="text-xs font-medium text-muted">Next action</p>
+          <h2 className="mt-2 text-xl font-medium sm:text-2xl">{action.label}</h2>
+        </div>
         <Link
           to={action.href}
-          className="mt-4 inline-flex min-h-11 items-center justify-center rounded-[10px] border border-green bg-green px-4 text-sm font-semibold text-cream"
+          aria-label={`Continue: ${action.label}`}
+          className="action-link shrink-0"
         >
-          {action.label}
+          Continue <span aria-hidden="true">→</span>
         </Link>
       </Panel>
       <dl className="grid gap-3 sm:grid-cols-3">
@@ -62,7 +66,9 @@ export function BriefView() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg">This week</h2>
           <Badge tone={data.profile.status === "active" ? "ok" : "warn"}>
-            {data.profile.status === "active" ? "Search ready" : `Search settings: ${uiLabel(data.profile.status)}`}
+            {data.profile.status === "active"
+              ? "Search ready"
+              : `Search settings: ${uiLabel(data.profile.status)}`}
           </Badge>
         </div>
         <p className="mt-2 text-sm text-muted">
@@ -74,7 +80,8 @@ export function BriefView() {
         <details className="mt-3 text-sm">
           <summary className="cursor-pointer text-muted">Details</summary>
           <p className="mt-3 text-muted">
-            Toronto week {data.brief.weekStart} – {data.brief.weekEnd}. Planned sites do not count toward the target.
+            Toronto week {data.brief.weekStart} – {data.brief.weekEnd}. Planned sites do not count
+            toward the target.
           </p>
           <p className="mt-2 text-muted">
             Workspace totals: {data.brief.reviewed} reviewed · {data.brief.approved} approved ·{" "}
@@ -101,7 +108,7 @@ export function BriefView() {
         </details>
       </Panel>
       <Panel className="p-5">
-        <details open={recent.some((item) => item.reason)}>
+        <details>
           <summary className="cursor-pointer text-sm font-medium">Recent work</summary>
           {recent.length ? (
             <ul className="mt-3 divide-y divide-line">

@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import { sourceLabel, uiText } from "../../src/lib/domain/plain-language.ts";
 
 function mount(file, exportName, mocks, props = {}) {
   const slots = [];
@@ -143,7 +144,7 @@ test("component double: successful restore removes action and focuses stable sta
   assert.equal(app.find(input("checkbox")), undefined);
   assert.equal(app.focused().props.role, "status");
   assert.equal(app.focused().props.tabIndex, -1);
-  assert.match(text(app.focused()), /Restore committed/);
+  assert.match(text(app.focused()), /Restored\. Reload to view your workspace\./);
 });
 
 test("component double: oversized backup focuses described feedback without reading file", async () => {
@@ -183,6 +184,7 @@ for (const dismissal of ["Cancel", "Escape"]) {
       "@/components/shell": shell,
       "@/components/ui/button": button,
       "@/components/ui/badge": { Badge: "badge" },
+      "@/lib/domain/plain-language": { sourceLabel, uiText },
       "@/lib/workspace": {
         useReviewProspect: () => ({ isPending: false, mutate() { mutations++; } }),
         useParkGreenfield: () => ({ isPending: false }),

@@ -17,25 +17,32 @@ export function OpportunitySummary({ item }: { item: Prospect }) {
         </span>
       </div>
       {brief ? (
-        <dl className="mt-5 grid gap-5 sm:grid-cols-2">
-          <Entry title="What they do" text={brief.company.text} />
-          <Entry title="What’s happening" text={brief.situation.text} />
-          <Entry
-            title="Their problem"
-            text={brief.problem?.text ?? "The source does not establish an unresolved problem."}
-          />
-          <Entry title={`Where ${brief.product} could help`} text={brief.possibleFit} />
+        <div className="mt-5 grid gap-5">
+          <dl className="grid gap-5 sm:grid-cols-2">
+            <Entry
+              title="Their problem"
+              text={brief.problem?.text ?? "The source does not establish an unresolved problem."}
+            />
+            <Entry title={`Where ${brief.product} could help`} text={brief.possibleFit} />
+          </dl>
+          <details className="border-t border-line pt-2 text-sm">
+            <summary className="cursor-pointer font-medium">Company background</summary>
+            <dl className="mt-3 grid gap-5 sm:grid-cols-2">
+              <Entry title="What they do" text={brief.company.text} />
+              <Entry title="What’s happening" text={brief.situation.text} />
+            </dl>
+          </details>
           {brief.decisionFit ? (
-            <details className="sm:col-span-2 text-sm">
+            <details className="text-sm">
               <summary className="cursor-pointer font-semibold">Decision & data to check</summary>
               <p className="mt-2">{brief.decisionFit.decision}</p>
               <p className="mt-1 text-muted">{brief.decisionFit.dataToCheck}</p>
             </details>
           ) : null}
-          <div className="sm:col-span-2 rounded-[10px] border border-line bg-paper p-4">
+          <dl className="rounded-[10px] border border-line bg-paper p-4">
             <Entry title="What to find out next" text={brief.nextQuestion} />
-          </div>
-        </dl>
+          </dl>
+        </div>
       ) : (
         <p className="mt-4 text-sm text-muted">
           {item.origin === "run"

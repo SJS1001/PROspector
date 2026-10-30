@@ -51,7 +51,7 @@ export function ProspectsView() {
         </Link>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="filter-bar flex flex-wrap gap-1" role="group" aria-label="Filter prospects">
           {(
             [
               "all",
@@ -66,18 +66,32 @@ export function ProspectsView() {
             <Button
               key={key}
               variant={filter === key ? "primary" : "outline"}
+              aria-pressed={filter === key}
               onClick={() => setFilter(key)}
             >
               {uiLabel(key)}
             </Button>
           ))}
         </div>
-        <p className="text-xs text-muted">
-          {live} from searches · {data.prospects.length} total
+        <p className="text-xs text-muted" role="status">
+          {rows.length} shown · {live} from searches
         </p>
       </div>
       {rows.length === 0 ? (
-        <Panel className="p-10 text-center text-sm text-muted">No prospects in this filter.</Panel>
+        <Panel className="p-8 text-center">
+          <h2 className="text-lg font-medium">
+            {data.prospects.length
+              ? "No prospects in this filter"
+              : "Your prospects will appear here"}
+          </h2>
+          {data.prospects.length ? (
+            <Button className="mt-4" variant="outline" onClick={() => setFilter("all")}>
+              Show all prospects
+            </Button>
+          ) : (
+            <p className="mt-2 text-sm text-muted">Start a search using the settings above.</p>
+          )}
+        </Panel>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((item) => (
@@ -147,9 +161,7 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
       <Panel className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-display text-xl">
-              {data.profile.snapshot?.play || "Search settings"}
-            </h2>
+            <h2 className="font-display text-xl">Find your next opportunity</h2>
           </div>
           <Badge
             tone={
@@ -165,9 +177,12 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
         </div>
         <details className="mt-4" open={!ready}>
           <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-teal">
-            Search readiness · {data.profile.readiness.filter((item) => item.complete).length}/
+            Search settings · {data.profile.readiness.filter((item) => item.complete).length}/
             {data.profile.readiness.length} complete
           </summary>
+          {data.profile.snapshot?.play ? (
+            <p className="mt-3 text-sm text-muted">{data.profile.snapshot.play}</p>
+          ) : null}
           <ol className="mt-3 grid gap-2">
             {data.profile.readiness.map((item) => (
               <li
@@ -244,8 +259,8 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
               </Button>
             )}
             {!data.interviewComplete ? (
-              <Link to="/knowledge">
-                <Button variant="outline">Company details</Button>
+              <Link to="/knowledge" className="action-link secondary-link">
+                Company details
               </Link>
             ) : null}
           </div>
@@ -351,7 +366,7 @@ function ProspectCard({ item }: { item: Prospect }) {
       {item.targetName.trim().toLowerCase() !== item.accountName.trim().toLowerCase() ? (
         <p className="mt-1 text-xs text-muted">{item.targetName}</p>
       ) : null}
-      <p className="mt-2 text-sm leading-6 text-muted">
+      <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted">
         {item.assessment.opportunity?.problem?.text ??
           item.assessment.opportunity?.situation.text ??
           "Open to check the source and possible fit."}
@@ -371,9 +386,10 @@ function ProspectCard({ item }: { item: Prospect }) {
       <Link
         to="/prospects/$prospectId"
         params={{ prospectId: item.id }}
-        className="mt-4 inline-flex min-h-11 items-center justify-center rounded-[10px] border border-green bg-green text-sm font-semibold text-cream"
+        className="prospect-link mt-4 inline-flex min-h-11 items-center justify-between border-t border-line text-sm font-medium text-ink"
+        aria-label={`Open record: ${item.accountName}`}
       >
-        Open record
+        Open record <span aria-hidden="true">↗</span>
       </Link>
     </article>
   );
@@ -412,10 +428,14 @@ export function ProspectDetailView({ prospectId }: { prospectId: string }) {
       <PageHeading
         eyebrow={item.origin === "run" ? "Search result" : "Sample data"}
         title={item.accountName}
-        copy={item.targetName.trim().toLowerCase() !== item.accountName.trim().toLowerCase() ? item.targetName : undefined}
+        copy={
+          item.targetName.trim().toLowerCase() !== item.accountName.trim().toLowerCase()
+            ? item.targetName
+            : undefined
+        }
         action={
-          <Link to="/prospects">
-            <Button variant="outline">All prospects</Button>
+          <Link to="/prospects" className="action-link secondary-link">
+            All prospects
           </Link>
         }
       />

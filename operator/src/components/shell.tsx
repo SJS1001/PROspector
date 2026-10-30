@@ -109,7 +109,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </div>
 
       <div className="grid min-h-0 lg:grid-cols-[220px_1fr]">
-        <aside className="border-b border-line bg-forest-2 lg:flex lg:h-[calc(100dvh-40px)] lg:flex-col lg:border-b-0 lg:border-r">
+        <aside className="workspace-sidebar border-b border-line bg-forest-2 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:self-start lg:border-b-0 lg:border-r">
           <button
             type="button"
             aria-expanded={mobileNavOpen}
@@ -123,7 +123,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <nav
             id="workspace-navigation"
             aria-label="Workspace"
-            className={cn("gap-1 px-2 py-3 lg:grid", mobileNavOpen ? "grid" : "hidden")}
+            className={cn(
+              "gap-2 px-3 py-4 lg:grid lg:overflow-y-auto",
+              mobileNavOpen ? "grid" : "hidden",
+            )}
           >
             {NAVIGATION_GROUPS.map((group) => {
               const activeGroup =
@@ -146,7 +149,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                       );
                     }}
                     className={cn(
-                      "flex min-h-11 items-center gap-2.5 rounded-sm px-2.5 text-sm text-muted",
+                      "nav-link flex min-h-11 items-center gap-2.5 rounded-sm px-2.5 text-sm text-muted",
                       active && "bg-cream text-ink",
                     )}
                   >
@@ -182,9 +185,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
           <div className="mt-auto hidden border-t border-line px-3 py-3 lg:block">
-            <p className="text-2xs text-subtle">
-              Keys stay on this machine. Nothing ships until you approve it.
-            </p>
+            <p className="text-2xs text-subtle">Private workspace · On this Mac</p>
           </div>
         </aside>
 
@@ -199,7 +200,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </header>
           <div
             id="operator-task"
-            className="px-4 py-6 lg:px-8 lg:py-8"
+            className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-9 lg:py-8"
             tabIndex={-1}
             onFocusCapture={(event) => {
               const control = event.target;
@@ -207,7 +208,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               requestAnimationFrame(() => {
                 if (document.activeElement !== control) return;
                 const bounds = control.getBoundingClientRect();
-                if (bounds.top < 0 || bounds.bottom > window.innerHeight)
+                if (bounds.top < 56 || bounds.bottom > window.innerHeight)
                   control.scrollIntoView({ block: "nearest", inline: "nearest" });
               });
             }}
@@ -232,10 +233,10 @@ export function PageHeading({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="page-heading flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="max-w-xl">
         {eyebrow ? <p className="text-2xs font-medium text-subtle">{eyebrow}</p> : null}
-        <h1 className="mt-1 text-2xl font-medium tracking-tight text-ink">{title}</h1>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{title}</h1>
         {copy ? <p className="mt-1.5 text-sm text-muted">{copy}</p> : null}
       </div>
       {action}
@@ -245,7 +246,7 @@ export function PageHeading({
 
 export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <section className={cn("rounded-md border border-line bg-cream", className)}>
+    <section className={cn("surface rounded-lg border border-line bg-cream", className)}>
       {children}
     </section>
   );

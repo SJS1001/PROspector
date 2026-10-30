@@ -1,3 +1,25 @@
+# Three UI/UX revisions — 2026-10-29
+
+Tested the UI working-tree changes on main at
+`1aa74bdbf019cd6630b2cfa67ddfa2e4eb991b11`. This section and `last-run.json`
+supersede the earlier browser results below.
+
+- PASS: 46 harness units; two fictional workflows; 554 keyboard actions;
+  306 layout checks; ten cancellation cases; four recovery scenarios; managed restart.
+- Stub calls: hunt 2, discovery 2, retrieve 4, explanation 2. Browser local requests
+  360; both compose requests aborted; unexpected requests and forbidden attempts zero.
+- Separate checks: 362 app tests and seven component-focus tests passed; typecheck
+  and production build passed; lint zero errors/three existing warnings.
+- Final empty-workspace copy/reset condition and Today accessible name followed the
+  browser run; production rebuilt and Today visually reviewed afterward.
+- Desktop visual inspection: Today, Company, Searches, prospect detail and Settings.
+  Phone-width inspection: Today and prospect detail. Owner runtime restored.
+
+See the [three-pass report](../../../docs/implementation-lanes/2026-10-29-ui-three-pass.md)
+for scope and verification limits. No real provider or outreach action was performed.
+
+---
+
 # PR #142 review verification — 2026-10-29
 
 Tested the working-tree review corrections on base
