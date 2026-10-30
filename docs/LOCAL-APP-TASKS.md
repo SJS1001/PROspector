@@ -1,6 +1,12 @@
 # Reliable local app — shortest completion path
 
-Updated: 2026-10-28. Owner's target: **a reliable local app for personal use**.
+Updated: 2026-10-29. Owner's target: **a reliable local app for personal use**.
+
+## Current checkpoint — 2026-10-29
+
+The personal-use app is merged into `main` through PRs #131 and #142, and the owner completed the actual Mac reboot/persistence walkthrough. App launcher starts the installed app successfully. Fourteen older duplicate PRs were reconciled and closed; eleven separate hosted-app PRs remain open with unmerged changes. Fresh focused verification passed 57 tests. One authorized live search completed in 81 seconds, saved one possible-need record and qualified none; JEV contributed to three source scores. Useful opportunity/contact yield and actual provider cost still need evaluation. See the [closeout report](implementation-lanes/2026-10-29-local-release-closeout.md).
+
+The October 28 checkpoints below retain their original evidence and are historical where they describe pre-merge branches or pending synchronization.
 
 Use the existing `operator/` application in [PR #125](https://github.com/SJS1001/PROspector/pull/125) as the implementation foundation. Deliver one owner, one company, durable local data, manual runs and explicit Gmail compose handoff first. Browser launch is sufficient for this release.
 

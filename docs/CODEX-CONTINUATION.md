@@ -6,7 +6,13 @@
 **Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
-## Local personal-use candidate — 2026-10-28
+## Current local release — 2026-10-29
+
+The supported personal-use app is `operator/` on `main`, integrated through PRs #131 and #142. The owner accepted local use and completed the actual Mac reboot check: launcher, company/product, saved settings and search history persisted. The installed checkout and GitHub main matched at `7dd6b56a05699ed6e1bb01bebf6879abb66178f5` before this documentation update.
+
+See [the local release closeout](implementation-lanes/2026-10-29-local-release-closeout.md) for fresh verification, the live search outcome, reconciled PRs and remaining limitations. The following candidate section is historical; its pre-merge and pending owner-walkthrough statements no longer describe the local release. Hosted plan credit and external gates remain unchanged.
+
+## Historical local personal-use candidate — 2026-10-28
 
 Latest owner decision: supported local startup now defaults to passwordless access. `npm start` creates/reuses the durable local owner identity; no enrollment/unlock is required. Exact loopback/Host/Origin guards remain. `OPERATOR_ACCESS_MODE=password` retains optional password protection. See the latest section in the integration report below for the focused verification delta.
 

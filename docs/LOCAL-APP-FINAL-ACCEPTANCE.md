@@ -2,7 +2,7 @@
 
 **2026-10-28 decision:** the owner accepted personal local use by instruction and waived the remaining walkthrough. Use **App launcher → Start PROspector** for daily use. The steps below are optional future live-quality evaluation, not outstanding release requirements. Provider result quality and cost remain unmeasured. See the [launcher guide](../operator/launcher/README.md).
 
-Use the integrated `main` local app after PR #131 merges. Read the [integration report](implementation-lanes/2026-10-28-local-integration.md) for the exact reviewed source and engineering evidence; pending checks are not passing evidence. This is the owner's practical usefulness decision. The automated keyboard, narrow-screen, error-recovery, restart and archive checks belong to engineering acceptance and do not need repeating by the owner.
+Use the integrated `main` local app; PRs #131 and #142 are merged. The owner subsequently completed the actual Mac reboot walkthrough, confirming the launcher, company/product, saved settings and search history. No restart-test step remains. Read the [current closeout](implementation-lanes/2026-10-29-local-release-closeout.md) for fresh verification and live-search limitations, and the [integration report](implementation-lanes/2026-10-28-local-integration.md) for earlier engineering evidence. Automated keyboard, narrow-screen, error-recovery, restart and archive checks do not need repeating by the owner.
 
 1. **Start your private installation.** From the candidate checkout, with Node 22.13 or newer and `DATABASE_URL` unset:
 
