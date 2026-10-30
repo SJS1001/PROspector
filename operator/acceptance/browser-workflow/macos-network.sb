@@ -1,0 +1,12 @@
+;; Whole acceptance tree: runner, build/setup, server, native children/workers,
+;; and Chromium descendants. Filesystem/process access is NOT isolated.
+(version 1)
+(allow default)
+(deny network*)
+;; SBPL accepts the localhost token rather than a numeric literal.
+;; tcp excludes UDP. localhost is the OS host token, NOT an exact IPv4 literal.
+;; IPv4/IPv6 localhost on these ports is permitted by the OS; JS guards narrow
+;; ordinary application APIs to 127.0.0.1:8080.
+(allow network-bind (local tcp "localhost:8080") (local tcp "localhost:8082"))
+(allow network-inbound (local tcp "localhost:8080") (local tcp "localhost:8082"))
+(allow network-outbound (remote tcp "localhost:8080") (remote tcp "localhost:8082"))

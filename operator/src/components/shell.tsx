@@ -1,4 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 import {
   BookOpen,
   ClipboardCheck,
@@ -7,16 +10,17 @@ import {
   Sunrise,
   Users,
   Building2,
-  Lock,
   Mail,
   Cable,
+  Menu,
+  ChevronDown,
 } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { useWorkspace } from "@/lib/workspace";
+import { useWorkspace, workspaceKey } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 import { AccessScreen } from "@/components/access-screen";
-import { TASKS, taskUnlocked } from "@/lib/domain/journey";
+import { TASKS, NAVIGATION_GROUPS, taskUnlocked } from "@/lib/domain/journey";
 import type { WorkspaceDTO } from "@/lib/domain/types";
 
 const ICONS = {
@@ -47,10 +51,22 @@ const EMPTY: Pick<WorkspaceDTO, "interviewComplete" | "product" | "profile" | "b
   interviewComplete: false,
   product: { status: "draft", digest: null, snapshot: null, activatedAt: null, readiness: [] },
   profile: { status: "draft", digest: null, snapshot: null, activatedAt: null, readiness: [] },
-  brief: { qualified: 0, approved: 0, rejected: 0, deferred: 0, reviewed: 0, weekExportReady: 0, weekTarget: 7, weekStart: "", weekEnd: "", greenfield: 0 },
+  brief: {
+    qualified: 0,
+    approved: 0,
+    rejected: 0,
+    deferred: 0,
+    reviewed: 0,
+    weekExportReady: 0,
+    weekTarget: 7,
+    weekStart: "",
+    weekEnd: "",
+    greenfield: 0,
+  },
 };
 
 export function Shell({ children }: { children: React.ReactNode }) {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { user, isPending } = useCurrentUserState();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const task = taskFromPath(pathname);
@@ -66,7 +82,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-window">
-      <a className="skip-link" href="#operator-task">
+      <a
+        className="skip-link"
+        href="#operator-task"
+        onClick={(event) => {
+          // Keep this local focus action out of router hash/history restoration.
+          // Otherwise a later render can scroll away from the owner's form field.
+          event.preventDefault();
+          const task = document.getElementById("operator-task");
+          task?.focus({ preventScroll: true });
+          task?.scrollIntoView({ block: "start" });
+        }}
+      >
         Skip to workspace
       </a>
       <div className="app-titlebar">
@@ -83,36 +110,81 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="grid min-h-0 lg:grid-cols-[220px_1fr]">
         <aside className="border-b border-line bg-forest-2 lg:flex lg:h-[calc(100dvh-40px)] lg:flex-col lg:border-b-0 lg:border-r">
-          <nav aria-label="Workspace" className="flex gap-1 overflow-x-auto px-2 py-2 lg:grid lg:gap-0.5 lg:px-2 lg:py-3">
-            {TASKS.map((item) => {
-              const Icon = ICONS[item.id];
-              const active = item.id === task;
-              const open = taskUnlocked(item.unlock, gate);
-              return (
-                <Link
-                  key={item.id}
-                  to={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex min-h-11 shrink-0 items-center gap-2.5 rounded-sm px-2.5 text-sm text-muted",
-                    active && "bg-cream text-ink",
-                    !open && "opacity-40",
-                  )}
-                >
-                  <Icon className="size-4" strokeWidth={1.6} />
-                  <span>{item.label}</span>
-                  {!open ? <Lock className="ml-auto size-3 text-subtle" /> : null}
-                  {open && item.id === "review" && queueCount > 0 ? (
-                    <em className="ml-auto min-w-5 rounded-sm bg-lime px-1.5 text-center text-2xs font-semibold not-italic text-paper">
-                      {queueCount}
-                    </em>
-                  ) : null}
-                </Link>
+          <button
+            type="button"
+            aria-expanded={mobileNavOpen}
+            aria-controls="workspace-navigation"
+            onClick={() => setMobileNavOpen(!mobileNavOpen)}
+            className="flex min-h-11 w-full items-center gap-2 px-4 text-sm lg:hidden"
+          >
+            <Menu className="size-4" /> Menu{" "}
+            <span className="ml-auto text-muted">{current.label}</span>
+          </button>
+          <nav
+            id="workspace-navigation"
+            aria-label="Workspace"
+            className={cn("gap-1 px-2 py-3 lg:grid", mobileNavOpen ? "grid" : "hidden")}
+          >
+            {NAVIGATION_GROUPS.map((group) => {
+              const activeGroup =
+                group.tasks.some((id) => id === task) ||
+                (group.label === "Today" && task === "brief");
+              const links = group.tasks.map((id) => {
+                const item = TASKS.find((entry) => entry.id === id)!;
+                const Icon = ICONS[item.id];
+                const active = item.id === task || (item.id === "status" && task === "brief");
+                const open = taskUnlocked(item.unlock, gate);
+                return (
+                  <Link
+                    key={item.id}
+                    to={item.href}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => {
+                      setMobileNavOpen(false);
+                      requestAnimationFrame(() =>
+                        document.getElementById("operator-task")?.focus({ preventScroll: true }),
+                      );
+                    }}
+                    className={cn(
+                      "flex min-h-11 items-center gap-2.5 rounded-sm px-2.5 text-sm text-muted",
+                      active && "bg-cream text-ink",
+                    )}
+                  >
+                    <Icon aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.6} />
+                    <span>{item.label}</span>
+                    {open && item.id === "review" && queueCount > 0 ? (
+                      <em className="ml-auto min-w-5 rounded-sm bg-lime px-1.5 text-center text-2xs font-semibold not-italic text-paper">
+                        {queueCount}
+                      </em>
+                    ) : null}
+                  </Link>
+                );
+              });
+              return group.direct ? (
+                <div key={group.label}>{links}</div>
+              ) : (
+                <details key={group.label} open={activeGroup} className="group/nav">
+                  <summary
+                    className={cn(
+                      "flex min-h-11 cursor-pointer list-none items-center justify-between rounded-sm px-2.5 text-sm [&::-webkit-details-marker]:hidden",
+                      activeGroup ? "text-ink" : "text-muted",
+                    )}
+                  >
+                    {group.label}
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="size-3 transition-transform group-open/nav:rotate-180"
+                    />
+                  </summary>
+                  <div className="ml-3 grid border-l border-line pl-2">{links}</div>
+                </details>
               );
             })}
           </nav>
           <div className="mt-auto hidden border-t border-line px-3 py-3 lg:block">
-            <p className="text-2xs text-subtle">Keys stay on this machine. Nothing ships until you approve it.</p>
+            <p className="text-2xs text-subtle">
+              Keys stay on this machine. Nothing ships until you approve it.
+            </p>
           </div>
         </aside>
 
@@ -125,7 +197,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <UserButton />
             </div>
           </header>
-          <div id="operator-task" className="px-4 py-6 lg:px-8 lg:py-8" tabIndex={-1}>
+          <div
+            id="operator-task"
+            className="px-4 py-6 lg:px-8 lg:py-8"
+            tabIndex={-1}
+            onFocusCapture={(event) => {
+              const control = event.target;
+              if (!control.matches("input,textarea,select,button,a[href],summary")) return;
+              requestAnimationFrame(() => {
+                if (document.activeElement !== control) return;
+                const bounds = control.getBoundingClientRect();
+                if (bounds.top < 0 || bounds.bottom > window.innerHeight)
+                  control.scrollIntoView({ block: "nearest", inline: "nearest" });
+              });
+            }}
+          >
             {children}
           </div>
         </section>
@@ -140,39 +226,66 @@ export function PageHeading({
   copy,
   action,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  copy: string;
+  copy?: string;
   action?: React.ReactNode;
 }) {
   return (
     <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="max-w-xl">
-        <p className="text-2xs font-medium text-subtle">{eyebrow}</p>
+        {eyebrow ? <p className="text-2xs font-medium text-subtle">{eyebrow}</p> : null}
         <h1 className="mt-1 text-2xl font-medium tracking-tight text-ink">{title}</h1>
-        <p className="mt-1.5 text-sm text-muted">{copy}</p>
+        {copy ? <p className="mt-1.5 text-sm text-muted">{copy}</p> : null}
       </div>
       {action}
     </div>
   );
 }
 
-export function Panel({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <section className={cn("rounded-md border border-line bg-cream", className)}>{children}</section>
+    <section className={cn("rounded-md border border-line bg-cream", className)}>
+      {children}
+    </section>
   );
 }
 
 export function ErrorNote({ message }: { message: string }) {
+  const alert = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    // A request may finish after its section is collapsed. Reveal feedback before focus.
+    let ancestor = alert.current?.parentElement;
+    while (ancestor) {
+      if (ancestor.tagName === "DETAILS") (ancestor as HTMLDetailsElement).open = true;
+      ancestor = ancestor.parentElement;
+    }
+    alert.current?.focus();
+  }, [message]);
   return (
-    <p role="alert" className="rounded-sm border border-red/30 bg-danger-bg px-3 py-2 text-xs text-red">
+    <p
+      ref={alert}
+      tabIndex={-1}
+      role="alert"
+      className="rounded-sm border border-red/30 bg-danger-bg px-3 py-2 text-xs text-red"
+    >
       {message}
     </p>
+  );
+}
+
+export function WorkspaceLoadError({ message }: { message: string }) {
+  const queryClient = useQueryClient();
+  const isFetching = useIsFetching({ queryKey: workspaceKey }) > 0;
+  return (
+    <div className="grid gap-3">
+      <ErrorNote message={message} />
+      <Button
+        disabled={isFetching}
+        onClick={() => void queryClient.refetchQueries({ queryKey: workspaceKey })}
+      >
+        Retry loading workspace
+      </Button>
+    </div>
   );
 }

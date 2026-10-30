@@ -28,8 +28,8 @@ test('Gmail handoff uses only the response URL and cannot replay from stored mes
 
 test('contact reveal stays public-source and paid reveal is unavailable', () => {
   const contacts = read('components/contacts-view.tsx');
-  assert.match(contacts, /Run public-source reveal/);
-  assert.match(contacts, /Paid contact reveal is unavailable/);
+  assert.match(contacts, /Find published contact details/);
+  assert.match(contacts, /Paid contact lookups are unavailable/);
   assert.doesNotMatch(contacts, /Spend Apollo grant|Apollo people match/);
 });
 
@@ -37,7 +37,7 @@ test('approvals bind the reviewed digest and terminal contacts cannot be re-prep
   const outreach = read('components/outreach-view.tsx');
   const workspace = read('lib/workspace.ts');
   assert.match(outreach, /packageId: item\.id, expectedDigest: item\.digest/);
-  assert.match(outreach, /messageId: item\.id, acknowledged: ack, expectedDigest: item\.digest/);
+  assert.match(outreach, /messageId: item\.id,\s*acknowledged: ack,\s*expectedDigest: item\.digest/);
   assert.match(workspace, /messageId: string; acknowledged: boolean; expectedDigest: string/);
   assert.match(workspace, /packageId: string; expectedDigest: string/);
   assert.match(outreach, /\["handed_off", "handed_to_gmail", "sent"\]\.includes\(message\.status\)/);

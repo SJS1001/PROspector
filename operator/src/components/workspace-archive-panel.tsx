@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Panel, ErrorNote } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { mutationMessage, useExportArchive, useRestoreArchive } from "@/lib/workspace";
@@ -10,15 +10,33 @@ export function WorkspaceArchivePanel() {
   const [confirmed, setConfirmed] = useState(false);
   const [fileError, setFileError] = useState("");
   const readGeneration = useRef(0);
+  const errorId = useId();
+  const feedback = useRef<HTMLDivElement>(null);
+  const status = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const target =
+      fileError || archive.error || restore.error
+        ? feedback.current
+        : restore.isSuccess || archive.isSuccess
+          ? status.current
+          : null;
+    if (!target) return;
+    // An operation may finish after the owner collapses Backup & restore.
+    // Reveal its feedback before moving focus into that disclosure.
+    let ancestor = target.parentElement;
+    while (ancestor) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+      ancestor = ancestor.parentElement;
+    }
+    target.focus();
+  }, [fileError, archive.error, restore.error, restore.isSuccess, archive.isSuccess]);
   const busy = archive.isPending || restore.isPending;
 
   return (
     <Panel className="grid gap-4 p-5">
-      <h2 className="text-sm font-medium">Workspace backup and restore</h2>
       <p className="text-sm text-muted">
-        Back up workspace records, decisions, messages, history and suppressions. The JSON file is
-        unencrypted: store it privately. Connection credentials, sign-in sessions, spending grants
-        and active schedules are excluded.
+        Backups are unencrypted. Store them privately. Credentials, sign-in sessions, spending
+        grants and active schedules are excluded.
       </p>
       <Button variant="outline" disabled={busy} onClick={() => archive.mutate()}>
         {archive.isPending ? "Building backup…" : "Download workspace backup"}
@@ -26,6 +44,8 @@ export function WorkspaceArchivePanel() {
       <label className="grid gap-2 text-sm">
         Choose a version 1 workspace backup (JSON, up to 20 MiB)
         <input
+          aria-invalid={Boolean(fileError)}
+          aria-describedby={fileError ? errorId : undefined}
           type="file"
           accept="application/json,.json"
           disabled={busy}
@@ -33,6 +53,8 @@ export function WorkspaceArchivePanel() {
           onChange={async (event) => {
             const generation = ++readGeneration.current;
             const file = event.target.files?.[0];
+            // Permit selecting the same file again after a read/validation failure.
+            event.target.value = "";
             setSelected(null);
             setConfirmed(false);
             setFileError("");
@@ -58,7 +80,7 @@ export function WorkspaceArchivePanel() {
         <>
           <p className="break-words text-sm">Selected: {selected.name}</p>
           <p className="text-sm text-muted">
-            Restore replaces this owner's workspace records. Existing suppressions are retained.
+            Restore replaces this owner's workspace records. Your do-not-contact list is kept.
             Imported approvals remain history and must be approved again; schedules and spending
             grants stay disabled. Saved connection credentials on this machine stay in place. Back
             up the current workspace first.
@@ -90,13 +112,17 @@ export function WorkspaceArchivePanel() {
           </Button>
         </>
       ) : null}
-      {fileError ? <ErrorNote message={fileError} /> : null}
-      {archive.error ? <ErrorNote message={mutationMessage(archive.error)} /> : null}
-      {restore.error ? <ErrorNote message={mutationMessage(restore.error)} /> : null}
-      <p role="status" className="text-sm text-muted">
+      <div ref={feedback} tabIndex={-1} id={errorId}>
+        {fileError ? <ErrorNote message={fileError} /> : null}
+        {archive.error ? <ErrorNote message={mutationMessage(archive.error)} /> : null}
+        {restore.error ? <ErrorNote message={mutationMessage(restore.error)} /> : null}
+      </div>
+      <p ref={status} tabIndex={-1} role="status" className="text-sm text-muted">
         {restore.isSuccess
-          ? "Restore committed. Reload the app to view the recovered workspace. No provider work was requested by restore."
-          : "The complete file is validated before an atomic restore. A failed restore leaves the previous workspace in place."}
+          ? "Restored. Reload to view your workspace."
+          : archive.isSuccess
+            ? "Backup downloaded. Store it privately."
+            : ""}
       </p>
     </Panel>
   );

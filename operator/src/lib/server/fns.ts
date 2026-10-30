@@ -140,6 +140,13 @@ type SignalRow = {
   recency: string;
 };
 
+// PostgreSQL drivers return timestamp columns as Date objects; DTOs expose ISO text.
+function timestamp(value: string | Date): string;
+function timestamp(value: string | Date | null): string | null;
+function timestamp(value: string | Date | null): string | null {
+  return value === null ? null : new Date(value).toISOString();
+}
+
 function asBool(value: boolean | string | number) {
   return value === true || value === "t" || value === "true" || value === 1 || value === "1";
 }
@@ -243,8 +250,8 @@ function mapProspect(row: ProspectRow): Prospect {
     evidenceUrl: row.evidence_url,
     evidenceTier: Number(row.evidence_tier),
     evidenceDate: row.evidence_date,
-    cooldownUntil: row.cooldown_until,
-    reviewAt: row.review_at,
+    cooldownUntil: timestamp(row.cooldown_until),
+    reviewAt: timestamp(row.review_at),
     materialSignal: asBool(row.material_signal),
     lastReason: row.last_reason,
     origin: row.origin === "run" ? "run" : "seed",
@@ -285,8 +292,8 @@ function mapRun(row: RunRow): ProspectingRun {
     candidateCount: Number(row.candidate_count),
     qualifiedCount: Number(row.qualified_count),
     terminalReason: row.terminal_reason,
-    startedAt: row.started_at,
-    finishedAt: row.finished_at,
+    startedAt: timestamp(row.started_at),
+    finishedAt: timestamp(row.finished_at),
   };
 }
 
@@ -299,7 +306,7 @@ function mapSignal(row: SignalRow): EvidenceSignal {
     title: row.title,
     excerpt: row.excerpt,
     tier: Number(row.tier),
-    retrievedAt: row.retrieved_at,
+    retrievedAt: timestamp(row.retrieved_at),
     recency: row.recency,
   };
 }
@@ -317,7 +324,7 @@ function capabilitiesFrom(
       id: "owner_admission",
       name: "Owner admission",
       status: "proven",
-      reason: "This private workspace is bound to the signed-in owner. Other visitors are held at the door.",
+      reason: "This workspace belongs to the local owner. Access is limited to this machine.",
     },
     {
       id: "durable_storage",
@@ -413,7 +420,7 @@ function mapProfile(
     status: stale ? "stale" : row.status === "active" ? "active" : "draft",
     digest: row.digest,
     snapshot: stored,
-    activatedAt: row.activated_at,
+    activatedAt: timestamp(row.activated_at),
     readiness,
   };
 }
@@ -563,7 +570,7 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
     subject: row.subject,
     body: row.body,
     digest: row.digest,
-    approvedAt: row.approved_at,
+    approvedAt: timestamp(row.approved_at),
   }));
   const suppressions: Suppression[] = suppressionRows.map((row) => ({
     id: row.id,
@@ -576,7 +583,7 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
     messageId: row.message_id,
     kind: row.kind,
     note: row.note,
-    createdAt: row.created_at,
+    createdAt: timestamp(row.created_at),
   }));
   const messages: OutreachMessage[] = messageRows.map((row) => ({
     id: row.id,
@@ -592,8 +599,8 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
     acknowledged: asBool(row.acknowledged),
     gmailUrl: null,
     blockedReason: row.blocked_reason,
-    approvedAt: row.approved_at,
-    dispatchedAt: row.dispatched_at,
+    approvedAt: timestamp(row.approved_at),
+    dispatchedAt: timestamp(row.dispatched_at),
   }));
   const publicContacts = contacts.filter((item) => item.emailKind !== "suggestion").length;
   const handed = messages.some((item) => item.status === "handed_off" || item.status === "handed_to_gmail" || item.status === "sent");
@@ -626,7 +633,7 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
   const weekday = part("weekday");
   const hour = Number(part("hour"));
   const today = `${part("year")}-${part("month")}-${part("day")}`;
-  const ranToday = runs.some((item) => item.startedAt.startsWith(today) && item.status === "succeeded");
+  const ranToday = runs.some((item) => torontoParts(new Date(item.startedAt)).isoDate === today && item.status === "succeeded");
   const morningDue =
     ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday) && hour >= 6 && profile.status === "active" && !ranToday;
 
@@ -656,8 +663,8 @@ async function loadWorkspace(userId: string): Promise<WorkspaceDTO> {
       status: row.status as DiscoveryRun["status"],
       proposalCount: Number(row.proposal_count),
       terminalReason: row.terminal_reason,
-      startedAt: row.started_at,
-      finishedAt: row.finished_at,
+      startedAt: timestamp(row.started_at),
+      finishedAt: timestamp(row.finished_at),
     })),
     draftPlays: draftRows.map((row) => ({
       id: row.id,

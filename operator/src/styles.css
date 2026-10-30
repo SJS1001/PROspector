@@ -31,6 +31,7 @@
 
 @layer base {
   html {
+    scroll-padding-top: 3.5rem;
     background: var(--color-paper);
     color: var(--color-ink);
   }
@@ -91,6 +92,25 @@
   background: var(--color-paper);
 }
 
+/* Keep grouped navigation and the workspace inside the viewport. */
+.app-window,
+.app-window > .grid,
+.app-window aside {
+  min-width: 0;
+}
+
+summary {
+  min-height: 44px;
+  align-content: center;
+}
+
+summary:focus-visible,
+nav a:focus-visible {
+  outline: 2px solid var(--color-teal);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .app-titlebar {
   display: flex;
   align-items: center;
@@ -138,4 +158,44 @@ textarea.field {
   min-height: 88px;
   padding: 10px 12px;
   resize: vertical;
+}
+
+/* Keep intrinsic content inside the local operator's narrow workspace. */
+@media (max-width: 639px) {
+  .app-window,
+  .app-window > .grid,
+  .app-window aside,
+  #operator-task .grid > *,
+  #operator-task .flex > * {
+    min-width: 0;
+  }
+
+  #operator-task {
+    overflow-wrap: anywhere;
+  }
+
+  #operator-task button,
+  #operator-task a.inline-flex {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    flex-shrink: 1;
+    padding-block: 0.5rem;
+  }
+
+  #operator-task .flex:has(> button) {
+    flex-wrap: wrap;
+  }
+
+  #operator-task input:not([type="checkbox"]):not([type="radio"]),
+  #operator-task textarea,
+  #operator-task select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Status counters have three padded cells at 360px. */
+  #operator-task dl.grid-cols-3 > div {
+    padding-inline: 0.5rem;
+  }
 }

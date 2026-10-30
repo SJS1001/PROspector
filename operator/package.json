@@ -23,6 +23,7 @@
     "owner:setup": "node scripts/owner-setup.mjs",
     "owner:reset": "node scripts/owner-setup.mjs --reset-password",
     "start": "node scripts/local-start.mjs",
+    "launcher:install": "node launcher/install.mjs",
     "test:foundation": "node scripts/local-database.test.mjs && node scripts/local-foundation.test.mjs"
   },
   "dependencies": {

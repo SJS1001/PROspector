@@ -1,5 +1,6 @@
+import { uiLabel, uiText } from "@/lib/domain/plain-language";
 import { Link } from "@tanstack/react-router";
-import { PageHeading, Panel, ErrorNote } from "@/components/shell";
+import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { nextAction } from "@/lib/domain/journey";
@@ -8,129 +9,138 @@ import { mutationMessage, useTickSchedule, useWorkspace } from "@/lib/workspace"
 export function BriefView() {
   const { data, isPending, isError } = useWorkspace();
   const morning = useTickSchedule();
-  if (isPending) return <p className="text-sm text-muted">Reading persisted Phase 4 state…</p>;
-  if (isError || !data) return <ErrorNote message="Morning Brief unavailable. No action was attempted." />;
-
-  const generated = new Date(data.generatedAt).toLocaleString("en-CA", {
-    timeZone: "America/Toronto",
-    hourCycle: "h23",
-  });
+  if (isPending) return <p className="text-sm text-muted">Loading today’s work…</p>;
+  if (isError || !data)
+    return <WorkspaceLoadError message="Today could not be loaded. No action was attempted." />;
   const action = nextAction(data);
-  const play = data.profile.snapshot?.play ?? "Profile not activated";
-  const product = data.profile.snapshot?.product ?? "Product";
+  const pendingPackages = data.packages.filter((item) => item.status === "draft").length;
+  const pendingMessages = data.messages.filter((item) => item.status === "draft").length;
+  const recent = [
+    ...data.runs.map((run) => ({
+      id: `search-${run.id}`,
+      date: run.startedAt,
+      title: `Prospect search · ${uiLabel(run.status)}`,
+      detail: `${run.qualifiedCount} qualified of ${run.candidateCount} candidates`,
+      reason: run.terminalReason,
+    })),
+    ...data.discoveryRuns.map((run) => ({
+      id: `market-${run.id}`,
+      date: run.startedAt,
+      title: `Market search · ${uiLabel(run.status)}`,
+      detail: `${run.proposalCount} proposals`,
+      reason: run.terminalReason,
+    })),
+    ...data.deliveryEvents.map((event) => ({
+      id: `event-${event.id}`,
+      date: event.createdAt,
+      title: uiLabel(event.kind),
+      detail: uiText(event.note),
+      reason: null,
+    })),
+  ]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
 
   return (
-    <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Owner operating view"
-        title="Morning Brief"
-        copy="Weekday operating snapshot in America/Toronto. Start a manual morning prospect run below."
-        action={
-          <Link
-            to={action.href}
-            className="inline-flex min-h-11 items-center justify-center rounded-[10px] border border-green bg-green px-4 text-sm font-semibold text-cream"
-          >
-            {action.label}
-          </Link>
-        }
-      />
-
-      <article className="rounded-[12px] border border-line bg-cream p-6">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Active profile</span>
-            <h2 className="mt-2 font-display text-2xl">{play}</h2>
-            <p className="mt-1 text-sm text-muted">
-              {data.companyName} · {product} · generated {generated} Toronto
-            </p>
-          </div>
+    <div className="grid gap-5">
+      <PageHeading title="Today" />
+      <Panel className="p-5">
+        <h2 className="font-display text-lg">Next action</h2>
+        <Link
+          to={action.href}
+          className="mt-4 inline-flex min-h-11 items-center justify-center rounded-[10px] border border-green bg-green px-4 text-sm font-semibold text-cream"
+        >
+          {action.label}
+        </Link>
+      </Panel>
+      <dl className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Prospects to review" value={data.brief.qualified} />
+        <Stat label="Briefs to approve" value={pendingPackages} />
+        <Stat label="Messages to approve" value={pendingMessages} />
+      </dl>
+      <Panel className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-lg">This week</h2>
           <Badge tone={data.profile.status === "active" ? "ok" : "warn"}>
-            {data.profile.status === "active" ? "Ready" : data.profile.status}
+            {data.profile.status === "active" ? "Search ready" : `Search settings: ${uiLabel(data.profile.status)}`}
           </Badge>
-        </header>
-        <p className="mt-4 text-sm text-muted">{action.copy}</p>
-        {data.morningDue ? (
-          <p className="mt-3 text-sm text-amber">Morning cycle is due. Start the manual morning run below.</p>
-        ) : null}
-        <dl className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Stat label="Qualified in queue" value={data.brief.qualified} />
-          <Stat label="Reviewed" value={data.brief.reviewed} />
-        </dl>
-      </article>
-
-      <Panel className="p-6">
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Toronto week</span>
-        <h2 className="mt-2 font-display text-lg">Weekly outcome</h2>
-        <p className="mt-2 text-sm text-muted">
-          Target is seven newly export-ready operating prospects this Toronto week ({data.brief.weekStart} – {data.brief.weekEnd}). Greenfield Draft does not count.
-        </p>
-        <dl className="mt-5 grid gap-3 sm:grid-cols-4">
-          <Stat label="Export-ready" value={`${data.brief.weekExportReady} / ${data.brief.weekTarget}`} />
-          <Stat label="Approved" value={data.brief.approved} />
-          <Stat label="Rejected" value={data.brief.rejected} />
-          <Stat label="Greenfield" value={data.brief.greenfield} />
-        </dl>
-      </Panel>
-
-      <Panel className="p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Handoff preview</span>
-            <h2 className="mt-2 font-display text-lg">CRM preview</h2>
-            <p className="mt-2 max-w-2xl text-sm text-muted">
-              Eligible contacts can be downloaded as CRM CSV from Connections. Greenfield rows stay out of the weekly target.
-            </p>
-          </div>
-          <Badge tone={data.crm.authorized ? "ok" : "warn"}>{data.crm.authorized ? "CSV ready" : "No eligible rows"}</Badge>
         </div>
-        <dl className="mt-5 grid gap-3 sm:grid-cols-2">
-          <Stat label="Eligible" value={data.crm.eligibleCount} />
-          <Stat label="Excluded" value={data.crm.excludedCount} />
-        </dl>
-        {data.crm.rows.length === 0 ? (
-          <p className="mt-5 text-sm text-muted">No approved prospects in the CRM preview.</p>
-        ) : (
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                  <th className="py-2 pr-4">Account</th>
-                  <th className="py-2">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.crm.rows.map((row) => (
-                  <tr key={row.accountName} className="border-b border-line last:border-0">
-                    <td className="py-3 pr-4 font-medium">{row.accountName}</td>
-                    <td className="py-3 text-muted">{row.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-
-      <Panel className="p-6">
-        <h2 className="text-lg font-medium">Manual morning run</h2>
-        <p className="mt-2 text-sm text-muted">Starts a manual prospect run. This action does not scan the inbox or run discovery.</p>
-        <Button className="mt-4" disabled={morning.isPending} onClick={() => morning.mutate()}>
-          {morning.isPending ? "Running…" : "Run morning prospects"}
-        </Button>
-        {morning.error ? <div className="mt-3"><ErrorNote message={mutationMessage(morning.error)} /></div> : null}
-        {morning.isSuccess ? <p className="mt-3 text-sm text-muted">Morning run completed; the workspace has been refreshed.</p> : null}
-      </Panel>
-
-      <Panel className="p-6">
-        <h2 className="text-lg font-medium">Operating notes</h2>
         <p className="mt-2 text-sm text-muted">
-          Morning prospect runs require an explicit owner action. Discovery is started separately. Restore a workspace JSON from Connections.
+          <strong className="text-ink">
+            {data.brief.weekExportReady} / {data.brief.weekTarget}
+          </strong>{" "}
+          prospects newly ready to export.
         </p>
-        <div className="mt-5">
-          <Link to={action.href}>
-            <Button>{action.label}</Button>
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer text-muted">Details</summary>
+          <p className="mt-3 text-muted">
+            Toronto week {data.brief.weekStart} – {data.brief.weekEnd}. Planned sites do not count toward the target.
+          </p>
+          <p className="mt-2 text-muted">
+            Workspace totals: {data.brief.reviewed} reviewed · {data.brief.approved} approved ·{" "}
+            {data.brief.rejected} rejected · {data.brief.greenfield} planned sites.
+          </p>
+          <p className="mt-2 text-muted">
+            CRM CSV: {data.crm.eligibleCount} eligible · {data.crm.excludedCount} excluded.
+          </p>
+          {data.crm.rows.length ? (
+            <ul className="mt-3 grid gap-2">
+              {data.crm.rows.map((row) => (
+                <li key={row.accountName}>
+                  <strong>{row.accountName}</strong>
+                  <p className="text-muted">{row.reason}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-muted">No approved prospects in the CRM preview.</p>
+          )}
+          <Link to="/settings" className="mt-3 inline-block text-teal underline">
+            Export and backup settings
           </Link>
-        </div>
+        </details>
+      </Panel>
+      <Panel className="p-5">
+        <details open={recent.some((item) => item.reason)}>
+          <summary className="cursor-pointer text-sm font-medium">Recent work</summary>
+          {recent.length ? (
+            <ul className="mt-3 divide-y divide-line">
+              {recent.map((item) => (
+                <li key={item.id} className="py-3 text-sm">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <strong>{item.title}</strong>
+                    <time className="text-xs text-muted" dateTime={item.date}>
+                      {new Date(item.date).toLocaleString("en-CA", { timeZone: "America/Toronto" })}{" "}
+                      Toronto
+                    </time>
+                  </div>
+                  <p className="mt-1 text-muted">{item.detail}</p>
+                  {item.reason ? <p className="mt-1 text-amber">{uiText(item.reason)}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-muted">No activity yet.</p>
+          )}
+        </details>
+      </Panel>
+      <Panel className="p-5">
+        <details open={data.morningDue}>
+          <summary className="cursor-pointer text-sm font-medium">
+            Morning search {data.morningDue ? <Badge tone="warn">Due</Badge> : null}
+          </summary>
+          <Button className="mt-3" disabled={morning.isPending} onClick={() => morning.mutate()}>
+            {morning.isPending ? "Running…" : "Run morning search"}
+          </Button>
+        </details>
+        {morning.error ? (
+          <div className="mt-3">
+            <ErrorNote message={mutationMessage(morning.error)} />
+          </div>
+        ) : null}
+        {morning.isSuccess ? (
+          <p className="mt-3 text-sm text-muted">Morning search complete.</p>
+        ) : null}
       </Panel>
     </div>
   );
@@ -138,9 +148,9 @@ export function BriefView() {
 
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-[12px] border border-line p-4">
-      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{label}</dt>
-      <dd className="mt-2 font-display text-3xl leading-none">{value}</dd>
+    <div className="rounded-[12px] border border-line bg-cream p-4">
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className="mt-2 font-display text-2xl">{value}</dd>
     </div>
   );
 }

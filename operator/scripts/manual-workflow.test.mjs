@@ -169,6 +169,20 @@ test("CSV is deterministic, escaped, formula-safe, owner-scoped and package-gate
   for (const v of ["=1", "+1", "-1", "@SUM(A1)", " \t=1", "\r=1", "\ntext"])
     assert.ok(csvCell(v).startsWith("\"'"));
 });
+test("CSV preserves stored leading BOM before neutralizing a formula", async () => {
+  await fixture();
+  const name = "\ufeff@SUM(1,1)";
+  await sql.query("update contacts set full_name=$1 where id='c'", [name]);
+  const [stored] = await sql.query(
+    "select encode(convert_to(full_name, 'UTF8'), 'hex') as bytes from contacts where id='c'",
+  );
+  assert.equal(stored.bytes, Buffer.from(name).toString("hex"));
+  const csv = await manualCrmCsv(sql, "owner");
+  assert.ok(
+    csv.includes(csvCell(name)),
+    "actual database export preserves and neutralizes exact stored bytes",
+  );
+});
 for (const action of ["approve", "handoff"])
   test(`contact transplant after validation cannot ${action}`, async () => {
     await fixture();

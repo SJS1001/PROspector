@@ -1,20 +1,30 @@
 import type { WorkspaceDTO } from "@/lib/domain/types";
 
 export const TASKS = [
-  { id: "status", label: "Home", href: "/", unlock: "always" },
+  { id: "status", label: "Today", href: "/", unlock: "always" },
   { id: "knowledge", label: "Company", href: "/knowledge", unlock: "always" },
-  { id: "discovery", label: "Markets", href: "/discovery", unlock: "interview" },
-  { id: "prospects", label: "Prospects", href: "/prospects", unlock: "product" },
-  { id: "review", label: "Review", href: "/review", unlock: "profile" },
-  { id: "brief", label: "Brief", href: "/brief", unlock: "profile" },
-  { id: "contacts", label: "People", href: "/contacts", unlock: "approved" },
-  { id: "outreach", label: "Outreach", href: "/outreach", unlock: "approved" },
-  { id: "settings", label: "Connections", href: "/settings", unlock: "always" },
+  { id: "discovery", label: "Target markets", href: "/discovery", unlock: "interview" },
+  { id: "prospects", label: "Searches", href: "/prospects", unlock: "product" },
+  { id: "review", label: "Prospect review", href: "/review", unlock: "profile" },
+  { id: "brief", label: "Today", href: "/brief", unlock: "profile" },
+  { id: "contacts", label: "Contacts", href: "/contacts", unlock: "approved" },
+  { id: "outreach", label: "Drafts & sending", href: "/outreach", unlock: "approved" },
+  { id: "settings", label: "Settings", href: "/settings", unlock: "always" },
 ] as const;
 
 export type TaskId = (typeof TASKS)[number]["id"];
 
-export function unlockedSet(data: Pick<WorkspaceDTO, "interviewComplete" | "product" | "profile" | "brief">) {
+export const NAVIGATION_GROUPS: { label: string; tasks: TaskId[]; direct?: boolean }[] = [
+  { label: "Today", tasks: ["status"], direct: true },
+  { label: "Your business", tasks: ["knowledge"] },
+  { label: "Prospecting", tasks: ["discovery", "prospects", "review"] },
+  { label: "Outreach", tasks: ["contacts", "outreach"] },
+  { label: "Settings", tasks: ["settings"], direct: true },
+];
+
+export function unlockedSet(
+  data: Pick<WorkspaceDTO, "interviewComplete" | "product" | "profile" | "brief">,
+) {
   const open = new Set<string>(["always"]);
   if (data.interviewComplete) open.add("interview");
   if (data.product.status === "active") open.add("product");
@@ -32,22 +42,50 @@ export function taskUnlocked(
 
 export function nextAction(data: WorkspaceDTO) {
   if (!data.interviewComplete) {
-    return { href: "/knowledge", label: "Continue interview", copy: "One decision-bearing question is waiting." };
+    return {
+      href: "/knowledge",
+      label: "Continue interview",
+      copy: "Confirm your business details to get started.",
+    };
   }
   if (data.product.status !== "active") {
-    return { href: "/discovery", label: "Make the product ready", copy: "Discovery stays dark until the product is activated." };
+    return {
+      href: "/discovery",
+      label: "Review product details",
+      copy: "Review your product details before finding target markets.",
+    };
   }
   if (!data.draftPlays.some((play) => play.status === "confirmed")) {
-    return { href: "/discovery", label: "Confirm a draft play", copy: "Explore a proposal, then confirm audience and buyer. That does not start prospecting." };
+    return {
+      href: "/discovery",
+      label: "Confirm your target market",
+      copy: "Choose a market and confirm its audience and buyer.",
+    };
   }
   if (data.profile.status !== "active") {
-    return { href: "/prospects", label: "Activate the customer profile", copy: "Find Prospects stays hidden until the profile is frozen." };
+    return {
+      href: "/prospects",
+      label: "Set up prospect searches",
+      copy: "Review your search settings before finding prospects.",
+    };
   }
   if (data.brief.qualified > 0) {
-    return { href: "/review", label: "Review qualified prospects", copy: `${data.brief.qualified} waiting for an owner decision.` };
+    return {
+      href: "/review",
+      label: "Review qualified prospects",
+      copy: `${data.brief.qualified} waiting for your review.`,
+    };
   }
   if (data.brief.approved > 0) {
-    return { href: "/contacts", label: "Review contacts", copy: "Suggestions stay labelled. Nothing is sent." };
+    return {
+      href: "/contacts",
+      label: "Review contacts",
+      copy: "Suggestions stay labelled. Nothing is sent.",
+    };
   }
-  return { href: "/prospects", label: "Find Prospects", copy: "Run a bounded public retrieval against the active profile." };
+  return {
+    href: "/prospects",
+    label: "Find Prospects",
+    copy: "Search public sources using your saved search settings.",
+  };
 }

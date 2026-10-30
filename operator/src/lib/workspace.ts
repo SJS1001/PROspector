@@ -1,3 +1,4 @@
+import { uiText } from "@/lib/domain/plain-language";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   activateProduct,
@@ -53,6 +54,8 @@ function useWorkspaceMutation<TVariables>(
     onSuccess: (data) => {
       queryClient.setQueryData(workspaceKey, data);
     },
+    // A response can be lost after commit. Read authority again; never replay the action.
+    onError: () => queryClient.invalidateQueries({ queryKey: workspaceKey }),
   });
 }
 
@@ -152,6 +155,7 @@ export function useOpenInGmail() {
     mutationFn: (input: { messageId: string; expectedDigest: string }) =>
       openInGmail({ data: input }),
     onSuccess: (result) => queryClient.setQueryData(workspaceKey, result.workspace),
+    onError: () => queryClient.invalidateQueries({ queryKey: workspaceKey }),
   });
 }
 export function useApprovePackage() {
@@ -238,13 +242,17 @@ export function useRestoreArchive() {
   return useMutation({
     mutationFn: (input: { json: string }) => restoreArchive({ data: input }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: workspaceKey, refetchType: "none" }),
+    onError: () => queryClient.invalidateQueries({ queryKey: workspaceKey }),
   });
 }
 
 export function mutationMessage(error: unknown) {
+  if (error instanceof Error && /failed to fetch|networkerror|load failed|network request failed/i.test(error.message)) {
+    return "The connection was interrupted. This action may have completed. Check the current workspace before trying again; reload if it could not refresh.";
+  }
   if (error instanceof Error && error.message === "Unauthorized") {
     return "Sign in required.";
   }
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message) return uiText(error.message);
   return "The workspace could not complete that action.";
 }

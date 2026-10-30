@@ -67,3 +67,15 @@ export async function enrollOwner(password, reset = false) {
     release();
   }
 }
+
+/** Local access uses the same durable owner and vault, without a user password. */
+export function localAccessEnabled() {
+  return process.env.OPERATOR_ACCESS_MODE === "local";
+}
+export async function ensureLocalOwner() {
+  const dir = ensurePrivateDataDir();
+  if (existsSync(join(dir, FILE))) return readLocalOwner();
+  // An unused random credential preserves the existing on-disk format. No
+  // password is displayed, accepted from the browser or required for local use.
+  return enrollOwner(randomBytes(48).toString("hex"));
+}

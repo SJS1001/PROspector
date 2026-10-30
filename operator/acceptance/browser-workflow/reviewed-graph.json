@@ -1,0 +1,245 @@
+[
+  {
+    "path": "scripts/local-data.mjs",
+    "sha256": "4fdbc773706733d932117a55806ba648377c32a52e676df8c0ffd650095a1ac1",
+    "imports": [
+      "node:fs",
+      "node:os",
+      "node:path",
+      "node:url"
+    ]
+  },
+  {
+    "path": "scripts/local-owner.mjs",
+    "sha256": "4de354b56f9bd6318c018d0f7907d191ed6a39bd231923dde99653cdd7010767",
+    "imports": [
+      "./local-data.mjs",
+      "better-auth/crypto",
+      "node:crypto",
+      "node:fs",
+      "node:path"
+    ]
+  },
+  {
+    "path": "scripts/migration-plan.mjs",
+    "sha256": "9305d8cfe8cdad73671065d675c89d0f20075d18c756f9aba5043b72e7c19a0d",
+    "imports": []
+  },
+  {
+    "path": "server/local-node-entry.ts",
+    "sha256": "49d6d0b30a76ca59c10b710e6b0c3ba5fe578fbd018b59db09f6826bb634151e",
+    "imports": [
+      "../src/lib/db",
+      "./local-shutdown.mjs",
+      "nitro/app",
+      "srvx/node"
+    ]
+  },
+  {
+    "path": "server/local-shutdown.mjs",
+    "sha256": "55cb52b208dd2f9d71d811fb2fdb88cd3acc18027f3e066ba5758077e8c23f83",
+    "imports": []
+  },
+  {
+    "path": "src/lib/auth/isolation.server.ts",
+    "sha256": "eeb4dc97200438ebd3437296c86b0e170e0bfa215b755fde3ff2f8d2bab520ab",
+    "imports": [
+      "./local-request.ts",
+      "@tanstack/react-start/server"
+    ]
+  },
+  {
+    "path": "src/lib/auth/local-request.ts",
+    "sha256": "9ba2ab4b15473cfb90169506dfd9fbcb09a2819d044fd419e532dae6b359b758",
+    "imports": []
+  },
+  {
+    "path": "src/lib/auth/middleware.ts",
+    "sha256": "a0b24813737b68d874e89c2d8957ae7a9efae7c1d6c9770a2f0b7fc0830793a1",
+    "imports": [
+      "./isolation.server",
+      "./verify.server",
+      "@tanstack/react-start",
+      "@tanstack/react-start/server"
+    ]
+  },
+  {
+    "path": "src/lib/auth/pglite-dialect.ts",
+    "sha256": "bd66925574245cd47cdd98b5c068dd7b4ee4a51c9439e8421dc54c62fe7c4f50",
+    "imports": [
+      "kysely"
+    ]
+  },
+  {
+    "path": "src/lib/auth/server.ts",
+    "sha256": "5d29c5ed5c349d05b0cd4a735d666a563c4d6ad21c0ef0fcc7de51deee26d521",
+    "imports": [
+      "../../../scripts/local-owner.mjs",
+      "../db",
+      "./local-request",
+      "./pglite-dialect",
+      "better-auth"
+    ]
+  },
+  {
+    "path": "src/lib/auth/verify.server.ts",
+    "sha256": "3cb612d4a4410355cfa71d170c4f2c77710587e960546873318addf4aae8ff3e",
+    "imports": [
+      "../../../scripts/local-owner.mjs",
+      "./local-request",
+      "./server",
+      "@tanstack/react-start/server"
+    ]
+  },
+  {
+    "path": "src/lib/db.ts",
+    "sha256": "889457cf406602157d7faff53308a09c361f9c0c93b3d7938b798b20d11c7381",
+    "imports": [
+      "../../scripts/local-data.mjs",
+      "../../scripts/migration-plan.mjs",
+      "@electric-sql/pglite",
+      "pg"
+    ]
+  },
+  {
+    "path": "src/lib/domain/catalog.ts",
+    "sha256": "ab02393908c7e664507da411a50558be443a3b593647a2daa5b31e95d2b2d3a1",
+    "imports": []
+  },
+  {
+    "path": "src/lib/domain/llm.ts",
+    "sha256": "cf394fb4990366688ab8304e7dfeedf7753b148b6bc0add420fa1662f3d8f97a",
+    "imports": []
+  },
+  {
+    "path": "src/lib/domain/qualify-jev.ts",
+    "sha256": "70413bc4c42af051270932d0833bbc20e3e49712ec4fd9622769043194ba292d",
+    "imports": []
+  },
+  {
+    "path": "src/lib/domain/qualify.ts",
+    "sha256": "e2cef0caccd345a093da5d20deb33c8d2239e3c0b44e74e866cc85c06c0e115b",
+    "imports": [
+      "./catalog.ts",
+      "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/archive-db.ts",
+    "sha256": "d11079e631079e6ce04b9630d288f2a67c9b63480ad53e5518ec4d782be38a37",
+    "imports": [
+      "../db"
+    ]
+  },
+  {
+    "path": "src/lib/server/archive-request.ts",
+    "sha256": "e881e9d9938d236d1393dec499c2f6e7452e951c512a1ca9ff93da71892d8810",
+    "imports": []
+  },
+  {
+    "path": "src/lib/server/archive.ts",
+    "sha256": "53c384d4038131b59b3916ec74c4f74bcace86c55a9fdfcddfc9a9e168d051b2",
+    "imports": [
+      "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/discover.ts",
+    "sha256": "dadd39ad4d7264573432b3f5b68828e3efe23da3ef08cbc5b07a708e6aaa4cbb",
+    "imports": [
+      "@/lib/server/llm",
+      "@/lib/server/profile",
+      "@/lib/server/seed"
+    ]
+  },
+  {
+    "path": "src/lib/server/fns.ts",
+    "sha256": "43e16fd87c14c799497551398ccf03f86ab9b187de9399727052eae816d3fd16",
+    "imports": [
+      "@/lib/auth/middleware",
+      "@/lib/db",
+      "@/lib/domain/catalog",
+      "@/lib/server/archive",
+      "@/lib/server/archive-db",
+      "@/lib/server/archive-request",
+      "@/lib/server/discover",
+      "@/lib/server/hunt",
+      "@/lib/server/manual-workflow",
+      "@/lib/server/profile",
+      "@/lib/server/reveal",
+      "@/lib/server/secrets",
+      "@/lib/server/seed",
+      "@/lib/server/toronto",
+      "@tanstack/react-start",
+      "@tanstack/react-start/server",
+      "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/hunt.ts",
+    "sha256": "d2b087948432ff17fcc3abc54ab797717e213c6bc1d2e275ecc70089db47b7ca",
+    "imports": [
+      "@/lib/domain/qualify",
+      "@/lib/domain/qualify-jev",
+      "@/lib/server/jev-tasks",
+      "@/lib/server/llm",
+      "@/lib/server/profile",
+      "@/lib/server/retrieve",
+      "@/lib/server/secrets",
+      "@/lib/server/seed"
+    ]
+  },
+  {
+    "path": "src/lib/server/manual-workflow.ts",
+    "sha256": "cea0fd3d825527e397bcb9cc094d965925799d2926f5c5f1801459b620f7e3cc",
+    "imports": [
+      "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/profile.ts",
+    "sha256": "5b31216e77c48ed5208e972d72d64b4c3acaf4b775b5ba7af51aa3199d3c9244",
+    "imports": [
+      "@/lib/domain/catalog",
+      "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/reveal.ts",
+    "sha256": "12022cc79944b4dd6b0c28e89829e974885472f5964db6ccab6d7fd5c0f82bc4",
+    "imports": [
+      "@/lib/server/retrieve"
+    ]
+  },
+  {
+    "path": "src/lib/server/secrets.ts",
+    "sha256": "269b7a6ab911744dcb3078444da7f27534cae6e48a49ae052376baac32a8f53b",
+    "imports": [
+      "@/lib/domain/llm",
+      "@/lib/server/vault"
+    ]
+  },
+  {
+    "path": "src/lib/server/seed.ts",
+    "sha256": "6bf1c669002a305089c7a1685f2c5d5433b68c04e5fcfa92b4c893fb514d06e3",
+    "imports": [
+      "@/lib/domain/catalog",
+      "node:crypto"
+    ]
+  },
+  {
+    "path": "src/lib/server/toronto.ts",
+    "sha256": "e9744aeec090dea70aebde647f52b4e41c180667e3d9d1a432d96c0f3e78cbba",
+    "imports": []
+  },
+  {
+    "path": "src/lib/server/vault.ts",
+    "sha256": "5495d7384ba3d87fca87af5e4db178148c64d58815362f86dee7d973f287b5fc",
+    "imports": [
+      "../../../scripts/local-data.mjs",
+      "node:crypto",
+      "node:fs",
+      "node:path"
+    ]
+  }
+]
