@@ -21,6 +21,7 @@ No hosted Sites/D1/R2 proof, no provider credentials, no live data, no outbound,
 - Additional adaptations vs PR #114 (required once 0021 is actually installed):
   - Trigger abort regex accepts `exact exclusive run binding` (0021) as well as historical `exact mutable run binding`.
   - Neutral-capability race test expires the short-TTL issued capability before admitting a successor live assignment (exclusive active-run lease).
+  - Greenfield runtime-config Access fixtures retargeted to checked-chain head `0021` identity/digest (same pattern as prior head-pin updates when the chain grows).
 
 ## Files
 
@@ -34,7 +35,9 @@ No hosted Sites/D1/R2 proof, no provider credentials, no live data, no outbound,
 
 - Focused: **pass** — `node --test tests/runner-assignment.test.mjs tests/prospecting-ingestion.test.mjs tests/migration-source-of-truth.test.mjs` → tests 34, pass 34, fail 0 (terminals/115353.txt, exit 0, ~126s).
 - Lint: **pass** — `npm run lint` exit 0.
-- Canonical `npm test`: **STARTED in background** at push time — do **not** treat as pass until terminal `exit_code: 0`. Log: `/tmp/lease-canonical.log` (also mirrored under terminals when captured).
+- Canonical `npm test` (first run, commit `a3e0a9d`): **failed** 3/N in `greenfield-runtime-config.test.mjs` with `release_migration_mismatch` because fixtures still pinned `canonical-chain-0020-…` while migration `0021` advanced the checked chain head. Log `/tmp/lease-canonical-115354.log` (suite hung after those failures; process killed).
+- Follow-up: updated `site/tests/greenfield-runtime-config.test.mjs` pins to `canonical-chain-0021-runner-ingestion-integrity` / digest `acdcadbc…f02c79`. Focused greenfield 6/6, lease+ingestion+migration 34/34, lint pass.
+- Canonical `npm test` (after pin fix): **RESTARTED** — do **not** treat as pass until terminal `exit_code: 0`. Log: `/tmp/lease-canonical-115357.log`.
 
 ## Non-claims
 

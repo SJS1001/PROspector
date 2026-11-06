@@ -4,8 +4,8 @@ local_demo_track: proposed_unaccepted_docs_only
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 04 local run-scoped assignment/ingestion lease (04-04) focused green; canonical npm test backgrounded
-last_updated: 2026-11-06 (America/Toronto) — 04-04 exclusive assignment/ingestion lease focused 34/34; canonical pending
+stopped_at: Phase 04 local run-scoped assignment/ingestion lease (04-04) greenfield pin fixed for 0021; canonical npm test restarted
+last_updated: 2026-11-06 (America/Toronto) — 04-04 exclusive lease focused 34/34; greenfield runtime pins retargeted to 0021; canonical restarted
 last_activity: 2026-09-09
 progress:
   total_phases: 7
@@ -249,6 +249,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-10
-Stopped at: PR #111 Phase 3 release-evidence contract repair completed locally. Canonical `npm test` (including production build) and `npm run lint` pass; focused migration/repository/handler regression is 34/34. No hosted, provider, credential, export, or outbound action occurred. PROspector work is paused by owner direction after this checkpoint.
-Resume files: `docs/PROSPECTOR-HANDOFF-2026-09-10.md`, `docs/CODEX-CONTINUATION.md`, `.planning/ROADMAP.md`, and `docs/implementation-lanes/2026-09-09-phase3-release-evidence-contract.md`
+Last session: 2026-11-06
+Stopped at: Local Phase 4 run-scoped assignment/ingestion lease on `fix/phase4-run-scoped-assignment-lease` (PR #145). Focused 34/34 and lint pass; first canonical run failed 3 `greenfield-runtime-config` cases on stale 0020 migration pins; pins retargeted to 0021 and canonical restarted (log `/tmp/lease-canonical-115357.log`) — not claimed green until exit_code 0. No hosted/provider/credential/export/schedule/outbound action. Formal credits remain 26/74. Open PRs #114/#116 left untouched.
+Resume files: `docs/implementation-lanes/2026-11-06-phase4-run-scoped-assignment-lease.md`, `docs/PROSPECTOR-HANDOFF-2026-09-10.md`, `.planning/ROADMAP.md`
