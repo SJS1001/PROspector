@@ -4,9 +4,9 @@ local_demo_track: proposed_unaccepted_docs_only
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 4-7 local implementation is substantially merged; formal acceptance remains pending, and the proposed guarded cross-phase LOCAL_DEMO UX composition track is unaccepted
-last_updated: "2026-09-09"
-last_activity: 2026-09-09
+stopped_at: Local Phase 4 trusted run-queue admission candidate on fix/phase4-trusted-run-queue-admission; formal plan/phase/hosted acceptance unchanged
+last_updated: "2026-11-06"
+last_activity: 2026-11-06
 progress:
   total_phases: 7
   completed_phases: 1
@@ -249,6 +249,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-10
-Stopped at: PR #111 Phase 3 release-evidence contract repair completed locally. Canonical `npm test` (including production build) and `npm run lint` pass; focused migration/repository/handler regression is 34/34. No hosted, provider, credential, export, or outbound action occurred. PROspector work is paused by owner direction after this checkpoint.
-Resume files: `docs/PROSPECTOR-HANDOFF-2026-09-10.md`, `docs/CODEX-CONTINUATION.md`, `.planning/ROADMAP.md`, and `docs/implementation-lanes/2026-09-09-phase3-release-evidence-contract.md`
+Last session: 2026-11-06
+Stopped at: Local Phase 4 trusted run-queue admission candidate on `fix/phase4-trusted-run-queue-admission` (independent of open PR #143). Focused 9/9 and lint pass recorded in the lane; canonical `npm test` was started and left running (log `terminals/115347.txt`) — not claimed green until exit_code 0. No hosted/provider/credential/export/schedule/outbound action. Formal credits remain 26/74. Open PRs #114/#116 left untouched; #114 (run-scoped lease) remains the next distinct medium.
+Resume files: `docs/implementation-lanes/2026-11-06-phase4-trusted-run-queue-admission.md`, `docs/PROSPECTOR-HANDOFF-2026-09-10.md`, `.planning/ROADMAP.md`
