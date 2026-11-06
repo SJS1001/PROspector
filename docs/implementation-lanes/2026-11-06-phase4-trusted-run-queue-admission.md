@@ -27,7 +27,7 @@ Open PR #116 (`codex/trusted-run-queue-transition`) already contained this slice
 
 - Focused (re-verified 2026-11-06 America/Toronto): `node --test tests/prospecting-run-admission.test.mjs tests/profile-prospecting-integration.test.mjs` → **9/9 pass**.
 - Lint: `npm run lint` → **pass** (same session).
-- Canonical `npm test` (includes production build): **STARTED and still RUNNING** at commit time — do **not** treat as pass until a terminal `exit_code: 0` appears. Live process: PID `55366` (`node scripts/run-test-suite.mjs`), parent npm PID `55230`. Log: `/home/box/.cursor/projects/workspace/terminals/115347.txt` (`status: running`, ~49 minutes elapsed when last inspected, ~944 passing case lines, no `✖ failing` / no `ELIFECYCLE` observed). Parent/agent should await that log footer before claiming a full-suite pass.
+- Canonical `npm test` (includes production build): **exit 0** verified 2026-11-06 (America/Toronto). Log `/home/box/.cursor/projects/workspace/terminals/115347.txt` footer: `status: succeeded`, `exit_code: 0`, `elapsed_ms: 3239374` (~54 min). No failing suites / `ELIFECYCLE` in that log.
 
 ## Explicit non-claims
 
