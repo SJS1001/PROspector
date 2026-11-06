@@ -37,7 +37,8 @@ No hosted Sites/D1/R2 proof, no provider credentials, no live data, no outbound,
 - Lint: **pass** — `npm run lint` exit 0.
 - Canonical `npm test` (first run, commit `a3e0a9d`): **failed** 3/N in `greenfield-runtime-config.test.mjs` with `release_migration_mismatch` because fixtures still pinned `canonical-chain-0020-…` while migration `0021` advanced the checked chain head. Log `/tmp/lease-canonical-115354.log` (suite hung after those failures; process killed).
 - Follow-up: updated `site/tests/greenfield-runtime-config.test.mjs` pins to `canonical-chain-0021-runner-ingestion-integrity` / digest `acdcadbc…f02c79`. Focused greenfield 6/6, lease+ingestion+migration 34/34, lint pass.
-- Canonical `npm test` (after pin fix): **RESTARTED** — do **not** treat as pass until terminal `exit_code: 0`. Log: `/tmp/lease-canonical-115357.log`.
+- Canonical `npm test` (after pin fix, commit `fdbe50c`): first attempt log `/tmp/lease-canonical-115357.log` failed only `controlled-enrichment-integration` cross-tenant case with `fetch failed` / `SocketError: other side closed` (infra flake; greenfield pins already green). Isolated retest of that file: **11/11 pass**, exit 0 (~133s). Live greenfield on HEAD: **6/6 pass**.
+- Canonical `npm test` (re-proof with exit capture): **RUNNING** — do **not** treat as pass until `/tmp/lease-canonical-RERUN.exit` shows `ACTUAL_EXIT_CODE=0`. Log: `/tmp/lease-canonical-RERUN-170138.log`.
 
 ## Non-claims
 
