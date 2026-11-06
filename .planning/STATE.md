@@ -4,8 +4,8 @@ local_demo_track: proposed_unaccepted_docs_only
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 4-7 local implementation is substantially merged; formal acceptance remains pending, and the proposed guarded cross-phase LOCAL_DEMO UX composition track is unaccepted
-last_updated: "2026-09-09"
+stopped_at: Phase 04 local run-scoped assignment/ingestion lease (04-04) focused green; canonical npm test backgrounded
+last_updated: 2026-11-06 (America/Toronto) — 04-04 exclusive assignment/ingestion lease focused 34/34; canonical pending
 last_activity: 2026-09-09
 progress:
   total_phases: 7
