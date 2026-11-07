@@ -548,7 +548,11 @@ function snapshotExactDataGraph(value: unknown): unknown | null {
     for (const key of Object.keys(descriptors)) {
       const descriptor = descriptors[key];
       if (!descriptor.enumerable || "get" in descriptor || "set" in descriptor) throw new TypeError("invalid_data_graph");
-      result[key] = copy(descriptor.value);
+      // Preserve every own data key without invoking Object.prototype setters.
+      // In particular, __proto__ is digest material, not a prototype operation.
+      Object.defineProperty(result, key, {
+        value: copy(descriptor.value), enumerable: true, writable: true, configurable: true,
+      });
     }
     return result;
   };

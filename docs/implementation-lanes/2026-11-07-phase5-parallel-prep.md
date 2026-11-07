@@ -53,3 +53,30 @@ Generated/MX-only contact ineligibility, scoped grants, human governance,
 immutable knowledge/configuration and Company-wide suppression are untouched.
 Nothing was merged. Full validation and normal independent review remain needed
 before integration; any future live capability requires separate owner authority.
+
+
+## Own `__proto__` follow-up on the same PR
+
+PR: https://github.com/SJS1001/PROspector/pull/148
+
+Read-only follow-up found that the object-copy branch assigned keys onto `{}`.
+An enumerable own `__proto__` data property with primitive value was silently
+lost; object/null values could change the clone prototype. This violated the
+existing exact JSON-like graph/digest contract, not a missing runtime capability.
+
+The copy now defines ordinary own data properties explicitly. This preserves
+arbitrary valid JSON-like digest material, including `__proto__`, without invoking
+inherited setters or changing prototypes. A blanket key blacklist would
+unnecessarily restrict the generic digest helper. Closed planner/comparator
+schemas still reject this extra field; enumerable accessors and hidden properties
+remain rejected without invoking their getters.
+
+Regression proof: before repair the expanded focused suite had 15 passes and
+one failure on distinct own-property digest binding. After repair all 16 tests
+passed, including primitive, object and null values, distinct digests, unchanged
+input/Object prototypes, closed-schema planner/comparator rejection, and hidden
+and accessor descriptor rejection with zero getter reads. Repository lint and
+`git diff --check` passed. No full test/build was launched: the validation
+coordinator must use the newly pushed exact HEAD once resources are available.
+This follow-up changes the same three lane-owned files only. All preparation,
+human review, hosted, provider and no-phase-credit gates above remain unchanged.
