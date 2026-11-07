@@ -4,7 +4,7 @@ local_demo_track: proposed_unaccepted_docs_only
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 04 local run-scoped assignment/ingestion lease (04-04) greenfield pin fixed for 0021; canonical npm test restarted
+stopped_at: PR145 canonical failed exit 1; scoped 04-04 serialized late-partial lifecycle fixture repair, focused verification and canonical re-proof
 last_updated: 2026-11-06 (America/Toronto) — 04-04 exclusive lease focused 34/34; greenfield runtime pins retargeted to 0021; canonical restarted
 last_activity: 2026-09-09
 progress:
