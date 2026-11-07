@@ -10,10 +10,12 @@ import {
 const SYNTHETIC_SECRET = "synthetic-secret";
 const SYNTHETIC_TOKEN = "synthetic-token";
 const SYNTHETIC_PASSWORD = "synthetic-password";
+const SYNTHETIC_SECRET_NAME = "syntheticSecret";
 const SENSITIVE = [
   SYNTHETIC_SECRET,
   SYNTHETIC_TOKEN,
   SYNTHETIC_PASSWORD,
+  SYNTHETIC_SECRET_NAME,
   "example.invalid",
   "token=",
   "access_key=",
@@ -134,6 +136,40 @@ test("omits payload-bearing code objects and hostile names from diagnostic outpu
   assert.equal(Object.hasOwn(sanitized, "code"), false);
   assert.deepEqual(sanitized.classes, ["other_side_closed"]);
   assertNoSensitive(JSON.stringify(sanitized));
+});
+
+test("omits unknown scalar name and code values, including secret-shaped identifiers, on name, code, and cause", () => {
+  const error = new Error("fetch failed");
+  error.name = SYNTHETIC_SECRET_NAME;
+  error.code = SYNTHETIC_TOKEN;
+  error.cause = new Error("other side closed");
+  error.cause.name = SYNTHETIC_SECRET_NAME;
+  error.cause.code = SYNTHETIC_TOKEN;
+  const sanitized = sanitizeRuntimeError(error);
+  const formatted = formatSettledRejections([{ status: "rejected", reason: error }]);
+  assert.equal(sanitized.name, "opaque");
+  assert.equal(Object.hasOwn(sanitized, "code"), false);
+  assert.equal(sanitized.cause.name, "opaque");
+  assert.equal(Object.hasOwn(sanitized.cause, "code"), false);
+  assert.deepEqual(sanitized.classes, ["fetch_failed"]);
+  assert.deepEqual(sanitized.cause.classes, ["other_side_closed"]);
+  assertNoSensitive(JSON.stringify(sanitized));
+  assertNoSensitive(formatted.join(" | "));
+
+  const numbered = new Error("fetch failed");
+  numbered.name = "NotAKnownError";
+  numbered.code = 42;
+  numbered.cause = new Error("other side closed");
+  numbered.cause.name = "AlsoUnknown";
+  numbered.cause.code = true;
+  const unknown = sanitizeRuntimeError(numbered);
+  assert.equal(unknown.name, "opaque");
+  assert.equal(Object.hasOwn(unknown, "code"), false);
+  assert.equal(unknown.cause.name, "opaque");
+  assert.equal(Object.hasOwn(unknown.cause, "code"), false);
+  assert.equal(JSON.stringify(unknown).includes("NotAKnownError"), false);
+  assert.equal(JSON.stringify(unknown).includes("AlsoUnknown"), false);
+  assert.equal(JSON.stringify(unknown).includes("42"), false);
 });
 
 test("does not invoke hostile getters, toString, or proxy traps while classifying", () => {
