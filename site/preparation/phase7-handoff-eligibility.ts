@@ -198,6 +198,16 @@ export async function evaluateSyntheticHandoffEligibilityCandidate(value: unknow
     if (authority.evaluatedAt < artifact.snapshot.evaluatedAt) {
       reasons.push("evaluation_precedes_handoff_candidate");
     }
+    // A matching immutable snapshot cannot extend its original time bounds.
+    // Recheck only included rows: excluded historical material grants nothing.
+    const prospects = new Map(artifact.snapshot.prospects.map((prospect) => [prospect.id, prospect]));
+    for (const row of artifact.projection.includedRows) {
+      if (row.freshUntil <= authority.evaluatedAt) reasons.push("handoff_verification_expired");
+      const prospect = prospects.get(row.prospectId);
+      if (!prospect || prospect.packageApprovalExpiresAt <= authority.evaluatedAt) {
+        reasons.push("handoff_package_approval_expired");
+      }
+    }
     if (!authority.scopeCurrent) reasons.push("handoff_scope_not_current");
     if (!authority.upstreamProjectionsCurrent) reasons.push("handoff_upstream_projections_not_current");
     if (!authority.packageAuthorityCurrent) reasons.push("handoff_package_authority_not_current");
