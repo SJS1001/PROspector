@@ -451,3 +451,29 @@ test("does not import persistence, routes, providers, browser types, coordinates
     }
   }
 });
+
+
+test("rejects out-of-range numeric array properties instead of silently dropping digest material", async () => {
+  await withModule(async (module) => {
+    for (const key of ["4294967295", "9007199254740991"]) {
+      const input = await fixture(module);
+      Object.defineProperty(input.capPolicy.accounts, key, {
+        value: "uncommitted synthetic material", enumerable: true,
+      });
+      await assert.rejects(
+        module.digestSyntheticEnrichmentMaterial(input.capPolicy),
+        /invalid_synthetic_enrichment_material/u,
+        key,
+      );
+      assert.deepEqual(await module.planSyntheticEnrichmentPrerequisites(input), {
+        kind: "blocked", reason: "invalid_snapshot",
+      });
+      const clean = await module.planSyntheticEnrichmentPrerequisites(await fixture(module));
+      const forged = structuredClone(clean.plan);
+      Object.defineProperty(forged.budgetAccounts, key, { value: true, enumerable: true });
+      assert.deepEqual(await module.compareSyntheticEnrichmentPrerequisitePlans(clean.plan, forged), {
+        kind: "invalid_plan",
+      });
+    }
+  });
+});
