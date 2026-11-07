@@ -537,7 +537,10 @@ function snapshotExactDataGraph(value: unknown): unknown | null {
         if (!descriptor || !descriptor.enumerable || "get" in descriptor || "set" in descriptor) throw new TypeError("invalid_data_graph");
         result.push(copy(descriptor.value));
       }
-      if (Object.keys(descriptors).some((key) => key !== "length" && !/^(0|[1-9][0-9]*)$/u.test(key))) throw new TypeError("invalid_data_graph");
+      // Every own property must be one of the indices copied above or length.
+      // Numeric-looking non-index keys (e.g. 4294967295) do not extend an
+      // array's length and must not disappear from immutable digest material.
+      if (Object.keys(descriptors).length !== lengthDescriptor.value + 1) throw new TypeError("invalid_data_graph");
       return result;
     }
     if (Object.getPrototypeOf(current) !== Object.prototype) throw new TypeError("invalid_data_graph");
@@ -545,7 +548,11 @@ function snapshotExactDataGraph(value: unknown): unknown | null {
     for (const key of Object.keys(descriptors)) {
       const descriptor = descriptors[key];
       if (!descriptor.enumerable || "get" in descriptor || "set" in descriptor) throw new TypeError("invalid_data_graph");
-      result[key] = copy(descriptor.value);
+      // Preserve every own data key without invoking Object.prototype setters.
+      // In particular, __proto__ is digest material, not a prototype operation.
+      Object.defineProperty(result, key, {
+        value: copy(descriptor.value), enumerable: true, writable: true, configurable: true,
+      });
     }
     return result;
   };

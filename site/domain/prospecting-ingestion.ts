@@ -48,19 +48,11 @@ export async function processAcceptedRunnerSubmission(
   if(payloadStatus==="partial"&&priorLedger.terminals.some(event=>event.terminalReason==="partial_submission_retryable")){
     return partialProjection(database,submission,true);
   }
-  if(payloadStatus==="partial"&&submission.execution_state==="succeeded"){
-    try {
-      await appendValidatedSignals(database,{workspaceId:input.workspaceId,submissionId:input.submissionId,now:input.now});
-      await appendTerminalEvent(database,submission,0,input.now,"partial_submission_retryable",true);
-    } catch(error) {
-      const deterministic=isDeterministicFailure(error);
-      await appendTerminalEvent(database,submission,0,input.now,deterministic?"validation_rejected":"processing_retryable",!deterministic);
-      throw fail();
-    }
-    return partialProjection(database,submission,true);
-  }
+  if(payloadStatus==="partial"&&submission.execution_state==="succeeded")throw fail();
   if (submission.execution_state === "succeeded") {
     if (Number(submission.successful_watermark) !== Number(submission.window_upper_inclusive)) throw fail();
+    const succeededSubmissionIds=await readSucceededSubmissionIds(database,submission);
+    if(succeededSubmissionIds.some(id=>id!==submission.id))throw fail();
     await appendTerminalEvent(database, submission, 0, input.now, "succeeded", false, Number(submission.window_upper_inclusive));
     return completedProjection(database, submission);
   }
@@ -184,6 +176,17 @@ async function readLedger(database:D1Database, submission:Submission) {
     if(parsed.stage==="claim")claims.push(item);else terminals.push(item);
   }
   return {claims,terminals,latestAttempt};
+}
+
+async function readSucceededSubmissionIds(database:D1Database, submission:Submission) {
+  const rows=await database.prepare(
+    "SELECT event_json FROM prospecting_run_events WHERE workspace_id=? AND run_id=? AND event_type='watermark_advanced' AND json_extract(event_json,'$.schema')='prospecting-ingestion-ledger/v1' AND json_extract(event_json,'$.stage')='terminal' AND json_extract(event_json,'$.terminalReason')='succeeded'",
+  ).bind(submission.workspace_id,submission.run_id).all<{event_json:string}>();
+  const ids:string[]=[];
+  for(const row of rows.results){
+    try{const parsed=JSON.parse(row.event_json) as Record<string,unknown>;if(validId(parsed.submissionId))ids.push(parsed.submissionId);}catch{/* malformed historical events grant no authority */}
+  }
+  return ids;
 }
 
 function parseLedgerEvent(value:string,submission:Submission):ParsedLedgerEvent|null {

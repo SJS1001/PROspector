@@ -60,6 +60,274 @@ const SENSITIVE_FORBIDDEN_TABLES = new Set([
   "provider_secrets",
 ]);
 
+const ALLOWED_ERROR_NAMES = new Set([
+  "Error",
+  "TypeError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "URIError",
+  "EvalError",
+  "AggregateError",
+  "AssertionError",
+  "SocketError",
+  "HeadersTimeoutError",
+  "BodyTimeoutError",
+  "ConnectTimeoutError",
+]);
+const ALLOWED_ERROR_CODES = new Set([
+  "UND_ERR_SOCKET",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOTFOUND",
+  "ERR_ASSERTION",
+  "ABORT_ERR",
+]);
+const ALLOWED_EVENTS = new Set([
+  "create",
+  "dispose_start",
+  "dispose_done",
+  "dispose_error",
+  "dispose_skipped",
+  "slow_operation",
+  "operation_error",
+  "already_disposed",
+  "opaque",
+]);
+const ALLOWED_TYPES = new Set([
+  "Error",
+  "object",
+  "null",
+  "undefined",
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "symbol",
+  "function",
+  "opaque",
+]);
+const MESSAGE_CLASSES = [
+  { token: "fetch_failed", pattern: /fetch failed/i },
+  { token: "other_side_closed", pattern: /other side closed/i },
+  { token: "econnreset", pattern: /econnreset/i },
+  { token: "econnrefused", pattern: /econnrefused/i },
+  { token: "timeout", pattern: /timeout|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT/i },
+  { token: "constraint", pattern: /unique|constraint/i },
+];
+const ALLOWED_CLASS_TOKENS = new Set(MESSAGE_CLASSES.map((entry) => entry.token));
+
+function diagnosticsEnabled() {
+  return process.env.PROSPECTOR_D1_DIAG !== "0";
+}
+
+function readClosedField(value, key) {
+  try {
+    if (value == null || (typeof value !== "object" && typeof value !== "function")) {
+      return { kind: "absent" };
+    }
+    const seen = new Set();
+    let object = value;
+    while (object && object !== Object.prototype && !seen.has(object)) {
+      seen.add(object);
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      if (descriptor) {
+        if (typeof descriptor.get === "function") return { kind: "omitted_getter" };
+        return { kind: "value", value: descriptor.value };
+      }
+      object = Object.getPrototypeOf(object);
+    }
+    return { kind: "absent" };
+  } catch {
+    return { kind: "unreadable" };
+  }
+}
+
+function allowlistedName(value) {
+  return typeof value === "string" && ALLOWED_ERROR_NAMES.has(value) ? value : "opaque";
+}
+
+function allowlistedCode(value) {
+  return typeof value === "string" && ALLOWED_ERROR_CODES.has(value) ? value : undefined;
+}
+
+function classifyText(value) {
+  if (typeof value !== "string") return [];
+  return MESSAGE_CLASSES.filter((entry) => entry.pattern.test(value)).map((entry) => entry.token);
+}
+
+function closedErrorRecord(value, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 3) return undefined;
+  const record = {};
+  if (typeof value.type === "string" && ALLOWED_TYPES.has(value.type)) record.type = value.type;
+  if (typeof value.name === "string") record.name = allowlistedName(value.name);
+  const code = allowlistedCode(value.code);
+  if (code !== undefined) record.code = code;
+  if (Array.isArray(value.classes)) {
+    record.classes = value.classes.filter((token) => typeof token === "string" && ALLOWED_CLASS_TOKENS.has(token));
+  }
+  if (value.cause) {
+    const cause = closedErrorRecord(value.cause, depth + 1);
+    if (cause) record.cause = cause;
+  }
+  return record;
+}
+
+export function sanitizeRuntimeError(error, depth = 0) {
+  try {
+    if (depth > 3) return { type: "opaque" };
+    if (error == null) return { type: error === null ? "null" : "undefined" };
+    const primitiveType = typeof error;
+    if (primitiveType !== "object" && primitiveType !== "function") {
+      return {
+        type: primitiveType,
+        classes: primitiveType === "string" ? classifyText(error) : [],
+      };
+    }
+    const isError = error instanceof Error;
+    const nameField = readClosedField(error, "name");
+    const messageField = readClosedField(error, "message");
+    const codeField = readClosedField(error, "code");
+    const causeField = readClosedField(error, "cause");
+    const messageText = messageField.kind === "value" && typeof messageField.value === "string"
+      ? messageField.value
+      : "";
+    const record = {
+      type: isError ? "Error" : "object",
+      name: nameField.kind === "value" ? allowlistedName(nameField.value) : isError ? "Error" : "opaque",
+      classes: classifyText(messageText),
+    };
+    const code = codeField.kind === "value" ? allowlistedCode(codeField.value) : undefined;
+    if (code !== undefined) record.code = code;
+    if (causeField.kind === "value" && causeField.value != null) {
+      record.cause = sanitizeRuntimeError(causeField.value, depth + 1);
+    }
+    return record;
+  } catch {
+    return { type: "opaque" };
+  }
+}
+
+function formatClosedError(sanitized) {
+  const classes = Array.isArray(sanitized?.classes) && sanitized.classes.length > 0
+    ? ` [${sanitized.classes.join(",")}]`
+    : "";
+  const code = sanitized?.code !== undefined ? ` code=${sanitized.code}` : "";
+  const cause = sanitized?.cause
+    ? ` caused by ${formatClosedError(sanitized.cause)}`
+    : "";
+  return `${sanitized?.name ?? sanitized?.type ?? "opaque"}${classes}${code}${cause}`;
+}
+
+export function formatSettledRejections(results) {
+  return results
+    .filter((result) => result.status === "rejected")
+    .map((result) => formatClosedError(sanitizeRuntimeError(result.reason)));
+}
+
+function emitD1Diagnostic(event, fieldsBuilder) {
+  if (!diagnosticsEnabled()) return;
+  try {
+    const fields = typeof fieldsBuilder === "function" ? fieldsBuilder() : fieldsBuilder;
+    const payload = {
+      source: "prospector-d1",
+      event: typeof event === "string" && ALLOWED_EVENTS.has(event) ? event : "opaque",
+      at: new Date().toISOString(),
+      pid: process.pid,
+    };
+    if (fields && typeof fields === "object") {
+      if (typeof fields.fixture === "string") payload.fixture = fields.fixture.slice(0, 120);
+      if (typeof fields.operation === "string") payload.operation = fields.operation.slice(0, 40);
+      if (typeof fields.reason === "string" && ALLOWED_EVENTS.has(fields.reason)) payload.reason = fields.reason;
+      if (typeof fields.ms === "number" && Number.isFinite(fields.ms)) payload.ms = fields.ms;
+      const error = closedErrorRecord(fields.error);
+      if (error) payload.error = error;
+    }
+    process.stderr.write(`${JSON.stringify(payload)}\n`);
+  } catch {
+    // Diagnostics must never replace the original failure.
+  }
+}
+
+function instrumentD1Statement(statement, fixtureName) {
+  const wrap = (operation) => {
+    if (typeof statement[operation] !== "function") return;
+    const original = statement[operation].bind(statement);
+    statement[operation] = async (...args) => {
+      const started = Date.now();
+      try {
+        const result = await original(...args);
+        const ms = Date.now() - started;
+        if (ms >= 10_000) emitD1Diagnostic("slow_operation", () => ({ fixture: fixtureName, operation, ms }));
+        return result;
+      } catch (error) {
+        emitD1Diagnostic("operation_error", () => ({
+          fixture: fixtureName,
+          operation,
+          ms: Date.now() - started,
+          error: sanitizeRuntimeError(error),
+        }));
+        throw error;
+      }
+    };
+  };
+  for (const operation of ["run", "first", "all", "raw"]) wrap(operation);
+  if (typeof statement.bind === "function") {
+    const originalBind = statement.bind.bind(statement);
+    statement.bind = (...args) => {
+      const bound = originalBind(...args);
+      return bound === statement ? statement : instrumentD1Statement(bound, fixtureName);
+    };
+  }
+  return statement;
+}
+
+export function instrumentD1Database(database, fixtureName) {
+  const originalPrepare = database.prepare.bind(database);
+  database.prepare = (query) => instrumentD1Statement(originalPrepare(query), fixtureName);
+  if (typeof database.batch === "function") {
+    const originalBatch = database.batch.bind(database);
+    database.batch = async (statements) => {
+      const started = Date.now();
+      try {
+        const result = await originalBatch(statements);
+        const ms = Date.now() - started;
+        if (ms >= 10_000) emitD1Diagnostic("slow_operation", () => ({ fixture: fixtureName, operation: "batch", ms }));
+        return result;
+      } catch (error) {
+        emitD1Diagnostic("operation_error", () => ({
+          fixture: fixtureName,
+          operation: "batch",
+          ms: Date.now() - started,
+          error: sanitizeRuntimeError(error),
+        }));
+        throw error;
+      }
+    };
+  }
+  return database;
+}
+
+export async function disposeFixtureRuntime(vite, miniflare) {
+  let viteError;
+  try {
+    await vite.close();
+  } catch (error) {
+    viteError = error;
+  }
+  try {
+    await miniflare.dispose();
+  } catch (error) {
+    throw error;
+  }
+  if (viteError) throw viteError;
+}
+
 export async function createD1Fixture(name = "prospector-authority-test") {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   const miniflare = new Miniflare({
@@ -67,13 +335,32 @@ export async function createD1Fixture(name = "prospector-authority-test") {
     script: "export default { fetch() { return new Response('ok') } }",
     d1Databases: { DB: name },
   });
+  const database = instrumentD1Database(await miniflare.getD1Database("DB"), name);
+  emitD1Diagnostic("create", () => ({ fixture: name }));
+  let disposed = false;
   return {
     vite,
     miniflare,
-    database: await miniflare.getD1Database("DB"),
+    database,
     async dispose() {
-      await vite.close();
-      await miniflare.dispose();
+      if (disposed) {
+        emitD1Diagnostic("dispose_skipped", () => ({ fixture: name, reason: "already_disposed" }));
+        return;
+      }
+      disposed = true;
+      const started = Date.now();
+      emitD1Diagnostic("dispose_start", () => ({ fixture: name }));
+      try {
+        await disposeFixtureRuntime(vite, miniflare);
+        emitD1Diagnostic("dispose_done", () => ({ fixture: name, ms: Date.now() - started }));
+      } catch (error) {
+        emitD1Diagnostic("dispose_error", () => ({
+          fixture: name,
+          ms: Date.now() - started,
+          error: sanitizeRuntimeError(error),
+        }));
+        throw error;
+      }
     },
   };
 }

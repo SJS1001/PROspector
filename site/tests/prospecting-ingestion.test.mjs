@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMigrations, assertForbiddenOperationalRowsUnchanged, createD1Fixture, snapshotForbiddenOperationalRows } from "./helpers/d1.mjs";
+import { applyPersonDiscoveryMigrations, assertForbiddenOperationalRowsUnchanged, createD1Fixture, snapshotForbiddenOperationalRows } from "./helpers/d1.mjs";
 import { seedProfileAuthority } from "./helpers/phase4.mjs";
 
 const NOW=1_780_000_000_000, DIGEST="a".repeat(64), secret=new TextEncoder().encode("prospecting-ingestion-test-secret-at-least-32-bytes");
 
 async function setup(){
-  const fixture=await createD1Fixture("prospecting-ingestion"); await applyMigrations(fixture.database);
+  const fixture=await createD1Fixture("prospecting-ingestion"); await applyPersonDiscoveryMigrations(fixture.database);
   const principal={subject:"prospecting-ingestion-owner",legacySubject:"prospecting-ingestion-owner-legacy",displayName:"Ingestion owner"};
   const seeded=await seedProfileAuthority(fixture,principal,NOW), readiness=await fixture.vite.ssrLoadModule(new URL("../domain/profile-readiness.ts",import.meta.url).pathname);
   const candidate=await readiness.createProfileConfigurationCandidate(fixture.database,principal,{profileId:seeded.profileId,expectedProfileRevision:seeded.revision,idempotencyKey:"0198f400-0000-7000-8000-000000000901",now:NOW});
@@ -41,7 +41,36 @@ test("enabled injected ingress coordinates an accepted submission through eviden
  }finally{await seed.fixture.dispose();}
 });
 
-test("owner-rejected prospect re-enters only through application-produced sourced disproof bound to later trusted evidence",async()=>{
+test("two interleaved capabilities serialize one run and preserve partial observations before a late complete",async()=>{
+ const seed=await setup();try{
+  const runner=await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts",import.meta.url).pathname);
+  const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
+  const issue=(key,at)=>runner.issueRunnerAssignment(seed.fixture.database,{workspaceId:seed.workspaceId,runId:seed.runId,profileId:seed.profileId,configurationId:seed.configurationId,configurationDigest:seed.configurationDigest,audience:"prospecting-runner/v1",expiresAt:at+60_000,instructionVersion:"runner-instructions/v1",toolConfigurationDigest:"f".repeat(64),quotas:{maxBytes:20_000,maxFindings:3,maxSources:3},grantReference:"synthetic",reason:"interleaved capability regression",idempotencyKey:key,now:at,capabilitySecret:secret});
+  const competing=await Promise.allSettled([issue("interleaved-a",NOW),issue("interleaved-b",NOW)]);
+  assert.equal(competing.filter(result=>result.status==="fulfilled").length,1,"the run-scoped assignment invariant admits one live capability");
+  assert.equal(competing.filter(result=>result.status==="rejected").length,1);
+  const first=competing.find(result=>result.status==="fulfilled").value;
+  const partialPayload={...payload(NOW,"https://partial.example.invalid/source"),status:"partial"};
+  const partial=await runner.submitRunnerObservations(seed.fixture.database,{capability:first.capability,idempotencyKey:"interleaved-partial",payload:partialPayload,now:NOW+1,capabilitySecret:secret});
+  await assert.rejects(()=>issue("interleaved-before-partial-terminal",NOW+2),/runner_assignment_rejected/i,"consuming a token does not open a competing assignment before trusted ingestion");
+  const partialResult=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{workspaceId:seed.workspaceId,submissionId:partial.submissionId,now:NOW+3});
+  assert.equal(partialResult.retryable,true);
+  const late=await issue("interleaved-late-complete",NOW+4);
+  const complete=await runner.submitRunnerObservations(seed.fixture.database,{capability:late.capability,idempotencyKey:"interleaved-complete",payload:payload(NOW,"https://complete.example.invalid/source"),now:NOW+5,capabilitySecret:secret});
+  const completed=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{workspaceId:seed.workspaceId,submissionId:complete.submissionId,now:NOW+6});
+  assert.equal(completed.signalCount,1);
+  assert.deepEqual(await seed.fixture.database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=?").bind(seed.runId).first(),{execution_state:"succeeded",successful_watermark:NOW});
+  const submissions=await seed.fixture.database.prepare("SELECT id,json_extract(submission_json,'$.status') status FROM runner_submissions WHERE run_id=? ORDER BY created_at,id").bind(seed.runId).all();
+  assert.deepEqual(submissions.results.map(row=>row.status),["partial","complete"]);
+  const signals=await seed.fixture.database.prepare("SELECT submission_id FROM prospecting_signals WHERE run_id=? ORDER BY submission_id").bind(seed.runId).all();
+  assert.deepEqual(new Set(signals.results.map(row=>row.submission_id)),new Set([partial.submissionId,complete.submissionId]),"accepted observations from both serialized submissions remain durable");
+  await assert.rejects(()=>issue("interleaved-after-complete",NOW+7),/runner_assignment_rejected/i,"a complete submission closes assignment issuance for the run");
+  assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM runner_assignments WHERE run_id=? AND status='issued'").bind(seed.runId).first()).count),0);
+  assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM runner_submissions WHERE run_id=? AND json_extract(submission_json,'$.status')='complete'").bind(seed.runId).first()).count),1);
+ }finally{await seed.fixture.dispose();}
+});
+
+test("owner-rejected prospect re-enters on a Material Signal or sourced disproof, never on ordinary evidence during cooldown",async()=>{
  const seed=await setup();try{
   const runner=await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts",import.meta.url).pathname);
   const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
@@ -91,8 +120,12 @@ test("owner-rejected prospect re-enters only through application-produced source
   };
 
   const ordinaryRun=replacement.initialRun.id,ordinaryWindow=await seed.fixture.database.prepare("SELECT window_upper_inclusive FROM prospecting_runs WHERE id=?").bind(ordinaryRun).first(),ordinaryAt=NOW+23;
-  await assert.rejects(()=>runSubmission({runId:ordinaryRun,at:ordinaryAt,observedAt:Number(ordinaryWindow.window_upper_inclusive),key:"reentry-ordinary",materializer:()=>[candidateDraft]}),(error)=>error?.code==="prospecting_ingestion_rejected","ordinary material evidence under a replacement configuration cannot bypass the owner's rejection");
-  assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first()).count),0);
+  const ordinary=await runSubmission({runId:ordinaryRun,at:ordinaryAt,observedAt:Number(ordinaryWindow.window_upper_inclusive),key:"reentry-ordinary",materializer:()=>[candidateDraft]});
+  assert.ok(ordinary.assessments[0],"Plan 04-07: a Material Signal may reopen a rejected prospect during the 90-day cooldown");
+  const materialSuccessor=await seed.fixture.database.prepare("SELECT id,assessment_id,state,active,revision FROM profile_prospects WHERE assessment_id=? AND active=1").bind(ordinary.assessments[0].id).first();
+  assert.equal(materialSuccessor.state,"qualified");
+  const materialEvent=await seed.fixture.database.prepare("SELECT event_kind FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first();
+  assert.equal(materialEvent.event_kind,"material_signal");
   assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospect-reentry-disproof-validation/v1'").bind(seed.workspaceId).first()).count),0,"runner observations cannot assert a validation marker");
 
   const ordinarySignal=await seed.fixture.database.prepare("SELECT ps.id,ps.signal_digest,pl.id lineage_id,pl.lineage_digest,json_extract(pl.lineage_json,'$.observationFingerprint') fingerprint FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.run_id=?").bind(ordinaryRun).first();
@@ -110,13 +143,15 @@ test("owner-rejected prospect re-enters only through application-produced source
   assert.equal(await policy.readValidatedSourcedDisproofSignalId(seed.fixture.database,{workspaceId:seed.workspaceId,profileId:seed.profileId,candidateId:candidateBinding.id,candidateDigest:candidateBinding.candidate_digest,fingerprint:candidateBinding.fingerprint,priorProspectId:firstProspect.id,priorAssessmentId:firstProspect.assessment_id,decisionAt:NOW+10}),null,"a forged marker with wrong candidate, lineage, and digest never validates");
   assert.equal(await policy.readValidatedSourcedDisproofSignalId(seed.fixture.database,{workspaceId:"wrong-workspace",profileId:seed.profileId,candidateId:candidateBinding.id,candidateDigest:candidateBinding.candidate_digest,fingerprint:candidateBinding.fingerprint,priorProspectId:firstProspect.id,priorAssessmentId:firstProspect.assessment_id,decisionAt:NOW+10}),null,"the marker cannot cross workspace");
 
+  await review.decideQualifiedProspect(seed.fixture.database,seed.principal,{prospectId:materialSuccessor.id,assessmentId:materialSuccessor.assessment_id,decision:"reject",reason:"Clear the Material Signal successor so sourced disproof can be proven separately",expectedRevision:Number(materialSuccessor.revision??1),idempotencyKey:"reentry-owner-reject-successor",now:ordinaryAt+4});
+
   const disproofAt=NOW+200,disproofRun=await nextRun("reentry-disproof",disproofAt);
   const disproof=await runSubmission({runId:disproofRun,at:disproofAt,key:"reentry-disproof",materializer:({signals})=>[{...candidateDraft,sourcedDisproof:{signalFingerprint:signals[0].fingerprint,validationRule:"owner-rejection-material-evidence/v1"}}]});
   assert.notEqual(disproof.assessments[0].id,firstProspect.assessment_id,"later sourced disproof creates a successor immutable assessment");
   const successor=await seed.fixture.database.prepare("SELECT id,assessment_id,state,active FROM profile_prospects WHERE assessment_id=? AND active=1").bind(disproof.assessments[0].id).first();
   assert.deepEqual({assessmentId:successor.assessment_id,state:successor.state,active:Number(successor.active)},{assessmentId:disproof.assessments[0].id,state:"qualified",active:1});
-  const event=await seed.fixture.database.prepare("SELECT signal_id,prior_assessment_id,event_kind,event_json,event_digest FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first();
-  assert.equal(event.event_kind,"sourced_disproof");assert.equal(event.prior_assessment_id,firstProspect.assessment_id);assert.match(event.event_digest,/^[0-9a-f]{64}$/);
+  const event=await seed.fixture.database.prepare("SELECT signal_id,prior_assessment_id,event_kind,event_json,event_digest FROM prospect_reentry_events WHERE workspace_id=? AND event_kind='sourced_disproof' ORDER BY created_at DESC,id DESC").bind(seed.workspaceId).first();
+  assert.equal(event.event_kind,"sourced_disproof");assert.equal(event.prior_assessment_id,materialSuccessor.assessment_id);assert.match(event.event_digest,/^[0-9a-f]{64}$/);
   assert.equal(JSON.parse(event.event_json).reenteredProspectId,successor.id);
   const marker=await seed.fixture.database.prepare("SELECT lineage_json,lineage_digest FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospect-reentry-disproof-validation/v1' ORDER BY created_at DESC,id DESC").bind(seed.workspaceId).first();
   const markerValue=JSON.parse(marker.lineage_json);assert.match(marker.lineage_digest,/^[0-9a-f]{64}$/);assert.equal(markerValue.workspaceId,seed.workspaceId);assert.equal(markerValue.candidateId,candidateBinding.id);assert.equal(markerValue.signalId,event.signal_id);assert.equal(markerValue.sourceLineageId!==ordinarySignal.lineage_id,true);assert.equal(markerValue.observedAt>NOW+10,true);

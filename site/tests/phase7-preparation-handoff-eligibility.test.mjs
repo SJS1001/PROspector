@@ -397,3 +397,93 @@ test("the module has no runtime, persistence, CSV, provider, delivery, or effect
   assert.equal(source.includes("exportAuthorized: false"), true);
   assert.equal(source.includes("runtimeCompositionAuthorized: false"), true);
 });
+
+// Replaying an unchanged digest must not freeze time-sensitive eligibility.
+test("unchanged snapshots lose currentness at verification and Package approval expiry", async () => {
+  const { vite, handoff } = await load();
+  try {
+    for (const [reason, prospectPatch, pointPatch] of [
+      ["handoff_verification_expired", {}, { freshUntil: NOW + 30_000 }],
+      ["handoff_package_approval_expired", { packageApprovalExpiresAt: NOW + 30_000 }, {}],
+    ]) {
+      const input = candidateInput({
+        prospects: [prospect("synthetic-prospect-one", prospectPatch)],
+        contactPoints: [point("synthetic-point-one", "synthetic-prospect-one", pointPatch)],
+      });
+      const candidate = await handoff.buildSyntheticHandoffEligibilityCandidate(input);
+      for (const elapsed of [29_999, 30_000, 30_001]) {
+        const decision = await handoff.evaluateSyntheticHandoffEligibilityCandidate({
+          candidate,
+          currentCandidate: input,
+          currentAuthority: authority({ evaluatedAt: NOW + elapsed }),
+        });
+        const expired = elapsed >= 30_000;
+        assert.equal(decision.currentProjectionClaimed, !expired, `${reason}:${elapsed}`);
+        assert.equal(decision.reasonCodes.includes(reason), expired, `${reason}:${elapsed}`);
+        assert.equal(decision.status, expired
+          ? "synthetic_handoff_eligibility_rejected"
+          : "synthetic_handoff_eligibility_current_no_authority");
+        assert.equal(decision.exportAuthorized, false);
+        assert.equal(decision.providerInvocationAuthorized, false);
+        assert.deepEqual(decision.effects, ZERO_EFFECTS);
+      }
+    }
+  } finally {
+    await vite.close();
+  }
+});
+
+test("one expiring included row rejects the whole frozen projection without rewriting it", async () => {
+  const { vite, handoff } = await load();
+  try {
+    const input = candidateInput({ contactPoints: [
+      point("synthetic-point-one", "synthetic-prospect-one", { freshUntil: NOW + 30_000 }),
+      point("synthetic-point-two"),
+    ] });
+    const candidate = await handoff.buildSyntheticHandoffEligibilityCandidate(input);
+    const digest = candidate.digest;
+    const decision = await handoff.evaluateSyntheticHandoffEligibilityCandidate({
+      candidate, currentCandidate: input,
+      currentAuthority: authority({ evaluatedAt: NOW + 30_000 }),
+    });
+    assert.equal(decision.currentProjectionClaimed, false);
+    assert.deepEqual(decision.reasonCodes, ["handoff_verification_expired"]);
+    assert.equal(candidate.digest, digest);
+    assert.equal(candidate.projection.eligibleContactRowCount, 2);
+    assert.equal(candidate.projection.uniqueProspectCount, 1);
+    assert.equal(decision.exportAuthorized, false);
+    assert.deepEqual(decision.effects, ZERO_EFFECTS);
+  } finally { await vite.close(); }
+});
+
+test("excluded generated, MX-only and suppressed material never gains a row as time advances", async () => {
+  const { vite, handoff } = await load();
+  try {
+    for (const patch of [
+      { verificationClass: "generated" },
+      { verificationClass: "mx_only" },
+      { suppressionMatchRefIds: ["synthetic-suppression-company"] },
+    ]) {
+      const input = candidateInput({
+        prospects: [prospect(), prospect("synthetic-prospect-two", {
+          packageApprovalExpiresAt: NOW + 30_000,
+        })],
+        contactPoints: [point(), point("synthetic-point-two", "synthetic-prospect-two", {
+          freshUntil: NOW + 30_000, ...patch,
+        })],
+      });
+      const candidate = await handoff.buildSyntheticHandoffEligibilityCandidate(input);
+      const decision = await handoff.evaluateSyntheticHandoffEligibilityCandidate({
+        candidate, currentCandidate: input,
+        currentAuthority: authority({ evaluatedAt: NOW + 30_000 }),
+      });
+      assert.equal(decision.currentProjectionClaimed, true);
+      assert.equal(decision.eligibleContactRowCount, 1);
+      assert.deepEqual(candidate.projection.includedRows.map((row) => row.contactPointId), [
+        "synthetic-point-one",
+      ]);
+      assert.equal(decision.exportAuthorized, false);
+      assert.deepEqual(decision.effects, ZERO_EFFECTS);
+    }
+  } finally { await vite.close(); }
+});
