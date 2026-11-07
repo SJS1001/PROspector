@@ -60,10 +60,58 @@ const SENSITIVE_FORBIDDEN_TABLES = new Set([
   "provider_secrets",
 ]);
 
-const SAFE_CLASS_NAME = /^[A-Za-z][A-Za-z0-9._]{0,63}$/;
-const SAFE_CODE = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
-const SAFE_EVENT = /^[a-z][a-z0-9_]{0,63}$/;
-const SAFE_CLASS_TOKEN = /^[a-z_]{1,40}$/;
+const ALLOWED_ERROR_NAMES = new Set([
+  "Error",
+  "TypeError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "URIError",
+  "EvalError",
+  "AggregateError",
+  "AssertionError",
+  "SocketError",
+  "HeadersTimeoutError",
+  "BodyTimeoutError",
+  "ConnectTimeoutError",
+]);
+const ALLOWED_ERROR_CODES = new Set([
+  "UND_ERR_SOCKET",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOTFOUND",
+  "ERR_ASSERTION",
+  "ABORT_ERR",
+]);
+const ALLOWED_EVENTS = new Set([
+  "create",
+  "dispose_start",
+  "dispose_done",
+  "dispose_error",
+  "dispose_skipped",
+  "slow_operation",
+  "operation_error",
+  "already_disposed",
+  "opaque",
+]);
+const ALLOWED_TYPES = new Set([
+  "Error",
+  "object",
+  "null",
+  "undefined",
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "symbol",
+  "function",
+  "opaque",
+]);
 const MESSAGE_CLASSES = [
   { token: "fetch_failed", pattern: /fetch failed/i },
   { token: "other_side_closed", pattern: /other side closed/i },
@@ -72,6 +120,7 @@ const MESSAGE_CLASSES = [
   { token: "timeout", pattern: /timeout|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT/i },
   { token: "constraint", pattern: /unique|constraint/i },
 ];
+const ALLOWED_CLASS_TOKENS = new Set(MESSAGE_CLASSES.map((entry) => entry.token));
 
 function diagnosticsEnabled() {
   return process.env.PROSPECTOR_D1_DIAG !== "0";
@@ -100,14 +149,11 @@ function readClosedField(value, key) {
 }
 
 function allowlistedName(value) {
-  return typeof value === "string" && SAFE_CLASS_NAME.test(value) ? value : "opaque";
+  return typeof value === "string" && ALLOWED_ERROR_NAMES.has(value) ? value : "opaque";
 }
 
 function allowlistedCode(value) {
-  if (typeof value === "string" && SAFE_CODE.test(value)) return value;
-  if (typeof value === "number" && Number.isFinite(value) && Number.isSafeInteger(value)) return value;
-  if (typeof value === "boolean") return value;
-  return undefined;
+  return typeof value === "string" && ALLOWED_ERROR_CODES.has(value) ? value : undefined;
 }
 
 function classifyText(value) {
@@ -118,12 +164,12 @@ function classifyText(value) {
 function closedErrorRecord(value, depth = 0) {
   if (!value || typeof value !== "object" || depth > 3) return undefined;
   const record = {};
-  if (typeof value.type === "string" && /^[A-Za-z]{1,20}$/.test(value.type)) record.type = value.type;
-  if (typeof value.name === "string" && SAFE_CLASS_NAME.test(value.name)) record.name = value.name;
+  if (typeof value.type === "string" && ALLOWED_TYPES.has(value.type)) record.type = value.type;
+  if (typeof value.name === "string") record.name = allowlistedName(value.name);
   const code = allowlistedCode(value.code);
   if (code !== undefined) record.code = code;
   if (Array.isArray(value.classes)) {
-    record.classes = value.classes.filter((token) => typeof token === "string" && SAFE_CLASS_TOKEN.test(token));
+    record.classes = value.classes.filter((token) => typeof token === "string" && ALLOWED_CLASS_TOKENS.has(token));
   }
   if (value.cause) {
     const cause = closedErrorRecord(value.cause, depth + 1);
@@ -190,14 +236,14 @@ function emitD1Diagnostic(event, fieldsBuilder) {
     const fields = typeof fieldsBuilder === "function" ? fieldsBuilder() : fieldsBuilder;
     const payload = {
       source: "prospector-d1",
-      event: typeof event === "string" && SAFE_EVENT.test(event) ? event : "opaque",
+      event: typeof event === "string" && ALLOWED_EVENTS.has(event) ? event : "opaque",
       at: new Date().toISOString(),
       pid: process.pid,
     };
     if (fields && typeof fields === "object") {
       if (typeof fields.fixture === "string") payload.fixture = fields.fixture.slice(0, 120);
       if (typeof fields.operation === "string") payload.operation = fields.operation.slice(0, 40);
-      if (typeof fields.reason === "string" && SAFE_EVENT.test(fields.reason)) payload.reason = fields.reason;
+      if (typeof fields.reason === "string" && ALLOWED_EVENTS.has(fields.reason)) payload.reason = fields.reason;
       if (typeof fields.ms === "number" && Number.isFinite(fields.ms)) payload.ms = fields.ms;
       const error = closedErrorRecord(fields.error);
       if (error) payload.error = error;
