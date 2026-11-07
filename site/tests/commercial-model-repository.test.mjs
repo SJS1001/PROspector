@@ -4,6 +4,7 @@ import {
   applyMigrations,
   assertForbiddenOperationalRowsUnchanged,
   createD1Fixture,
+  formatSettledRejections,
   runRace,
   snapshotForbiddenOperationalRows,
 } from "./helpers/d1.mjs";
@@ -59,7 +60,14 @@ test("commercial hierarchy enforces exact parentage, scope, identity, and stale/
       () => commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000000108" }),
       () => commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000000109" }),
     ]);
-    assert.equal(raced.filter((result) => result.status === "fulfilled").length, 2);
+    const rejected = formatSettledRejections(raced);
+    assert.equal(
+      raced.filter((result) => result.status === "fulfilled").length,
+      2,
+      rejected.length > 0
+        ? `expected both initializeCommercialModel calls to fulfill; rejected: ${rejected.join(" | ")}`
+        : undefined,
+    );
     const reread = await commercial.readCommercialModel(fixture.database, principal);
     assert.equal(reread.path.filter((node) => node.type === "product" && node.name === "ONE").length, 1);
     assert.equal(reread.identities.organization.uniqueScope, "company");

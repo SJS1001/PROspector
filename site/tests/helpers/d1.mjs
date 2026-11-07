@@ -60,6 +60,102 @@ const SENSITIVE_FORBIDDEN_TABLES = new Set([
   "provider_secrets",
 ]);
 
+export function sanitizeRuntimeError(error) {
+  if (error == null) return { type: String(error) };
+  if (!(error instanceof Error)) {
+    return { type: typeof error, message: String(error).slice(0, 300) };
+  }
+  const cause = error.cause;
+  return {
+    name: error.name,
+    message: String(error.message).slice(0, 300),
+    code: "code" in error ? error.code ?? null : null,
+    causeName: cause instanceof Error ? cause.name : cause == null ? null : typeof cause,
+    causeMessage: cause instanceof Error ? String(cause.message).slice(0, 200) : cause == null ? null : String(cause).slice(0, 200),
+    causeCode: cause && typeof cause === "object" && "code" in cause ? cause.code ?? null : null,
+  };
+}
+
+export function formatSettledRejections(results) {
+  return results
+    .filter((result) => result.status === "rejected")
+    .map((result) => {
+      const sanitized = sanitizeRuntimeError(result.reason);
+      const cause = sanitized.causeName ? ` caused by ${sanitized.causeName}:${sanitized.causeMessage ?? ""}` : "";
+      return `${sanitized.name ?? sanitized.type}: ${sanitized.message ?? ""}${cause}`;
+    });
+}
+
+function emitD1Diagnostic(event, fields) {
+  if (process.env.PROSPECTOR_D1_DIAG === "0") return;
+  process.stderr.write(`${JSON.stringify({
+    source: "prospector-d1",
+    event,
+    at: new Date().toISOString(),
+    pid: process.pid,
+    ...fields,
+  })}\n`);
+}
+
+function instrumentD1Statement(statement, fixtureName) {
+  const wrap = (operation) => {
+    if (typeof statement[operation] !== "function") return;
+    const original = statement[operation].bind(statement);
+    statement[operation] = async (...args) => {
+      const started = Date.now();
+      try {
+        const result = await original(...args);
+        const ms = Date.now() - started;
+        if (ms >= 10_000) emitD1Diagnostic("slow_operation", { fixture: fixtureName, operation, ms });
+        return result;
+      } catch (error) {
+        emitD1Diagnostic("operation_error", {
+          fixture: fixtureName,
+          operation,
+          ms: Date.now() - started,
+          error: sanitizeRuntimeError(error),
+        });
+        throw error;
+      }
+    };
+  };
+  for (const operation of ["run", "first", "all", "raw"]) wrap(operation);
+  if (typeof statement.bind === "function") {
+    const originalBind = statement.bind.bind(statement);
+    statement.bind = (...args) => {
+      const bound = originalBind(...args);
+      return bound === statement ? statement : instrumentD1Statement(bound, fixtureName);
+    };
+  }
+  return statement;
+}
+
+function instrumentD1Database(database, fixtureName) {
+  const originalPrepare = database.prepare.bind(database);
+  database.prepare = (query) => instrumentD1Statement(originalPrepare(query), fixtureName);
+  if (typeof database.batch === "function") {
+    const originalBatch = database.batch.bind(database);
+    database.batch = async (statements) => {
+      const started = Date.now();
+      try {
+        const result = await originalBatch(statements);
+        const ms = Date.now() - started;
+        if (ms >= 10_000) emitD1Diagnostic("slow_operation", { fixture: fixtureName, operation: "batch", ms });
+        return result;
+      } catch (error) {
+        emitD1Diagnostic("operation_error", {
+          fixture: fixtureName,
+          operation: "batch",
+          ms: Date.now() - started,
+          error: sanitizeRuntimeError(error),
+        });
+        throw error;
+      }
+    };
+  }
+  return database;
+}
+
 export async function createD1Fixture(name = "prospector-authority-test") {
   const vite = await createServer({ configFile: false, logLevel: "silent" });
   const miniflare = new Miniflare({
@@ -67,13 +163,38 @@ export async function createD1Fixture(name = "prospector-authority-test") {
     script: "export default { fetch() { return new Response('ok') } }",
     d1Databases: { DB: name },
   });
+  const database = instrumentD1Database(await miniflare.getD1Database("DB"), name);
+  emitD1Diagnostic("create", { fixture: name });
+  let disposed = false;
   return {
     vite,
     miniflare,
-    database: await miniflare.getD1Database("DB"),
+    database,
     async dispose() {
-      await vite.close();
-      await miniflare.dispose();
+      if (disposed) {
+        emitD1Diagnostic("dispose_skipped", { fixture: name, reason: "already_disposed" });
+        return;
+      }
+      disposed = true;
+      const started = Date.now();
+      emitD1Diagnostic("dispose_start", { fixture: name });
+      try {
+        // Always dispose Miniflare/workerd even if Vite fails to close, so a
+        // loader error cannot leak the loopback runtime into later fixtures.
+        try {
+          await vite.close();
+        } finally {
+          await miniflare.dispose();
+        }
+        emitD1Diagnostic("dispose_done", { fixture: name, ms: Date.now() - started });
+      } catch (error) {
+        emitD1Diagnostic("dispose_error", {
+          fixture: name,
+          ms: Date.now() - started,
+          error: sanitizeRuntimeError(error),
+        });
+        throw error;
+      }
     },
   };
 }
