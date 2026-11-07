@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { applyMigrations, createD1Fixture } from "./helpers/d1.mjs";
+import { applyPersonDiscoveryMigrations, createD1Fixture } from "./helpers/d1.mjs";
 import { seedProfileAuthority } from "./helpers/phase4.mjs";
 
 const NOW = 1_780_000_000_000;
@@ -10,7 +10,7 @@ const DIGEST = "a".repeat(64);
 
 async function setup(name) {
   const fixture = await createD1Fixture(name);
-  await applyMigrations(fixture.database);
+  await applyPersonDiscoveryMigrations(fixture.database);
   const principal = { subject:`${name}-owner`, legacySubject:`${name}-legacy`, displayName:"Lifecycle owner" };
   const seeded = await seedProfileAuthority(fixture, principal, NOW);
   const readiness = await fixture.vite.ssrLoadModule(new URL("../domain/profile-readiness.ts", import.meta.url).pathname);
@@ -45,20 +45,20 @@ function payload(status = "complete", origin = "example.invalid") {
   };
 }
 
-async function submit(seed, key, value = payload()) {
+async function submit(seed, key, value = payload(), now = NOW) {
   const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
   const issued = await runner.issueRunnerAssignment(seed.fixture.database, {
     workspaceId:seed.workspaceId, runId:seed.runId, profileId:seed.profileId,
     configurationId:seed.configurationId, configurationDigest:seed.configurationDigest,
-    audience:"prospecting-runner/v1", expiresAt:NOW+60_000,
+    audience:"prospecting-runner/v1", expiresAt:now+60_000,
     instructionVersion:"runner-instructions/v1", toolConfigurationDigest:"f".repeat(64),
     quotas:{maxBytes:20_000,maxFindings:3,maxSources:3}, grantReference:"synthetic",
-    reason:`synthetic lifecycle ${key}`, idempotencyKey:`${key}-assignment`, now:NOW,
+    reason:`synthetic lifecycle ${key}`, idempotencyKey:`${key}-assignment`, now,
     capabilitySecret:SECRET,
   });
   return runner.submitRunnerObservations(seed.fixture.database, {
     capability:issued.capability, idempotencyKey:`${key}-submission`, payload:value,
-    now:NOW+1, capabilitySecret:SECRET,
+    now:now+1, capabilitySecret:SECRET,
   });
 }
 
@@ -209,21 +209,33 @@ test("a neutral transient terminal immediately permits the next append-only atte
   } finally { await seed.fixture.dispose(); }
 });
 
-test("an accepted partial callback arriving after another submission succeeded still preserves its validated evidence", async () => {
+test("a validated partial callback replay after its serialized successor succeeded preserves evidence and watermark", async () => {
   const seed=await setup("ledger-late-partial");
   try {
     const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
     const partial=await submit(seed,"late-partial",payload("partial"));
-    const complete=await submit(seed,"early-complete",payload("complete"));
+    // A consumed nonce alone cannot authorize another capability. Trusted partial
+    // validation must finish before the explicit successor assignment is issued.
+    await assert.rejects(() => submit(seed,"premature-complete",payload("complete")), /runner_assignment_rejected/);
+    const validatedPartial=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{
+      workspaceId:seed.workspaceId,submissionId:partial.submissionId,now:NOW+2,
+    });
+    assert.equal(validatedPartial.retryable,true);
+    assert.equal(validatedPartial.signalCount,1);
+    const immutablePartial=await seed.fixture.database.prepare("SELECT submission_json,submission_digest,status FROM runner_submissions WHERE id=?").bind(partial.submissionId).first();
+    const complete=await submit(seed,"early-complete",payload("complete","successor.example.invalid"),NOW+3);
     await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{
-      workspaceId:seed.workspaceId,submissionId:complete.submissionId,now:NOW+2,
+      workspaceId:seed.workspaceId,submissionId:complete.submissionId,now:NOW+5,
     });
     const before=await seed.fixture.database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=?").bind(seed.runId).first();
     const result=await ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{
-      workspaceId:seed.workspaceId,submissionId:partial.submissionId,now:NOW+3,
+      workspaceId:seed.workspaceId,submissionId:partial.submissionId,now:NOW+6,
     });
     assert.equal(result.signalCount,1);
     assert.equal(result.retryable,true);
+    assert.equal(result.replayed,true);
+    assert.deepEqual(await seed.fixture.database.prepare("SELECT submission_json,submission_digest,status FROM runner_submissions WHERE id=?").bind(partial.submissionId).first(),immutablePartial);
+    assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM runner_assignments WHERE run_id=? AND status='issued'").bind(seed.runId).first()).count),0);
     assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospecting_signals WHERE run_id=?").bind(seed.runId).first()).count),2);
     assert.deepEqual(await seed.fixture.database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=?").bind(seed.runId).first(),before);
     assert.equal((await terminalEvents(seed)).some(event=>event.submissionId===partial.submissionId&&event.terminalReason==="partial_submission_retryable"),true);
