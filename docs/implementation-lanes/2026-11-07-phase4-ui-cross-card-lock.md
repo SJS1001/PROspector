@@ -43,3 +43,26 @@ regression. React component interaction is not real-browser acceptance.
 
 Local regression coverage only. No phase/plan acceptance, no hosted proof,
 provider access, live data, export, outbound, schedules, or merging.
+
+## Pinned browser preflight (2026-11-07, America/Toronto)
+
+Playwright remains exactly **1.63.0**, requiring Chromium revision **1243**.
+Neither this worktree's lane cache, the original checkout's lane cache, nor
+`/home/box/.cache/ms-playwright` contains the pinned browser.
+A local-only `chromium.launch({headless:true})` preflight (no navigation)
+failed with **actual exit 1**, log `/tmp/prospector-ui-browser-preflight.log`:
+
+`Executable doesn't exist at /workspace/PROspector-ui/site/.local/playwright-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`
+
+The lane also resolves headed Chromium to
+`.local/playwright-browsers/chromium-1243/chrome-linux64/chrome` (absent).
+Required prerequisite: provision the Playwright 1.63.0 revision-1243 Chromium
+artifacts (and required runtime libraries) into this worktree's isolated lane
+cache. No downloads, substitutes, executable overrides, retries, hosted actions,
+or pin changes were attempted. Avoided expensive bootstrap because browser
+launch cannot succeed; `test:browser:operator-journey` was not run.
+
+This is a concrete browser prerequisite failure, **not** a browser assertion
+failure or pass. UI/component 15/15 evidence remains separate. Canonical remains
+queued. PR145's original suite was observed read-only and remained running with
+its actual exit record absent; no duplicate full suite launched here.
