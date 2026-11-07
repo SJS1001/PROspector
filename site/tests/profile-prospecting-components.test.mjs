@@ -219,6 +219,55 @@ test("Approve, Reject, and Defer expose action-specific pending state and block 
   }
 });
 
+test("pending review locks every card and same-turn competing callbacks cannot submit twice", async () => {
+  const { vite, review } = await modules();
+  let renderer;
+  let finish;
+  const waiting = new Promise((resolve) => { finish = resolve; });
+  const commands = [];
+  try {
+    await act(() => {
+      renderer = create(React.createElement(review.ReviewQueue, {
+        queue: queue(), busy: false,
+        onCommand(command) { commands.push(command); return waiting; },
+      }));
+    });
+    const cards = renderer.root.findAllByType("article");
+    await act(() => {
+      cards[0].findAllByType("input")[0].props.onChange({ target: { value: "Approve first only" } });
+      cards[1].findAllByType("input")[0].props.onChange({ target: { value: "Approve second only" } });
+    });
+    // Capture callbacks before rendering disables controls, exercising the ref
+    // guard as well as native disabled state across distinct prospect cards.
+    const first = button(cards[0], "Approve prospect").props.onClick;
+    const competing = button(cards[1], "Approve prospect").props.onClick;
+    let submitted;
+    await act(() => {
+      submitted = first();
+      competing();
+    });
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].prospectId, "prospect-1");
+    for (const card of cards) {
+      for (const label of ["Approve prospect", "Reject prospect", "Defer prospect"]) {
+        assert.equal(button(card, label, { includeDisabled: true }).props.disabled, true);
+      }
+      assert.ok(card.findAllByType("a").some((link) => link.props.href.startsWith("#assessment-")));
+    }
+    const status = renderer.root.findAll((node) => node.props.role === "status")
+      .filter((node) => node.children.join("").startsWith("Approval pending"));
+    assert.equal(status.length, 1);
+    assert.equal(status[0].props["aria-live"], "polite");
+    await act(async () => { finish(); await submitted; });
+    assert.equal(commands.length, 1, "settling the promise does not retry either decision");
+    assert.equal(cards[1].findAllByType("input")[0].props.value, "Approve second only");
+  } finally {
+    finish?.();
+    if (renderer) await act(() => renderer.unmount());
+    await vite.close();
+  }
+});
+
 async function modules() {
   const vite = await createServer({
     configFile: false,
