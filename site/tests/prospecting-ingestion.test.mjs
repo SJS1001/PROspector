@@ -41,7 +41,7 @@ test("enabled injected ingress coordinates an accepted submission through eviden
  }finally{await seed.fixture.dispose();}
 });
 
-test("owner-rejected prospect re-enters only through application-produced sourced disproof bound to later trusted evidence",async()=>{
+test("owner-rejected prospect re-enters on a Material Signal or sourced disproof, never on ordinary evidence during cooldown",async()=>{
  const seed=await setup();try{
   const runner=await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts",import.meta.url).pathname);
   const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
@@ -91,8 +91,12 @@ test("owner-rejected prospect re-enters only through application-produced source
   };
 
   const ordinaryRun=replacement.initialRun.id,ordinaryWindow=await seed.fixture.database.prepare("SELECT window_upper_inclusive FROM prospecting_runs WHERE id=?").bind(ordinaryRun).first(),ordinaryAt=NOW+23;
-  await assert.rejects(()=>runSubmission({runId:ordinaryRun,at:ordinaryAt,observedAt:Number(ordinaryWindow.window_upper_inclusive),key:"reentry-ordinary",materializer:()=>[candidateDraft]}),(error)=>error?.code==="prospecting_ingestion_rejected","ordinary material evidence under a replacement configuration cannot bypass the owner's rejection");
-  assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first()).count),0);
+  const ordinary=await runSubmission({runId:ordinaryRun,at:ordinaryAt,observedAt:Number(ordinaryWindow.window_upper_inclusive),key:"reentry-ordinary",materializer:()=>[candidateDraft]});
+  assert.ok(ordinary.assessments[0],"Plan 04-07: a Material Signal may reopen a rejected prospect during the 90-day cooldown");
+  const materialSuccessor=await seed.fixture.database.prepare("SELECT id,assessment_id,state,active,revision FROM profile_prospects WHERE assessment_id=? AND active=1").bind(ordinary.assessments[0].id).first();
+  assert.equal(materialSuccessor.state,"qualified");
+  const materialEvent=await seed.fixture.database.prepare("SELECT event_kind FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first();
+  assert.equal(materialEvent.event_kind,"material_signal");
   assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospect-reentry-disproof-validation/v1'").bind(seed.workspaceId).first()).count),0,"runner observations cannot assert a validation marker");
 
   const ordinarySignal=await seed.fixture.database.prepare("SELECT ps.id,ps.signal_digest,pl.id lineage_id,pl.lineage_digest,json_extract(pl.lineage_json,'$.observationFingerprint') fingerprint FROM prospecting_signals ps JOIN prospecting_source_lineage pl ON pl.id=ps.source_lineage_id WHERE ps.run_id=?").bind(ordinaryRun).first();
@@ -110,13 +114,15 @@ test("owner-rejected prospect re-enters only through application-produced source
   assert.equal(await policy.readValidatedSourcedDisproofSignalId(seed.fixture.database,{workspaceId:seed.workspaceId,profileId:seed.profileId,candidateId:candidateBinding.id,candidateDigest:candidateBinding.candidate_digest,fingerprint:candidateBinding.fingerprint,priorProspectId:firstProspect.id,priorAssessmentId:firstProspect.assessment_id,decisionAt:NOW+10}),null,"a forged marker with wrong candidate, lineage, and digest never validates");
   assert.equal(await policy.readValidatedSourcedDisproofSignalId(seed.fixture.database,{workspaceId:"wrong-workspace",profileId:seed.profileId,candidateId:candidateBinding.id,candidateDigest:candidateBinding.candidate_digest,fingerprint:candidateBinding.fingerprint,priorProspectId:firstProspect.id,priorAssessmentId:firstProspect.assessment_id,decisionAt:NOW+10}),null,"the marker cannot cross workspace");
 
+  await review.decideQualifiedProspect(seed.fixture.database,seed.principal,{prospectId:materialSuccessor.id,assessmentId:materialSuccessor.assessment_id,decision:"reject",reason:"Clear the Material Signal successor so sourced disproof can be proven separately",expectedRevision:Number(materialSuccessor.revision??1),idempotencyKey:"reentry-owner-reject-successor",now:ordinaryAt+4});
+
   const disproofAt=NOW+200,disproofRun=await nextRun("reentry-disproof",disproofAt);
   const disproof=await runSubmission({runId:disproofRun,at:disproofAt,key:"reentry-disproof",materializer:({signals})=>[{...candidateDraft,sourcedDisproof:{signalFingerprint:signals[0].fingerprint,validationRule:"owner-rejection-material-evidence/v1"}}]});
   assert.notEqual(disproof.assessments[0].id,firstProspect.assessment_id,"later sourced disproof creates a successor immutable assessment");
   const successor=await seed.fixture.database.prepare("SELECT id,assessment_id,state,active FROM profile_prospects WHERE assessment_id=? AND active=1").bind(disproof.assessments[0].id).first();
   assert.deepEqual({assessmentId:successor.assessment_id,state:successor.state,active:Number(successor.active)},{assessmentId:disproof.assessments[0].id,state:"qualified",active:1});
-  const event=await seed.fixture.database.prepare("SELECT signal_id,prior_assessment_id,event_kind,event_json,event_digest FROM prospect_reentry_events WHERE prospect_id=?").bind(firstProspect.id).first();
-  assert.equal(event.event_kind,"sourced_disproof");assert.equal(event.prior_assessment_id,firstProspect.assessment_id);assert.match(event.event_digest,/^[0-9a-f]{64}$/);
+  const event=await seed.fixture.database.prepare("SELECT signal_id,prior_assessment_id,event_kind,event_json,event_digest FROM prospect_reentry_events WHERE workspace_id=? AND event_kind='sourced_disproof' ORDER BY created_at DESC,id DESC").bind(seed.workspaceId).first();
+  assert.equal(event.event_kind,"sourced_disproof");assert.equal(event.prior_assessment_id,materialSuccessor.assessment_id);assert.match(event.event_digest,/^[0-9a-f]{64}$/);
   assert.equal(JSON.parse(event.event_json).reenteredProspectId,successor.id);
   const marker=await seed.fixture.database.prepare("SELECT lineage_json,lineage_digest FROM prospecting_source_lineage WHERE workspace_id=? AND json_extract(lineage_json,'$.schema')='prospect-reentry-disproof-validation/v1' ORDER BY created_at DESC,id DESC").bind(seed.workspaceId).first();
   const markerValue=JSON.parse(marker.lineage_json);assert.match(marker.lineage_digest,/^[0-9a-f]{64}$/);assert.equal(markerValue.workspaceId,seed.workspaceId);assert.equal(markerValue.candidateId,candidateBinding.id);assert.equal(markerValue.signalId,event.signal_id);assert.equal(markerValue.sourceLineageId!==ordinarySignal.lineage_id,true);assert.equal(markerValue.observedAt>NOW+10,true);
