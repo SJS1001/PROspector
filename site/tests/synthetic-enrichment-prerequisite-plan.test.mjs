@@ -451,3 +451,76 @@ test("does not import persistence, routes, providers, browser types, coordinates
     }
   }
 });
+
+
+test("rejects out-of-range numeric array properties instead of silently dropping digest material", async () => {
+  await withModule(async (module) => {
+    for (const key of ["4294967295", "9007199254740991"]) {
+      const input = await fixture(module);
+      Object.defineProperty(input.capPolicy.accounts, key, {
+        value: "uncommitted synthetic material", enumerable: true,
+      });
+      await assert.rejects(
+        module.digestSyntheticEnrichmentMaterial(input.capPolicy),
+        /invalid_synthetic_enrichment_material/u,
+        key,
+      );
+      assert.deepEqual(await module.planSyntheticEnrichmentPrerequisites(input), {
+        kind: "blocked", reason: "invalid_snapshot",
+      });
+      const clean = await module.planSyntheticEnrichmentPrerequisites(await fixture(module));
+      const forged = structuredClone(clean.plan);
+      Object.defineProperty(forged.budgetAccounts, key, { value: true, enumerable: true });
+      assert.deepEqual(await module.compareSyntheticEnrichmentPrerequisitePlans(clean.plan, forged), {
+        kind: "invalid_plan",
+      });
+    }
+  });
+});
+
+
+test("binds own __proto__ data and rejects extra closed-contract fields without prototype changes", async () => {
+  await withModule(async (module) => {
+    const cleanDigest = await module.digestSyntheticEnrichmentMaterial({ synthetic: true });
+    const digests = new Set([cleanDigest]);
+    for (const value of [17, { syntheticMarker: true }, null]) {
+      const material = { synthetic: true };
+      Object.defineProperty(material, "__proto__", { value, enumerable: true });
+      const digest = await module.digestSyntheticEnrichmentMaterial(material);
+      assert.notEqual(digest, cleanDigest);
+      digests.add(digest);
+      assert.equal(Object.getPrototypeOf(material), Object.prototype);
+      assert.equal(Object.prototype.syntheticMarker, undefined);
+      const input = await fixture(module);
+      Object.defineProperty(input, "__proto__", { value, enumerable: true });
+      assert.deepEqual(await module.planSyntheticEnrichmentPrerequisites(input), { kind: "blocked", reason: "invalid_snapshot" });
+      const planned = await module.planSyntheticEnrichmentPrerequisites(await fixture(module));
+      const forged = structuredClone(planned.plan);
+      Object.defineProperty(forged, "__proto__", { value, enumerable: true });
+      assert.deepEqual(await module.compareSyntheticEnrichmentPrerequisitePlans(planned.plan, forged), { kind: "invalid_plan" });
+    }
+    assert.equal(digests.size, 4);
+  });
+});
+
+test("rejects accessor and hidden __proto__ descriptors without evaluating getters", async () => {
+  await withModule(async (module) => {
+    let reads = 0;
+    for (const descriptor of [
+      { get() { reads += 1; return 17; }, enumerable: true },
+      { value: 17, enumerable: false },
+    ]) {
+      const material = {};
+      Object.defineProperty(material, "__proto__", descriptor);
+      await assert.rejects(module.digestSyntheticEnrichmentMaterial(material), /invalid_synthetic_enrichment_material/u);
+      const input = await fixture(module);
+      Object.defineProperty(input, "__proto__", descriptor);
+      assert.deepEqual(await module.planSyntheticEnrichmentPrerequisites(input), { kind: "blocked", reason: "invalid_snapshot" });
+      const planned = await module.planSyntheticEnrichmentPrerequisites(await fixture(module));
+      const forged = structuredClone(planned.plan);
+      Object.defineProperty(forged, "__proto__", descriptor);
+      assert.deepEqual(await module.compareSyntheticEnrichmentPrerequisitePlans(planned.plan, forged), { kind: "invalid_plan" });
+    }
+    assert.equal(reads, 0);
+  });
+});
