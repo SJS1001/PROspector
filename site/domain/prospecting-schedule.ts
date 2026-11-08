@@ -132,8 +132,20 @@ export async function reconcileProspectingSchedules(database: D1Database, worksp
     const key = slotAt(schedule.profile_id, due, localTime, timezone);
     const next = nextProfileWeekdaySlot(schedule.profile_id, due, localTime, timezone);
     if (now - due > DAY) {
-      await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, "skipped_misfire");
-      results.push({ scheduleId: schedule.id, executionState: "skipped_misfire", key }); continue;
+      const recorded = await persistSkippedMisfire(database, workspaceId, {
+        profileId: schedule.profile_id,
+        configurationId: schedule.configuration_id,
+        configurationDigest: schedule.configuration_digest,
+        scheduleId: schedule.id,
+        triggerKind: "scheduled",
+        triggerKey: key,
+        idempotencyKey: `schedule:${key}`,
+        at: due,
+        watermark: schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark),
+        manifest: { scheduleId: schedule.id, localSlot: key, skippedBecause: "misfire" },
+      });
+      await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, "blocked_missing_capability");
+      results.push({ scheduleId: schedule.id, ...recorded }); continue;
     }
     const result = await createProspectingIntent(database, workspaceId, { profileId:schedule.profile_id, configurationId:schedule.configuration_id, configurationDigest:schedule.configuration_digest, scheduleId:schedule.id, triggerKind:"scheduled", triggerKey:key, idempotencyKey:`schedule:${key}`, at:due, watermark:schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark), manifest:{ scheduleId:schedule.id, localSlot:key } });
     await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, result.executionState);
@@ -177,6 +189,32 @@ async function persistSkippedOverlap(database:D1Database, workspaceId:string, in
     database.prepare("INSERT INTO prospecting_run_events (id,workspace_id,run_id,event_type,event_json,event_digest,operation_digest,created_at) VALUES (?, ?, ?, 'skipped_overlap', ?, ?, ?, ?)").bind(eventId,workspaceId,runId,eventJson,await sha256(eventJson),await sha256(`${operation}:skipped_overlap`),now),
   ]); } catch(e) { const r=await database.prepare("SELECT id,execution_state FROM prospecting_runs WHERE workspace_id=? AND profile_id=? AND trigger_key=? LIMIT 1").bind(workspaceId,intent.profileId,intent.triggerKey).first<any>();if(r)return{id:r.id,trigger:intent.triggerKind,key:intent.triggerKey,executionState:r.execution_state,replayed:true};throw e }
   return {id:runId,trigger:intent.triggerKind,key:intent.triggerKey,executionState:"skipped_overlap" as const,replayed:false};
+}
+
+async function persistSkippedMisfire(database: D1Database, workspaceId: string, intent: Intent) {
+  const existing = await database.prepare("SELECT id,execution_state FROM prospecting_runs WHERE workspace_id=? AND profile_id=? AND trigger_key=? LIMIT 1").bind(workspaceId, intent.profileId, intent.triggerKey).first<{ id: string; execution_state: string }>();
+  if (existing) return { id: existing.id, trigger: intent.triggerKind, key: intent.triggerKey, executionState: existing.execution_state, replayed: true };
+  const now = intent.at;
+  const runId = v7();
+  const commandId = v7();
+  const eventId = v7();
+  const manifest = stable({ schema: "profile-prospecting-run/v1", ...intent.manifest, transport: "blocked_missing_capability", downstreamAuthority: false });
+  const manifestDigest = await sha256(manifest);
+  const operation = await sha256(stable({ action: "profile.prospecting.skipped_misfire", profileId: intent.profileId, triggerKey: intent.triggerKey, manifestDigest }));
+  const eventJson = stable({ trigger: "scheduled", key: intent.triggerKey, state: "skipped_misfire" });
+  const window = profileSourceWindow(intent.watermark, now);
+  try {
+    await database.batch([
+      database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'profile.prospecting.intent',?,?,1,'profile',?,'accepted')").bind(commandId, workspaceId, now, now, intent.idempotencyKey, operation, intent.profileId),
+      database.prepare("INSERT INTO prospecting_runs (id,workspace_id,created_at,updated_at,revision,profile_id,configuration_id,schedule_id,configuration_digest,trigger_kind,trigger_key,window_lower_exclusive,window_upper_inclusive,last_successful_watermark,successful_watermark,manifest_json,manifest_digest,execution_state,authority_command_id,operation_digest,idempotency_key,started_at,completed_at) VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,NULL,?,?,'skipped_misfire',?,?,?,?,?)").bind(runId, workspaceId, now, now, intent.profileId, intent.configurationId, intent.scheduleId, intent.configurationDigest, intent.triggerKind, intent.triggerKey, window.lowerExclusive, window.upperInclusive, intent.watermark, manifest, manifestDigest, commandId, operation, intent.idempotencyKey, now, now),
+      database.prepare("INSERT INTO prospecting_run_events (id,workspace_id,run_id,event_type,event_json,event_digest,operation_digest,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(eventId, workspaceId, runId, "skipped_misfire", eventJson, await sha256(eventJson), await sha256(`${operation}:skipped_misfire`), now),
+    ]);
+  } catch (error) {
+    const winner = await database.prepare("SELECT id,execution_state FROM prospecting_runs WHERE workspace_id=? AND profile_id=? AND trigger_key=? LIMIT 1").bind(workspaceId, intent.profileId, intent.triggerKey).first<{ id: string; execution_state: string }>();
+    if (winner) return { id: winner.id, trigger: intent.triggerKind, key: intent.triggerKey, executionState: winner.execution_state, replayed: true };
+    throw error;
+  }
+  return { id: runId, trigger: intent.triggerKind, key: intent.triggerKey, executionState: "skipped_misfire" as const, replayed: false };
 }
 async function advanceSchedule(database:D1Database,workspaceId:string,id:string,next:number,offset:number,now:number,state:string){await database.prepare("UPDATE prospecting_schedules SET next_run_at=?,utc_offset_minutes=?,execution_state=?,updated_at=?,revision=revision+1 WHERE id=? AND workspace_id=? AND active=1").bind(next,offset,state,now,id,workspaceId).run();}
 function slotAt(profileId:string,at:number,time:string,zone:string){const p=localParts(at,zone);return profileSlotKey(profileId,`${p.year}-${p.month}-${p.day}`,time,offsetAt(at,zone));}
