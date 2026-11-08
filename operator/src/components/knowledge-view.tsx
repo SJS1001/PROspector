@@ -184,10 +184,10 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
   const [answer, setAnswer] = useState(
     item.proposedAnswer ?? item.confirmedAnswer ?? uiText(item.recommendation),
   );
-  const heading = useRef<HTMLHeadingElement>(null);
+  const answerField = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    heading.current?.focus();
-  }, []);
+    if (item.status !== "proposed" || editing) answerField.current?.focus();
+  }, [editing, item.questionId, item.status]);
   const propose = useProposeAnswer();
   const confirm = useConfirmAnswer();
   const research = useResearchQuestion();
@@ -204,11 +204,7 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
       <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-teal">
         Question {item.sortOrder} · {uiLabel(item.scope)}
       </span>
-      <h2
-        ref={heading}
-        tabIndex={-1}
-        className="mt-3 max-w-[680px] text-xl font-medium leading-snug"
-      >
+      <h2 className="mt-3 max-w-[680px] text-xl font-medium leading-snug">
         {uiText(item.question)}
       </h2>
       <details className="mt-4 rounded-md border border-line p-3 text-sm">
@@ -243,6 +239,7 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
           <label className="grid gap-1 text-xs text-muted">
             Answer
             <textarea
+              ref={answerField}
               required
               minLength={2}
               value={answer}
