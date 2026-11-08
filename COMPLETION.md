@@ -21,7 +21,7 @@ retry_count: 0
 failure_fingerprint: waiting-external-acceptance-and-review-quota
 prior_failure_fingerprint: openrouter-jev-offline-only
 last_progress_at: 2026-11-08T19:55:00Z
-last_progress: OpenRouter is a selectable provider. Jev decisions on that selection use POST https://openrouter.ai/api/alpha/decisions with the OpenRouter key only. Direct TypeSafe stays on /systemone. Offline tests passed. Live OpenRouter and owner acceptance were not tested.
+last_progress: OpenRouter is a selectable provider. Jev decisions on that selection use POST https://openrouter.ai/api/alpha/decisions with the OpenRouter key only. Direct TypeSafe stays on /systemone. Offline tests passed. Live OpenRouter and owner acceptance were not tested. Requirement inventory now lives in COMPLETION_LEDGER.md.
 watchdog:
   repos: [PROspector, Distributor, DigitalRain]
   excluded: [ServiceTitan]
@@ -183,3 +183,7 @@ The parent routine may look at PROspector, Distributor, and DigitalRain every 10
 Update this file before a substantive batch, after that batch, and at a terminal stop. Waiting on a person, a review quota, or an external acceptance is a terminal stop for implementation. Record the flags and wait. Do not rerun a suite that is already green on the baseline.
 
 The before-batch checkpoint is `3c0649f04f6b28c309a21d7e08f6b393cc2c717d`. This revision is the after-batch checkpoint. Implementation is waiting on a person and on the review quota.
+
+## Requirement ledger
+
+The v1 requirement inventory is `COMPLETION_LEDGER.md`. It keeps these 17 IDs and does not turn plan credit 26/74 into a product percent. Formal acceptance in that ledger is 0 verified. The OpenRouter offline tests are evidence on `REQ-untrusted-runner-boundary` only, and they do not accept that requirement. This section does not replace the history above.
