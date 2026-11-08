@@ -21,6 +21,7 @@ import { useWorkspace, workspaceKey } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 import { AccessScreen } from "@/components/access-screen";
 import { TASKS, NAVIGATION_GROUPS, taskUnlocked } from "@/lib/domain/journey";
+import { lockedTaskReason } from "@/lib/domain/review-gates";
 import type { WorkspaceDTO } from "@/lib/domain/types";
 
 const ICONS = {
@@ -137,11 +138,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 const Icon = ICONS[item.id];
                 const active = item.id === task || (item.id === "status" && task === "brief");
                 const open = taskUnlocked(item.unlock, gate);
+                const later = open ? null : lockedTaskReason(item.unlock);
+                const waiting = open && item.id === "review" && queueCount > 0 ? queueCount : 0;
                 return (
                   <Link
                     key={item.id}
                     to={item.href}
                     aria-current={active ? "page" : undefined}
+                    aria-label={
+                      later
+                        ? `${item.label}. ${later}`
+                        : waiting
+                          ? `${item.label}, ${waiting} waiting`
+                          : undefined
+                    }
                     onClick={() => {
                       setMobileNavOpen(false);
                       requestAnimationFrame(() =>
@@ -155,10 +165,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   >
                     <Icon aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.6} />
                     <span>{item.label}</span>
-                    {open && item.id === "review" && queueCount > 0 ? (
+                    {waiting ? (
                       <em className="ml-auto min-w-5 rounded-sm bg-lime px-1.5 text-center text-2xs font-semibold not-italic text-paper">
-                        {queueCount}
+                        {waiting}
                       </em>
+                    ) : later ? (
+                      <span className="ml-auto text-2xs text-subtle">Later</span>
                     ) : null}
                   </Link>
                 );
