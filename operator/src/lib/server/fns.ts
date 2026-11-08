@@ -2,6 +2,7 @@ import { opportunitySchema } from "@/lib/domain/opportunity";
 import { buildOpportunity } from "./opportunity";
 import { retrieveHttps } from "./retrieve";
 import { anthropicWorkspaceId } from "@/lib/domain/llm";
+import { planConnectionWrites } from "@/lib/domain/openrouter-policy";
 import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { getSql, type Sql } from "@/lib/db";
@@ -9,7 +10,7 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { executeDiscovery } from "@/lib/server/discover";
 import { executeHunt } from "@/lib/server/hunt";
 import { revealFromPages } from "@/lib/server/reveal";
-import { connectionFlags, putSecret } from "@/lib/server/secrets";
+import { connectionFlags, putSecret, type SecretName } from "@/lib/server/secrets";
 import { prepareManualMessage, approveManualMessage, handoffManualMessage, manualCrmCsv, eligibleCrmContacts, packageDigest } from "@/lib/server/manual-workflow";
 import { WEEKLY_EXPORT_TARGET, isProductScope } from "@/lib/domain/catalog";
 import { digestSnapshot, productReadinessFromKnowledge, readinessFromKnowledge, snapshotFromKnowledge } from "@/lib/server/profile";
@@ -1493,30 +1494,18 @@ export const saveConnections = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
-    if (data.xai) await putSecret(sql, context.userId, "xai", data.xai);
-    if (data.llmKey) {
-      await putSecret(sql, context.userId, "llm_key", data.llmKey);
-      await putSecret(sql, context.userId, "xai", data.llmKey);
+    if (data.llmProvider !== "openrouter" && data.jevBaseUrl && !data.jevBaseUrl.startsWith("https://")) {
+      throw new Error("Jev base URL must be HTTPS.");
     }
-    if (data.llmWorkspaceId !== undefined) await putSecret(sql, context.userId, "llm_workspace_id", data.llmWorkspaceId);
-    if (data.llmProvider) await putSecret(sql, context.userId, "llm_provider", data.llmProvider);
-    if (data.llmModel) await putSecret(sql, context.userId, "llm_model", data.llmModel);
-    if (data.llmBaseUrl) await putSecret(sql, context.userId, "llm_base_url", data.llmBaseUrl);
+    for (const write of planConnectionWrites(data)) {
+      await putSecret(sql, context.userId, write.name as SecretName, write.value);
+    }
     // A saved or restored setting cannot enable scheduled processing.
     if (data.scheduleEnabled !== undefined) await putSecret(sql, context.userId, "schedule_enabled", "0");
-    if (data.apollo) await putSecret(sql, context.userId, "apollo", data.apollo);
     if (Number.isFinite(Number(data.huntBatch))) {
       const batch = Math.min(20, Math.max(4, Math.round(Number(data.huntBatch))));
       await putSecret(sql, context.userId, "hunt_batch", String(batch));
     }
-    if (data.zoominfo) await putSecret(sql, context.userId, "zoominfo", data.zoominfo);
-    if (data.jev) await putSecret(sql, context.userId, "jev", data.jev);
-    if (data.jevBaseUrl) {
-      if (!data.jevBaseUrl.startsWith("https://")) throw new Error("Jev base URL must be HTTPS.");
-      await putSecret(sql, context.userId, "jev_base_url", data.jevBaseUrl.replace(/\/+$/, ""));
-    }
-    if (data.gmailUser) await putSecret(sql, context.userId, "gmail_user", data.gmailUser);
-    if (data.gmailPass) await putSecret(sql, context.userId, "gmail_pass", data.gmailPass);
     const budget = Number(data.monthlyBudgetCents);
     if (Number.isFinite(budget) && budget >= 0) {
       const flags = await connectionFlags(sql, context.userId);

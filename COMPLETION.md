@@ -9,19 +9,19 @@ plans_total: 74
 plans_uncredited: 48
 v1_requirements_checked: 0/17
 phase_4_to_7_plans: 44
-stop: false
+stop: true
 cancel: false
-needs_user: false
+needs_user: true
 all_done: false
-development_running: true
-development_authorized: true
-authorized_scope: openrouter selectable provider with apollo and non-AI credential exclusion
+development_running: false
+development_authorized: false
+authorized_scope: none
 setup_authorized: true
 retry_count: 0
-failure_fingerprint: none
-prior_failure_fingerprint: waiting-external-acceptance-and-review-quota
-last_progress_at: 2026-11-08T19:48:00Z
-last_progress: Steven authorized OpenRouter as a selectable provider on 2026-11-08 14:47 America/Toronto. This supersedes development_authorized false only for that feature. Review quota and external acceptance gates stay closed. No live API call, signup, purchase, or production enablement.
+failure_fingerprint: waiting-external-acceptance-and-review-quota
+prior_failure_fingerprint: openrouter-jev-offline-only
+last_progress_at: 2026-11-08T19:55:00Z
+last_progress: OpenRouter is a selectable provider. Jev decisions on that selection use POST https://openrouter.ai/api/alpha/decisions with the OpenRouter key only. Direct TypeSafe stays on /systemone. Offline tests passed. Live OpenRouter and owner acceptance were not tested.
 watchdog:
   repos: [PROspector, Distributor, DigitalRain]
   excluded: [ServiceTitan]
@@ -46,14 +46,14 @@ The product baseline is `c8000d7c99ebf4b7f3cdb01e737860ce8da18327` on `cursor/pr
 
 | Flag | Value | Meaning |
 | --- | --- | --- |
-| stop | false | One scoped feature is authorized. Acceptance gates and the review quota stay closed. |
-| cancel | false | Earlier cancels stay in `prior_failure_fingerprint`. Do not relaunch them. |
-| needs_user | false | The OpenRouter feature was authorized. External plan acceptance still needs a person later. |
+| stop | true | The OpenRouter feature batch is committed. Do not start another implementation from this wait. |
+| cancel | false | Earlier cancels stay recorded. Do not relaunch them. |
+| needs_user | true | Plan acceptance and the review quota still need a person. That does not undo the OpenRouter code. |
 | all_done | false | Neither the product nor the three-project report is complete. |
-| development_running | true | This session owns the OpenRouter provider work. Do not start a second job on these files. |
-| development_authorized | true | Only OpenRouter as a selectable model provider, with Apollo and other non-AI credentials excluded from that flow. |
+| development_running | false | No shard is running. |
+| development_authorized | false | The authorized OpenRouter and Jev-endpoint edit is committed. |
 | retry_count | 0 | No recovery retry has been consumed. |
-| failure_fingerprint | none | This feature batch has not failed. |
+| failure_fingerprint | waiting-external-acceptance-and-review-quota | Not a test failure. Do not rerun a green suite or buy review credits. |
 | prior_failure_fingerprint | scope-correction-development-cancelled | Do not revive that run, and do not cite it as a passing test. |
 
 ## Status report
@@ -135,6 +135,27 @@ This workspace is only `SJS1001/PROspector`.
 - Distributor: no checkout, and the visible `SJS1001` repository list has no Distributor repo. No checklist was created for it.
 - DigitalRain: `SJS1001/digitalrain-website` and `SJS1001/digitalrain-deck` are visible and are not checked out. No completion ledger was read. Nothing is claimed done or remaining inside them.
 - ServiceTitan: excluded. Not inspected.
+
+## OpenRouter and Jev, offline
+
+Authorized 2026-11-08 14:47 and 14:53 America/Toronto. This is operator connection code, not plan credit.
+
+When OpenRouter is selected, Settings asks for the provider, a model id, and the OpenRouter API key. Apollo, ZoomInfo, Gmail, and a separate TypeSafe key are not shown and are not written. Switching back restores those fields. Stored keys are not erased. Apollo search is not dispatched and does not read the stored Apollo key.
+
+Chat completions stay on `POST https://openrouter.ai/api/v1/chat/completions` with `Authorization: Bearer` and an author/slug model id. Jev decision models (`typesafe/jev-1.14`, `typesafe/jev-1.13`, `~typesafe/jev-latest`) are refused on that chat URL. `typesafe/jev-router` is refused too: the public catalog treats it as a router, not the semantic decision model.
+
+When the saved LLM provider is OpenRouter, Jev uses only `llm_key` and `POST https://openrouter.ai/api/alpha/decisions`. It does not read the TypeSafe secret or `TYPESAFE_API_KEY`. A direct TypeSafe selection still posts to `{base}/systemone` with the TypeSafe key. The default base remains `https://api.typesafe.ai/v1` and the default model remains `jev-latest`. A missing or malformed answer fails closed and does not fall back to another credential. No live OpenRouter or TypeSafe call was made.
+
+Receipts after checkpoint `29cdca0457ba3f622b7fee94381913f9dbfd581f`, before this commit, on the dirty tree:
+
+| Command | Result |
+| --- | --- |
+| `node --experimental-strip-types --test src/lib/domain/openrouter-policy.test.ts` | 6 pass, 0 fail, exit 0 |
+| `node --test acceptance/keyboard/openrouter-settings.test.mjs` | 1 pass, 0 fail, exit 0 |
+| `node --test scripts/jev-connection.test.mjs` | 1 pass, 0 fail, exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+
+The full operator suite and the site canonical suite were not rerun. Live inference, account setup, spending, and owner acceptance are unverified.
 
 ## How to resume after a timeout
 

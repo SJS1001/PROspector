@@ -13,6 +13,8 @@ const DIMS = [
 export async function jevQualifyPage(opts: {
   apiKey: string;
   baseUrl?: string;
+  transport?: "typesafe" | "openrouter";
+  model?: string;
   accountName: string;
   targetName: string;
   url: string;
@@ -23,6 +25,8 @@ export async function jevQualifyPage(opts: {
   const result = await jevDecide({
     apiKey: opts.apiKey,
     baseUrl: opts.baseUrl,
+    transport: opts.transport,
+    model: opts.model,
     state: {
       accountName: opts.accountName,
       targetName: opts.targetName,
@@ -100,6 +104,8 @@ export async function jevQualifyPage(opts: {
 export async function jevClassifyInbox(opts: {
   apiKey: string;
   baseUrl?: string;
+  transport?: "typesafe" | "openrouter";
+  model?: string;
   from: string;
   subject: string;
   body: string;
@@ -107,6 +113,8 @@ export async function jevClassifyInbox(opts: {
   const result = await jevDecide({
     apiKey: opts.apiKey,
     baseUrl: opts.baseUrl,
+    transport: opts.transport,
+    model: opts.model,
     state: {
       from: opts.from.slice(0, 200),
       subject: opts.subject.slice(0, 200),
@@ -132,6 +140,8 @@ export async function jevClassifyInbox(opts: {
 export async function jevGuardCopy(opts: {
   apiKey: string;
   baseUrl?: string;
+  transport?: "typesafe" | "openrouter";
+  model?: string;
   limitations: string;
   promise: string;
   body: string;
@@ -139,6 +149,8 @@ export async function jevGuardCopy(opts: {
   const result = await jevDecide({
     apiKey: opts.apiKey,
     baseUrl: opts.baseUrl,
+    transport: opts.transport,
+    model: opts.model,
     state: {
       limitations: opts.limitations.slice(0, 1_200),
       promise: opts.promise.slice(0, 800),

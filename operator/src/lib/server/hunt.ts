@@ -151,6 +151,8 @@ export async function executeHunt(opts: {
             const judged = await jevQualifyPage({
               apiKey: jev.apiKey,
               baseUrl: jev.baseUrl,
+              transport: jev.transport,
+              model: jev.model,
               accountName: item.candidate.accountName,
               targetName: item.candidate.targetName,
               url: item.page.url,

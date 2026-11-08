@@ -1,3 +1,5 @@
+import { openRouterJevDecisionRequest } from "@/lib/domain/openrouter-policy";
+
 export type JevQuestion =
   | { type: "noul"; instructions: string; criteria?: Record<string, string> }
   | { type: "choice"; instructions: string; criteria: Record<string, string | null> }
@@ -108,22 +110,36 @@ export async function jevDecide(opts: {
   state: unknown;
   questions: Record<string, JevQuestion>;
   model?: string;
+  transport?: "typesafe" | "openrouter";
 }): Promise<JevResponse> {
-  const base = (opts.baseUrl || DEFAULT_BASE).replace(/\/+$/, "");
-  let response: Response;
-  try {
-    response = await fetch(`${base}/systemone`, {
-      method: "POST",
-      signal: AbortSignal.timeout(12_000),
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${opts.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: opts.model || "jev-latest",
+  const transport = opts.transport ?? "typesafe";
+  const request = transport === "openrouter"
+    ? openRouterJevDecisionRequest({
+        apiKey: opts.apiKey,
+        model: opts.model,
         state: opts.state,
         questions: opts.questions,
-      }),
+      })
+    : {
+        url: `${(opts.baseUrl || DEFAULT_BASE).replace(/\/+$/, "")}/systemone`,
+        method: "POST" as const,
+        headers: {
+          "Content-Type": "application/json" as const,
+          Authorization: `Bearer ${opts.apiKey}`,
+        },
+        body: {
+          model: opts.model || "jev-latest",
+          state: opts.state,
+          questions: opts.questions,
+        },
+      };
+  let response: Response;
+  try {
+    response = await fetch(request.url, {
+      method: request.method,
+      signal: AbortSignal.timeout(12_000),
+      headers: request.headers,
+      body: JSON.stringify(request.body),
     });
   } catch (error) {
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
@@ -134,9 +150,13 @@ export async function jevDecide(opts: {
   if (!response.ok) {
     const reason =
       response.status === 401 || response.status === 403
-        ? "JEV rejected the saved key. Check your TypeSafe key and account access."
+        ? transport === "openrouter"
+          ? "JEV rejected the saved key. Check your OpenRouter key."
+          : "JEV rejected the saved key. Check your TypeSafe key and account access."
         : response.status === 429
-          ? "JEV is rate limited or out of credits. Check your TypeSafe account."
+          ? transport === "openrouter"
+            ? "JEV is rate limited or out of credits. Check your OpenRouter account."
+            : "JEV is rate limited or out of credits. Check your TypeSafe account."
           : response.status === 400 || response.status === 422
             ? "JEV rejected the scoring request."
             : `JEV is unavailable (HTTP ${response.status}). Try again later.`;

@@ -1,5 +1,6 @@
 import { anthropicSearch } from "./anthropic-search";
 import { anthropicWorkspaceId, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
+import { assertOpenRouterModelId, openRouterChatRequest, providerAllowsStoredKeyFallback } from "@/lib/domain/openrouter-policy";
 import { assertPublicHttps } from "@/lib/server/retrieve";
 import { getSecret } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
@@ -39,13 +40,12 @@ export async function resolveLlmConfig(sql: Sql, userId: string): Promise<LlmCon
   const providerId = ((await getSecret(sql, userId, "llm_provider")) || "xai") as LlmProviderId;
   const spec = llmProvider(providerId);
   const customBase = await getSecret(sql, userId, "llm_base_url");
-  const model =
-    (await getSecret(sql, userId, "llm_model")) || spec.defaultModel || "grok-4.5";
-  const key =
-    (await getSecret(sql, userId, "llm_key")) ||
-    (await getSecret(sql, userId, "xai")) ||
-    process.env.XAI_API_KEY ||
-    "";
+  const storedModel = (await getSecret(sql, userId, "llm_model")) || spec.defaultModel || "grok-4.5";
+  const model = spec.id === "openrouter" ? assertOpenRouterModelId(storedModel) : storedModel;
+  const storedKey = await getSecret(sql, userId, "llm_key");
+  const key = providerAllowsStoredKeyFallback(spec.id)
+    ? storedKey || (await getSecret(sql, userId, "xai")) || process.env.XAI_API_KEY || ""
+    : storedKey;
   let baseUrl = spec.baseUrl;
   if (spec.id === "custom") {
     if (!customBase) throw new Error("Set an HTTPS base URL for the custom provider.");
@@ -84,6 +84,16 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
 }
 
 async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record<string, unknown>) {
+  if (config.provider === "openrouter") {
+    const request = openRouterChatRequest({
+      apiKey: config.apiKey,
+      model: config.model,
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: typeof extra?.max_tokens === "number" ? extra.max_tokens : undefined,
+    });
+    const json = await postJson(request.url, request.headers, { ...request.body, ...extra });
+    return outputText(json);
+  }
   if (config.provider === "anthropic") {
     const json = await postJson(
       `${config.baseUrl.replace(/\/+$/, "")}/v1/messages`,

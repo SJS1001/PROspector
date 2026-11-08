@@ -52,7 +52,7 @@ export const LLM_PROVIDERS: LlmProvider[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "openrouter/auto",
     search: "openrouter",
-    hint: "Any OpenRouter model id. Web plugin enabled when the model supports it.",
+    hint: "Model ids look like openai/gpt-4. Apollo and other non-AI services are not included in OpenRouter.",
   },
   {
     id: "groq",

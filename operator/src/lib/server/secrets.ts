@@ -1,4 +1,5 @@
 import { llmProvider } from "@/lib/domain/llm";
+import { jevCredentialPlan, providerAllowsStoredKeyFallback } from "@/lib/domain/openrouter-policy";
 import { isSensitiveSecret, openSecret, sealSecret } from "@/lib/server/vault";
 import type { Sql } from "@/lib/db";
 import type { ApolloCredits } from "@/lib/server/apollo";
@@ -70,7 +71,9 @@ export async function connectionFlags(sql: Sql, userId: string) {
   const spendMonth = state?.spend_month === month ? state.spend_month : month;
   const spendUsed = state?.spend_month === month ? Number(state.spend_used_cents) : 0;
   const provider = llmProvider(map.llm_provider || "xai");
-  const hasLlm = Boolean(map.llm_key || map.xai || process.env.XAI_API_KEY);
+  const hasLlm = providerAllowsStoredKeyFallback(provider.id)
+    ? Boolean(map.llm_key || map.xai || process.env.XAI_API_KEY)
+    : Boolean(map.llm_key);
   const batch = Number(map.hunt_batch || 12);
   const credits = parseCredits(map.apollo_credits || "");
   return {
@@ -110,11 +113,21 @@ export async function resolveXaiKey(sql: Sql, userId: string) {
 }
 
 export async function resolveJev(sql: Sql, userId: string) {
+  const providerId = (await getSecret(sql, userId, "llm_provider")) || "xai";
+  const plan = jevCredentialPlan(providerId);
+  if (plan.transport === "openrouter") {
+    return {
+      apiKey: await getSecret(sql, userId, "llm_key"),
+      baseUrl: undefined,
+      transport: plan.transport,
+      model: plan.model,
+    };
+  }
   const apiKey =
     (await getSecret(sql, userId, "jev")) ||
     process.env.TYPESAFE_API_KEY ||
     process.env.JEV_API_KEY ||
     "";
   const baseUrl = (await getSecret(sql, userId, "jev_base_url")) || undefined;
-  return { apiKey, baseUrl };
+  return { apiKey, baseUrl, transport: plan.transport, model: plan.model };
 }

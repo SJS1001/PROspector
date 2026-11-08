@@ -51,6 +51,8 @@ export async function scanGmailInbox(opts: { sql: Sql; userId: string; user: str
           const judged = await jevClassifyInbox({
             apiKey: jev.apiKey,
             baseUrl: jev.baseUrl,
+            transport: jev.transport,
+            model: jev.model,
             from,
             subject,
             body,
