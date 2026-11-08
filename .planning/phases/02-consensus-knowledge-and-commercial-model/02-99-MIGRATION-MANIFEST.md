@@ -1,9 +1,10 @@
 # Plan 02-99 checked migration manifest
 
-**Captured:** 2026-09-02 (`0000`-`0009`), extended 2026-09-07 (`0010`-`0019`)
+**Captured:** 2026-09-02 (`0000`-`0009`), extended 2026-09-07 (`0010`-`0019`), extended 2026-11-08 (`0020`-`0021`)
 
 **Checked source:** `46d082e962c4acc1771e92ad300d61913d50ead4` for `0000`-`0009`;
-`071b95b78afe765d8f6f5312063518cd913ed10e` for the appended `0010`-`0019` rows
+`071b95b78afe765d8f6f5312063518cd913ed10e` for the appended `0010`-`0019` rows;
+`cb0c690d227d0397e61c86fb15f034e3dfd524ee` for the appended `0020`-`0021` rows
 
 **Algorithm:** SHA-256
 
@@ -48,6 +49,8 @@ pinned by nothing. Neither supersedes the other.
 | 0017 | `0017_governed-outreach-preparation-recovery.sql` | `dbe772a793bc837f9110093d0a16ec0ba1c8ba74c49ed38946133baa1f35b65d` |
 | 0018 | `0018_massive_blizzard.sql` | `16738c847a37fb8d07bb2873a241917bd9ce495a6562899c5bd0af34e21b32ae` |
 | 0019 | `0019_person_discovery.sql` | `2a33b9a91aa905280ee1c35a0438570d4416fdcf60cd65e2c8a8edded0f0d1be` |
+| 0020 | `0020_private-synthetic-proof-migration-identity.sql` | `4939aa770958d020378843cbcba4871fcbaa8f7407dca3a4e101ae8633947028` |
+| 0021 | `0021_runner-ingestion-integrity.sql` | `b7fe5b884d7c6532d3eeaf1458ebe9191d549a65de14e231b6b016498beef7d5` |
 
 ## Verification contract
 
@@ -96,3 +99,15 @@ therefore remains at ten rows until that happens.
 Across the twenty files the chain declares 317 `CREATE TRIGGER` statements and
 317 `END;` compound terminators, preserving the one-outer-terminator importer
 property established for `0008` and `0009`.
+
+## 2026-11-08 extension
+
+Rows `0020` and `0021` were appended from `main` at `cb0c690`. Digests were
+computed from the current `site/drizzle/` bytes. No earlier row was rewritten.
+Neither file has hosted evidence. Stage 2 remains `0000` through `0009`.
+
+Each of `0020` and `0021` has two `CREATE TRIGGER` statements and two `END;`
+compound terminators. Index `0022` is not recorded here. Open
+[PR #152](https://github.com/SJS1001/PROspector/pull/152) reserves it for
+prospect transition history; this extension does not allocate or apply it.
+This records checked local bytes only and grants no plan credit.
