@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { createServer } from "vite";
@@ -33,6 +34,24 @@ export const PERSON_DISCOVERY_FORWARD_MIGRATION_FILENAMES = CANONICAL_MIGRATION_
 
 const LEGACY_MIGRATION_FILENAMES = MIGRATION_FILENAMES.slice(0, 4);
 const appliedMigrations = new WeakMap();
+const databaseOperationQueues = new WeakMap();
+const activeDatabase = new AsyncLocalStorage();
+
+// Miniflare's D1 proxy serves one loopback connection. Two overlapping
+// writes on that connection can stall until workerd is killed, which the
+// caller observes as a hung promise or a later ECONNRESET. Queue top-level
+// operations per database. A batch that calls statement methods reenters
+// instead of waiting on itself. The original error is unchanged.
+function enqueueDatabaseOperation(database, run) {
+  if (activeDatabase.getStore() === database) return run();
+  const previous = databaseOperationQueues.get(database) ?? Promise.resolve();
+  const result = previous.then(
+    () => activeDatabase.run(database, run),
+    () => activeDatabase.run(database, run),
+  );
+  databaseOperationQueues.set(database, result.then(() => undefined, () => undefined));
+  return result;
+}
 
 export const PHASE4_PERSISTENCE_TABLES = [
   "profile_configuration_candidates",
@@ -254,11 +273,11 @@ function emitD1Diagnostic(event, fieldsBuilder) {
   }
 }
 
-function instrumentD1Statement(statement, fixtureName) {
+function instrumentD1Statement(statement, fixtureName, database) {
   const wrap = (operation) => {
     if (typeof statement[operation] !== "function") return;
     const original = statement[operation].bind(statement);
-    statement[operation] = async (...args) => {
+    statement[operation] = async (...args) => enqueueDatabaseOperation(database, async () => {
       const started = Date.now();
       try {
         const result = await original(...args);
@@ -274,14 +293,14 @@ function instrumentD1Statement(statement, fixtureName) {
         }));
         throw error;
       }
-    };
+    });
   };
   for (const operation of ["run", "first", "all", "raw"]) wrap(operation);
   if (typeof statement.bind === "function") {
     const originalBind = statement.bind.bind(statement);
     statement.bind = (...args) => {
       const bound = originalBind(...args);
-      return bound === statement ? statement : instrumentD1Statement(bound, fixtureName);
+      return bound === statement ? statement : instrumentD1Statement(bound, fixtureName, database);
     };
   }
   return statement;
@@ -289,10 +308,10 @@ function instrumentD1Statement(statement, fixtureName) {
 
 export function instrumentD1Database(database, fixtureName) {
   const originalPrepare = database.prepare.bind(database);
-  database.prepare = (query) => instrumentD1Statement(originalPrepare(query), fixtureName);
+  database.prepare = (query) => instrumentD1Statement(originalPrepare(query), fixtureName, database);
   if (typeof database.batch === "function") {
     const originalBatch = database.batch.bind(database);
-    database.batch = async (statements) => {
+    database.batch = async (statements) => enqueueDatabaseOperation(database, async () => {
       const started = Date.now();
       try {
         const result = await originalBatch(statements);
@@ -308,7 +327,7 @@ export function instrumentD1Database(database, fixtureName) {
         }));
         throw error;
       }
-    };
+    });
   }
   return database;
 }

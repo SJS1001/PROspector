@@ -155,6 +155,13 @@
       "when": 1789300800000,
       "tag": "0021_runner-ingestion-integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1791000000000,
+      "tag": "0022_prospect-transition-history",
+      "breakpoints": true
     }
   ]
 }

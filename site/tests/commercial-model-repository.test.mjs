@@ -77,3 +77,27 @@ test("commercial hierarchy enforces exact parentage, scope, identity, and stale/
     await assertForbiddenOperationalRowsUnchanged(fixture.database, before);
   } finally { await fixture.dispose(); }
 });
+
+test("concurrent first-time commercial initialization converges on one hierarchy", async () => {
+  const fixture = await createD1Fixture("commercial-empty-race");
+  try {
+    await applyMigrations(fixture.database);
+    const commercial = await fixture.vite.ssrLoadModule(new URL("../domain/commercial-model.ts", import.meta.url).pathname);
+    const raced = await runRace([
+      () => commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000000201" }),
+      () => commercial.initializeCommercialModel(fixture.database, principal, { idempotencyKey: "0198a4b0-0000-7000-8000-000000000202" }),
+    ]);
+    const rejected = formatSettledRejections(raced);
+    assert.equal(
+      raced.filter((result) => result.status === "fulfilled").length,
+      2,
+      rejected.length > 0
+        ? `expected both first-time initializations to fulfill; rejected: ${rejected.join(" | ")}`
+        : undefined,
+    );
+    const products = await fixture.database.prepare("SELECT name FROM products WHERE name = 'ONE'").all();
+    const companies = await fixture.database.prepare("SELECT id FROM companies").all();
+    assert.equal(products.results.length, 1);
+    assert.equal(companies.results.length, 1);
+  } finally { await fixture.dispose(); }
+});

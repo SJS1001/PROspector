@@ -187,10 +187,43 @@ export async function materializeOfferFromConfirmedHierarchyDecision(database: D
 
 type Row = { id: string; name: string; revision: number; lifecycle?: string; status?: string; parent_id?: string | null };
 function node(row: Row, type: HierarchyType, parentId: string | null, lifecycle = row.lifecycle ?? row.status ?? "draft"): CommercialHierarchyNode { return { id: row.id, type, parentId, name: row.name, lifecycle, revision: Number(row.revision) }; }
-async function ensureCompany(database: D1Database, workspace: Workspace, now: number) { await database.prepare("INSERT INTO companies (id, workspace_id, created_at, updated_at, revision, name, status) SELECT ?, ?, ?, ?, 1, 'Digitalrain', 'active' WHERE NOT EXISTS (SELECT 1 FROM companies WHERE workspace_id = ?)").bind(v7(), workspace.id, now, now, workspace.id).run(); const row = await database.prepare("SELECT id FROM companies WHERE workspace_id = ? LIMIT 1").bind(workspace.id).first<{ id: string }>(); if (!row) throw new CommercialModelConflictError("Company initialization failed"); return row; }
-async function ensureProduct(database: D1Database, workspaceId: string, companyId: string, name: string, now: number) { await database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM products WHERE workspace_id = ? AND company_id = ? AND name = ?)").bind(v7(), workspaceId, now, now, companyId, name, workspaceId, companyId, name).run(); const row = await database.prepare("SELECT id FROM products WHERE workspace_id = ? AND company_id = ? AND name = ? LIMIT 1").bind(workspaceId, companyId, name).first<{ id: string }>(); if (!row) throw new CommercialModelConflictError("Product initialization failed"); return row; }
-async function ensurePlay(database: D1Database, workspaceId: string, productId: string, name: string, now: number) { await database.prepare("INSERT INTO market_plays (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM market_plays WHERE workspace_id = ? AND product_id = ? AND name = ?)").bind(v7(), workspaceId, now, now, productId, name, workspaceId, productId, name).run(); const row = await database.prepare("SELECT id FROM market_plays WHERE workspace_id = ? AND product_id = ? AND name = ? LIMIT 1").bind(workspaceId, productId, name).first<{ id: string }>(); if (!row) throw new CommercialModelConflictError("Play initialization failed"); return row; }
-async function ensureProfile(database: D1Database, workspaceId: string, playId: string, name: string, now: number) { await database.prepare("INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft', 'UTC', 0 WHERE NOT EXISTS (SELECT 1 FROM customer_profiles WHERE workspace_id = ? AND play_id = ? AND name = ?)").bind(v7(), workspaceId, now, now, playId, name, workspaceId, playId, name).run(); }
+async function insertOrRead(database: D1Database, insert: () => Promise<unknown>, read: () => Promise<{ id: string } | null>, failure: string) {
+  try { await insert(); } catch (error) { if (!isConstraint(error)) throw error; }
+  const row = await read();
+  if (!row) throw new CommercialModelConflictError(failure);
+  return row;
+}
+async function ensureCompany(database: D1Database, workspace: Workspace, now: number) {
+  return insertOrRead(
+    database,
+    () => database.prepare("INSERT INTO companies (id, workspace_id, created_at, updated_at, revision, name, status) SELECT ?, ?, ?, ?, 1, 'Digitalrain', 'active' WHERE NOT EXISTS (SELECT 1 FROM companies WHERE workspace_id = ?)").bind(v7(), workspace.id, now, now, workspace.id).run(),
+    () => database.prepare("SELECT id FROM companies WHERE workspace_id = ? LIMIT 1").bind(workspace.id).first<{ id: string }>(),
+    "Company initialization failed",
+  );
+}
+async function ensureProduct(database: D1Database, workspaceId: string, companyId: string, name: string, now: number) {
+  return insertOrRead(
+    database,
+    () => database.prepare("INSERT INTO products (id, workspace_id, created_at, updated_at, revision, company_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM products WHERE workspace_id = ? AND company_id = ? AND name = ?)").bind(v7(), workspaceId, now, now, companyId, name, workspaceId, companyId, name).run(),
+    () => database.prepare("SELECT id FROM products WHERE workspace_id = ? AND company_id = ? AND name = ? LIMIT 1").bind(workspaceId, companyId, name).first<{ id: string }>(),
+    "Product initialization failed",
+  );
+}
+async function ensurePlay(database: D1Database, workspaceId: string, productId: string, name: string, now: number) {
+  return insertOrRead(
+    database,
+    () => database.prepare("INSERT INTO market_plays (id, workspace_id, created_at, updated_at, revision, product_id, name, lifecycle) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM market_plays WHERE workspace_id = ? AND product_id = ? AND name = ?)").bind(v7(), workspaceId, now, now, productId, name, workspaceId, productId, name).run(),
+    () => database.prepare("SELECT id FROM market_plays WHERE workspace_id = ? AND product_id = ? AND name = ? LIMIT 1").bind(workspaceId, productId, name).first<{ id: string }>(),
+    "Play initialization failed",
+  );
+}
+async function ensureProfile(database: D1Database, workspaceId: string, playId: string, name: string, now: number) {
+  try {
+    await database.prepare("INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) SELECT ?, ?, ?, ?, 1, ?, ?, 'draft', 'UTC', 0 WHERE NOT EXISTS (SELECT 1 FROM customer_profiles WHERE workspace_id = ? AND play_id = ? AND name = ?)").bind(v7(), workspaceId, now, now, playId, name, workspaceId, playId, name).run();
+  } catch (error) {
+    if (!isConstraint(error)) throw error;
+  }
+}
 type Workspace = { id: string; company_name: string; revision: number };
 async function findWorkspace(database: D1Database, principal: InterviewPrincipal) { return database.prepare("SELECT id, company_name, revision FROM workspaces WHERE owner_subject IN (?, ?) ORDER BY CASE owner_subject WHEN ? THEN 0 ELSE 1 END LIMIT 1").bind(principal.subject, principal.legacySubject, principal.subject).first<Workspace>(); }
 async function requireWorkspace(database: D1Database, principal: InterviewPrincipal) { const workspace = await findWorkspace(database, principal); if (!workspace) throw new CommercialModelConflictError("Workspace is not initialized"); return workspace; }
