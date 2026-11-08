@@ -39,4 +39,12 @@ Two different observations:
 - `zero-effects-verifier` 11/11
 - `commercial-model-repository` 2/2 on that pass, then 3/3 after the queue
 
-ESLint on the touched runtime and test files exited 0. The canonical `npm test` is a separate later run and is not claimed by this section until its exit code exists.
+ESLint on the touched runtime and test files exited 0.
+
+## Canonical proof
+
+On commit `c440ac76f56fdd70c205ced44171854d9c3cabd4`, from `site/`:
+
+`npm test` (production build, then `node scripts/run-test-suite.mjs` with `--test-concurrency=1` per file) exited 0. The runner log `/tmp/canonical-c440ac7.log` sums to 159 files, 1077 pass, 0 fail, 0 cancelled, 0 skipped. The shell elapsed about 56 minutes. The worktree stayed clean at that commit.
+
+That is local test proof. It does not accept a plan, a requirement, or a hosted target. It also does not explain the earlier enrichment, contacts, or profile socket failures, which this run did not reproduce and which this change does not claim to have fixed.
