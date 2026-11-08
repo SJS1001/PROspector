@@ -9,19 +9,19 @@ plans_total: 74
 plans_uncredited: 48
 v1_requirements_checked: 0/17
 phase_4_to_7_plans: 44
-stop: true
+stop: false
 cancel: false
-needs_user: true
+needs_user: false
 all_done: false
-development_running: false
-development_authorized: false
-authorized_scope: none
+development_running: true
+development_authorized: true
+authorized_scope: openrouter selectable provider with apollo and non-AI credential exclusion
 setup_authorized: true
 retry_count: 0
-failure_fingerprint: waiting-external-acceptance-and-review-quota
-prior_failure_fingerprint: scope-correction-development-cancelled
-last_progress_at: 2026-11-08T18:45:10Z
-last_progress: Overlap state mapping revalidated in isolation on top of 3c0649f. Waiting on external acceptance and the Codex review quota. Full suite was not rerun.
+failure_fingerprint: none
+prior_failure_fingerprint: waiting-external-acceptance-and-review-quota
+last_progress_at: 2026-11-08T19:48:00Z
+last_progress: Steven authorized OpenRouter as a selectable provider on 2026-11-08 14:47 America/Toronto. This supersedes development_authorized false only for that feature. Review quota and external acceptance gates stay closed. No live API call, signup, purchase, or production enablement.
 watchdog:
   repos: [PROspector, Distributor, DigitalRain]
   excluded: [ServiceTitan]
@@ -46,14 +46,14 @@ The product baseline is `c8000d7c99ebf4b7f3cdb01e737860ce8da18327` on `cursor/pr
 
 | Flag | Value | Meaning |
 | --- | --- | --- |
-| stop | true | Implementation is paused. The overlap batch finished its isolated check. |
-| cancel | false | The earlier scope-correction cancel remains `prior_failure_fingerprint`. It is not a reason to relaunch that run. |
-| needs_user | true | Remaining acceptance needs a person, a hosted target, or review quota. Do not rerun a green suite while waiting. |
+| stop | false | One scoped feature is authorized. Acceptance gates and the review quota stay closed. |
+| cancel | false | Earlier cancels stay in `prior_failure_fingerprint`. Do not relaunch them. |
+| needs_user | false | The OpenRouter feature was authorized. External plan acceptance still needs a person later. |
 | all_done | false | Neither the product nor the three-project report is complete. |
-| development_running | false | No shard is running. |
-| development_authorized | false | The one authorized code edit has been revalidated. Do not start Phase 6, Phase 7, Distributor, or DigitalRain from this tree. |
+| development_running | true | This session owns the OpenRouter provider work. Do not start a second job on these files. |
+| development_authorized | true | Only OpenRouter as a selectable model provider, with Apollo and other non-AI credentials excluded from that flow. |
 | retry_count | 0 | No recovery retry has been consumed. |
-| failure_fingerprint | waiting-external-acceptance-and-review-quota | Not a test failure. Do not launch a retry suite. |
+| failure_fingerprint | none | This feature batch has not failed. |
 | prior_failure_fingerprint | scope-correction-development-cancelled | Do not revive that run, and do not cite it as a passing test. |
 
 ## Status report
