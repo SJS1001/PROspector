@@ -152,7 +152,7 @@
   },
   {
     "path": "src/lib/server/archive.ts",
-    "sha256": "47ec02f4c5d1b5db97bfdeeb3d1971b0301de2cf792d9f0c76ece6371c611656",
+    "sha256": "739e0d0e9a899a7d2ac265482af1507393a140a6a17c28b3f621c902481aa422",
     "imports": [
       "../domain/opportunity.ts",
       "node:crypto"

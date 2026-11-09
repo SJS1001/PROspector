@@ -257,3 +257,14 @@ test("a workspace with no operating state gets the default cap, not unlimited AI
   assert.equal(row.monthly_budget_cents, 5000);
   assert.equal(row.spend_used_cents, 1);
 });
+
+test("calls made at the same moment cannot all slip under the cap", async (t) => {
+  const m = await modules();
+  const sql = await database();
+  await workspace(sql, { secrets: GROQ, cap: 1 });
+  const requests = stubFetch(t, { prompt_tokens: 10, completion_tokens: 10 });
+  const results = await Promise.allSettled(Array.from({ length: 6 }, () => m.completeJson(sql, USER, "fixture")));
+  assert.equal(requests.length, 1, "only the call that reserved the last cent may reach the provider");
+  assert.equal(results.filter((r) => r.status === "rejected").length, 5);
+  assert.ok((await state(sql)).spend_used_cents >= 1);
+});

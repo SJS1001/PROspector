@@ -241,6 +241,60 @@ test("restore keeps the archived spend cap, and never sets a missing one to 0", 
   }
 });
 
+test("restore never gives back this month's used AI spend and refuses impossible spend values", async () => {
+  const { pg, adapter } = await setup();
+  try {
+    await fixture(pg);
+    const state = async () =>
+      (await pg.query<{ monthly_budget_cents: number; spend_month: string; spend_used_cents: number }>(
+        "select monthly_budget_cents, spend_month, spend_used_cents from operating_state where user_id='b'",
+      )).rows[0];
+    const setLive = (month: string, used: number) =>
+      pg.exec(
+        `insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ('b',500,'${month}',${used}) on conflict (user_id) do update set monthly_budget_cents=500, spend_month='${month}', spend_used_cents=${used}`,
+      );
+    const archiveWith = async (month: string, used: number) => {
+      await pg.exec(
+        `insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ('a',500,'${month}',${used}) on conflict (user_id) do update set monthly_budget_cents=500, spend_month='${month}', spend_used_cents=${used}`,
+      );
+      return exportWorkspaceArchive("a", adapter);
+    };
+    // Same month, archive made before the spend: the live count wins.
+    await setLive("2026-11", 500);
+    await restoreWorkspaceArchive("b", await archiveWith("2026-11", 0), adapter);
+    assert.deepEqual(await state(), { monthly_budget_cents: 500, spend_month: "2026-11", spend_used_cents: 500 });
+    // Same month, archive shows more spend: the higher count wins.
+    await restoreWorkspaceArchive("b", await archiveWith("2026-11", 600), adapter);
+    assert.equal((await state()).spend_used_cents, 600);
+    // An archive from an earlier month never starts a fresh allowance.
+    await setLive("2026-11", 500);
+    await restoreWorkspaceArchive("b", await archiveWith("2026-10", 0), adapter);
+    assert.deepEqual(await state(), { monthly_budget_cents: 500, spend_month: "2026-11", spend_used_cents: 500 });
+    // An archive without operating state keeps the live month's spend.
+    const stateless = await archiveWith("2026-11", 0);
+    stateless.tables.operating_state = [];
+    rehash(stateless);
+    await restoreWorkspaceArchive("b", stateless, adapter);
+    assert.equal((await state()).spend_used_cents, 500);
+    // Hand-edited values with a recomputed checksum are refused and change nothing.
+    for (const [key, value] of [
+      ["spend_used_cents", -2000000000],
+      ["monthly_budget_cents", 2147483647],
+      ["monthly_budget_cents", -1],
+      ["spend_month", "next month"],
+    ] as const) {
+      const edited = await archiveWith("2026-11", 0);
+      (edited.tables.operating_state[0] as Record<string, unknown>)[key] = value;
+      rehash(edited);
+      const before = await state();
+      await assert.rejects(restoreWorkspaceArchive("b", edited, adapter), /Invalid operating state/);
+      assert.deepEqual(await state(), before, `${key}=${value} changed nothing`);
+    }
+  } finally {
+    await pg.close();
+  }
+});
+
 test("all tables round-trip into an empty database with explicit safety normalization", async () => {
   const source = await setup(),
     target = await setup();
