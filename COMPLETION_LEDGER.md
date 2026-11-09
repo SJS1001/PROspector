@@ -6,6 +6,15 @@ Local extracts merged on 2026-11-09 are recorded below as test evidence only. PR
 
 Session entry, review fix batch 12 (operator tests), PR #170. Source SHA `409065b9b1f0779950c27f80d064aaf542c7c652`, merged into `claude/research-uses-configured-llm` as `5cbbf206c0f08b9c87a7134878516906d31a0d50` on 2026-11-09 at about 19:10Z. Session `session_011p7TfhvrePA3bUJrvFeUp8`. Tests ran at about 17:20Z on Node 22.23.4 from `operator/`. Changes: operator `npm test` now runs `scripts/test-all.mjs`, which collects all 13 `src/**/*.test.ts` files (9 before) and the OpenRouter settings keyboard acceptance test. `vault.test.ts` now tampers with real sealed secrets and covers the unsafe-permission and missing-key refusals. `local-start.mjs` exits 0 only on the shutdown signal it forwarded; any other child signal exits 128 + signo. Results: `node --experimental-strip-types --test src/lib/server/vault.test.ts` 6/6 pass. `node --test scripts/local-start-exit.test.mjs scripts/with-app-env.test.mjs` 16/16 pass. `npm test` scripts group 299/299, source group 107/107, keyboard group 1/1, exit 0. `npx tsc --noEmit` exit 0. eslint 0 errors. Root `node --test tests/completion-ledger.test.mjs` 3/3 pass. Environment note: `scripts/local-foundation.test.mjs` "foundation HTTP and recovery lifecycle" needs `npm run build` first; without it the test fails the same way on the base branch. Not verified: a real server crash by signal. This is test tooling, not one of the 17 v1 requirements, so it is not attached to a requirement row. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74.
 
+Session `claude-ee67a286-2026-11-09`, review round two (operator). Merged into `claude/research-uses-configured-llm` with tip `949f925`:
+- PR #166: review batch 01, AI key bound to its provider.
+- PR #185: owner decisions 1 and 7. The spend cap is enforced, restore keeps the live month's spend, and do-not-contact domains block subdomains.
+- PR #171: batch 11. PRs #170 and #173 are recorded above.
+
+Before the merge, the combined tree was identical to the tested head `e72b72e`. `cd operator && npm test` gave 323/324 for scripts, 118/118 for source and 1/1 for acceptance. The one failure was `local-foundation`, because port 8080 was held by the owner's app. After `npm run build`, with the app paused, `node --test scripts/local-foundation.test.mjs` gave 10/10. `npx tsc --noEmit` was clean, eslint on the changed files was clean, and `auditGraph()` equals `reviewed-graph.json`.
+
+An independent adversarial review of #185 found a restore bypass of the cap. It was fixed, and the regression test fails without the fix. Evidence is local and synthetic only. No requirement status changed, and formal acceptance stays 0/17.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->
