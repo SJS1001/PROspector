@@ -185,7 +185,7 @@ test("Approve, Reject, and Defer expose action-specific pending state and block 
       await act(() => {
         inputs[0].props.onChange({ target: { value: `${scenario.decision} exact prospect` } });
         if (scenario.decision === "defer") {
-          inputs[1].props.onChange({ target: { value: "2026-10-15T09:30" } });
+          inputs[1].props.onChange({ target: { value: "2099-10-15T09:30" } });
         }
       });
       if (scenario.decision === "reject") {
