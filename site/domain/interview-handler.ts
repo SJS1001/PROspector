@@ -39,7 +39,7 @@ export async function handleInterviewGet(
 ): Promise<Response> {
   try {
     const principal = await authenticatedPrincipal(dependencies);
-    return stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal, dependencies.interviewSelection));
+    return await stateResponse(dependencies, principal, await readInterviewState(dependencies.database, principal, dependencies.interviewSelection));
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     return json({ error: "server_error" }, 500);
@@ -121,7 +121,7 @@ export async function handleInterviewPost(
       }, dependencies.interviewSelection);
     }
     if (dependencies.interviewSelection) state = await readInterviewState(dependencies.database, principal, dependencies.interviewSelection);
-    return stateResponse(dependencies, principal, state);
+    return await stateResponse(dependencies, principal, state);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError)

@@ -51,7 +51,7 @@ export async function handleDiscoveryGet(
   try {
     const principal = await authenticatedPrincipal(dependencies);
     const productId = optionalProductLocator(new URL(request.url).searchParams.get("productId"));
-    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence, dependencies.csrfCookieMode);
+    return await projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (isConflict(error)) return privateWorkspaceUnavailable();
@@ -83,7 +83,7 @@ export async function handleDiscoveryPost(
     const action = body.action as DiscoveryAction;
     assertClosedCommand(body, action);
     const productId = await dispatch(action, body, dependencies.database, principal, dependencies.releaseEvidence);
-    return projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence, dependencies.csrfCookieMode);
+    return await projectionResponse(dependencies.database, principal, productId, dependencies.releaseEvidence, dependencies.csrfCookieMode);
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
     if (error instanceof CsrfTokenError) return json({ error: error.code }, 403);
