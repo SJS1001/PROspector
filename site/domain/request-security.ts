@@ -19,14 +19,22 @@ export function validateSameOriginMutation(
     return { error: "foreign_origin", status: 403 };
   if (intent !== expectedIntent)
     return { error: "missing_intent", status: 403 };
-  if (!contentType.toLowerCase().startsWith("application/json"))
+  if (!isJsonContentType(contentType))
     return { error: "unsupported_content_type", status: 415 };
-  if (
-    declaredLength !== null &&
-    (!Number.isFinite(Number(declaredLength)) || Number(declaredLength) > maximumBytes)
-  )
+  if (declaredLength !== null && !acceptableDeclaredLength(declaredLength, maximumBytes))
     return { error: "payload_too_large", status: 413 };
   return null;
+}
+
+function isJsonContentType(value: string) {
+  const mediaType = value.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json";
+}
+
+function acceptableDeclaredLength(value: string, maximumBytes: number) {
+  if (!/^\d+$/.test(value)) return false;
+  const length = Number(value);
+  return Number.isSafeInteger(length) && length <= maximumBytes;
 }
 
 export async function readBoundedJson(
