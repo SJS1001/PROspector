@@ -198,6 +198,7 @@ import * as nodeCrypto from "node:crypto";
 import { readdirSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import * as manualWorkflow from "../src/lib/server/manual-workflow.ts";
+import * as domainLlm from "../src/lib/domain/llm.ts";
 
 let pg;
 async function database() {
@@ -304,6 +305,7 @@ function pgFns(sql) {
         if (name === "@/lib/server/seed") return { ensureWorkspace: async () => {}, idFor };
         if (name === "@/lib/server/manual-workflow") return manualWorkflow;
         if (name === "@/lib/domain/catalog") return { INTERVIEW: [] };
+        if (name === "@/lib/domain/llm") return domainLlm;
         return new Proxy({}, { get: () => forbidden });
       },
       "\nloadWorkspace = async () => ({fixture:true});",
@@ -347,6 +349,42 @@ test("domain suppressions are normalised so they actually block the domain", asy
     assert.equal(await csvHas(sql, "jane@acme.com"), false, value);
     await assert.rejects(manualWorkflow.prepareManualMessage(sql, "owner", "p", "a", "m"));
   }
+  assert.equal(counts.provider, 0);
+});
+
+test("a domain entry also blocks its subdomains, but not a lookalike domain", async () => {
+  const sql = pgSql(await database());
+  const { fns, counts } = pgFns(sql);
+  const blocked = ["x@mail.acme.com", "x@a.b.acme.com", "x@ACME.com", "x@Mail.Acme.Com"];
+  const allowed = ["x@notacme.com", "x@acme.com.evil.example", "x@acme.co", "x@mailacme.com"];
+  for (const email of [...blocked, ...allowed]) {
+    await outreachFixture(sql);
+    await sql.query("update contacts set email_display = $1", [email]);
+    assert.equal(await csvHas(sql, email), true, `${email} is eligible before the entry`);
+    await fns.addSuppression({ kind: "domain", value: "acme.com", reason: "Fictional opt-out" });
+    const isBlocked = blocked.includes(email);
+    assert.equal(await csvHas(sql, email), !isBlocked, email);
+    if (isBlocked) await assert.rejects(manualWorkflow.prepareManualMessage(sql, "owner", "p", "a", "m"), email);
+    else await manualWorkflow.prepareManualMessage(sql, "owner", "p", "a", "m");
+  }
+  // A subdomain entry does not widen to its parent.
+  await outreachFixture(sql);
+  await sql.query("update contacts set email_display = 'x@acme.com'");
+  await fns.addSuppression({ kind: "domain", value: "mail.acme.com", reason: "Fictional opt-out" });
+  assert.equal(await csvHas(sql, "x@acme.com"), true);
+  assert.equal(counts.provider, 0);
+});
+
+test("Settings rejects an invalid spend cap or batch size instead of saving it", async () => {
+  const sql = pgSql(await database());
+  const { fns, counts } = pgFns(sql);
+  await sql.query("truncate operator_secrets, operating_state");
+  for (const monthlyBudgetCents of [Number.NaN, null, -1, 12.5, "5000", Infinity, 10_000_001])
+    await assert.rejects(fns.saveConnections({ monthlyBudgetCents }), /monthly AI spend cap/, String(monthlyBudgetCents));
+  for (const huntBatch of [Number.NaN, null, 3, 21, 7.5, "8"])
+    await assert.rejects(fns.saveConnections({ huntBatch }), /whole number from 4 to 20/, String(huntBatch));
+  assert.deepEqual(await sql.query("select * from operator_secrets"), []);
+  assert.deepEqual(await sql.query("select * from operating_state"), []);
   assert.equal(counts.provider, 0);
 });
 

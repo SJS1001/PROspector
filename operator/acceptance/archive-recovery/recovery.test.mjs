@@ -64,7 +64,7 @@ test(
         if (["approved", "sending"].includes(r.status)) r.status = "blocked";
         r.acknowledged = false;
       }
-      expected.operating_state[0].monthly_budget_cents = 0;
+      // The stored monthly AI spend cap is kept (owner decision 1, 2026-11-09).
       const audits = actual.tables.delivery_events.filter((e) =>
         e.kind.startsWith("archive_restore_"),
       );

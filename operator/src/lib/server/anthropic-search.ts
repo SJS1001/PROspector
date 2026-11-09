@@ -1,30 +1,42 @@
-/** Bounded live research; never downgrade a failed search to model memory. */
+import { estimateTokens } from "@/lib/domain/llm";
+import type { SpendMeter } from "@/lib/server/secrets";
+
+const MAX_TOKENS = 7000;
+const MAX_SEARCHES = 5;
+
+/** Bounded live research; never downgrade a failed search to model memory. Every turn is metered. */
 export async function anthropicSearch(
   config: { model: string; apiKey: string; workspaceId?: string },
   prompt: string,
+  spend: SpendMeter,
   onSearch?: (count: number) => Promise<void>,
 ): Promise<string> {
   const messages: { role: string; content: unknown }[] = [{ role: "user", content: prompt }];
   let searches = 0;
   const signal = AbortSignal.timeout(180_000);
   for (let turn = 0; turn < 2; turn++) {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      redirect: "error",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01",
-        ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}),
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: 7000,
-        messages,
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
-      }),
+    const body = JSON.stringify({
+      model: config.model,
+      max_tokens: MAX_TOKENS,
+      messages,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_SEARCHES }],
     });
+    const response = await spend(
+      { rate: "anthropic", inputTokens: estimateTokens(body), outputTokens: MAX_TOKENS, searches: MAX_SEARCHES },
+      () =>
+        fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          redirect: "error",
+          signal,
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": config.apiKey,
+            "anthropic-version": "2023-06-01",
+            ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}),
+          },
+          body,
+        }),
+    );
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       if (
@@ -38,10 +50,10 @@ export async function anthropicSearch(
         `Anthropic search failed (${response.status}). Check your AI connection and web-search access, then try again.`,
       );
     }
-    const body = await response.json();
-    if (!Array.isArray(body.content))
+    const reply = await response.json();
+    if (!Array.isArray(reply.content))
       throw new Error("Anthropic returned an unreadable search response. Try again.");
-    for (const block of body.content) {
+    for (const block of reply.content) {
       if (block.type === "web_search_tool_result") {
         if (!Array.isArray(block.content))
           throw new Error(
@@ -55,11 +67,11 @@ export async function anthropicSearch(
       }
     }
     await onSearch?.(searches);
-    if (body.stop_reason === "pause_turn") {
-      messages.push({ role: "assistant", content: body.content });
+    if (reply.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: reply.content });
       continue;
     }
-    if (body.stop_reason !== "end_turn")
+    if (reply.stop_reason !== "end_turn")
       throw new Error(
         "Anthropic stopped before finishing the search response. Try a smaller search batch.",
       );
@@ -67,7 +79,7 @@ export async function anthropicSearch(
       throw new Error(
         "Anthropic did not use live web search. No results were accepted. Try again.",
       );
-    return body.content
+    return reply.content
       .filter(
         (block: { type: string; text?: string }) =>
           block.type === "text" && typeof block.text === "string",

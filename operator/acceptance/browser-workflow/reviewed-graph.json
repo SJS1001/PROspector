@@ -110,7 +110,7 @@
   },
   {
     "path": "src/lib/domain/llm.ts",
-    "sha256": "f9df8161abfa61fb10e3c12ebecb70bdd0d913602ab6f927fc3023bc9cd0ac71",
+    "sha256": "d153a0c19481eeea22a1de84bdac3b79c554f9cb9bd56fd975545b1453e11c8c",
     "imports": []
   },
   {
@@ -152,7 +152,7 @@
   },
   {
     "path": "src/lib/server/archive.ts",
-    "sha256": "865f1dc304e2311e13f9135fed34bde82dc665e65ca79bc6855fe1746aed5309",
+    "sha256": "739e0d0e9a899a7d2ac265482af1507393a140a6a17c28b3f621c902481aa422",
     "imports": [
       "../domain/opportunity.ts",
       "node:crypto"
@@ -169,7 +169,7 @@
   },
   {
     "path": "src/lib/server/fns.ts",
-    "sha256": "0eb227e616fdc72d0f664d182bc7478dbf0ad5ee67a0161763eddff7bc002dc5",
+    "sha256": "bd22a5c1e8ec5536b45aaa669cb4ffadedb098dc9dd6ffa00ce940b46ac1c97f",
     "imports": [
       "./opportunity",
       "./retrieve",
@@ -199,7 +199,7 @@
   },
   {
     "path": "src/lib/server/hunt.ts",
-    "sha256": "9600188828ce1142f815b0fefb42d28bb2ad5e3f16c4a6e91880cb9d3e5e9034",
+    "sha256": "57b59993d1467dd6a2d57a782a8737d1e7c889278460ce8efcc55e9155f47f3b",
     "imports": [
       "./opportunity",
       "./search-response",
@@ -217,7 +217,7 @@
   },
   {
     "path": "src/lib/server/manual-workflow.ts",
-    "sha256": "cea0fd3d825527e397bcb9cc094d965925799d2926f5c5f1801459b620f7e3cc",
+    "sha256": "e967398d36b534273a23d9126109ff4347ff63712ea587629a371b96f778f33d",
     "imports": [
       "node:crypto"
     ]
@@ -262,7 +262,7 @@
   },
   {
     "path": "src/lib/server/secrets.ts",
-    "sha256": "f38a61ec728fd97c9caf44b0a7a553cb9924d01069f565e267064efd2afed9fa",
+    "sha256": "e1aaf55513df12cc527ecb8a2ea1bab78cf2db6dd3ab1b7eb2f7799ef667dd4d",
     "imports": [
       "@/lib/domain/llm",
       "@/lib/domain/openrouter-policy",

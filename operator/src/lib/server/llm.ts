@@ -1,8 +1,8 @@
 import { anthropicSearch } from "./anthropic-search";
-import { anthropicWorkspaceId, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
+import { anthropicWorkspaceId, estimateTokens, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
 import { assertOpenRouterModelId, openRouterChatRequest } from "@/lib/domain/openrouter-policy";
 import { assertPublicHttps, resolvePublic } from "@/lib/server/retrieve";
-import { boundLlmKey, getSecret } from "@/lib/server/secrets";
+import { assertAiSpendAllowed, boundLlmKey, getSecret, spendMeter, type SpendCharge, type SpendMeter } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
 
 export type LlmConfig = {
@@ -76,15 +76,38 @@ export class LlmRequestError extends Error {
   }
 }
 
-async function postJson(url: string, headers: Record<string, string>, body: unknown) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
-    // A provider redirect could carry the key to another host; refuse it.
-    redirect: "error",
-    signal: AbortSignal.timeout(45_000),
-    body: JSON.stringify(body),
-  });
+/** Output tokens assumed for a request that sets no output limit. */
+const UNBOUNDED_OUTPUT_TOKENS = 8_000;
+
+/** The most one request body can cost: its size, its output limit and the searches it allows. */
+function chargeFor(config: LlmConfig, body: Record<string, unknown>, searches = 0): SpendCharge {
+  const limit = [body.max_tokens, body.max_output_tokens].find((value) => typeof value === "number");
+  return {
+    rate: config.provider,
+    inputTokens: estimateTokens(JSON.stringify(body)),
+    outputTokens: typeof limit === "number" ? limit : UNBOUNDED_OUTPUT_TOKENS,
+    searches,
+  };
+}
+
+async function postJson(
+  spend: SpendMeter,
+  config: LlmConfig,
+  url: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  searches = 0,
+) {
+  const response = await spend(chargeFor(config, body, searches), () =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      // A provider redirect could carry the key to another host; refuse it.
+      redirect: "error",
+      signal: AbortSignal.timeout(45_000),
+      body: JSON.stringify(body),
+    }),
+  );
   const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     const message =
@@ -98,7 +121,13 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
   return json;
 }
 
-async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record<string, unknown>) {
+async function chatCompletions(
+  config: LlmConfig,
+  spend: SpendMeter,
+  prompt: string,
+  extra?: Record<string, unknown>,
+  searches = 0,
+) {
   if (config.provider === "openrouter") {
     const request = openRouterChatRequest({
       apiKey: config.apiKey,
@@ -106,11 +135,13 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
       messages: [{ role: "user", content: prompt }],
       maxTokens: typeof extra?.max_tokens === "number" ? extra.max_tokens : undefined,
     });
-    const json = await postJson(request.url, request.headers, { ...request.body, ...extra });
+    const json = await postJson(spend, config, request.url, request.headers, { ...request.body, ...extra }, searches);
     return outputText(json);
   }
   if (config.provider === "anthropic") {
     const json = await postJson(
+      spend,
+      config,
       `${config.baseUrl.replace(/\/+$/, "")}/v1/messages`,
       {
         "x-api-key": config.apiKey,
@@ -122,6 +153,8 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
     return outputText(json);
   }
   const json = await postJson(
+    spend,
+    config,
     `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`,
     { Authorization: `Bearer ${config.apiKey}` },
     {
@@ -130,6 +163,7 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
       max_tokens: extra?.max_tokens ?? 2200,
       ...extra,
     },
+    searches,
   );
   return outputText(json);
 }
@@ -163,17 +197,22 @@ export async function completeJsonWithMeta(
   prompt: string,
   onSearch?: (count: number) => Promise<void>,
 ): Promise<CompleteJsonResult> {
+  // Refuse before anything leaves, including the custom-host DNS check.
+  await assertAiSpendAllowed(sql, userId);
+  const spend = spendMeter(sql, userId);
   const config = await resolveLlmConfig(sql, userId);
   const full = `${prompt}\n\n${config.search === "none" ? NO_SEARCH_NOTE : SEARCH_NOTE}\nReturn JSON only.`;
   const noSearch = `${prompt}\n\n${NO_SEARCH_NOTE}\nReturn JSON only.`;
   const searched = (text: string) => ({ text, searchDowngraded: false });
-  const downgraded = async () => ({ text: await chatCompletions(config, noSearch), searchDowngraded: true });
+  const downgraded = async () => ({ text: await chatCompletions(config, spend, noSearch), searchDowngraded: true });
 
-  if (config.search === "anthropic") return searched(await anthropicSearch(config, full, onSearch));
+  if (config.search === "anthropic") return searched(await anthropicSearch(config, full, spend, onSearch));
 
   if (config.search === "xai") {
     try {
       const json = await postJson(
+        spend,
+        config,
         `${config.baseUrl}/responses`,
         { Authorization: `Bearer ${config.apiKey}` },
         {
@@ -182,6 +221,7 @@ export async function completeJsonWithMeta(
           tools: [{ type: "web_search" }],
           max_output_tokens: 2200,
         },
+        5,
       );
       return searched(outputText(json));
     } catch (error) {
@@ -189,15 +229,21 @@ export async function completeJsonWithMeta(
     }
     // xAI's chat endpoint still searches through search_parameters, so the search wording stays.
     return searched(
-      await chatCompletions(config, full, {
-        search_parameters: { mode: "on", return_citations: true, max_search_results: 8 },
-      }),
+      await chatCompletions(
+        config,
+        spend,
+        full,
+        { search_parameters: { mode: "on", return_citations: true, max_search_results: 8 } },
+        8,
+      ),
     );
   }
 
   if (config.search === "openai") {
     try {
       const json = await postJson(
+        spend,
+        config,
         `${config.baseUrl}/responses`,
         { Authorization: `Bearer ${config.apiKey}` },
         {
@@ -205,6 +251,7 @@ export async function completeJsonWithMeta(
           input: [{ role: "user", content: full }],
           tools: [{ type: "web_search_preview" }],
         },
+        1,
       );
       return searched(outputText(json));
     } catch (error) {
@@ -215,14 +262,14 @@ export async function completeJsonWithMeta(
 
   if (config.search === "openrouter") {
     try {
-      return searched(await chatCompletions(config, full, { plugins: [{ id: "web" }] }));
+      return searched(await chatCompletions(config, spend, full, { plugins: [{ id: "web" }] }, 5));
     } catch (error) {
       if (!isSearchUnsupported(error)) throw error;
     }
     return downgraded();
   }
 
-  return searched(await chatCompletions(config, full));
+  return searched(await chatCompletions(config, spend, full));
 }
 
 export async function completeJson(sql: Sql, userId: string, prompt: string, onSearch?: (count: number) => Promise<void>): Promise<string> {
@@ -231,5 +278,6 @@ export async function completeJson(sql: Sql, userId: string, prompt: string, onS
 
 /** Grounded explanation of already-retrieved evidence; does not start another web search. */
 export async function explainEvidence(sql: Sql, userId: string, prompt: string) {
-  return chatCompletions(await resolveLlmConfig(sql, userId), prompt);
+  await assertAiSpendAllowed(sql, userId);
+  return chatCompletions(await resolveLlmConfig(sql, userId), spendMeter(sql, userId), prompt);
 }

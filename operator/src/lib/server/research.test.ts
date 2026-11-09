@@ -55,6 +55,10 @@ test("completeJson with a provider that has no bound key rejects without sending
   const store = (saved: Record<string, string>) => async (parts: TemplateStringsArray, ...values: string[]) => {
     const query = parts.join("?").trim();
     if (query.startsWith("select value")) return saved[values[1]] ? [{ value: saved[values[1]] }] : [];
+    // Spend metering (scripts/spend-cap.test.mjs covers it): a default row, always under the cap.
+    if (query.includes("from operating_state")) return [{ monthly_budget_cents: 5000, spend_month: "", spend_used_cents: 0 }];
+    if (query.startsWith("insert into operating_state")) return [];
+    if (query.startsWith("update operating_state")) return [{ spend_used_cents: 0 }];
     throw new Error(`Unexpected SQL: ${query}`);
   };
   const unbound: Record<string, string>[] = [

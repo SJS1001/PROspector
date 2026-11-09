@@ -38,7 +38,7 @@ export async function seed(sql, owner = "fictional-owner") {
     insert into draft_plays (id,user_id,proposal_id,title,status,notes,audience,likely_buyer,offer,confirmed_at) values ('draft',$1,'proposal','Draft','confirmed','Notes','Audience','Buyer','Offer',now());
     insert into delivery_events (id,user_id,message_id,kind,note) values ('delivery',$1,'m','reply','History');
     insert into identity_merges (id,user_id,keep_id,drop_id,reason) values ('merge',$1,'c','old-contact','Duplicate');
-    insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ($1,5000,'2026-10',321);
+    insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ($1,1234,'2026-10',321);
     update outreach_messages set lease_token = 'excluded-active-lease', lease_until = now() + interval '1 hour' where id = 'm';
     insert into operator_secrets(user_id,name,value) values ($1,'api_key','fictional-excluded-secret'),($1,'schedule_enabled','1');
     insert into enrichment_grants(id,user_id,prospect_id,status,reason) values ('source-grant',$1,'p','active','excluded');

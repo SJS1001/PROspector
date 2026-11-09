@@ -360,6 +360,16 @@ export async function validateWorkspaceArchive(
     a.tables.product_configurations.length > 1
   )
     throw new Error("Invalid singleton rows");
+  for (const state of a.tables.operating_state) {
+    // Mirrors validSpendCapCents/MAX_SPEND_CAP_CENTS in domain/llm.ts (owner decision 1, 2026-11-09).
+    const cap = state.monthly_budget_cents, used = state.spend_used_cents;
+    if (
+      typeof cap !== "number" || !Number.isSafeInteger(cap) || cap < 0 || cap > 10_000_000 ||
+      typeof used !== "number" || !Number.isSafeInteger(used) || used < 0 ||
+      typeof state.spend_month !== "string" || !/^(\d{4}-\d{2})?$/.test(state.spend_month)
+    )
+      throw new Error("Invalid operating state");
+  }
   const references: [Table, string, Table, boolean][] = [
     ["review_commands", "prospect_id", "prospects", false],
     ["contacts", "prospect_id", "prospects", false],
@@ -586,7 +596,7 @@ export async function restoreWorkspaceArchive(
         row.terminal_reason = INTERRUPTED_RUN_REASON;
         row.finished_at = row.finished_at ?? restoredAt;
       }
-      if (table === "operating_state") row.monthly_budget_cents = 0;
+      // The archived monthly AI spend cap is kept as stored (owner decision 1, 2026-11-09).
       return row;
     };
     for (const [table, fields] of Object.entries({
@@ -736,6 +746,12 @@ export async function restoreWorkspaceArchive(
         "insert into suppressions (id, user_id, kind, value, reason) values ($1, $2, 'email', $3, $4) on conflict (user_id, kind, value) do nothing",
         [item.id, owner, item.email, item.reason],
       );
+    // This month's AI spend belongs to the live workspace, never to the archive, so a
+    // restore cannot hand back an already-used allowance (owner decision 1, 2026-11-09).
+    const [liveSpend] = await sql.query<{ spend_month: string; spend_used_cents: number }>(
+      "select spend_month, spend_used_cents from operating_state where user_id = $1",
+      [owner],
+    );
     for (const table of [...tables].reverse().filter((table) => table !== "suppressions")) {
       check();
       await sql.query(`delete from ${quote(table)} where user_id = $1`, [owner]);
@@ -751,6 +767,11 @@ export async function restoreWorkspaceArchive(
       for (const original of a.tables[table]) {
         check();
         const row = transform(table, original);
+        if (table === "operating_state" && liveSpend) {
+          const archivedUsed = row.spend_month === liveSpend.spend_month ? Number(row.spend_used_cents) : 0;
+          row.spend_month = liveSpend.spend_month;
+          row.spend_used_cents = Math.max(Number(liveSpend.spend_used_cents), archivedUsed);
+        }
         const cols = ["user_id", ...names(table)];
         await sql.query(
           `insert into ${quote(table)} (${cols.map(quote).join(", ")}) values (${cols.map((_, i) => `$${i + 1}`).join(", ")})${table === "suppressions" ? " on conflict (user_id, kind, value) do nothing" : ""}`,
@@ -768,8 +789,9 @@ export async function restoreWorkspaceArchive(
       );
     }
     await sql.query(
-      "insert into operating_state (user_id, monthly_budget_cents) values ($1, 0) on conflict (user_id) do nothing",
-      [owner],
+      // An archive without operating state gets the new-workspace default cap, never 0.
+      "insert into operating_state (user_id, spend_month, spend_used_cents) values ($1, $2, $3) on conflict (user_id) do nothing",
+      [owner, liveSpend?.spend_month ?? "", Number(liveSpend?.spend_used_cents ?? 0)],
     );
     check();
   });
