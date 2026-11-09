@@ -51,6 +51,16 @@ const INPUT_KEYS = ["expectedRunRevision", "idempotencyKey", "now", "runId", "wo
 const REQUEST_KEYS = ["configurationDigest", "configurationId", "expectedRunRevision", "fromState", "profileId", "runId", "toState", "workspaceId"];
 const AUTHORIZED_DECISION_KEYS = ["authorityId", "evidenceDigest", "kind", "requestDigest", "validUntil"];
 export const PROSPECTING_RUN_ADMISSION_MAX_TTL_MS = 5 * 60 * 1_000;
+/**
+ * At most one run per Profile may hold transport at a time. Admission re-checks
+ * this inside the guarded write, because every intent is created blocked and
+ * the scheduled overlap guard cannot see two blocked intents racing to queue.
+ */
+function activeProfileRunExists(outer: "r" | "prospecting_runs") {
+  return `SELECT 1 FROM prospecting_runs other
+    WHERE other.workspace_id=${outer}.workspace_id AND other.profile_id=${outer}.profile_id AND other.id<>${outer}.id
+      AND other.execution_state IN ('queued','assigned','running','submitted','validating')`;
+}
 
 /** Production remains reject-only until a trusted scheduler/transport adapter is composed. */
 export function createRejectOnlyProspectingRunAdmissionPort(): ProspectingRunAdmissionPort {
@@ -162,6 +172,7 @@ export async function admitProspectingRunToQueue(
              AND c.kind='profile_effective' AND c.active=1
            WHERE r.id=? AND r.workspace_id=? AND r.revision=?
              AND r.execution_state='blocked_missing_capability'
+             AND NOT EXISTS (${activeProfileRunExists("r")})
           )`,
       ).bind(commandId, input.workspaceId, input.now, input.now, input.idempotencyKey, operationDigest, input.expectedRunRevision, input.runId, input.runId, input.workspaceId, input.expectedRunRevision),
       database.prepare(
@@ -169,6 +180,7 @@ export async function admitProspectingRunToQueue(
             SET execution_state='queued',updated_at=?,revision=revision+1
           WHERE id=? AND workspace_id=? AND revision=?
             AND execution_state='blocked_missing_capability'
+            AND NOT EXISTS (${activeProfileRunExists("prospecting_runs")})
             AND EXISTS (
               SELECT 1 FROM authority_commands
                WHERE id=? AND workspace_id=? AND command_type='profile.prospecting.transport_admission'

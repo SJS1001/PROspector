@@ -60,11 +60,12 @@ export function nextProfileWeekdaySlot(profileId: string, after: number, localTi
  * identically here: an unusable window must fail closed at intent creation
  * rather than reach a durable run row.
  *
- * A watermark at or after the upper bound inverts the window.  That is
- * reachable without any corruption — a manual run completing at `now` advances
- * the schedule watermark past a slot that is still due, so the next
- * reconciliation would otherwise persist a run whose evidence can never
- * validate.  A non-integer watermark is worse than useless: it silently
+ * A watermark at or after the upper bound inverts the window.  Completion now
+ * caps the schedule watermark below the next due slot, and reconciliation
+ * records an already-inverted slot as skipped (`watermark_at_or_after_slot`)
+ * and advances, so this throw can no longer wedge a schedule; it still refuses
+ * to persist a run whose evidence can never validate.  A non-integer
+ * watermark is worse than useless: it silently
  * degrades to an unbounded lower bound, widening the window to the
  * first-run-with-no-watermark semantics instead of failing.
  */
@@ -106,11 +107,21 @@ export async function createProspectingIntent(database: D1Database, workspaceId:
   const window = profileSourceWindow(intent.watermark, intent.at);
   const eventJson = stable({ trigger: intent.triggerKind, key: intent.triggerKey, state: "blocked_missing_capability" });
   const eventDigest = await sha256(eventJson);
-  await database.batch([
+  try { await database.batch([
     database.prepare("INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) VALUES (?, ?, ?, ?, 1, 'profile.prospecting.intent', ?, ?, 1, 'profile', ?, 'accepted')").bind(commandId, workspaceId, now, now, intent.idempotencyKey, operationDigest, intent.profileId),
     database.prepare("INSERT INTO prospecting_runs (id, workspace_id, created_at, updated_at, revision, profile_id, configuration_id, schedule_id, configuration_digest, trigger_kind, trigger_key, window_lower_exclusive, window_upper_inclusive, last_successful_watermark, successful_watermark, manifest_json, manifest_digest, execution_state, authority_command_id, operation_digest, idempotency_key, started_at, completed_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'blocked_missing_capability', ?, ?, ?, ?, NULL)").bind(runId, workspaceId, now, now, intent.profileId, intent.configurationId, intent.scheduleId, intent.configurationDigest, intent.triggerKind, intent.triggerKey, window.lowerExclusive, window.upperInclusive, intent.watermark, manifestJson, manifestDigest, commandId, operationDigest, intent.idempotencyKey, now),
     database.prepare("INSERT INTO prospecting_run_events (id, workspace_id, run_id, event_type, event_json, event_digest, operation_digest, created_at) VALUES (?, ?, ?, 'created', ?, ?, ?, ?)").bind(eventId, workspaceId, runId, eventJson, eventDigest, await sha256(`${operationDigest}:created`), now),
-  ]);
+  ]); } catch {
+    // A concurrent duplicate may have committed between the prior read and this
+    // atomic batch. Replay only the exact same trigger; anything else is a typed conflict.
+    const winner = await database.prepare(
+      "SELECT id, trigger_kind, trigger_key, execution_state FROM prospecting_runs WHERE workspace_id = ? AND idempotency_key = ? LIMIT 1",
+    ).bind(workspaceId, intent.idempotencyKey).first<{ id: string; trigger_kind: string; trigger_key: string; execution_state: string }>();
+    if (winner && winner.trigger_kind === intent.triggerKind && winner.trigger_key === intent.triggerKey) {
+      return { id: winner.id, trigger: intent.triggerKind, key: winner.trigger_key, executionState: winner.execution_state, replayed: true };
+    }
+    throw new ProspectingScheduleConflictError("Prospecting intent conflicted with a concurrent command");
+  }
   return { id: runId, trigger: intent.triggerKind, key: intent.triggerKey, executionState: "blocked_missing_capability", replayed: false };
 }
 
@@ -124,35 +135,55 @@ export async function createProspectingIntent(database: D1Database, workspaceId:
 export async function reconcileProspectingSchedules(database: D1Database, workspaceId: string, now: number) {
   if (!Number.isSafeInteger(now)) throw new ProspectingScheduleConflictError("Invalid reconciliation time");
   const schedules = await database.prepare("SELECT id,profile_id,configuration_id,configuration_digest,next_run_at,last_successful_watermark,intended_local_time,timezone FROM prospecting_schedules WHERE workspace_id=? AND active=1 ORDER BY next_run_at,id").bind(workspaceId).all<any>();
-  const results = [];
+  const results: Array<Record<string, unknown> & { scheduleId: string }> = [];
   for (const schedule of schedules.results) {
     if (Number(schedule.next_run_at) > now) continue;
-    const due = Number(schedule.next_run_at);
-    const timezone = String(schedule.timezone);
-    const localTime = String(schedule.intended_local_time);
-    const key = slotAt(schedule.profile_id, due, localTime, timezone);
-    const next = nextProfileWeekdaySlot(schedule.profile_id, due, localTime, timezone);
-    if (now - due > DAY) {
-      const recorded = await persistSkippedMisfire(database, workspaceId, {
-        profileId: schedule.profile_id,
-        configurationId: schedule.configuration_id,
-        configurationDigest: schedule.configuration_digest,
-        scheduleId: schedule.id,
-        triggerKind: "scheduled",
-        triggerKey: key,
-        idempotencyKey: `schedule:${key}`,
-        at: due,
-        watermark: schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark),
-        manifest: { scheduleId: schedule.id, localSlot: key, skippedBecause: "misfire" },
-      });
-      await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, "blocked_missing_capability");
-      results.push({ scheduleId: schedule.id, ...recorded }); continue;
+    // Isolate each schedule: one failing slot is reported to the caller and
+    // cannot abort reconciliation of the schedules ordered after it.
+    try {
+      results.push(await reconcileOneSchedule(database, workspaceId, schedule, now));
+    } catch (error) {
+      results.push({ scheduleId: String(schedule.id), failed: true, errorCode: reconcileErrorCode(error) });
     }
-    const result = await createProspectingIntent(database, workspaceId, { profileId:schedule.profile_id, configurationId:schedule.configuration_id, configurationDigest:schedule.configuration_digest, scheduleId:schedule.id, triggerKind:"scheduled", triggerKey:key, idempotencyKey:`schedule:${key}`, at:due, watermark:schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark), manifest:{ scheduleId:schedule.id, localSlot:key } });
-    await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, scheduleExecutionState(result.executionState));
-    results.push({ scheduleId:schedule.id, ...result });
   }
   return results;
+}
+
+/** Only typed domain codes cross this boundary; raw database diagnostics never do. */
+function reconcileErrorCode(error: unknown) {
+  return error instanceof ProspectingScheduleConflictError ? error.code : "prospecting_schedule_reconcile_failed";
+}
+
+async function reconcileOneSchedule(database: D1Database, workspaceId: string, schedule: any, now: number) {
+  const due = Number(schedule.next_run_at);
+  const timezone = String(schedule.timezone);
+  const localTime = String(schedule.intended_local_time);
+  const key = slotAt(schedule.profile_id, due, localTime, timezone);
+  const next = nextProfileWeekdaySlot(schedule.profile_id, due, localTime, timezone);
+  const watermark = schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark);
+  // A watermark at or after the due slot makes this slot's window empty.
+  // Record the slot as skipped (it can never validate) and still advance, so
+  // the schedule cannot wedge. Non-integer watermarks still fail closed.
+  const inverted = watermark !== null && Number.isSafeInteger(watermark) && watermark >= due;
+  if (inverted || now - due > DAY) {
+    const recorded = await persistSkippedMisfire(database, workspaceId, {
+      profileId: schedule.profile_id,
+      configurationId: schedule.configuration_id,
+      configurationDigest: schedule.configuration_digest,
+      scheduleId: schedule.id,
+      triggerKind: "scheduled",
+      triggerKey: key,
+      idempotencyKey: `schedule:${key}`,
+      at: due,
+      watermark,
+      manifest: { scheduleId: schedule.id, localSlot: key, skippedBecause: inverted ? INVERTED_WINDOW_SKIP : "misfire" },
+    }, inverted ? INVERTED_WINDOW_SKIP : "misfire");
+    await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, "blocked_missing_capability");
+    return { scheduleId: String(schedule.id), ...recorded };
+  }
+  const result = await createProspectingIntent(database, workspaceId, { profileId:schedule.profile_id, configurationId:schedule.configuration_id, configurationDigest:schedule.configuration_digest, scheduleId:schedule.id, triggerKind:"scheduled", triggerKey:key, idempotencyKey:`schedule:${key}`, at:due, watermark, manifest:{ scheduleId:schedule.id, localSlot:key } });
+  await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, scheduleExecutionState(result.executionState));
+  return { scheduleId:String(schedule.id), ...result };
 }
 
 export async function createManualProspectingIntent(database: D1Database, workspaceId: string, input: Omit<Intent, "triggerKind" | "triggerKey"> & { triggerKey?: string }) {
@@ -174,7 +205,10 @@ export async function completeProspectingRun(database: D1Database, workspaceId: 
   const eventJson = stable({ state: "succeeded", successfulWatermark: input.successfulWatermark });
   try{const result=await database.batch([
     database.prepare("UPDATE prospecting_runs SET execution_state = 'succeeded', successful_watermark = ?, completed_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND execution_state IN ('running','validating')").bind(input.successfulWatermark, input.now, input.now, run.id, workspaceId),
-    ...(run.schedule_id ? [database.prepare("UPDATE prospecting_schedules SET last_successful_watermark = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND configuration_id=? AND configuration_digest=?").bind(input.successfulWatermark, input.now, run.schedule_id, workspaceId,run.configuration_id,run.configuration_digest)] : []),
+    // The schedule watermark is monotonic (MAX) and never reaches the schedule's
+    // next due slot, so a manual run completing after an unreconciled slot
+    // cannot invert that slot's window. The run keeps its exact watermark.
+    ...(run.schedule_id ? [database.prepare("UPDATE prospecting_schedules SET last_successful_watermark = MAX(COALESCE(last_successful_watermark, ?), MIN(?, next_run_at - 1)), updated_at = ?, revision = revision + 1 WHERE id = ? AND workspace_id = ? AND configuration_id=? AND configuration_digest=?").bind(Number.MIN_SAFE_INTEGER, input.successfulWatermark, input.now, run.schedule_id, workspaceId,run.configuration_id,run.configuration_digest)] : []),
     database.prepare("INSERT INTO prospecting_run_events (id,workspace_id,run_id,event_type,event_json,event_digest,operation_digest,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(v7(), workspaceId, run.id, "succeeded", eventJson, await sha256(eventJson), await sha256(`prospecting:${run.id}:succeeded:${input.successfulWatermark}`), input.now),
   ]);if(Number(result[0]?.meta?.changes??0)===1)return{replayed:false};}catch{/* The competing completion may have committed atomically. */}
   const winner=await database.prepare("SELECT execution_state,successful_watermark FROM prospecting_runs WHERE id=? AND workspace_id=? LIMIT 1").bind(run.id,workspaceId).first<{execution_state:string;successful_watermark:number|null}>();if(winner?.execution_state==="succeeded"&&Number(winner.successful_watermark)===input.successfulWatermark)return{replayed:true};throw new ProspectingScheduleConflictError("Prospecting run completion conflicted");
@@ -192,7 +226,9 @@ async function persistSkippedOverlap(database:D1Database, workspaceId:string, in
   return {id:runId,trigger:intent.triggerKind,key:intent.triggerKey,executionState:"skipped_overlap" as const,replayed:false};
 }
 
-async function persistSkippedMisfire(database: D1Database, workspaceId: string, intent: Intent) {
+const INVERTED_WINDOW_SKIP = "watermark_at_or_after_slot";
+
+async function persistSkippedMisfire(database: D1Database, workspaceId: string, intent: Intent, reason: "misfire" | typeof INVERTED_WINDOW_SKIP) {
   const existing = await database.prepare("SELECT id,execution_state FROM prospecting_runs WHERE workspace_id=? AND profile_id=? AND trigger_key=? LIMIT 1").bind(workspaceId, intent.profileId, intent.triggerKey).first<{ id: string; execution_state: string }>();
   if (existing) return { id: existing.id, trigger: intent.triggerKind, key: intent.triggerKey, executionState: existing.execution_state, replayed: true };
   const now = intent.at;
@@ -202,8 +238,9 @@ async function persistSkippedMisfire(database: D1Database, workspaceId: string, 
   const manifest = stable({ schema: "profile-prospecting-run/v1", ...intent.manifest, transport: "blocked_missing_capability", downstreamAuthority: false });
   const manifestDigest = await sha256(manifest);
   const operation = await sha256(stable({ action: "profile.prospecting.skipped_misfire", profileId: intent.profileId, triggerKey: intent.triggerKey, manifestDigest }));
-  const eventJson = stable({ trigger: "scheduled", key: intent.triggerKey, state: "skipped_misfire" });
-  const window = profileSourceWindow(intent.watermark, now);
+  const eventJson = stable(reason === "misfire" ? { trigger: "scheduled", key: intent.triggerKey, state: "skipped_misfire" } : { trigger: "scheduled", key: intent.triggerKey, state: "skipped_misfire", reason });
+  // An inverted slot has no usable lower bound; the skipped row is terminal and never executes.
+  const window = reason === INVERTED_WINDOW_SKIP ? { lowerExclusive: null, upperInclusive: now } : profileSourceWindow(intent.watermark, now);
   try {
     await database.batch([
       database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES (?,?,?,?,1,'profile.prospecting.intent',?,?,1,'profile',?,'accepted')").bind(commandId, workspaceId, now, now, intent.idempotencyKey, operation, intent.profileId),
