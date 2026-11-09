@@ -60,6 +60,46 @@ test("the durable discovery intent drives canonical enrichment settlement and Co
   } finally { await fixture.dispose(); }
 });
 
+test("the Contacts read projection shows the C4 settlement as ContactReady only with the dev-only local attestation flag", async () => {
+  const fixture = await createLocalFixture();
+  try {
+    await applyCanonicalMigrations(fixture.database);
+    const acceptance = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-acceptance.ts"));
+    const consumer = await fixture.vite.ssrLoadModule(resolve(root, "domain/person-discovery-c4-verification.ts"));
+    const contacts = await fixture.vite.ssrLoadModule(resolve(root, "domain/contacts-handler.ts"));
+    const ownerEmail = "local-owner@prospector.invalid", pepper = "synthetic-browser-acceptance-pepper-32-bytes-minimum";
+    await acceptance.seedPersonDiscoveryC4(fixture.database, ownerEmail, pepper);
+    const workspace = await fixture.database.prepare("SELECT id,owner_subject FROM workspaces LIMIT 1").first();
+    const scope = { workspaceId: workspace.id, principalSubject: workspace.owner_subject };
+    const service = acceptance.createPersonDiscoveryC4Service(request, bindings, fixture.database);
+    const authority = await fixture.database.prepare("SELECT p.revision prospect_revision,cfg.id configuration_id,cfg.digest configuration_digest,cfg.revision configuration_revision FROM profile_prospects p JOIN typed_configurations cfg ON cfg.owner_id=p.profile_id AND cfg.active=1 WHERE p.id='c4-approved-prospect'").first();
+    const started = await service.start(scope, { prospectId: "c4-approved-prospect", expectedProspectRevision: Number(authority.prospect_revision), expectedConfigurationId: authority.configuration_id, expectedConfigurationDigest: authority.configuration_digest, expectedConfigurationRevision: Number(authority.configuration_revision), maxCandidates: 2, maxProvenancePerCandidate: 1, idempotencyKey: "c4-projection-start" });
+    const decided = await service.decide(scope, { runId: started.run.id, expectedResultDigest: started.run.resultDigest, decision: "create_new", candidateId: started.run.candidates[0].id, idempotencyKey: "c4-projection-decision" });
+    await service.recordVerificationIntent(scope, { relevanceId: decided.decision.relevanceId, intent: "initial_verification", channel: "email", expectedProspectRevision: Number(authority.prospect_revision), expectedContactRevision: 1, expectedConfigurationId: authority.configuration_id, expectedConfigurationDigest: authority.configuration_digest, expectedConfigurationRevision: Number(authority.configuration_revision), idempotencyKey: "c4-projection-intent" });
+    assert.equal((await consumer.consumePersonDiscoveryC4VerificationIntent(request, bindings, fixture.database, scope, { relevanceId: decided.decision.relevanceId, channel: "email" })).state, "ContactReady");
+
+    const read = async (extra) => {
+      const response = await contacts.handleContactsGet(new Request("http://127.0.0.1:8788/api/contacts"), { database: fixture.database, subjectPepper: pepper, pilotOwnerEmail: ownerEmail, capabilityBuildEpoch: "c4-test-build/v1", getIdentity: async () => ({ email: ownerEmail, displayName: "Owner" }), contactSettlementAttestor: await consumer.createPersonDiscoveryC4SettlementAttestor(), ...extra });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      return { body, rows: body.contactsPage.items };
+    };
+    const withoutFlag = await read({});
+    assert.equal(withoutFlag.rows.length, 1);
+    assert.deepEqual([withoutFlag.rows[0].state, withoutFlag.rows[0].eligible], ["NeedsReview", false], "without the gate or the dev-only flag the projection stays fail-closed");
+    assert.ok(withoutFlag.rows[0].reasonCodes.includes("contact_attestation_unavailable"));
+
+    const withFlag = await read({ localDemoContactAttestation: true });
+    assert.equal(withFlag.rows.length, 1);
+    assert.deepEqual([withFlag.rows[0].state, withFlag.rows[0].eligible, withFlag.rows[0].reasonCodes], ["ContactReady", true, []]);
+    assert.equal(withFlag.body.capability.available, false, "the local read flag must not open grant, reservation or identity commands");
+
+    const wrongAttestor = await read({ localDemoContactAttestation: true, contactSettlementAttestor: undefined });
+    assert.equal(wrongAttestor.rows[0].state, "NeedsReview", "the flag alone never promotes without a verifying attestor");
+    assert.equal(await countRows(fixture.database, "phase_activation_gates"), 0);
+  } finally { await fixture.dispose(); }
+});
+
 test("the composer is absent off the exact local-demo loopback binding", async () => {
   const fixture = await createLocalFixture();
   try {

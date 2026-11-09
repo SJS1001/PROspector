@@ -21,6 +21,13 @@ export type ContactsHandlerDependencies = {
   pilotOwnerEmail: string;
   getIdentity(): Promise<{ email: string; displayName: string } | null>;
   contactSettlementAttestor?: ContactSettlementAttestor;
+  /**
+   * Dev-only C4 read seam. Lets the read projection verify settlements with
+   * the supplied attestor before the immutable controlled_enrichment gate
+   * exists. It never opens commands. Only the DEV branch of the Contacts
+   * route sets it, and production builds fold that branch away.
+   */
+  localDemoContactAttestation?: true;
   csrfCookieMode?: CsrfCookieMode;
   phase4Accepted?: (context: ContactsCommandContext) => Promise<boolean>;
   runGrantedOperationEnabled?: (context: ContactsCommandContext) => Promise<boolean>;
@@ -107,7 +114,8 @@ async function projection(dependencies: ContactsHandlerDependencies, principal: 
   const phase4Accepted = Boolean(dependencies.commandService && dependencies.phase4Accepted)
     && await dependencies.phase4Accepted!(context);
   const active = Boolean(dependencies.commandService) && phase4Accepted && enrichmentActivated;
-  const attestorIdentity = enrichmentActivated ? contactSettlementAttestorIdentity(dependencies.contactSettlementAttestor) : null;
+  const attestationAllowed = enrichmentActivated || dependencies.localDemoContactAttestation === true;
+  const attestorIdentity = attestationAllowed ? contactSettlementAttestorIdentity(dependencies.contactSettlementAttestor) : null;
   const effectiveAttestor = attestorIdentity ? dependencies.contactSettlementAttestor : undefined;
   const capabilityEpoch = await contactsCapabilityEpoch(dependencies.capabilityBuildEpoch, active, attestorIdentity);
   const cursorScope = scope(workspaceId, principal.subject, dependencies.subjectPepper, capabilityEpoch);
