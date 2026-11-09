@@ -110,12 +110,12 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   expect(external).toEqual([]);
 });
 
-/** Issue #11's local-handoff stage, driven through the supported screen rather
- * than the endpoint. The seam under test is the refusal: `projectCrmHandoff`
- * consults `recheckForCrmExport`, which never returns an unblocked recheck, so
- * no row is ever admitted. A preview that merely rendered would prove nothing —
- * this asserts the empty admission, the unadmitted framing, and the absence of
- * every export affordance. */
+/** Issue #11's local-handoff stage is only a refused precondition here: no
+ * handoff happens. The Phase 7 CRM section is a fictional composition preview.
+ * Only "Eligible rows" is data-driven (`crmPreview.realAdmissionCount`, asserted
+ * 0); "Materialization: refused" and the no-export-payload sentence are fixed
+ * JSX copy in app/local-demo/_screen.tsx. The test also asserts that no
+ * download/blob/data export affordance exists and that zero effects persist. */
 test("the operator advances the guarded Phase 4–7 journey, reloads it, and creates zero effects", async ({ page, context }) => {
   const external: string[] = [];
   const requests: Array<{ method: string; origin: string; path: string; resourceType: string }> = [];
