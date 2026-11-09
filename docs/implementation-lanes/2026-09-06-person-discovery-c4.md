@@ -47,8 +47,9 @@ non-allowlisted nonempty application tables.
 Recording a verification intent still creates no evidence. A separate,
 DEV-only local consumer (`site/domain/person-discovery-c4-verification.ts`,
 route `POST /api/local-demo/person-discovery-c4/verification`) is the only
-consumer of `contact_verification_intents` (other readers only check
-idempotency and replay). It runs only under the same exact
+consumer of `contact_verification_intents` (the repository and handler
+also read it for idempotency and replay, and verification scripts read it
+for inventories). It runs only under the same exact
 C4 conjunction, derives every binding from the latest current
 `initial_verification` intent, and delegates grant, reservation, synthetic
 provider port, evidence verifier, settlement and ContactReady projection to the
