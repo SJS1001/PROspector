@@ -36,6 +36,12 @@ export function SettingsView() {
 
   const selected = llmProvider(provider || data.connections.llmProvider);
   const openRouter = selected.id === "openrouter";
+  // A saved key is bound to its provider (and custom origin); the server clears it on a switch.
+  const savedBaseUrl = data.connections.llmBaseUrl || "";
+  const keyTargetChanged =
+    selected.id !== data.connections.llmProvider ||
+    (selected.id === "custom" && Boolean(baseUrl.trim()) && baseUrl.trim().replace(/\/+$/, "") !== savedBaseUrl.replace(/\/+$/, ""));
+  const keyNeeded = keyTargetChanged && !llmKey.trim();
 
   return (
     <div className="grid max-w-2xl gap-6">
@@ -141,6 +147,11 @@ export function SettingsView() {
                   onChange={(event) => setLlmKey(event.target.value)}
                 />
               </label>
+              {keyNeeded ? (
+                <p className="text-xs text-muted" role="alert">
+                  Paste an API key for {selected.label}. The saved key stays with the provider it was saved for: saving without a new key removes it and sends nothing.
+                </p>
+              ) : null}
               {selected.id === "anthropic" ? (
                 <div className="grid gap-1">
                   <label className="grid gap-1 text-xs text-muted">
@@ -346,7 +357,7 @@ export function SettingsView() {
                   llmKey,
                   llmProvider: provider || data.connections.llmProvider,
                   llmModel: model,
-                  llmBaseUrl: openRouter ? "" : baseUrl,
+                  llmBaseUrl: openRouter ? "" : selected.id === "custom" ? baseUrl || savedBaseUrl : baseUrl,
                   llmWorkspaceId: selected.id === "anthropic" ? workspaceId : undefined,
                   apollo: openRouter ? "" : apollo,
                   gmailUser: openRouter ? "" : gmailUser,

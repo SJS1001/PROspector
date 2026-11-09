@@ -1,8 +1,8 @@
 import { anthropicSearch } from "./anthropic-search";
 import { anthropicWorkspaceId, llmProvider, type LlmProviderId, type LlmSearchMode } from "@/lib/domain/llm";
-import { assertOpenRouterModelId, openRouterChatRequest, providerAllowsStoredKeyFallback } from "@/lib/domain/openrouter-policy";
-import { assertPublicHttps } from "@/lib/server/retrieve";
-import { getSecret } from "@/lib/server/secrets";
+import { assertOpenRouterModelId, openRouterChatRequest } from "@/lib/domain/openrouter-policy";
+import { assertPublicHttps, resolvePublic } from "@/lib/server/retrieve";
+import { boundLlmKey, getSecret } from "@/lib/server/secrets";
 import type { Sql } from "@/lib/db";
 
 export type LlmConfig = {
@@ -42,17 +42,19 @@ export async function resolveLlmConfig(sql: Sql, userId: string): Promise<LlmCon
   const customBase = await getSecret(sql, userId, "llm_base_url");
   const storedModel = (await getSecret(sql, userId, "llm_model")) || spec.defaultModel || "grok-4.5";
   const model = spec.id === "openrouter" ? assertOpenRouterModelId(storedModel) : storedModel;
-  const storedKey = await getSecret(sql, userId, "llm_key");
-  const key = providerAllowsStoredKeyFallback(spec.id)
-    ? storedKey || (await getSecret(sql, userId, "xai")) || process.env.XAI_API_KEY || ""
-    : storedKey;
   let baseUrl = spec.baseUrl;
+  let customHost = "";
   if (spec.id === "custom") {
     if (!customBase) throw new Error("Set an HTTPS base URL for the custom provider.");
     const url = assertPublicHttps(customBase.replace(/\/+$/, ""));
     baseUrl = url.toString().replace(/\/+$/, "");
+    customHost = url.hostname;
   }
-  if (!key) throw new Error("Add an AI API key in Connections before running discovery or hunts.");
+  // A stored key is sent only to the provider (and custom origin) it was saved for.
+  const key = await boundLlmKey(sql, userId, spec.id, customBase);
+  if (!key) throw new Error(`Paste an API key for ${spec.label} in Settings → Connections → AI model before running discovery or hunts.`);
+  // Re-checked before every custom request: DNS answers can point at private hosts.
+  if (customHost) await resolvePublic(customHost);
   return {
     provider: spec.id,
     model,
@@ -63,10 +65,23 @@ export async function resolveLlmConfig(sql: Sql, userId: string): Promise<LlmCon
   };
 }
 
+/** A provider HTTP error, with the status kept so search fallbacks can be narrow. */
+export class LlmRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "LlmRequestError";
+  }
+}
+
 async function postJson(url: string, headers: Record<string, string>, body: unknown) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
+    // A provider redirect could carry the key to another host; refuse it.
+    redirect: "error",
     signal: AbortSignal.timeout(45_000),
     body: JSON.stringify(body),
   });
@@ -77,8 +92,8 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
         ? String((json.error as { message?: string }).message)
         : `Model request failed (${response.status}).`;
     if (url.startsWith("https://api.anthropic.com/") && message.includes("anthropic-workspace-id"))
-      throw new Error("Your Anthropic key needs a workspace ID. Open Settings → Connections & search settings → AI model, add your Anthropic workspace ID, then save and try again.");
-    throw new Error(message);
+      throw new LlmRequestError("Your Anthropic key needs a workspace ID. Open Settings → Connections & search settings → AI model, add your Anthropic workspace ID, then save and try again.", response.status);
+    throw new LlmRequestError(message, response.status);
   }
   return json;
 }
@@ -119,15 +134,42 @@ async function chatCompletions(config: LlmConfig, prompt: string, extra?: Record
   return outputText(json);
 }
 
-export async function completeJson(sql: Sql, userId: string, prompt: string, onSearch?: (count: number) => Promise<void>): Promise<string> {
-  const config = await resolveLlmConfig(sql, userId);
-  const searchNote =
-    config.search === "none"
-      ? "You have no live web search. Only propose HTTPS URLs you would bet already exist. Invented URLs will be dropped when retrieval fails."
-      : "Use live web search. Every URL must be a real public HTTPS page.";
-  const full = `${prompt}\n\n${searchNote}\nReturn JSON only.`;
+const SEARCH_NOTE = "Use live web search. Every URL must be a real public HTTPS page.";
+const NO_SEARCH_NOTE =
+  "You have no live web search. Only propose HTTPS URLs you would bet already exist. Invented URLs will be dropped when retrieval fails.";
 
-  if (config.search === "anthropic") return anthropicSearch(config, full, onSearch);
+/**
+ * True only when the provider said the web-search tool, plugin or endpoint is
+ * not supported (a 400/404/422 whose message names the tool and says so).
+ * Timeouts, auth errors, 429 and 5xx never qualify: they are surfaced.
+ */
+export function isSearchUnsupported(error: unknown) {
+  if (!(error instanceof LlmRequestError)) return false;
+  if (![400, 404, 422].includes(error.status)) return false;
+  return /\b(?:web[_ ]?search(?:_preview)?|tools?|plugins?|search_parameters|live search|responses api)\b[^\n]{0,80}?\b(?:not supported|unsupported|not available|not enabled)\b|\b(?:unsupported|unknown|unrecognized) (?:tool|plugin)\b/i.test(
+    error.message,
+  );
+}
+
+export type CompleteJsonResult = {
+  text: string;
+  /** True when web search was unsupported and the answer came from a search-free request. */
+  searchDowngraded: boolean;
+};
+
+export async function completeJsonWithMeta(
+  sql: Sql,
+  userId: string,
+  prompt: string,
+  onSearch?: (count: number) => Promise<void>,
+): Promise<CompleteJsonResult> {
+  const config = await resolveLlmConfig(sql, userId);
+  const full = `${prompt}\n\n${config.search === "none" ? NO_SEARCH_NOTE : SEARCH_NOTE}\nReturn JSON only.`;
+  const noSearch = `${prompt}\n\n${NO_SEARCH_NOTE}\nReturn JSON only.`;
+  const searched = (text: string) => ({ text, searchDowngraded: false });
+  const downgraded = async () => ({ text: await chatCompletions(config, noSearch), searchDowngraded: true });
+
+  if (config.search === "anthropic") return searched(await anthropicSearch(config, full, onSearch));
 
   if (config.search === "xai") {
     try {
@@ -141,14 +183,16 @@ export async function completeJson(sql: Sql, userId: string, prompt: string, onS
           max_output_tokens: 2200,
         },
       );
-      const text = outputText(json);
-      if (text) return text;
-    } catch {
-      // fall through to chat
+      return searched(outputText(json));
+    } catch (error) {
+      if (!isSearchUnsupported(error)) throw error;
     }
-    return chatCompletions(config, full, {
-      search_parameters: { mode: "on", return_citations: true, max_search_results: 8 },
-    });
+    // xAI's chat endpoint still searches through search_parameters, so the search wording stays.
+    return searched(
+      await chatCompletions(config, full, {
+        search_parameters: { mode: "on", return_citations: true, max_search_results: 8 },
+      }),
+    );
   }
 
   if (config.search === "openai") {
@@ -162,23 +206,27 @@ export async function completeJson(sql: Sql, userId: string, prompt: string, onS
           tools: [{ type: "web_search_preview" }],
         },
       );
-      const text = outputText(json);
-      if (text) return text;
-    } catch {
-      // fall through
+      return searched(outputText(json));
+    } catch (error) {
+      if (!isSearchUnsupported(error)) throw error;
     }
-    return chatCompletions(config, full);
+    return downgraded();
   }
 
   if (config.search === "openrouter") {
     try {
-      return await chatCompletions(config, full, { plugins: [{ id: "web" }] });
-    } catch {
-      return chatCompletions(config, full);
+      return searched(await chatCompletions(config, full, { plugins: [{ id: "web" }] }));
+    } catch (error) {
+      if (!isSearchUnsupported(error)) throw error;
     }
+    return downgraded();
   }
 
-  return chatCompletions(config, full);
+  return searched(await chatCompletions(config, full));
+}
+
+export async function completeJson(sql: Sql, userId: string, prompt: string, onSearch?: (count: number) => Promise<void>): Promise<string> {
+  return (await completeJsonWithMeta(sql, userId, prompt, onSearch)).text;
 }
 
 /** Grounded explanation of already-retrieved evidence; does not start another web search. */
