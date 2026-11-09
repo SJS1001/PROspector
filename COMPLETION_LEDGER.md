@@ -16,6 +16,18 @@ Session `claude-session_011p7TfirSGRdriCZLJkd3rD` (2026-11-09, owner-authorized 
 
 Session `claude-session_011p7TfjetG3be8aP8fFuPVB` (2026-11-09, owner-authorized local work, 2026-11-09 code review batch 04): PR #176 from branch `claude/review-fix-04-material-signal-reentry` merged into `claude/owner-local-completion-20261109` as merge commit `f3f2159714e2cd9cc5c0da8b3df842f1b3e3faec` (tested head `c9b58fa30f8d92d06863375c2fb6f8c7da972f16`, base `3bb26ecbfd648b1a424d8dd7210b8c2deb1aa5ec`) at 2026-11-09T19:23Z. In `site/domain/prospect-review.ts`, a re-entry Material Signal for a rejected prospect in cooldown, or a deferred prospect before its review date, must now be observed and retrieved strictly after the owner's decision, and its observation identity (fingerprint, or kind + underlying origin + occurredAt) must be absent from the decided assessment's evidence and from other submissions already reported for the same prospect; otherwise the cooldown refusal stands. Sourced disproof is unchanged. `rubricDigest()` no longer falls back to an all-zero digest: a missing, malformed or not-exactly-one confirmed rubric fails the immutable_configuration gate (InsufficientEvidence). Activation and the multi-rubric owner question are untouched. The cooldown test now submits real non-material evidence. From `site/` on Node v22.23.4: `npm ci` exit 0; `npm run build` exit 0; `node --test --test-concurrency=1` gave tests/prospecting-ingestion 7/7 (2 new tests, failing before the fix), tests/profile-prospecting-contract 14/14 (1 new test, failing before the fix) and tests/prospecting-ingestion-lifecycle 6/6; `node scripts/run-test-suite.mjs` on those three files 27 pass / 0 fail; `npm run lint` exit 0; `npm test` exited 0 with 1179 pass, 0 fail, 0 skipped, 0 todo across 169 files (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Local and synthetic only; no independent review ran (the Codex review hit its usage limit). This is a code-review fix, not one of the 17 v1 requirements, so it is not attached to a requirement row. Recorded at 2026-11-09T19:30Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
 
+Session `claude-ee67a286-2026-11-09`, review round two (site). Merged into `claude/owner-local-completion-20261109` with tip `52d8ab9`:
+- PR #172: batch 07, with no automatic retry after an expired CSRF token (owner rule).
+- PR #174: batch 10.
+- PR #175: batch 05.
+- PR #177: batch 08.
+- PR #183: owner decision 6, prospecting refusal codes.
+- PR #184: owner decisions 4 and 5. The boundary proof is localhost-only, and activation requires a single rubric (`rubric_ambiguous`).
+
+Before the merge, the combined tree was identical to the tested tree `e14a5d7`. `cd site && npm test` passed 1224/1224 across 172 files. `npm run lint` exited 0. `npm run test:browser:person-discovery` gave 1 pass and `npm run test:browser:operator-journey` gave 2 pass. `node --test tests/completion-ledger.test.mjs` gave 3/3.
+
+Evidence is local and synthetic only. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->
