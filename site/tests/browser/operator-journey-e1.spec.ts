@@ -67,6 +67,24 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   await assertAnnounced(page, UNKNOWN);
   await page.unroute("**/api/prospecting**");
 
+  // 2b. A validation refusal carries its own code and an honest message; it is
+  // not presented as a cross-tab revision conflict. One attempt, no retry.
+  await page.reload();
+  await openQueue(page);
+  let refused = 0;
+  await page.route("**/api/prospecting**", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    refused += 1;
+    return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "defer_date_not_future" }) });
+  });
+  await fillApproval(page, "refusal probe");
+  await page.getByRole("button", { name: "Approve prospect" }).click();
+  await assertAnnounced(page, "Pick a review date in the future.");
+  await expect(page.getByText(STALE)).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(refused).toBe(1);
+  await page.unroute("**/api/prospecting**");
+
   // 3. Two tabs, one decision. Both load the same authoritative revision; the
   // loser must be told its action was not applied, not silently retried.
   await page.reload();

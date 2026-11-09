@@ -563,6 +563,19 @@ test("stale, unknown, missing, and stale-predecessor states give explicit recove
     );
     assert.match(stale, /This candidate changed in another tab/);
     assert.match(stale, /Load current candidate/);
+    for (const [code, sentence] of [
+      ["defer_date_not_future", "Pick a review date in the future."],
+      ["schedule_required", "Set up a search schedule first."],
+      ["review_reason_required", "Add a short reason"],
+      ["profile_not_ready", "Finish the missing profile readiness items first."],
+    ]) {
+      const refused = renderToStaticMarkup(
+        React.createElement(workspace.ProspectingWorkspace, { projection: ownerProjection, initialNotice: code }),
+      );
+      assert.match(refused, new RegExp(sentence.replace(/[.]/g, "\\.")));
+      assert.doesNotMatch(refused, /changed in another tab/, `${code} is not a revision conflict`);
+      assert.doesNotMatch(refused, /Load current candidate/);
+    }
     const unknown = renderToStaticMarkup(
       React.createElement(workspace.ProspectingWorkspace, {
         projection: ownerProjection,

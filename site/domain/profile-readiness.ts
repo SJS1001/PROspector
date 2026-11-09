@@ -14,7 +14,7 @@ const PROFILE_KNOWLEDGE: Record<Category, string[]> = {
   contact_strategy: ["contact_policy"], outreach_strategy: ["outreach_policy"], schedule_timezone: ["schedule", "timezone"],
   compliance: ["proof_policy"], output_policy: ["output_target"],
 };
-export class ProfileReadinessConflictError extends Error { readonly code = "profile_readiness_conflict"; }
+export class ProfileReadinessConflictError extends Error { readonly code = "profile_readiness_conflict"; constructor(message: string, readonly refusal?: string) { super(message); } }
 type Workspace = { id: string; companyId: string };
 type Profile = {
   id: string;
@@ -116,7 +116,7 @@ export async function createProfileConfigurationCandidate(database: D1Database, 
   if (profile.revision !== input.expectedProfileRevision) throw new ProfileReadinessConflictError("Stale Profile revision; reload readiness");
   const authority = await resolveAuthority(database, workspace.id, profile, true);
   const readiness = evaluateProfileReadiness({ profile, authority, versions: authority.versions });
-  if (!readiness.complete) throw new ProfileReadinessConflictError(`Complete Profile readiness is required: ${readiness.missing.join(", ")}`);
+  if (!readiness.complete) throw new ProfileReadinessConflictError(`Complete Profile readiness is required: ${readiness.missing.join(", ")}`,"profile_not_ready");
   const manifest = effectiveConfigurationManifest(profile, authority, readiness);
   const manifestJson = stable(manifest); const digest = await sha256(manifestJson);
   const operation = await sha256(stable({ action: "profile.configuration.candidate", profileId: profile.id, expectedRevision: profile.revision, digest }));

@@ -1,7 +1,7 @@
 import { v7 } from "uuid";
 import type { RunnerAssignmentEnvelope, RunnerPort } from "./ports/runner";
 
-export class RunnerAssignmentError extends Error { readonly code = "runner_assignment_rejected"; }
+export class RunnerAssignmentError extends Error { readonly code = "runner_assignment_rejected"; constructor(message: string, readonly refusal?: string) { super(message); } }
 /** Phase 4 requires short-lived capabilities but does not prescribe a duration. Keep the initial pilot lease at five minutes. */
 export const RUNNER_CAPABILITY_MAX_TTL_MS = 5 * 60 * 1_000;
 type Quotas = { maxBytes: number; maxFindings: number; maxSources: number };
