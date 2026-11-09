@@ -53,6 +53,7 @@ export async function scanGmailInbox(opts: { sql: Sql; userId: string; user: str
             baseUrl: jev.baseUrl,
             transport: jev.transport,
             model: jev.model,
+            spend: jev.spend,
             from,
             subject,
             body,

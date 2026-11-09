@@ -153,6 +153,7 @@ export async function executeHunt(opts: {
               baseUrl: jev.baseUrl,
               transport: jev.transport,
               model: jev.model,
+              spend: jev.spend,
               accountName: item.candidate.accountName,
               targetName: item.candidate.targetName,
               url: item.page.url,
@@ -191,9 +192,11 @@ export async function executeHunt(opts: {
             opts.snapshot,
             opts.researchContext,
           );
-        } catch {
+        } catch (error) {
           reasons.push(`${item.candidate.accountName}: source explanation could not be verified.`);
-          await report(`${item.candidate.accountName}: explanation unavailable`);
+          // A spend-cap refusal is shown in plain words, not as a verification failure.
+          const capped = error instanceof Error && error.name === "SpendCapError";
+          await report(`${item.candidate.accountName}: ${capped ? error.message : "explanation unavailable"}`);
         }
         const rejected = opportunityRejection(qualified.assessment.opportunity);
         if (rejected) {

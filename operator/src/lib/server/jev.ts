@@ -1,4 +1,6 @@
+import { estimateTokens } from "@/lib/domain/llm";
 import { openRouterJevDecisionRequest } from "@/lib/domain/openrouter-policy";
+import type { SpendMeter } from "@/lib/server/secrets";
 
 export type JevQuestion =
   | { type: "noul"; instructions: string; criteria?: Record<string, string> }
@@ -66,6 +68,8 @@ export function validateJevResponse(
 }
 
 const DEFAULT_BASE = "https://api.typesafe.ai/v1";
+/** Output tokens assumed for one Jev decision (a few short answers). */
+const JEV_OUTPUT_TOKENS = 1_000;
 
 function roundScore(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -111,6 +115,8 @@ export async function jevDecide(opts: {
   questions: Record<string, JevQuestion>;
   model?: string;
   transport?: "typesafe" | "openrouter";
+  /** Every Jev request counts against the monthly AI spend cap. */
+  spend: SpendMeter;
 }): Promise<JevResponse> {
   const transport = opts.transport ?? "typesafe";
   const request = transport === "openrouter"
@@ -133,15 +139,25 @@ export async function jevDecide(opts: {
           questions: opts.questions,
         },
       };
+  const body = JSON.stringify(request.body);
   let response: Response;
   try {
-    response = await fetch(request.url, {
-      method: request.method,
-      signal: AbortSignal.timeout(12_000),
-      headers: request.headers,
-      body: JSON.stringify(request.body),
-    });
+    response = await opts.spend(
+      {
+        rate: transport === "openrouter" ? "openrouter" : "jev",
+        inputTokens: estimateTokens(body),
+        outputTokens: JEV_OUTPUT_TOKENS,
+      },
+      () =>
+        fetch(request.url, {
+          method: request.method,
+          signal: AbortSignal.timeout(12_000),
+          headers: request.headers,
+          body,
+        }),
+    );
   } catch (error) {
+    if (error instanceof Error && error.name === "SpendCapError") throw new JevError(error.message);
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
       throw new JevError("JEV timed out. Try again from Settings.");
     }

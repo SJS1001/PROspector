@@ -35,7 +35,10 @@ function secretStore(saved) {
     }
     if (query.startsWith("select value")) return saved[values[1]] ? [{ value: saved[values[1]] }] : [];
     if (query.startsWith("select name")) return Object.entries(saved).map(([name, value]) => ({ name, value }));
-    if (query.includes("from operating_state")) return [];
+    // Spend metering (spend-cap.test.mjs covers it): a default row, always under the cap.
+    if (query.includes("from operating_state")) return [{ monthly_budget_cents: 5000, spend_month: "", spend_used_cents: 0 }];
+    if (query.startsWith("insert into operating_state")) return [];
+    if (query.startsWith("update operating_state")) return [{ spend_used_cents: 0 }];
     throw new Error(`Unexpected SQL: ${query}`);
   };
 }

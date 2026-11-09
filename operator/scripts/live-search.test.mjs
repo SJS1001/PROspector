@@ -25,6 +25,8 @@ test("live search validates tool execution, continuations and candidate response
     ],
   };
   const answer = { type: "text", text: '{"candidates":[]}' };
+  // Metering is covered by spend-cap.test.mjs; here every turn is let through.
+  const spend = (_charge, send) => send();
   let body = { content: [result, answer], stop_reason: "end_turn" };
   const requests = [];
   t.mock.method(globalThis, "fetch", async (url, init) => {
@@ -33,7 +35,7 @@ test("live search validates tool execution, continuations and candidate response
   });
   await t.test("tool-first response extracts text and reports actual searches", async () => {
     const counts = [];
-    assert.equal(await anthropicSearch(config, "prompt", async (n) => counts.push(n)), answer.text);
+    assert.equal(await anthropicSearch(config, "prompt", spend, async (n) => counts.push(n)), answer.text);
     assert.deepEqual(counts, [1]);
     assert.equal(requests.at(-1).headers["anthropic-workspace-id"], config.workspaceId);
     assert.equal(requests.at(-1).redirect, "error");
@@ -42,7 +44,7 @@ test("live search validates tool execution, continuations and candidate response
   await t.test("paused tool content continues unchanged and is bounded", async () => {
     body = { content: [result], stop_reason: "pause_turn" };
     const before = requests.length;
-    await assert.rejects(anthropicSearch(config, "prompt"), /more time/);
+    await assert.rejects(anthropicSearch(config, "prompt", spend), /more time/);
     assert.equal(requests.length - before, 2);
     assert.deepEqual(requests.at(-1).body.messages[1], { role: "assistant", content: [result] });
   });
@@ -65,7 +67,7 @@ test("live search validates tool execution, continuations and candidate response
         },
       ]) {
         body = invalid;
-        await assert.rejects(anthropicSearch(config, "prompt"));
+        await assert.rejects(anthropicSearch(config, "prompt", spend));
       }
     },
   );

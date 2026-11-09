@@ -7,7 +7,7 @@ import { WorkspaceArchivePanel } from "@/components/workspace-archive-panel";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { LLM_PROVIDERS, llmProvider } from "@/lib/domain/llm";
+import { LLM_PROVIDERS, llmProvider, parseHuntBatch, parseSpendCapDollars } from "@/lib/domain/llm";
 import { OPENROUTER_EXCLUSION_COPY } from "@/lib/domain/openrouter-policy";
 import { mutationMessage, useExportCrm, useSaveConnections, useWorkspace } from "@/lib/workspace";
 
@@ -28,6 +28,7 @@ export function SettingsView() {
   const [gmailPass, setGmailPass] = useState("");
   const [budget, setBudget] = useState("");
   const [batch, setBatch] = useState("");
+  const [inputError, setInputError] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
   const [modelRevision, setModelRevision] = useState(0);
 
@@ -336,6 +337,7 @@ export function SettingsView() {
               <p className="text-sm text-muted">
                 {Math.round(data.connections.spendUsedCents / 100)} /{" "}
                 {Math.round(data.connections.monthlyBudgetCents / 100)} USD this month (Toronto).
+                Every AI request counts. New AI requests are refused once the cap is reached. 0 turns AI off.
               </p>
               <input
                 className="field"
@@ -351,7 +353,15 @@ export function SettingsView() {
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={save.isPending}
-              onClick={() =>
+              onClick={() => {
+                const cap = parseSpendCapDollars(budget);
+                const companies = parseHuntBatch(batch);
+                const invalid = cap.error || companies.error || "";
+                setInputError(invalid);
+                if (invalid) {
+                  save.reset();
+                  return;
+                }
                 save.mutate({
                   xai: openRouter ? "" : llmKey,
                   llmKey,
@@ -365,24 +375,25 @@ export function SettingsView() {
                   zoominfo: openRouter ? "" : zoominfo,
                   jev: openRouter ? "" : jev,
                   jevBaseUrl: openRouter ? "" : jevBase,
-                  monthlyBudgetCents: budget ? Math.round(Number(budget) * 100) : undefined,
-                  huntBatch: batch ? Number(batch) : undefined,
+                  monthlyBudgetCents: cap.cents,
+                  huntBatch: companies.batch,
                 }, { onSuccess: () => {
                   setLlmKey("");
                   setJev("");
                   setJevBase("");
                   setBaseUrl("");
                   setModelRevision((value) => value + 1);
-                } })
-              }
+                } });
+              }}
             >
               {save.isPending ? "Saving…" : "Save connections"}
             </Button>
           </div>
         </div>
       </details>
+      {inputError ? <ErrorNote message={inputError} /> : null}
       {save.error ? <ErrorNote message={mutationMessage(save.error)} /> : null}
-      {save.isSuccess ? <p className="text-sm text-muted">Saved.</p> : null}
+      {save.isSuccess && !inputError ? <p className="text-sm text-muted">Saved.</p> : null}
       <Panel className="p-5">
         <details>
           <summary className="cursor-pointer text-sm font-medium">

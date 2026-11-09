@@ -1,7 +1,7 @@
 import { opportunitySchema } from "@/lib/domain/opportunity";
 import { buildOpportunity } from "./opportunity";
 import { retrieveHttps } from "./retrieve";
-import { anthropicWorkspaceId } from "@/lib/domain/llm";
+import { anthropicWorkspaceId, validSpendCapCents } from "@/lib/domain/llm";
 import { planConnectionWrites } from "@/lib/domain/openrouter-policy";
 import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
@@ -1452,8 +1452,10 @@ function hostname(text: string): string | null {
 
 /**
  * Normalise a domain entry to the bare host the matcher compares with the part
- * of the mailbox after '@'. Returns the ASCII form, plus the Unicode form when
- * the owner typed one, so either spelling of a mailbox is blocked.
+ * of the mailbox after '@'. The matcher (manual-workflow.ts) blocks that host
+ * and every subdomain of it, so "acme.com" blocks x@mail.acme.com but not
+ * x@notacme.com. Returns the ASCII form, plus the Unicode form when the owner
+ * typed one, so either spelling of a mailbox is blocked.
  */
 export function normalizeSuppressionDomain(raw: string): string[] | null {
   let text = raw.normalize("NFC").trim().toLowerCase();
@@ -1547,23 +1549,33 @@ export const saveConnections = createServerFn({ method: "POST" })
     huntBatch?: number;
     jev?: string;
     jevBaseUrl?: string;
-  }) => ({
-    xai: input.xai ?? "",
-    apollo: input.apollo ?? "",
-    gmailUser: input.gmailUser ?? "",
-    gmailPass: input.gmailPass ?? "",
-    zoominfo: input.zoominfo ?? "",
-    monthlyBudgetCents: input.monthlyBudgetCents,
-    llmProvider: input.llmProvider ?? "",
-    llmModel: input.llmModel ?? "",
-    llmBaseUrl: input.llmBaseUrl ?? "",
-    llmKey: input.llmKey ?? "",
-    llmWorkspaceId: input.llmWorkspaceId === undefined ? undefined : anthropicWorkspaceId(input.llmWorkspaceId),
-    scheduleEnabled: input.scheduleEnabled,
-    huntBatch: input.huntBatch,
-    jev: input.jev ?? "",
-    jevBaseUrl: input.jevBaseUrl ?? "",
-  }))
+  }) => {
+    // Reject bad numbers before anything is written, so "Saved." is never shown for them.
+    if (input.monthlyBudgetCents !== undefined && !validSpendCapCents(input.monthlyBudgetCents))
+      throw new Error("Enter the monthly AI spend cap as a dollar amount, such as 50 or 12.50. Enter 0 to turn AI off.");
+    if (
+      input.huntBatch !== undefined &&
+      !(Number.isInteger(input.huntBatch) && input.huntBatch >= 4 && input.huntBatch <= 20)
+    )
+      throw new Error("Companies per search must be a whole number from 4 to 20.");
+    return {
+      xai: input.xai ?? "",
+      apollo: input.apollo ?? "",
+      gmailUser: input.gmailUser ?? "",
+      gmailPass: input.gmailPass ?? "",
+      zoominfo: input.zoominfo ?? "",
+      monthlyBudgetCents: input.monthlyBudgetCents,
+      llmProvider: input.llmProvider ?? "",
+      llmModel: input.llmModel ?? "",
+      llmBaseUrl: input.llmBaseUrl ?? "",
+      llmKey: input.llmKey ?? "",
+      llmWorkspaceId: input.llmWorkspaceId === undefined ? undefined : anthropicWorkspaceId(input.llmWorkspaceId),
+      scheduleEnabled: input.scheduleEnabled,
+      huntBatch: input.huntBatch,
+      jev: input.jev ?? "",
+      jevBaseUrl: input.jevBaseUrl ?? "",
+    };
+  })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
@@ -1575,16 +1587,13 @@ export const saveConnections = createServerFn({ method: "POST" })
     }
     // A saved or restored setting cannot enable scheduled processing.
     if (data.scheduleEnabled !== undefined) await putSecret(sql, context.userId, "schedule_enabled", "0");
-    if (Number.isFinite(Number(data.huntBatch))) {
-      const batch = Math.min(20, Math.max(4, Math.round(Number(data.huntBatch))));
-      await putSecret(sql, context.userId, "hunt_batch", String(batch));
-    }
-    const budget = Number(data.monthlyBudgetCents);
-    if (Number.isFinite(budget) && budget >= 0) {
+    if (data.huntBatch !== undefined) await putSecret(sql, context.userId, "hunt_batch", String(data.huntBatch));
+    if (data.monthlyBudgetCents !== undefined) {
+      // 0 is a valid cap: it turns AI off (owner decision 1, 2026-11-09).
       const flags = await connectionFlags(sql, context.userId);
       await sql`
         insert into operating_state (user_id, monthly_budget_cents, spend_month, spend_used_cents)
-        values (${context.userId}, ${Math.round(budget)}, ${flags.spendMonth}, ${flags.spendUsedCents})
+        values (${context.userId}, ${data.monthlyBudgetCents}, ${flags.spendMonth}, ${flags.spendUsedCents})
         on conflict (user_id) do update set monthly_budget_cents = excluded.monthly_budget_cents
       `;
     }

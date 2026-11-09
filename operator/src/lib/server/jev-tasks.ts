@@ -1,6 +1,7 @@
 import type { ProspectOutcome } from "@/lib/domain/types";
 import { asOutcome, type JevQualifyJudgment } from "@/lib/domain/qualify-jev";
 import { jevDecide, parseChoice, parseNoul, parseScore } from "@/lib/server/jev";
+import type { SpendMeter } from "@/lib/server/secrets";
 
 const DIMS = [
   ["account_fit", "Score 0-2 account fit: currently operating plant/mill/mine matching the frozen profile. Retrieved page only."],
@@ -15,6 +16,7 @@ export async function jevQualifyPage(opts: {
   baseUrl?: string;
   transport?: "typesafe" | "openrouter";
   model?: string;
+  spend: SpendMeter;
   accountName: string;
   targetName: string;
   url: string;
@@ -27,6 +29,7 @@ export async function jevQualifyPage(opts: {
     baseUrl: opts.baseUrl,
     transport: opts.transport,
     model: opts.model,
+    spend: opts.spend,
     state: {
       accountName: opts.accountName,
       targetName: opts.targetName,
@@ -106,6 +109,7 @@ export async function jevClassifyInbox(opts: {
   baseUrl?: string;
   transport?: "typesafe" | "openrouter";
   model?: string;
+  spend: SpendMeter;
   from: string;
   subject: string;
   body: string;
@@ -115,6 +119,7 @@ export async function jevClassifyInbox(opts: {
     baseUrl: opts.baseUrl,
     transport: opts.transport,
     model: opts.model,
+    spend: opts.spend,
     state: {
       from: opts.from.slice(0, 200),
       subject: opts.subject.slice(0, 200),
@@ -142,6 +147,7 @@ export async function jevGuardCopy(opts: {
   baseUrl?: string;
   transport?: "typesafe" | "openrouter";
   model?: string;
+  spend: SpendMeter;
   limitations: string;
   promise: string;
   body: string;
@@ -151,6 +157,7 @@ export async function jevGuardCopy(opts: {
     baseUrl: opts.baseUrl,
     transport: opts.transport,
     model: opts.model,
+    spend: opts.spend,
     state: {
       limitations: opts.limitations.slice(0, 1_200),
       promise: opts.promise.slice(0, 800),

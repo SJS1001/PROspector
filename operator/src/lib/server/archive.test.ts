@@ -210,13 +210,36 @@ async function fillHistory(pg: PGlite) {
     insert into draft_plays (id,user_id,proposal_id,title,status,notes,audience,likely_buyer,offer,confirmed_at) values ('draft','a','proposal','Draft','confirmed','Notes','Audience','Buyer','Offer',now());
     insert into delivery_events (id,user_id,message_id,kind,note) values ('delivery','a','m','reply','History');
     insert into identity_merges (id,user_id,keep_id,drop_id,reason) values ('merge','a','c','old-contact','Duplicate');
-    insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ('a',5000,'2026-10',321);
+    insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ('a',1234,'2026-10',321);
     update outreach_messages set lease_token = 'excluded-active-lease', lease_until = now() + interval '1 hour' where id = 'm';
     insert into operator_secrets(user_id,name,value) values ('a','api_key','excluded-secret'),('a','schedule_enabled','1');
     insert into enrichment_grants(id,user_id,prospect_id,status,reason) values ('source-grant','a','p','active','excluded');
     insert into enrichment_grants(id,user_id,prospect_id,status,reason,provider,unit,cost_cents,expires_at,spent_at) values ('spent-grant','a','p','apollo','paid reveal','apollo','person',25,now() + interval '1 hour',now());
   `);
 }
+
+test("restore keeps the archived spend cap, and never sets a missing one to 0", async () => {
+  const { pg, adapter } = await setup();
+  try {
+    await fixture(pg);
+    await pg.exec(
+      "insert into operating_state (user_id,monthly_budget_cents,spend_month,spend_used_cents) values ('a',777,'2026-10',12) on conflict (user_id) do update set monthly_budget_cents = 777",
+    );
+    const archive = await exportWorkspaceArchive("a", adapter);
+    await restoreWorkspaceArchive("b", archive, adapter);
+    const cap = async () =>
+      (await pg.query<{ monthly_budget_cents: number }>("select monthly_budget_cents from operating_state where user_id='b'"))
+        .rows[0].monthly_budget_cents;
+    assert.equal(await cap(), 777);
+    archive.tables.operating_state = [];
+    rehash(archive);
+    await pg.exec("delete from operating_state where user_id='b'");
+    await restoreWorkspaceArchive("b", archive, adapter);
+    assert.equal(await cap(), 5000);
+  } finally {
+    await pg.close();
+  }
+});
 
 test("all tables round-trip into an empty database with explicit safety normalization", async () => {
   const source = await setup(),
@@ -234,12 +257,13 @@ test("all tables round-trip into an empty database with explicit safety normaliz
     await restoreWorkspaceArchive("a", original, target.adapter);
     const restored = await exportWorkspaceArchive("a", target.adapter);
     // Archived approval timestamps and dispatch history remain; active approval,
-    // acknowledgement, lease and future spend authority are intentionally reset.
+    // acknowledgement and lease are intentionally reset. The stored monthly AI
+    // spend cap is kept (owner decision 1, 2026-11-09).
     const expected = structuredClone(original);
     expected.tables.outreach_packages[0].status = "draft";
     expected.tables.outreach_messages[0].status = "blocked";
     expected.tables.outreach_messages[0].acknowledged = false;
-    expected.tables.operating_state[0].monthly_budget_cents = 0;
+    assert.equal(restored.tables.operating_state[0].monthly_budget_cents, 1234);
     const audit = restored.tables.delivery_events.filter((e) =>
       String(e.kind).startsWith("archive_restore_"),
     );
@@ -510,7 +534,6 @@ test("all-table cross-owner restore keeps data and remaps every relational refer
           expected.status = "blocked";
           expected.acknowledged = false;
         }
-        if (table === "operating_state") expected.monthly_budget_cents = 0;
         assert.deepEqual(actual, expected, table);
       }
     }

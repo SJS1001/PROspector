@@ -586,7 +586,7 @@ export async function restoreWorkspaceArchive(
         row.terminal_reason = INTERRUPTED_RUN_REASON;
         row.finished_at = row.finished_at ?? restoredAt;
       }
-      if (table === "operating_state") row.monthly_budget_cents = 0;
+      // The archived monthly AI spend cap is kept as stored (owner decision 1, 2026-11-09).
       return row;
     };
     for (const [table, fields] of Object.entries({
@@ -768,7 +768,8 @@ export async function restoreWorkspaceArchive(
       );
     }
     await sql.query(
-      "insert into operating_state (user_id, monthly_budget_cents) values ($1, 0) on conflict (user_id) do nothing",
+      // An archive without operating state gets the new-workspace default cap, never 0.
+      "insert into operating_state (user_id) values ($1) on conflict (user_id) do nothing",
       [owner],
     );
     check();
