@@ -18,7 +18,7 @@ This protocol adds what those do not cover: who produces the quality labels, how
 | Authorized provider trial | A later, separately authorized run with a real provider account and a spend limit | Only for provider behavior, and only after the owner approves the frozen protocol. BLOCKED. |
 | Operating evidence | Real use of the product over an observation window | Yes, the only class that can. BLOCKED. |
 
-Every machine report carries `evidenceClass` and `operationalAcceptance: false`. A passing synthetic run is never quality evidence.
+Every report from the label-agreement scorer carries `evidenceClass` (`synthetic_only` or `owner_sample`; an owner sample is still not operating evidence) and `operationalAcceptance: false`. The older evaluator's `unavailable` report carries no evidenceClass. A passing synthetic run is never quality evidence.
 
 ## 2. Label roles
 
@@ -118,3 +118,8 @@ The scorer is runtime-unreachable (no application module imports it) and perform
 | Operating evidence | Phase 7 evaluation after the above |
 
 No purchase, real contact lookup, live provider call, or real personal data is part of this protocol's current deliverable.
+
+
+## Enforcement note (code)
+
+`site/domain/label-agreement.ts` pins the v1 thresholds as `LABEL_AGREEMENT_V1_THRESHOLDS`. Missing, non-finite, unknown or changed thresholds are rejected rather than used, so a run cannot loosen a gate. Spot-check batches are validated (known labels, unique ids, blinded owner rows, not Jev pipeline outputs, checked count not above drafted count) and invalid batches are refused rather than renewing Jev's permission. Changing a threshold requires a new protocol version and a code change. The thresholds themselves remain proposals until the owner confirms them.

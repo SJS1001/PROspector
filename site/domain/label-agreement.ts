@@ -39,6 +39,18 @@ export type LabelAgreementInput = Readonly<{
   }>[];
 }>;
 
+// Protocol v1 thresholds, pinned in code. Callers cannot loosen them: any input
+// whose thresholds differ from this constant is rejected (fail closed).
+export const LABEL_AGREEMENT_V1_THRESHOLDS: LabelAgreementThresholds = Object.freeze({
+  minAdjudicated: 25,
+  minPerStratum: 3,
+  minAgreement: 0.85,
+  minAgreementWilsonLower: 0.7,
+  minKappa: 0.6,
+  maxFalseRelevantRate: 0.15,
+  spotCheck: Object.freeze({ minFraction: 0.2, minBatch: 10, revokeBelowAgreement: 0.8 }),
+});
+
 const OWNER: readonly string[] = ["relevant", "irrelevant", "unknown"];
 const JEV: readonly string[] = ["relevant", "irrelevant", "uncertain"];
 
@@ -54,16 +66,33 @@ function ratio(numerator: number, denominator: number) {
   return { numerator, denominator, value: p, wilson95: { lower: Math.max(0, centre - margin), upper: Math.min(1, centre + margin) } };
 }
 
+function validateThresholds(th: LabelAgreementThresholds | undefined) {
+  if (!th || typeof th !== "object" || !th.spotCheck || typeof th.spotCheck !== "object") fail("thresholds missing");
+  const flat: Record<string, unknown> = { ...th, ...Object.fromEntries(Object.entries(th.spotCheck).map(([k, v]) => [`spotCheck.${k}`, v])) };
+  delete flat.spotCheck;
+  const pinned = LABEL_AGREEMENT_V1_THRESHOLDS as unknown as Record<string, unknown>;
+  const pinnedFlat: Record<string, unknown> = { ...pinned, ...Object.fromEntries(Object.entries(LABEL_AGREEMENT_V1_THRESHOLDS.spotCheck).map(([k, v]) => [`spotCheck.${k}`, v])) };
+  delete pinnedFlat.spotCheck;
+  for (const key of Object.keys(pinnedFlat)) {
+    const v = flat[key];
+    if (typeof v !== "number" || !Number.isFinite(v)) fail(`threshold ${key} must be a finite number`);
+    if (v !== pinnedFlat[key]) fail(`threshold ${key} differs from the pinned protocol v1 value; thresholds cannot be changed per run`);
+  }
+  if (Object.keys(flat).length !== Object.keys(pinnedFlat).length) fail("unknown threshold keys");
+}
+
 function validate(input: LabelAgreementInput) {
   if (input.schema !== LABEL_AGREEMENT_SCHEMA) fail("unsupported schema");
   if (input.datasetKind !== "synthetic" && input.datasetKind !== "owner_sample") fail("unknown datasetKind");
-  if (input.targets.length === 0) fail("no targets");
+  validateThresholds(input.thresholds);
+  if (!Array.isArray(input.targets) || input.targets.length === 0) fail("no targets");
   const seen = new Set<string>();
   for (const t of input.targets) {
     if (!t.id || seen.has(t.id)) fail(`missing or duplicate target id ${t.id}`);
     seen.add(t.id);
     if (!input.strata.includes(t.stratum)) fail(`target ${t.id} has undeclared stratum`);
     if (!OWNER.includes(t.owner?.label)) fail(`target ${t.id} has no valid owner label`);
+    if (typeof t.producedByJevPipeline !== "boolean") fail(`target ${t.id} producedByJevPipeline must be a boolean`);
     if (t.owner.blindedToJevDraft !== true) fail(`target ${t.id} owner label was not blinded to the Jev draft`);
     if (!JEV.includes(t.jev?.label)) fail(`target ${t.id} has no valid Jev draft label`);
     if (typeof t.jev.reason !== "string" || t.jev.reason.trim() === "") fail(`target ${t.id} Jev draft has no reason`);
@@ -72,7 +101,7 @@ function validate(input: LabelAgreementInput) {
 
 export function scoreLabelAgreement(input: LabelAgreementInput) {
   validate(input);
-  const th = input.thresholds;
+  const th = LABEL_AGREEMENT_V1_THRESHOLDS;
   const excludedSelfLabelled = input.targets.filter((t) => t.producedByJevPipeline).length;
   const eligible = input.targets.filter((t) => !t.producedByJevPipeline);
   const adjudicated = eligible.filter((t) => t.owner.label !== "unknown");
@@ -120,6 +149,7 @@ export function scoreLabelAgreement(input: LabelAgreementInput) {
     schema: LABEL_AGREEMENT_SCHEMA,
     evidenceClass: input.datasetKind === "synthetic" ? "synthetic_only" : "owner_sample",
     operationalAcceptance: false,
+    thresholds: th,
     // Jev rows are drafts under every outcome; only owner labels are ground truth.
     jevLabelsAreGroundTruth: false,
     sample: { targets: input.targets.length, eligible: eligible.length, adjudicated: n, ownerUnresolved, excludedSelfLabelled },
@@ -136,13 +166,31 @@ export function scoreLabelAgreement(input: LabelAgreementInput) {
 }
 
 // After clearance, each batch of Jev drafts needs an owner spot check.
+// Invalid batches are rejected, never treated as renewed permission.
 export function assessSpotCheck(
   thresholds: LabelAgreementThresholds,
-  batch: Readonly<{ draftedCount: number; checked: readonly Readonly<{ id: string; ownerLabel: OwnerLabel; jevLabel: JevLabel }>[] }>,
+  batch: Readonly<{
+    draftedCount: number;
+    checked: readonly Readonly<{ id: string; ownerLabel: OwnerLabel; jevLabel: JevLabel; blindedToJevDraft: boolean; producedByJevPipeline: boolean }>[];
+  }>,
 ) {
-  const sc = thresholds.spotCheck;
+  validateThresholds(thresholds);
+  const sc = LABEL_AGREEMENT_V1_THRESHOLDS.spotCheck;
+  if (!Number.isInteger(batch.draftedCount) || batch.draftedCount <= 0) fail("draftedCount must be a positive integer");
+  if (!Array.isArray(batch.checked)) fail("checked must be an array");
+  if (batch.checked.length > batch.draftedCount) fail("checked rows exceed drafted batch size");
+  const seen = new Set<string>();
+  for (const r of batch.checked) {
+    if (!r.id || seen.has(r.id)) fail(`spot check missing or duplicate id ${r.id}`);
+    seen.add(r.id);
+    if (!OWNER.includes(r.ownerLabel)) fail(`spot check ${r.id} has no valid owner label`);
+    if (!JEV.includes(r.jevLabel)) fail(`spot check ${r.id} has no valid Jev label`);
+    if (r.blindedToJevDraft !== true) fail(`spot check ${r.id} owner label was not blinded to the Jev draft`);
+    if (typeof r.producedByJevPipeline !== "boolean") fail(`spot check ${r.id} producedByJevPipeline must be a boolean`);
+    if (r.producedByJevPipeline) fail(`spot check ${r.id} is a Jev pipeline output and cannot be checked as truth`);
+  }
   const adjudicated = batch.checked.filter((r) => r.ownerLabel !== "unknown");
-  const fraction = batch.draftedCount === 0 ? 0 : batch.checked.length / batch.draftedCount;
+  const fraction = batch.checked.length / batch.draftedCount;
   const agreement = ratio(adjudicated.filter((r) => r.jevLabel === r.ownerLabel).length, adjudicated.length);
   if (fraction < sc.minFraction || adjudicated.length < sc.minBatch) return { status: "insufficient_spot_check" as const, fraction, agreement };
   if (agreement.value === null || agreement.value < sc.revokeBelowAgreement) return { status: "revoked" as const, fraction, agreement };

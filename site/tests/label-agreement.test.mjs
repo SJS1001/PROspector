@@ -97,11 +97,55 @@ test("rejects unblinded owner labels, missing Jev reasons, duplicates and undecl
 
 test("spot checks retain, revoke, or are insufficient", () => withModule(async (mod) => {
   const { thresholds } = await fixture();
-  const rows = (agree, total) => Array.from({ length: total }, (_, i) => ({ id: `s${i}`, ownerLabel: "relevant", jevLabel: i < agree ? "relevant" : "irrelevant" }));
+  const rows = (agree, total) => Array.from({ length: total }, (_, i) => ({ id: `s${i}`, ownerLabel: "relevant", blindedToJevDraft: true, producedByJevPipeline: false, jevLabel: i < agree ? "relevant" : "irrelevant" }));
   assert.equal(mod.assessSpotCheck(thresholds, { draftedCount: 50, checked: rows(10, 10) }).status, "retained");
   assert.equal(mod.assessSpotCheck(thresholds, { draftedCount: 50, checked: rows(7, 10) }).status, "revoked");
   assert.equal(mod.assessSpotCheck(thresholds, { draftedCount: 50, checked: rows(5, 5) }).status, "insufficient_spot_check");
   assert.equal(mod.assessSpotCheck(thresholds, { draftedCount: 100, checked: rows(10, 10) }).status, "insufficient_spot_check");
+}));
+
+test("thresholds fail closed: missing, NaN, loosened and unknown keys are rejected", () => withModule(async (mod) => {
+  const bad = async (mutate, pattern) => {
+    const input = await fixture();
+    mutate(input);
+    assert.throws(() => mod.scoreLabelAgreement(input), pattern);
+  };
+  await bad((i) => { i.thresholds = {}; }, /thresholds missing/);
+  await bad((i) => { delete i.thresholds; }, /thresholds missing/);
+  await bad((i) => { delete i.thresholds.minAgreement; }, /minAgreement must be a finite number/);
+  await bad((i) => { i.thresholds.minKappa = Number.NaN; }, /minKappa must be a finite number/);
+  await bad((i) => { i.thresholds.minAgreement = 0; }, /differs from the pinned/);
+  await bad((i) => { i.thresholds.spotCheck.minBatch = 0; }, /differs from the pinned/);
+  await bad((i) => { delete i.thresholds.spotCheck.minFraction; }, /minFraction must be a finite number/);
+  await bad((i) => { i.thresholds.extra = 1; }, /unknown threshold keys/);
+  const report = mod.scoreLabelAgreement(await fixture());
+  assert.deepEqual(report.thresholds, mod.LABEL_AGREEMENT_V1_THRESHOLDS);
+}));
+
+test("producedByJevPipeline must be an explicit boolean", () => withModule(async (mod) => {
+  for (const v of [undefined, "false", null, 0]) {
+    const input = await fixture();
+    if (v === undefined) delete input.targets[30].producedByJevPipeline; else input.targets[30].producedByJevPipeline = v;
+    assert.throws(() => mod.scoreLabelAgreement(input), /producedByJevPipeline must be a boolean/);
+  }
+}));
+
+test("invalid spot checks are rejected, not retained", () => withModule(async (mod) => {
+  const { thresholds } = await fixture();
+  const row = (i, o = {}) => ({ id: `s${i}`, ownerLabel: "relevant", jevLabel: "relevant", blindedToJevDraft: true, producedByJevPipeline: false, ...o });
+  const rows = (o) => Array.from({ length: 10 }, (_, i) => row(i, o));
+  const bad = (batch, pattern) => assert.throws(() => mod.assessSpotCheck(thresholds, batch), pattern);
+  bad({ draftedCount: 50, checked: rows({ ownerLabel: "bogus", jevLabel: "bogus" }) }, /no valid owner label/);
+  bad({ draftedCount: 50, checked: rows({ jevLabel: "bogus" }) }, /no valid Jev label/);
+  bad({ draftedCount: 1, checked: rows() }, /exceed drafted batch size/);
+  bad({ draftedCount: 0, checked: [] }, /positive integer/);
+  bad({ draftedCount: 50.5, checked: rows() }, /positive integer/);
+  bad({ draftedCount: 50, checked: [row(1), row(1)] }, /duplicate id/);
+  bad({ draftedCount: 50, checked: rows({ blindedToJevDraft: false }) }, /not blinded/);
+  bad({ draftedCount: 50, checked: rows({ producedByJevPipeline: true }) }, /cannot be checked as truth/);
+  bad({ draftedCount: 50, checked: rows({ producedByJevPipeline: undefined }) }, /must be a boolean/);
+  assert.throws(() => mod.assessSpotCheck({ ...thresholds, spotCheck: { ...thresholds.spotCheck, revokeBelowAgreement: 0 } }, { draftedCount: 50, checked: rows() }), /differs from the pinned/);
+  assert.throws(() => mod.assessSpotCheck({}, { draftedCount: 50, checked: rows() }), /thresholds missing/);
 }));
 
 test("owner labeling sheet template header matches the module columns and the module does no I/O", async () => {
