@@ -2,6 +2,8 @@
 
 This ledger is the v1 requirement inventory. It is not the 26/74 plan-credit ledger in `COMPLETION.md`. Formal acceptance is the count of rows whose status is `verified`. That count is 0. A product percent is unknown while `verification_mapping` is `partial`. Do not divide 26 by 74 or by 17 and call the result completion.
 
+Local extracts merged on 2026-11-09 are recorded below as test evidence only. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->
@@ -28,7 +30,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
     "recorded_at": "2026-11-08T21:00:33Z",
     "session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
     "seeded_at": "2026-11-08T21:00:33Z",
-    "last_source_review_at": "2026-11-08T21:00:33Z",
+    "last_source_review_at": "2026-11-09T06:05:00Z",
     "verification_mapping": "partial"
   },
   "requirements": [
@@ -145,6 +147,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "The requirements traceability cell says local implementation is complete and acceptance is pending. No requirement-scoped test count is recorded here. The session that wrote the 2026-09-03 requirements update is unknown. Plan credit 26/74 is not this requirement's acceptance."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/164",
+          "pr_number": 164,
+          "artifact_path": "site/tests/tenant-isolation-entrypoints.test.mjs",
+          "evidence_commit": "12079b56afe99ee74f390c6ec3d7f8cd0673208c",
+          "test_scope": "node --test --test-concurrency=1 tests/tenant-isolation-entrypoints.test.mjs",
+          "test_counts": {
+            "tests": 4,
+            "passed": 4,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T06:05:00Z",
+          "recorded_at": "2026-11-09T06:05:00Z",
+          "session": "extract-merges-2026-11-09",
+          "limitations": "Local proof that async owner-projection failures stay inside the handler and that anonymous, outsider, and spoofed calls are denied. This is not Plan 02-99 greenfield acceptance, not a requirement checkbox, and not plan credit. Formal acceptance stays 0/17. Plan credit stays 26/74."
         }
       ]
     },
@@ -771,6 +794,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "Traceability status is Pending. This inventory row was not given a requirement-scoped acceptance receipt. Discovery did not treat the checkbox as proof."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/162",
+          "pr_number": 162,
+          "artifact_path": "site/domain/local-outreach-command-orchestrator.ts",
+          "evidence_commit": "826ee5971702bcd7d1d60648607f68e40ec2af21",
+          "test_scope": "node --test --test-concurrency=1 tests/local-outreach-command-orchestrator.test.mjs",
+          "test_counts": {
+            "tests": 37,
+            "passed": 37,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T06:05:00Z",
+          "recorded_at": "2026-11-09T06:05:00Z",
+          "session": "extract-merges-2026-11-09",
+          "limitations": "In-memory orchestrator only. The unconfigured adapter stays reject-only. No Gmail send, live provider, credential, or spend. Not Plans 06-10, 06-11, or 06-13. Not plan credit. Formal acceptance stays 0/17."
         }
       ]
     },
@@ -818,6 +862,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "Traceability status is Pending. This inventory row was not given a requirement-scoped acceptance receipt. Discovery did not treat the checkbox as proof."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/161",
+          "pr_number": 161,
+          "artifact_path": "site/domain/manual-call-decision-service.ts",
+          "evidence_commit": "a9b538aa0d211f3c27c6d1e8dfb3e30f8286a738",
+          "test_scope": "node --test --test-concurrency=1 tests/manual-call-decision-service.test.mjs",
+          "test_counts": {
+            "tests": 15,
+            "passed": 15,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T06:05:00Z",
+          "recorded_at": "2026-11-09T06:05:00Z",
+          "session": "extract-merges-2026-11-09",
+          "limitations": "Synthetic decision service only. do_not_call orders suppression before the outcome inside an injected repository. No phone number, URI, dial, or provider. Not production suppression. Not plan credit. Formal acceptance stays 0/17."
         }
       ]
     },
@@ -865,12 +930,33 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "Traceability status is Pending. This inventory row was not given a requirement-scoped acceptance receipt. Discovery did not treat the checkbox as proof."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/160",
+          "pr_number": 160,
+          "artifact_path": "site/domain/crm-handoff-export-artifact.ts",
+          "evidence_commit": "f55a47366f416a315e466e3b7734030288ad28ac",
+          "test_scope": "node --test --test-concurrency=1 tests/crm-handoff-export-artifact.test.mjs",
+          "test_counts": {
+            "tests": 8,
+            "passed": 8,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T06:05:00Z",
+          "recorded_at": "2026-11-09T06:05:00Z",
+          "session": "extract-merges-2026-11-09",
+          "limitations": "In-memory synthetic CSV selection validation only. No download, delivery, archive, or restore. Not Plans 07-07 or 07-10. Not plan credit. Formal acceptance stays 0/17."
         }
       ]
     },
     {
       "id": "REQ-initial-operating-target",
-      "title": "The operator can run the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` workflow weekdays at 06:00 America/Toronto, keep Greenfield Draft/nurture, and report seven newly Export-ready Prospects per Monday–Sunday week while showing all funnel losses and preserving every quality gate.",
+      "title": "The operator can run the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` workflow weekdays at 06:00 America/Toronto, keep Greenfield Draft/nurture, and report seven newly Export-ready Prospects per Monday\u2013Sunday week while showing all funnel losses and preserving every quality gate.",
       "class": "requirement",
       "status": "open",
       "source_status": "Pending",
