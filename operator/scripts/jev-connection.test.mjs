@@ -73,6 +73,37 @@ test("JEV request contract, validation, safe failures and status", async (t) => 
     response = Response.json({ answers: { ...validAnswers, ...patch } });
     await assert.rejects(jevQualifyPage(opts), /incomplete response/);
   }
+  let decisionCalls = [];
+  globalThis.fetch = async (url, init) => {
+    decisionCalls.push({ url, authorization: init.headers.Authorization, body: JSON.parse(init.body) });
+    return Response.json({ choices: [{ message: { content: "not a decision" } }] });
+  };
+  await assert.rejects(
+    jevQualifyPage({ ...opts, apiKey: "openrouter-secret", transport: "openrouter", model: "typesafe/jev-1.14", baseUrl: "https://api.typesafe.ai/v1" }),
+    /incomplete response/,
+  );
+  assert.equal(decisionCalls.length, 1);
+  assert.equal(decisionCalls[0].url, "https://openrouter.ai/api/alpha/decisions");
+  assert.equal(decisionCalls[0].authorization, "Bearer openrouter-secret");
+  assert.equal(decisionCalls[0].body.model, "typesafe/jev-1.14");
+  assert.equal(String(decisionCalls[0].url).includes("chat/completions"), false);
+  assert.equal(String(decisionCalls[0].url).includes("typesafe.ai"), false);
+  decisionCalls = [];
+  await assert.rejects(
+    jevQualifyPage({ ...opts, apiKey: "openrouter-secret", transport: "openrouter", model: "typesafe/jev-router" }),
+    /not the Jev decision model/,
+  );
+  assert.equal(decisionCalls.length, 0);
+  response = undefined;
+  globalThis.fetch = async (url, init) => {
+    requested = JSON.parse(init.body);
+    assert.equal(url, "https://api.typesafe.ai/v1/systemone");
+    assert.equal(init.headers.Authorization, "Bearer test-secret");
+    return response || Response.json({ model: "jev-test", answers: validAnswers });
+  };
+  const direct = await jevQualifyPage(opts);
+  assert.equal(direct.model, "jev-test");
+  assert.equal(requested.model, "jev-latest");
   response = Response.json({ answers: validAnswers, model: {} });
   await assert.rejects(jevQualifyPage(opts), /invalid model/);
   for (const [status, expected] of [

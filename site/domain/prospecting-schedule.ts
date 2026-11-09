@@ -3,6 +3,7 @@
 import { v7 } from "uuid";
 
 const DAY = 24 * 60 * 60 * 1_000;
+const SCHEDULE_EXECUTION_STATES = new Set(["blocked_missing_capability", "active", "paused", "archived"]);
 
 export class ProspectingScheduleConflictError extends Error {
   readonly code = "prospecting_schedule_conflict";
@@ -148,7 +149,7 @@ export async function reconcileProspectingSchedules(database: D1Database, worksp
       results.push({ scheduleId: schedule.id, ...recorded }); continue;
     }
     const result = await createProspectingIntent(database, workspaceId, { profileId:schedule.profile_id, configurationId:schedule.configuration_id, configurationDigest:schedule.configuration_digest, scheduleId:schedule.id, triggerKind:"scheduled", triggerKey:key, idempotencyKey:`schedule:${key}`, at:due, watermark:schedule.last_successful_watermark === null ? null : Number(schedule.last_successful_watermark), manifest:{ scheduleId:schedule.id, localSlot:key } });
-    await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, result.executionState);
+    await advanceSchedule(database, workspaceId, schedule.id, next.nextRunAt, next.utcOffsetMinutes, now, scheduleExecutionState(result.executionState));
     results.push({ scheduleId:schedule.id, ...result });
   }
   return results;
@@ -215,6 +216,9 @@ async function persistSkippedMisfire(database: D1Database, workspaceId: string, 
     throw error;
   }
   return { id: runId, trigger: intent.triggerKind, key: intent.triggerKey, executionState: "skipped_misfire" as const, replayed: false };
+}
+function scheduleExecutionState(runState: string) {
+  return SCHEDULE_EXECUTION_STATES.has(runState) ? runState : "blocked_missing_capability";
 }
 async function advanceSchedule(database:D1Database,workspaceId:string,id:string,next:number,offset:number,now:number,state:string){await database.prepare("UPDATE prospecting_schedules SET next_run_at=?,utc_offset_minutes=?,execution_state=?,updated_at=?,revision=revision+1 WHERE id=? AND workspace_id=? AND active=1").bind(next,offset,state,now,id,workspaceId).run();}
 function slotAt(profileId:string,at:number,time:string,zone:string){const p=localParts(at,zone);return profileSlotKey(profileId,`${p.year}-${p.month}-${p.day}`,time,offsetAt(at,zone));}

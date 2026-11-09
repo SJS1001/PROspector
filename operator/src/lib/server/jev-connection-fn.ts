@@ -10,7 +10,13 @@ export const testJevConnection = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const connection = await resolveJev(await getSql(), context.userId);
     const checkedAt = new Date().toISOString();
-    if (!connection.apiKey) return { ok: false, checkedAt, message: "Save a TypeSafe key first." };
+    if (!connection.apiKey) {
+      return {
+        ok: false,
+        checkedAt,
+        message: connection.transport === "openrouter" ? "Save an OpenRouter API key first." : "Save a TypeSafe key first.",
+      };
+    }
     try {
       // Exercise the same nine questions as a search, using synthetic public-safe text.
       const result = await jevQualifyPage({

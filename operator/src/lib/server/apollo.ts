@@ -56,7 +56,11 @@ export async function searchApolloPeople(opts: {
   accountName: string;
   domain: string;
   titles: string[];
+  modelProvider?: string;
 }): Promise<ApolloHit[]> {
+  if (opts.modelProvider === "openrouter") {
+    throw new Error("Apollo is not included in OpenRouter. The Apollo request was not sent.");
+  }
   const search = await apolloPost("/mixed_people/api_search", opts.key, {
     q_organization_name: opts.accountName,
     q_organization_domains: opts.domain ? [opts.domain] : undefined,

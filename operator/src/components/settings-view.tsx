@@ -8,6 +8,7 @@ import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LLM_PROVIDERS, llmProvider } from "@/lib/domain/llm";
+import { OPENROUTER_EXCLUSION_COPY } from "@/lib/domain/openrouter-policy";
 import { mutationMessage, useExportCrm, useSaveConnections, useWorkspace } from "@/lib/workspace";
 
 export function SettingsView() {
@@ -34,6 +35,7 @@ export function SettingsView() {
   if (isError || !data) return <WorkspaceLoadError message="Connections could not be loaded." />;
 
   const selected = llmProvider(provider || data.connections.llmProvider);
+  const openRouter = selected.id === "openrouter";
 
   return (
     <div className="grid max-w-2xl gap-6">
@@ -92,7 +94,20 @@ export function SettingsView() {
                   ))}
                 </select>
               </label>
-              {aiOpen ? (
+              {openRouter ? (
+                <label className="grid gap-1 text-xs text-muted">
+                  Model
+                  <input
+                    className="field"
+                    aria-label="OpenRouter model id"
+                    autoComplete="off"
+                    placeholder="openai/gpt-4"
+                    value={model || data.connections.llmModel}
+                    onChange={(event) => setModel(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              {!openRouter && aiOpen ? (
                 <ModelPicker
                   provider={selected.id}
                   value={model || data.connections.llmModel}
@@ -113,13 +128,15 @@ export function SettingsView() {
                   />
                 </label>
               ) : null}
+              {openRouter ? <p className="text-sm text-muted" role="note">{OPENROUTER_EXCLUSION_COPY}</p> : null}
               <label className="grid gap-1 text-xs text-muted">
-                API key
+                {openRouter ? "OpenRouter API key" : "API key"}
                 <input
                   className="field"
                   type="password"
                   autoComplete="off"
-                  placeholder="Paste key"
+                  aria-label={openRouter ? "OpenRouter API key" : "API key"}
+                  placeholder={openRouter ? "OpenRouter API key" : "Paste key"}
                   value={llmKey}
                   onChange={(event) => setLlmKey(event.target.value)}
                 />
@@ -167,6 +184,7 @@ export function SettingsView() {
             </div>
           </details>
 
+          {openRouter ? null : <>
           <details className="rounded-[12px] border border-line bg-cream p-4">
             <summary className="cursor-pointer text-sm font-medium">
               <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
@@ -260,28 +278,6 @@ export function SettingsView() {
           <details className="rounded-[12px] border border-line bg-cream p-4">
             <summary className="cursor-pointer text-sm font-medium">
               <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
-                Monthly spend cap
-              </span>
-            </summary>
-            <div className="mt-4 grid gap-4">
-              <p className="text-sm text-muted">
-                {Math.round(data.connections.spendUsedCents / 100)} /{" "}
-                {Math.round(data.connections.monthlyBudgetCents / 100)} USD this month (Toronto).
-              </p>
-              <input
-                className="field"
-                inputMode="decimal"
-                aria-label="Monthly spend cap in USD"
-                placeholder="50"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-              />
-            </div>
-          </details>
-
-          <details className="rounded-[12px] border border-line bg-cream p-4">
-            <summary className="cursor-pointer text-sm font-medium">
-              <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
                 <span>Gmail</span>
                 <Badge tone={data.connections.gmail ? "ok" : "warn"}>
                   {data.connections.gmail ? data.connections.gmailUser : "Missing"}
@@ -317,24 +313,47 @@ export function SettingsView() {
               />
             </div>
           </details>
+          </>}
+
+          <details className="rounded-[12px] border border-line bg-cream p-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              <span className="inline-flex max-w-full flex-wrap items-center gap-3 align-middle">
+                Monthly spend cap
+              </span>
+            </summary>
+            <div className="mt-4 grid gap-4">
+              <p className="text-sm text-muted">
+                {Math.round(data.connections.spendUsedCents / 100)} /{" "}
+                {Math.round(data.connections.monthlyBudgetCents / 100)} USD this month (Toronto).
+              </p>
+              <input
+                className="field"
+                inputMode="decimal"
+                aria-label="Monthly spend cap in USD"
+                placeholder="50"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+              />
+            </div>
+          </details>
 
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={save.isPending}
               onClick={() =>
                 save.mutate({
-                  xai: llmKey,
+                  xai: openRouter ? "" : llmKey,
                   llmKey,
                   llmProvider: provider || data.connections.llmProvider,
                   llmModel: model,
-                  llmBaseUrl: baseUrl,
+                  llmBaseUrl: openRouter ? "" : baseUrl,
                   llmWorkspaceId: selected.id === "anthropic" ? workspaceId : undefined,
-                  apollo,
-                  gmailUser,
-                  gmailPass,
-                  zoominfo,
-                  jev,
-                  jevBaseUrl: jevBase,
+                  apollo: openRouter ? "" : apollo,
+                  gmailUser: openRouter ? "" : gmailUser,
+                  gmailPass: openRouter ? "" : gmailPass,
+                  zoominfo: openRouter ? "" : zoominfo,
+                  jev: openRouter ? "" : jev,
+                  jevBaseUrl: openRouter ? "" : jevBase,
                   monthlyBudgetCents: budget ? Math.round(Number(budget) * 100) : undefined,
                   huntBatch: batch ? Number(batch) : undefined,
                 }, { onSuccess: () => {
