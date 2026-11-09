@@ -70,8 +70,17 @@ test("synthetic Approved Prospect reaches governed intents, survives restart, an
   await page.goto("/contacts");
   await expect(page.getByRole("heading", { name: "Decision recorded" })).toBeVisible();
   await expect(page.getByText("Jordan Synthetic", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Verified contacts" })).toBeVisible();
-  await expect(page.getByText("ContactReady", { exact: true }).first()).toBeVisible();
+  // The settled synthetic evidence survives the restart, but the Contacts
+  // projection only honours a settlement attestor behind the immutable
+  // controlled_enrichment gate, which this lane never creates. It must
+  // therefore stay fail-closed: listed for review, never projected ready.
+  const verified = page.getByRole("region", { name: "Verified contacts" });
+  await expect(verified.getByText("No current mailbox-verified or source-verified business contact points are projected.")).toBeVisible();
+  const eligibility = page.getByRole("region", { name: "Eligibility" });
+  const reviewRow = eligibility.locator("li").filter({ has: page.getByText("NeedsReview", { exact: true }) });
+  await expect(reviewRow).toHaveCount(1);
+  await expect(reviewRow).toContainText("on prospect c4-approved-prospect — contact_attestation_unavailable");
+  await expect(page.getByText("ContactReady", { exact: true })).toHaveCount(0);
   await assertNoOverlay(page);
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.locator(".person-discovery-workspace")).toBeVisible();
