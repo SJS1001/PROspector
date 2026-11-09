@@ -225,7 +225,7 @@ function ProfileGate({ data }: { data: WorkspaceDTO }) {
           <div ref={confirmation} className="mt-5 rounded-[10px] border border-line bg-paper p-4">
             <p className="text-sm">
               {confirming === "activate"
-                ? "Save these settings and start a prospect search? This also enables the search schedule. Your connected AI service may charge for searches. Nothing is sent to prospects."
+                ? "Save these settings and start a prospect search? Searches run only when you start them. Your connected AI service may charge for searches. Nothing is sent to prospects."
                 : `Search public sources for up to ${data.connections.huntBatch} prospects using your connected AI service? Results are scored for you to review.`}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">

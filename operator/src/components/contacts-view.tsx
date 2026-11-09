@@ -92,7 +92,8 @@ function ContactCard({ item }: { item: Contact }) {
         <p className="mt-3 text-xs text-amber">Suggestion only. Cannot send or export.</p>
       ) : item.emailKind === "public_source" ? (
         <p className="mt-3 text-xs text-muted">
-          Unverified email address. You can draft a message, but cannot export this contact.
+          Unverified email address: found in a public source, not checked with the mail server. It
+          is included in the CRM CSV export.
         </p>
       ) : null}
       <Button
