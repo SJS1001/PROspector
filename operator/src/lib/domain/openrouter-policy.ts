@@ -164,6 +164,57 @@ export function jevCredentialPlan(providerId: string): JevCredentialPlan {
 
 export type ConnectionWrite = { name: string; value: string };
 
+/**
+ * Non-secret marker saved with llm_key: the provider id, and for "custom" the
+ * base-URL origin. A stored key is only ever sent where its marker matches.
+ * Returns "" when no binding can be formed (custom without a valid URL).
+ */
+export function llmKeyBinding(providerId: string, baseUrl?: string): string {
+  const provider = providerId.trim();
+  if (!provider) return "";
+  if (provider !== "custom") return provider;
+  try {
+    const url = new URL((baseUrl ?? "").trim());
+    return url.protocol === "https:" ? `custom ${url.origin}` : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The only key resolveLlmConfig may send for the selected provider. A stored
+ * llm_key is used only when its binding matches. Legacy keys saved before the
+ * binding existed are treated as unbound (fail closed: the owner re-enters the
+ * key once). The xAI secret row and XAI_API_KEY are used only for provider xai,
+ * and only when no llm_key row exists.
+ */
+export function selectBoundLlmKey(input: {
+  providerId: string;
+  baseUrl?: string;
+  llmKey?: string;
+  binding?: string;
+  xaiSecret?: string;
+  envXaiKey?: string;
+}): string {
+  const expected = llmKeyBinding(input.providerId, input.baseUrl);
+  if (input.llmKey) return expected && input.binding === expected ? input.llmKey : "";
+  if (input.providerId === "xai") return input.xaiSecret || input.envXaiKey || "";
+  return "";
+}
+
+/**
+ * Secret rows to delete after llm_provider or llm_base_url is written, when the
+ * stored key is not bound to the stored provider/origin. The xAI row is
+ * cleared too unless the key was bound to xai, so a copy cannot outlive it.
+ */
+export function staleLlmKeySecrets(state: Record<string, string | undefined>): string[] {
+  if (!state.llm_key) return [];
+  const binding = state.llm_key_binding ?? "";
+  const expected = llmKeyBinding(state.llm_provider || "xai", state.llm_base_url);
+  if (expected && binding === expected) return [];
+  return binding === "xai" ? ["llm_key", "llm_key_binding"] : ["llm_key", "llm_key_binding", "xai"];
+}
+
 export function planConnectionWrites(input: {
   llmProvider?: string;
   llmKey?: string;
@@ -178,19 +229,16 @@ export function planConnectionWrites(input: {
   gmailUser?: string;
   gmailPass?: string;
 }): ConnectionWrite[] {
-  const provider = input.llmProvider ?? "";
+  const provider = input.llmProvider?.trim() ?? "";
+  const key = input.llmKey?.trim() ?? "";
   const writes: ConnectionWrite[] = [];
+  // Order matters: provider and base URL are written first, so putSecret clears
+  // a key bound elsewhere; the new key and then its binding are written last.
   if (provider === "openrouter") {
-    if (input.llmKey?.trim()) writes.push({ name: "llm_key", value: input.llmKey.trim() });
     if (input.llmModel?.trim()) writes.push({ name: "llm_model", value: assertOpenRouterModelId(input.llmModel) });
-    if (provider) writes.push({ name: "llm_provider", value: "openrouter" });
+    writes.push({ name: "llm_provider", value: "openrouter" });
   } else {
-    if (input.xai?.trim()) writes.push({ name: "xai", value: input.xai.trim() });
-    if (input.llmKey?.trim()) {
-      writes.push({ name: "llm_key", value: input.llmKey.trim() });
-      writes.push({ name: "xai", value: input.llmKey.trim() });
-    }
-    if (input.llmProvider?.trim()) writes.push({ name: "llm_provider", value: input.llmProvider.trim() });
+    if (provider) writes.push({ name: "llm_provider", value: provider });
     if (input.llmModel?.trim()) writes.push({ name: "llm_model", value: input.llmModel.trim() });
     if (input.llmBaseUrl?.trim()) writes.push({ name: "llm_base_url", value: input.llmBaseUrl.trim() });
     if (input.llmWorkspaceId !== undefined) writes.push({ name: "llm_workspace_id", value: input.llmWorkspaceId });
@@ -201,9 +249,22 @@ export function planConnectionWrites(input: {
     if (input.gmailUser?.trim()) writes.push({ name: "gmail_user", value: input.gmailUser.trim() });
     if (input.gmailPass?.trim()) writes.push({ name: "gmail_pass", value: input.gmailPass.trim() });
   }
+  if (key) {
+    if (!provider) throw new Error("Choose an AI provider before saving its API key.");
+    const binding = llmKeyBinding(provider, input.llmBaseUrl);
+    if (!binding) throw new Error("Enter the HTTPS base URL for the custom provider together with its API key.");
+    writes.push({ name: "llm_key", value: key });
+    writes.push({ name: "llm_key_binding", value: binding });
+  }
+  // The xAI row only ever holds an xAI key.
+  if (provider === "xai") {
+    const xai = key || input.xai?.trim() || "";
+    if (xai) writes.push({ name: "xai", value: xai });
+  }
   return writes;
 }
 
+/** Only xAI may fall back to the legacy xAI secret row or XAI_API_KEY. */
 export function providerAllowsStoredKeyFallback(providerId: LlmProviderId | string): boolean {
-  return providerId !== "openrouter";
+  return providerId === "xai";
 }

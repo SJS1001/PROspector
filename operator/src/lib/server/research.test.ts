@@ -30,12 +30,45 @@ test("missing, empty or malformed answers keep the prior labels", () => {
   assert.deepEqual(parseResearchAnswer(JSON.stringify({ evidence: 42 }), prior), prior);
 });
 
-test("research no longer reads an xAI-only environment key or calls xAI directly", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const fns = await readFile(new URL("./fns.ts", import.meta.url), "utf8");
-  const start = fns.indexOf("export const researchQuestion");
-  const body = fns.slice(start, fns.indexOf("export const", start + 10));
-  assert.ok(start > 0, "researchQuestion exists");
-  assert.doesNotMatch(body, /XAI_API_KEY|api\.x\.ai|Research is unavailable in this environment/);
-  assert.match(body, /completeJson\(/, "research uses the provider configured in Settings");
+test("completeJson with a provider that has no bound key rejects without sending XAI_API_KEY anywhere", async (t) => {
+  const { join } = await import("node:path");
+  const { createServer } = await import("vite");
+  const server = await createServer({
+    configFile: false,
+    resolve: { alias: { "@": join(process.cwd(), "src") } },
+    server: { middlewareMode: true },
+    appType: "custom",
+  });
+  t.after(() => server.close());
+  const { completeJson, resolveLlmConfig } = await server.ssrLoadModule("/src/lib/server/llm.ts");
+  const prior = process.env.XAI_API_KEY;
+  process.env.XAI_API_KEY = "env-xai-fictional";
+  t.after(() => {
+    if (prior === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = prior;
+  });
+  const calls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }));
+  });
+  const store = (saved: Record<string, string>) => async (parts: TemplateStringsArray, ...values: string[]) => {
+    const query = parts.join("?").trim();
+    if (query.startsWith("select value")) return saved[values[1]] ? [{ value: saved[values[1]] }] : [];
+    throw new Error(`Unexpected SQL: ${query}`);
+  };
+  const unbound: Record<string, string>[] = [
+    { llm_provider: "groq" },
+    { llm_provider: "anthropic", llm_key: "sk-ant-fictional", llm_key_binding: "groq" },
+    { llm_provider: "custom", llm_base_url: "https://my-proxy.example/v1", llm_model: "m" },
+  ];
+  for (const saved of unbound) {
+    await assert.rejects(completeJson(store(saved), "fictional", "Which product?"), /Paste an API key for/);
+  }
+  assert.deepEqual(calls, []);
+  // With a key bound to groq, the only request goes to groq.
+  const bound = store({ llm_provider: "groq", llm_key: "groq-fictional", llm_key_binding: "groq" });
+  assert.equal((await resolveLlmConfig(bound, "fictional")).apiKey, "groq-fictional");
+  await completeJson(bound, "fictional", "Which product?");
+  assert.deepEqual(calls.map((url) => new URL(url).origin), ["https://api.groq.com"]);
 });

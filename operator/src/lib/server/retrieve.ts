@@ -7,9 +7,17 @@ const MAX_BYTES = 400_000;
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 12_000;
 
-function isBlockedIp(ip: string) {
-  const mapped = ip.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+function isBlockedIp(raw: string): boolean {
+  const ip = raw.toLowerCase().replace(/^\[|\]$/g, "");
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mapped) return isBlockedIp(mapped[1]);
+  // WHATWG URL serialises [::ffff:127.0.0.1] as [::ffff:7f00:1].
+  const mappedHex = ip.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mappedHex) {
+    const high = parseInt(mappedHex[1], 16);
+    const low = parseInt(mappedHex[2], 16);
+    return isBlockedIp(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+  }
   const v4 = ip.includes(".") && !ip.includes(":");
   if (v4) {
     const parts = ip.split(".").map((part) => Number(part));
@@ -21,17 +29,22 @@ function isBlockedIp(ip: string) {
     if (a === 192 && b === 168) return true;
     if (a === 100 && b >= 64 && b <= 127) return true;
   }
-  const lower = ip.toLowerCase();
   if (
-    lower === "::1" ||
-    lower === "::" ||
-    lower.startsWith("fc") ||
-    lower.startsWith("fd") ||
-    lower.startsWith("fe80")
+    ip === "::1" ||
+    ip === "::" ||
+    ip.startsWith("fc") ||
+    ip.startsWith("fd") ||
+    /^fe[89ab]/.test(ip) ||
+    ip.startsWith("::ffff:")
   ) {
     return true;
   }
   return false;
+}
+
+/** Hostname without IPv6 brackets or trailing dots, lower-cased, for policy checks. */
+function policyHost(hostname: string) {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 }
 
 export function assertPublicHttps(urlString: string) {
@@ -43,26 +56,33 @@ export function assertPublicHttps(urlString: string) {
   }
   if (url.protocol !== "https:") throw new Error("Only HTTPS evidence URLs are retrieved.");
   if (url.username || url.password) throw new Error("Evidence URLs may not include credentials.");
+  const host = policyHost(url.hostname);
   if (
-    url.hostname === "localhost" ||
-    url.hostname.endsWith(".local") ||
-    url.hostname.endsWith(".internal")
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal")
   ) {
     throw new Error("Private hosts are not retrieved.");
   }
-  if (url.hostname.includes(".onion")) throw new Error("Onion hosts are not retrieved.");
-  if (isIP(url.hostname) && isBlockedIp(url.hostname)) {
+  if (host.includes(".onion")) throw new Error("Onion hosts are not retrieved.");
+  if (isIP(host) && isBlockedIp(host)) {
     throw new Error("Private addresses are not retrieved.");
   }
   return url;
 }
 
-async function resolvePublic(hostname: string) {
-  if (isIP(hostname)) {
-    if (isBlockedIp(hostname)) throw new Error("Private addresses are not retrieved.");
+type LookupAll = (hostname: string) => Promise<{ address: string }[]>;
+const systemLookup: LookupAll = (hostname) => lookup(hostname, { all: true, verbatim: true });
+
+/** Resolves a host and rejects it when any answer is a private address. */
+export async function resolvePublic(hostname: string, lookupAll: LookupAll = systemLookup) {
+  const host = policyHost(hostname);
+  if (isIP(host)) {
+    if (isBlockedIp(host)) throw new Error("Private addresses are not retrieved.");
     return;
   }
-  const answers = await lookup(hostname, { all: true, verbatim: true });
+  const answers = await lookupAll(host);
   if (answers.length === 0) throw new Error("Evidence host could not be resolved.");
   if (answers.some((item) => isBlockedIp(item.address))) {
     throw new Error("Private addresses are not retrieved.");
