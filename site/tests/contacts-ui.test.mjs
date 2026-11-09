@@ -543,7 +543,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
   try {
     const workspace = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contacts-workspace.tsx", import.meta.url).pathname);
     const html = renderToStaticMarkup(React.createElement(workspace.ContactsWorkspace));
-    for (const text of ["Eligibility", "Verified contacts", "Contact Suggestions", "Authority and identity", "Stage 1", "Stage 2", "No provider call will be made"]) assert.match(html, new RegExp(text));
+    for (const text of ["Contact readiness", "Verified contacts", "Contact Suggestions", "Approvals and duplicate contacts", "Stage 1", "Stage 2", "No provider call will be made"]) assert.match(html, new RegExp(text));
     assert.match(html, /aria-live="polite"/); assert.match(html, /contacts-granted-operation-explanation/); assert.equal((html.match(/contacts-granted-operation-explanation/g) ?? []).length, 2, "one unique explanation ID is referenced once and rendered once");
     const pageSource = await source("app/contacts/page.tsx"); assert.match(pageSource, /admitOperatorSession/); assert.match(pageSource, /activeTask="contacts"/);
     let posts = 0;
@@ -566,7 +566,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
       identityPage: page([{ id: "identity-1", subjectKind: "contact", kind: "merge", revision: 2, candidateRevisions: [{ subjectId: "contact-1", revision: 1 }, { subjectId: "contact-2", revision: 1 }], sourceLineageIds: ["lineage-1"] }]),
       authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false },
     } }));
-    for (const text of ["contact-1", "mailbox_verified", "contact-2", "verification_pending", "contact-3", "contact_evidence_stale", "2 candidates and 1 lineage record"]) assert.match(projected, new RegExp(text));
+    for (const text of ["contact-1", "mailbox_verified", "contact-2", "verification_pending", "contact-3", "contact_evidence_stale", "2 candidates and 1 source record", "Verified", "Suggestion only, not usable", "Needs your review", "Verification is still pending", "The verification is out of date"]) assert.match(projected, new RegExp(text));
   } finally { await fixture.dispose(); }
 });
 

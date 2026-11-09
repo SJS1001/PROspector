@@ -10,6 +10,7 @@ import { ReviewQueue } from "./review-queue";
 import { prospectingUrl } from "./prospecting-transport";
 import { disambiguateOperatorLabels } from "../operator-context";
 import { TaskState } from "../task-state";
+import { operatorTaskHref } from "../workspace-view";
 import { chooseOperatorPreference, readOperatorPreference, writeOperatorPreference } from "../operator-preference";
 
 export type ProspectingProjection = {
@@ -217,6 +218,11 @@ export function ProspectingWorkspace({
       />
       {mode === "review" ? (
         <>
+          <p>
+            Next step: after a prospect is approved, open{" "}
+            <a href={operatorTaskHref("contacts")}>Contacts</a> to see its
+            contact status. Nothing is contacted from this page.
+          </p>
           <ReviewQueue
             queue={
               (projection.queue ??

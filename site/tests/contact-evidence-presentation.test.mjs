@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { createD1Fixture } from "./helpers/d1.mjs";
 
 test("contact evidence renders bounded kind, class, source category, and deterministic UTC time without private details", async () => {
@@ -9,7 +10,7 @@ test("contact evidence renders bounded kind, class, source category, and determi
   try {
     const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
     const html = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: projection([{ kind: "phone", verificationClass: "source_verified", method: "authoritative_source_reconfirmed", verifiedAt: 1_700_000_000_000 }]) }));
-    for (const expected of ["Observation kind", "phone", "Verification class", "source_verified", "Source category", "authoritative_business_source", "2023-11-14T22:13:20.000Z"]) assert.match(html, new RegExp(expected));
+    for (const expected of ["Type", "Phone", "Check", "Verified at the source", "Source", "Official business source", "2023-11-14T22:13:20.000Z", "source_verified", "authoritative_business_source"]) assert.match(html, new RegExp(expected));
     assert.doesNotMatch(html, /authoritative_source_reconfirmed|Verification method/);
     assert.doesNotMatch(html, /private-provider|sourceReference|contact@example|\+1555/i);
   } finally { await fixture.dispose(); }
@@ -32,6 +33,25 @@ test("malformed or privacy-unsafe projections fail closed without rendering cont
         candidate.contactsPage.items[0][field] = value;
         assert.equal(leaves.normalizeContactsProjection(candidate), null, `${field} fails the exact page closed`);
       }
+    }
+  } finally { await fixture.dispose(); }
+});
+
+test("every valid reason code has its own plain-language label and the fallback names no cause", async () => {
+  const fixture = await createD1Fixture("contact-reason-labels");
+  try {
+    const source = readFileSync(new URL("../app/prospects/contact-leaves.tsx", import.meta.url), "utf8");
+    const codes = [...source.match(/const REASON_CODES = \[([^\]]*)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+    assert.equal(codes.length, 17);
+    const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
+    const seen = new Set();
+    for (const code of codes) {
+      const html = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: projection([], [code]) }));
+      assert.doesNotMatch(html, /Needs review; see reference details/, `${code} has its own label`);
+      const label = html.match(/Needs your review<\/strong> — ([^<]*)</)?.[1];
+      assert.ok(label, `${code} renders a reason`);
+      assert.ok(!seen.has(label), `${code} label is distinct`);
+      seen.add(label);
     }
   } finally { await fixture.dispose(); }
 });

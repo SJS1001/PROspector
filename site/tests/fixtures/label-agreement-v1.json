@@ -1,0 +1,441 @@
+{
+  "schema": "label-agreement/v1",
+  "datasetKind": "synthetic",
+  "protocolId": "synthetic-label-agreement-protocol",
+  "strata": [
+    "borderline",
+    "negative",
+    "positive"
+  ],
+  "thresholds": {
+    "minAdjudicated": 25,
+    "minPerStratum": 3,
+    "minAgreement": 0.85,
+    "minAgreementWilsonLower": 0.7,
+    "minKappa": 0.6,
+    "maxFalseRelevantRate": 0.15,
+    "spotCheck": {
+      "minFraction": 0.2,
+      "minBatch": 10,
+      "revokeBelowAgreement": 0.8
+    }
+  },
+  "targets": [
+    {
+      "id": "t01",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t02",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t03",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t04",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t05",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t06",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t07",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t08",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t09",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t10",
+      "stratum": "positive",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: matches the fictional customer profile."
+      }
+    },
+    {
+      "id": "t11",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: partial profile match."
+      }
+    },
+    {
+      "id": "t12",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: Jev misses a fit signal."
+      }
+    },
+    {
+      "id": "t13",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "uncertain",
+        "reason": "Synthetic: Jev abstains."
+      }
+    },
+    {
+      "id": "t14",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "uncertain",
+        "reason": "Synthetic: Jev abstains."
+      }
+    },
+    {
+      "id": "t15",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: Jev over-reads a signal."
+      }
+    },
+    {
+      "id": "t16",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: wrong segment."
+      }
+    },
+    {
+      "id": "t17",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: wrong segment."
+      }
+    },
+    {
+      "id": "t18",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: wrong segment."
+      }
+    },
+    {
+      "id": "t19",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "unknown",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: owner could not decide."
+      }
+    },
+    {
+      "id": "t20",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "unknown",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: owner could not decide."
+      }
+    },
+    {
+      "id": "t21",
+      "stratum": "borderline",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "unknown",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "uncertain",
+        "reason": "Synthetic: owner could not decide."
+      }
+    },
+    {
+      "id": "t22",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t23",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t24",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t25",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t26",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t27",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t28",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t29",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t30",
+      "stratum": "negative",
+      "producedByJevPipeline": false,
+      "owner": {
+        "label": "irrelevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "irrelevant",
+        "reason": "Synthetic: outside the target market."
+      }
+    },
+    {
+      "id": "t31",
+      "stratum": "positive",
+      "producedByJevPipeline": true,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: surfaced by Jev's own pipeline."
+      }
+    },
+    {
+      "id": "t32",
+      "stratum": "positive",
+      "producedByJevPipeline": true,
+      "owner": {
+        "label": "relevant",
+        "blindedToJevDraft": true
+      },
+      "jev": {
+        "label": "relevant",
+        "reason": "Synthetic: surfaced by Jev's own pipeline."
+      }
+    }
+  ]
+}
