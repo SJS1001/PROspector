@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { PGlite } from "@electric-sql/pglite";
 import { createServer } from "vite";
 
 test("hunt filters unsupported leads and bounds feedback searches", async (t) => {
@@ -10,7 +12,7 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
     "/llm": `export async function completeJson(sql, user, prompt, onSearch) { const c=globalThis.__huntEvidenceTest; c.calls++; await onSearch(5); return JSON.stringify({candidates:[{accountName:'Plant '+c.calls,targetName:'Site',url:'https://example.com/'+c.calls,excerpt:'evidence',notes:{}}]}); }`,
     "/retrieve": `export async function retrieveHttps(url) { return {url,title:'Report',text:'Recovery remains below target at this operating plant.',hash:'hash',retrievedAt:new Date().toISOString(),publishedOn:new Date().toISOString().slice(0,10)}; }`,
     "/opportunity": `export async function buildOpportunity(sql,user,account,page) { return {problemStatus: "ongoing",problem: globalThis.__huntEvidenceTest.calls===1 || globalThis.__huntEvidenceTest.allRejected ? null : {text:'Recovery is low',quote:page.text},decisionFit:{decision:'Which blend works?',dataToCheck:'Existing assays if available'},publishedOn:page.publishedOn}; }`,
-    "/qualify": `export function qualifyCandidate(input) { return {fingerprint:input.source.url,assessment:{dimensions:[{id:"pain_strength",score:1}]},outcome:'InsufficientEvidence',score:6,evidenceTier:1,evidenceDate:'2026-10-29'}; }`,
+    "/qualify": `export function qualifyCandidate(input) { return {fingerprint:input.source.url,assessment:{dimensions:[{id:"pain_strength",score:1}]},outcome:'InsufficientEvidence',evidenceExcerpt:'evidence',score:6,evidenceTier:1,evidenceDate:'2026-10-29'}; }`,
     "/secrets": `export async function resolveJev() { return {apiKey:globalThis.__huntEvidenceTest.jev === "off" ? "" : "test"}; }`,
     "/seed": `export const idFor = (user,value) => user+value;`,
     "/jev-tasks": `export function jevQualifyPage() { if (globalThis.__huntEvidenceTest.jev === "fail") throw Error("secret upstream details"); return {model:"jev-test",scores:{pain_strength:{score:2,confidence:0.9}},outcome:"NotQualified",outcomeConfidence:0.9,hardNo:0,operating:1,stuffed:0}; }`,
@@ -110,4 +112,54 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
   assert.equal(context.writes.filter((w) => w.query.includes("insert into prospects")).length, 0);
   assert.equal(context.writes.at(-1).values[0], "succeeded");
   assert.equal(JSON.parse(context.writes.at(-1).values[1]).saved, 0);
+
+  // A commit that re-inserts an existing prospect id (an overlapping or repeated
+  // run) must not fail the whole run on the primary key and lose its results.
+  const pg = new PGlite();
+  t.after(() => pg.close());
+  for (const n of readdirSync(join(process.cwd(), "migrations"))
+    .filter((n) => n.endsWith(".sql"))
+    .sort())
+    await pg.exec(readFileSync(join(process.cwd(), "migrations", n), "utf8"));
+  const pgSql = (runner) => {
+    const query = async (text, params = []) => (await runner.query(text, params)).rows;
+    const tagged = async (parts, ...values) => {
+      let text = parts[0];
+      for (let i = 0; i < values.length; i++) text += `$${i + 1}${parts[i + 1]}`;
+      return query(text, values);
+    };
+    tagged.query = query;
+    tagged.transaction = (work) => runner.transaction((tx) => work(pgSql(tx)));
+    return tagged;
+  };
+  const db = pgSql(pg);
+  const existingId = "ownerhunt:https://example.com/2";
+  await pg.query(
+    "insert into prospects(id,user_id,account_name,account_id,target_name,target_id,offer_id,score,outcome,state,configuration_digest,assessment_id,assessment_json,evidence_excerpt,evidence_url,evidence_tier,evidence_date) values ($1,'owner','Earlier Plant','account','Target','target','offer',7,'Passed','approved','config','assessment','{}','Earlier evidence','https://example.com/2',1,'2026-10-28')",
+    [existingId],
+  );
+  await pg.exec(
+    "insert into prospecting_runs (id,user_id,configuration_digest,trigger,status) values ('dup','owner','digest','manual','running')",
+  );
+  context.allRejected = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    context.calls = 0;
+    context.writes = [];
+    await pg.exec("update prospecting_runs set status = 'running' where id = 'dup'");
+    await executeHunt({
+      sql: db,
+      userId: "owner",
+      runId: "dup",
+      digest: "digest",
+      snapshot,
+      knownFingerprints: new Set(),
+    });
+  }
+  const [run] = (await pg.query("select status from prospecting_runs where id = 'dup'")).rows;
+  assert.equal(run.status, "succeeded");
+  const [kept] = (
+    await pg.query("select account_name, state from prospects where id = $1", [existingId])
+  ).rows;
+  assert.deepEqual(kept, { account_name: "Earlier Plant", state: "approved" });
+  assert.equal((await pg.query("select id from signals where run_id = 'dup'")).rows.length, 1);
 });

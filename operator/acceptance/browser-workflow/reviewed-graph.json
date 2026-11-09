@@ -28,9 +28,10 @@
   },
   {
     "path": "server/local-node-entry.ts",
-    "sha256": "49d6d0b30a76ca59c10b710e6b0c3ba5fe578fbd018b59db09f6826bb634151e",
+    "sha256": "e8621389af16b1981cec86178e6b4037b147b9b577c116ccaa7fea811e3ec7cb",
     "imports": [
       "../src/lib/db",
+      "../src/lib/server/archive",
       "./local-shutdown.mjs",
       "nitro/app",
       "srvx/node"
@@ -109,7 +110,12 @@
   },
   {
     "path": "src/lib/domain/llm.ts",
-    "sha256": "ed4f956036b55df3a41a56bffc020064d02aa7a71e5b3ad564997b7363bd05d5",
+    "sha256": "f9df8161abfa61fb10e3c12ebecb70bdd0d913602ab6f927fc3023bc9cd0ac71",
+    "imports": []
+  },
+  {
+    "path": "src/lib/domain/openrouter-policy.ts",
+    "sha256": "724a81002f81b2fea749e2347a0ff8c59cb0185b74c7c1d889ead498e393c45d",
     "imports": []
   },
   {
@@ -146,7 +152,7 @@
   },
   {
     "path": "src/lib/server/archive.ts",
-    "sha256": "3a9a388cdf2352061c3d4be10063dccd073c6277605642aff213f58b2fec09cc",
+    "sha256": "865f1dc304e2311e13f9135fed34bde82dc665e65ca79bc6855fe1746aed5309",
     "imports": [
       "../domain/opportunity.ts",
       "node:crypto"
@@ -163,7 +169,7 @@
   },
   {
     "path": "src/lib/server/fns.ts",
-    "sha256": "544824362cd0f8e89cc2d79b0af782c9ffa95b16f819cb44c11c04259301c6f9",
+    "sha256": "0eb227e616fdc72d0f664d182bc7478dbf0ad5ee67a0161763eddff7bc002dc5",
     "imports": [
       "./opportunity",
       "./retrieve",
@@ -171,14 +177,17 @@
       "@/lib/db",
       "@/lib/domain/catalog",
       "@/lib/domain/llm",
+      "@/lib/domain/openrouter-policy",
       "@/lib/domain/opportunity",
       "@/lib/server/archive",
       "@/lib/server/archive-db",
       "@/lib/server/archive-request",
       "@/lib/server/discover",
       "@/lib/server/hunt",
+      "@/lib/server/llm",
       "@/lib/server/manual-workflow",
       "@/lib/server/profile",
+      "@/lib/server/research",
       "@/lib/server/reveal",
       "@/lib/server/secrets",
       "@/lib/server/seed",
@@ -190,7 +199,7 @@
   },
   {
     "path": "src/lib/server/hunt.ts",
-    "sha256": "4513e3378fd88e1237c43cd7e37c3a4ac5e61129bf810555ea2a14855ea0a065",
+    "sha256": "9600188828ce1142f815b0fefb42d28bb2ad5e3f16c4a6e91880cb9d3e5e9034",
     "imports": [
       "./opportunity",
       "./search-response",
@@ -230,6 +239,11 @@
     ]
   },
   {
+    "path": "src/lib/server/research.ts",
+    "sha256": "0ab1ca770754761a62bb119c14fd1386d1a987713a384bd3e90f40b5c8e1c306",
+    "imports": []
+  },
+  {
     "path": "src/lib/server/reveal.ts",
     "sha256": "12022cc79944b4dd6b0c28e89829e974885472f5964db6ccab6d7fd5c0f82bc4",
     "imports": [
@@ -248,9 +262,10 @@
   },
   {
     "path": "src/lib/server/secrets.ts",
-    "sha256": "135304e3661241f370f66e8dd0e7f4479a058dcb69bc9adee0d77cc501a8e566",
+    "sha256": "9ba525de70cb4023484c328ce5d74a7d0e838736116c404ce42dfe0a57c4f2d8",
     "imports": [
       "@/lib/domain/llm",
+      "@/lib/domain/openrouter-policy",
       "@/lib/server/vault"
     ]
   },
