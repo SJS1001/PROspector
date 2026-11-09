@@ -25,8 +25,10 @@ test("Contacts cursors are exact, feed-specific, scope-bound, rotated-secret-saf
     assert.equal(second.contacts.generation, 7);
     const handler = await fixture.vite.ssrLoadModule(new URL("../domain/contacts-handler.ts", import.meta.url).pathname);
     const observation = { kind: "email", verificationClass: "mailbox_verified", method: "mailbox_verification", verifiedAt: NOW - 100 };
-    assert.equal(handler.toPublicContactObservation(observation, NOW).freshness, "current");
-    assert.equal(handler.toPublicContactObservation(observation, NOW + 30 * 24 * 60 * 60 * 1000).freshness, "stale", "an unchanged old cursor cannot preserve freshness as request time advances");
+    const policy = { mailboxVerifiedEmailFreshnessMs: 30 * 24 * 60 * 60 * 1000, sourceVerifiedEmailFreshnessMs: 90 * 24 * 60 * 60 * 1000, verifiedBusinessPhoneFreshnessMs: 90 * 24 * 60 * 60 * 1000 };
+    assert.equal(handler.toPublicContactObservation(observation, NOW, policy).freshness, "current");
+    assert.equal(handler.toPublicContactObservation(observation, NOW + 30 * 24 * 60 * 60 * 1000, policy).freshness, "stale", "an unchanged old cursor cannot preserve freshness as request time advances");
+    assert.equal(handler.toPublicContactObservation(observation, NOW).freshness, "stale", "without a configured freshness policy no evidence reads as current");
     assert.deepEqual(second.contacts.highWater, highWater, "authority traversal remains fixed while freshness advances independently");
     assert.equal(handler.validateReferencedObservationIds(Array.from({ length: 2_000 }, (_, index) => `observation-${index}`)).length, 2_000);
     assert.throws(() => handler.validateReferencedObservationIds(Array.from({ length: 2_001 }, (_, index) => `observation-${index}`)), /contact_page_observation_bound_exceeded/);

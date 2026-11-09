@@ -3,11 +3,9 @@ import {
   type ContactEligibility,
 } from "./contact-eligibility";
 import type { ContactSettlementAttestor } from "./contact-settlement-attestor";
-import {
-  readVerifiedContactEligibilityEvidence,
-  type PersistedContactEligibilityEvidence,
-} from "./contact-settlement-persistence";
+import { readVerifiedContactEligibilityEvidence } from "./contact-settlement-persistence";
 import { canonicalDigest } from "./enrichment-grant-issuance";
+import { deriveContactFreshnessPolicy } from "./person-discovery-repository";
 import { controlledEnrichmentActivated } from "./phase-activation";
 import { validateSameOriginMutation } from "./request-security";
 
@@ -43,6 +41,7 @@ type AuthorityRow = {
   configuration_active: number;
   candidate_status: string;
   assessment_outcome: string;
+  configuration_manifest_json: string;
 };
 
 type SnapshotRow = {
@@ -140,9 +139,18 @@ async function persistAfterActivation(
     configurationDigest: request.configurationDigest,
   });
   if (!points) return blocked("verified_evidence_unavailable");
+  // The configured contact_strategy windows are the only freshness authority.
+  // A manifest without a derivable policy never falls back to defaults.
+  const policy = await deriveContactFreshnessPolicy(authority.configuration_manifest_json);
+  if (!policy) return blocked("contact_authority_unavailable");
 
   const drifted = await hasCurrentDrift(database, request.workspaceId, request.configurationId);
-  const suppressionRefs = await matchingSuppressionRefs(database, request, points);
+  const suppressionRefs = await matchingSuppressionRefs(
+    database,
+    request.workspaceId,
+    request.contactId,
+    points.map((point) => point.id),
+  );
   const projection = projectContactEligibility({
     target: {
       workspaceId: request.workspaceId,
@@ -153,6 +161,9 @@ async function persistAfterActivation(
     strategy: {
       configurationId: request.configurationId,
       configurationDigest: request.configurationDigest,
+      mailboxVerifiedEmailFreshnessMs: policy.mailboxVerifiedEmailFreshnessMs,
+      sourceVerifiedEmailFreshnessMs: policy.sourceVerifiedEmailFreshnessMs,
+      verifiedBusinessPhoneFreshnessMs: policy.verifiedBusinessPhoneFreshnessMs,
     },
     authority: {
       prospectId: request.prospectId,
@@ -260,7 +271,8 @@ async function readAuthority(database: D1Database, request: PersistRequest) {
   const row = await database.prepare(
     `SELECT p.revision prospect_revision,p.state prospect_state,p.active prospect_active,
       cfg.revision configuration_revision,cfg.active configuration_active,
-      pc.status candidate_status,qa.outcome assessment_outcome
+      pc.status candidate_status,qa.outcome assessment_outcome,
+      cfg.manifest_json configuration_manifest_json
      FROM workspaces w
      JOIN profile_prospects p ON p.id=? AND p.workspace_id=w.id
      JOIN contacts c ON c.id=? AND c.workspace_id=w.id
@@ -289,11 +301,16 @@ async function readAuthority(database: D1Database, request: PersistRequest) {
     && authority.assessment_outcome === "Passed"
     && positive(authority.prospect_revision)
     && positive(authority.configuration_revision)
+    && typeof authority.configuration_manifest_json === "string"
       ? authority
       : null;
 }
 
-async function hasCurrentDrift(database: D1Database, workspaceId: string, configurationId: string) {
+/**
+ * Open knowledge drift on any knowledge version the configuration depends on.
+ * Shared by the snapshot writer and the Contacts read projection.
+ */
+export async function hasCurrentDrift(database: D1Database, workspaceId: string, configurationId: string) {
   const row = await database.prepare(
     `SELECT 1 drifted FROM configuration_knowledge_dependencies dependency
      JOIN knowledge_drifts drift ON drift.workspace_id=?
@@ -303,20 +320,27 @@ async function hasCurrentDrift(database: D1Database, workspaceId: string, config
   return row !== null;
 }
 
-async function matchingSuppressionRefs(
+/**
+ * Suppression and tombstone refs that cover the contact or any of the named
+ * contact-point observations. An unresolvable subject scope returns a sentinel
+ * ref, so callers fail closed. Shared by the snapshot writer and the Contacts
+ * read projection.
+ */
+export async function matchingSuppressionRefs(
   database: D1Database,
-  request: PersistRequest,
-  points: readonly PersistedContactEligibilityEvidence[],
+  workspaceId: string,
+  contactId: string,
+  observationIds: readonly string[],
 ) {
-  const ids = points.map((point) => point.id);
+  const ids = [...new Set(observationIds)];
   const placeholders = ids.map(() => "?").join(",");
-  const digests = (await database.prepare(
+  const digests: readonly { kind: string; contact_point_digest: string }[] = ids.length === 0 ? [] : (await database.prepare(
     `SELECT kind,contact_point_digest FROM contact_point_observations
      WHERE workspace_id=? AND contact_id=? AND id IN (${placeholders})`,
-  ).bind(request.workspaceId, request.contactId, ...ids).all<{ kind: string; contact_point_digest: string }>()).results;
+  ).bind(workspaceId, contactId, ...ids).all<{ kind: string; contact_point_digest: string }>()).results;
   const contact = await database.prepare(
     "SELECT identity_digest FROM contacts WHERE id=? AND workspace_id=? LIMIT 1",
-  ).bind(request.contactId, request.workspaceId).first<{ identity_digest: string }>();
+  ).bind(contactId, workspaceId).first<{ identity_digest: string }>();
   const subjects = uniqueSorted([
     ...(contact && digest(contact.identity_digest) ? [contact.identity_digest] : []),
     ...digests.filter((row) => digest(row.contact_point_digest)).map((row) => row.contact_point_digest),
@@ -326,7 +350,7 @@ async function matchingSuppressionRefs(
   const [legacy, outreach] = await Promise.all([
     database.prepare(
       `SELECT id FROM suppressions WHERE workspace_id=? AND subject_digest IN (${subjectPlaceholders})`,
-    ).bind(request.workspaceId, ...subjects).all<{ id: string }>(),
+    ).bind(workspaceId, ...subjects).all<{ id: string }>(),
     database.prepare(
       `SELECT id FROM outreach_suppression_tombstones
        WHERE workspace_id=? AND (
@@ -337,7 +361,7 @@ async function matchingSuppressionRefs(
          )
          OR subject_kind IN ('confirmed_email_domain','organization','company')
        )`,
-    ).bind(request.workspaceId, ...subjects, ...subjects).all<{ id: string }>(),
+    ).bind(workspaceId, ...subjects, ...subjects).all<{ id: string }>(),
   ]);
   return uniqueSorted([
     ...legacy.results.map((row) => row.id),
