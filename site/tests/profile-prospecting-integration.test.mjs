@@ -52,6 +52,11 @@ test("Phase 4 persisted synthetic lifecycle is replayable, auditable, and remain
     assert.equal((await fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE workspace_id=? AND trigger_kind='manual'").bind(seeded.workspaceId).first()).execution_state, "blocked_missing_capability");
     const ownerAssignment = await ownerPost(cookie, { action: "issue_assignment", runId: initialRun.id, profileId: seeded.profileId, configurationId: active.id, configurationDigest: active.digest, toolConfigurationDigest: "f".repeat(64), expiresAt: NOW + 60_000, idempotencyKey: "0198f400-0000-7000-8000-000000001004" });
     assert.equal(ownerAssignment.status, 409, "the browser route cannot mint runner capability");
+    assert.deepEqual(await ownerAssignment.clone().json(), { error: "runner_unavailable" }, "the refusal names its own reason, not a revision conflict");
+    cookie = csrfCookie(await handler.handleProspectingGet(new Request(baseUrl), dependencies));
+    const noSchedule = await ownerPost(cookie, { action: "manual_find", profileId: "profile-without-schedule", idempotencyKey: "0198f400-0000-7000-8000-000000001013" });
+    assert.equal(noSchedule.status, 409);
+    assert.deepEqual(await noSchedule.json(), { error: "schedule_required" });
 
     await fixture.database.batch([
       fixture.database.prepare("INSERT INTO organizations (id,workspace_id,created_at,updated_at,revision,company_id,canonical_name,identity_digest) SELECT 'phase4-integrated-org',?,?,?,1,id,'Synthetic mining operator',? FROM companies WHERE workspace_id=?").bind(seeded.workspaceId,NOW,NOW,DIGEST,seeded.workspaceId),
@@ -92,6 +97,10 @@ test("Phase 4 persisted synthetic lifecycle is replayable, auditable, and remain
     assert.equal((await fixture.database.prepare("SELECT COUNT(*) count FROM qualification_assessments WHERE candidate_id=?").bind(candidateFact.id).first()).count, 1, "runner replay must not create another assessment");
     const qualified = await fixture.database.prepare("SELECT id,assessment_id,revision,state,active FROM profile_prospects WHERE assessment_id=?").bind(assessment.id).first();
     assert.deepEqual({ assessmentId: qualified.assessment_id, state: qualified.state, active: Number(qualified.active) }, { assessmentId: assessment.id, state: "qualified", active: 1 });
+    cookie = csrfCookie(await handler.handleProspectingGet(new Request(baseUrl), dependencies));
+    const pastDefer = await ownerPost(cookie, { action: "review", prospectId: qualified.id, assessmentId: qualified.assessment_id, decision: "defer", reason: "Look again later.", reviewAt: 1, expectedRevision: Number(qualified.revision), idempotencyKey: "0198f400-0000-7000-8000-000000001014" });
+    assert.equal(pastDefer.status, 409);
+    assert.deepEqual(await pastDefer.json(), { error: "defer_date_not_future" });
     cookie = csrfCookie(await handler.handleProspectingGet(new Request(baseUrl), dependencies));
     const reviewResponse = await ownerPost(cookie, { action: "review", prospectId: qualified.id, assessmentId: qualified.assessment_id, decision: "approve", reason: "Synthetic owner approval; contact verification remains governed.", expectedRevision: Number(qualified.revision), idempotencyKey: "0198f400-0000-7000-8000-000000001005" });
     assert.equal(reviewResponse.status, 200);

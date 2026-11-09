@@ -14,7 +14,7 @@ const PROFILE_KNOWLEDGE: Record<Category, string[]> = {
   contact_strategy: ["contact_policy"], outreach_strategy: ["outreach_policy"], schedule_timezone: ["schedule", "timezone"],
   compliance: ["proof_policy"], output_policy: ["output_target"],
 };
-export class ProfileReadinessConflictError extends Error { readonly code = "profile_readiness_conflict"; }
+export class ProfileReadinessConflictError extends Error { readonly code = "profile_readiness_conflict"; constructor(message: string, readonly refusal?: string) { super(message); } }
 type Workspace = { id: string; companyId: string };
 type Profile = {
   id: string;
@@ -120,8 +120,8 @@ export async function createProfileConfigurationCandidate(database: D1Database, 
   if (profile.revision !== input.expectedProfileRevision) throw new ProfileReadinessConflictError("Stale Profile revision; reload readiness");
   const authority = await resolveAuthority(database, workspace.id, profile, true);
   const readiness = evaluateProfileReadiness({ profile, authority, versions: authority.versions });
-  if (readiness.items.some((item) => item.status === "ambiguous")) throw new ProfileReadinessConflictError(AMBIGUOUS_RUBRIC_MESSAGE);
-  if (!readiness.complete) throw new ProfileReadinessConflictError(`Complete Profile readiness is required: ${readiness.missing.join(", ")}`);
+  if (readiness.items.some((item) => item.status === "ambiguous")) throw new ProfileReadinessConflictError(AMBIGUOUS_RUBRIC_MESSAGE, "rubric_ambiguous");
+  if (!readiness.complete) throw new ProfileReadinessConflictError(`Complete Profile readiness is required: ${readiness.missing.join(", ")}`,"profile_not_ready");
   const manifest = effectiveConfigurationManifest(profile, authority, readiness);
   const manifestJson = stable(manifest); const digest = await sha256(manifestJson);
   const operation = await sha256(stable({ action: "profile.configuration.candidate", profileId: profile.id, expectedRevision: profile.revision, digest }));
@@ -164,7 +164,7 @@ export async function activateProfileConfiguration(database: D1Database, princip
   if (winner) throw new ProfileReadinessConflictError("Idempotency key does not own the existing Profile activation");
   if (candidate.status !== "candidate" || Number(candidate.revision) !== input.expectedRevision || candidate.candidate_digest !== input.expectedDigest) throw new ProfileReadinessConflictError("Stale Profile configuration candidate; reload readiness");
   const profile: Profile = { id:candidate.profile_id,name:candidate.profile_name,play_id:candidate.play_id,play_name:candidate.play_name,product_id:candidate.product_id,product_name:candidate.product_name,product_lifecycle:candidate.product_lifecycle,company_id:candidate.company_id,company_name:candidate.company_name,lifecycle:candidate.lifecycle,revision:Number(candidate.profile_revision),play_lifecycle:candidate.play_lifecycle };
-  const authority = await resolveAuthority(database,workspace.id,profile,true); const readiness=evaluateProfileReadiness({profile,authority,versions:authority.versions}); if (readiness.items.some((item) => item.status === "ambiguous")) throw new ProfileReadinessConflictError(AMBIGUOUS_RUBRIC_MESSAGE); if (!readiness.complete) throw new ProfileReadinessConflictError("Profile readiness changed; replacement candidate required");
+  const authority = await resolveAuthority(database,workspace.id,profile,true); const readiness=evaluateProfileReadiness({profile,authority,versions:authority.versions}); if (readiness.items.some((item) => item.status === "ambiguous")) throw new ProfileReadinessConflictError(AMBIGUOUS_RUBRIC_MESSAGE, "rubric_ambiguous"); if (!readiness.complete) throw new ProfileReadinessConflictError("Profile readiness changed; replacement candidate required");
   const currentManifest = stable(effectiveConfigurationManifest(profile, authority, readiness));
   const currentDigest = await sha256(currentManifest);
   const active = await database.prepare("SELECT id FROM typed_configurations WHERE workspace_id=? AND owner_type='profile' AND owner_id=? AND kind='profile_effective' AND active=1 LIMIT 1").bind(workspace.id,profile.id).first<{id:string}>();

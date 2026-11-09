@@ -147,3 +147,212 @@ function csrfCookie(response) {
   assert.ok(match, "the owner response must set the opaque HttpOnly CSRF cookie");
   return match[1];
 }
+
+// --- 2026-11-09 review batch 05: schedule liveness, overlap admission, intent replay ---
+
+const MINUTE = 60 * 1000;
+const SLOT = NOW + (7 * DAY);
+
+async function activatedSchedule(name) {
+  const fixture = await createD1Fixture(name);
+  await applyMigrations(fixture.database);
+  const principal = { subject: `${name}-owner`, legacySubject: `${name}-legacy`, displayName: "Batch 05 owner" };
+  const seeded = await seedProfileAuthority(fixture, principal, NOW);
+  const readiness = await fixture.vite.ssrLoadModule(new URL("../domain/profile-readiness.ts", import.meta.url).pathname);
+  const schedule = await fixture.vite.ssrLoadModule(new URL("../domain/prospecting-schedule.ts", import.meta.url).pathname);
+  const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, principal, {
+    profileId: seeded.profileId, expectedProfileRevision: seeded.revision,
+    idempotencyKey: "0198f405-0000-7000-8000-000000000001", now: NOW,
+  });
+  const activation = await readiness.activateProfileConfiguration(fixture.database, principal, {
+    candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest,
+    idempotencyKey: "0198f405-0000-7000-8000-000000000002", now: NOW,
+  });
+  return {
+    fixture, schedule, workspaceId: seeded.workspaceId, profileId: seeded.profileId,
+    configurationId: activation.configuration.id, configurationDigest: activation.configuration.digest,
+    scheduleId: activation.schedule.id, initialRunId: activation.initialRun.id,
+  };
+}
+
+async function setSchedule(seed, nextRunAt, watermark) {
+  await seed.fixture.database.prepare("UPDATE prospecting_schedules SET next_run_at=?,last_successful_watermark=? WHERE id=? AND workspace_id=?").bind(nextRunAt, watermark, seed.scheduleId, seed.workspaceId).run();
+}
+async function readSchedule(seed) {
+  const row = await seed.fixture.database.prepare("SELECT next_run_at,last_successful_watermark,execution_state FROM prospecting_schedules WHERE id=? AND workspace_id=?").bind(seed.scheduleId, seed.workspaceId).first();
+  return { nextRunAt: Number(row.next_run_at), watermark: row.last_successful_watermark === null ? null : Number(row.last_successful_watermark), executionState: row.execution_state };
+}
+async function completedManualRun(seed, key, at, watermark) {
+  const intent = await seed.schedule.createManualProspectingIntent(seed.fixture.database, seed.workspaceId, {
+    profileId: seed.profileId, configurationId: seed.configurationId, configurationDigest: seed.configurationDigest,
+    scheduleId: seed.scheduleId, idempotencyKey: key, at, watermark, manifest: { requestedBy: "owner" },
+  });
+  await seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='running' WHERE id=?").bind(intent.id).run();
+  return seed.schedule.completeProspectingRun(seed.fixture.database, seed.workspaceId, { runId: intent.id, successfulWatermark: at, now: at + MINUTE });
+}
+
+test("a manual run completing after an unreconciled due slot caps the schedule watermark below that slot and never regresses it", async () => {
+  const seed = await activatedSchedule("batch05-manual-watermark");
+  try {
+    await setSchedule(seed, SLOT, SLOT - DAY);
+    await completedManualRun(seed, "batch05-manual-late", SLOT + (5 * MINUTE), SLOT - DAY);
+    const capped = await readSchedule(seed);
+    assert.equal(capped.watermark, SLOT - 1, "a manual completion may not move the watermark onto or past the unreconciled due slot");
+
+    // An older manual run completing later cannot regress the watermark.
+    await completedManualRun(seed, "batch05-manual-older", SLOT - (2 * DAY), null);
+    assert.equal((await readSchedule(seed)).watermark, SLOT - 1);
+
+    const reconciled = await seed.schedule.reconcileProspectingSchedules(seed.fixture.database, seed.workspaceId, SLOT + (30 * MINUTE));
+    assert.equal(reconciled.length, 1);
+    assert.equal(reconciled[0].scheduleId, seed.scheduleId);
+    assert.equal(reconciled[0].executionState, "blocked_missing_capability");
+    const run = await seed.fixture.database.prepare("SELECT window_lower_exclusive,window_upper_inclusive FROM prospecting_runs WHERE id=?").bind(reconciled[0].id).first();
+    assert.equal(Number(run.window_upper_inclusive), SLOT);
+    assert.equal(Number(run.window_lower_exclusive), SLOT - 1 - DAY);
+    assert.equal((await readSchedule(seed)).nextRunAt > SLOT, true);
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("an already-inverted schedule watermark records the slot as skipped with a distinct reason and advances, on time and after a misfire", async () => {
+  const seed = await activatedSchedule("batch05-inverted-watermark");
+  try {
+    // Reproduces the pre-fix wedge: watermark = due + 5 minutes.
+    await setSchedule(seed, SLOT, SLOT + (5 * MINUTE));
+    const onTime = await seed.schedule.reconcileProspectingSchedules(seed.fixture.database, seed.workspaceId, SLOT + (30 * MINUTE));
+    assert.equal(onTime.length, 1);
+    assert.equal(onTime[0].executionState, "skipped_misfire");
+    assert.equal(onTime[0].replayed, false);
+    const row = await seed.fixture.database.prepare("SELECT execution_state,manifest_json,window_lower_exclusive,window_upper_inclusive,completed_at FROM prospecting_runs WHERE id=?").bind(onTime[0].id).first();
+    assert.equal(row.execution_state, "skipped_misfire");
+    assert.equal(JSON.parse(row.manifest_json).skippedBecause, "watermark_at_or_after_slot");
+    assert.equal(row.window_lower_exclusive, null);
+    assert.equal(Number(row.window_upper_inclusive), SLOT);
+    assert.equal(Number(row.completed_at) > 0, true);
+    const event = await seed.fixture.database.prepare("SELECT event_json FROM prospecting_run_events WHERE run_id=? AND event_type='skipped_misfire'").bind(onTime[0].id).first();
+    assert.equal(JSON.parse(event.event_json).reason, "watermark_at_or_after_slot");
+    const advanced = await readSchedule(seed);
+    assert.equal(advanced.nextRunAt > SLOT, true);
+    assert.equal(advanced.watermark, SLOT + (5 * MINUTE), "skipping never rewrites the watermark");
+
+    // The same wedge discovered two days late goes through the misfire branch.
+    const late = advanced.nextRunAt;
+    await setSchedule(seed, late, late + (5 * MINUTE));
+    const misfire = await seed.schedule.reconcileProspectingSchedules(seed.fixture.database, seed.workspaceId, late + (2 * DAY));
+    assert.equal(misfire.length, 1);
+    assert.equal(misfire[0].executionState, "skipped_misfire");
+    const misfireRow = await seed.fixture.database.prepare("SELECT manifest_json FROM prospecting_runs WHERE id=?").bind(misfire[0].id).first();
+    assert.equal(JSON.parse(misfireRow.manifest_json).skippedBecause, "watermark_at_or_after_slot");
+    assert.equal((await readSchedule(seed)).nextRunAt > late, true);
+
+    // Replaying the same slot is idempotent.
+    await setSchedule(seed, late, late + (5 * MINUTE));
+    const replay = await seed.schedule.reconcileProspectingSchedules(seed.fixture.database, seed.workspaceId, late + (2 * DAY));
+    assert.equal(replay[0].id, misfire[0].id);
+    assert.equal(replay[0].replayed, true);
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("one failing schedule is reported per schedule and cannot starve a later schedule", async () => {
+  const seed = await activatedSchedule("batch05-isolation");
+  try {
+    const database = seed.fixture.database;
+    await database.batch([
+      database.prepare("INSERT INTO customer_profiles (id,workspace_id,created_at,updated_at,revision,play_id,name,lifecycle,timezone,weekly_target) SELECT 'batch05-broken-profile',workspace_id,created_at,updated_at,1,play_id,'Broken schedule profile',lifecycle,timezone,weekly_target FROM customer_profiles WHERE id=?").bind(seed.profileId),
+      database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES ('batch05-broken-command',?,?,?,1,'test.broken_schedule','batch05-broken-command-key',?,1,'profile','batch05-broken-profile','accepted')").bind(seed.workspaceId, NOW, NOW, "e".repeat(64)),
+      // Pinned to an inactive configuration: intent creation must refuse it on every pass.
+      database.prepare("INSERT INTO typed_configurations (id,workspace_id,created_at,updated_at,revision,company_id,owner_type,owner_id,kind,digest,manifest_json,active) SELECT 'batch05-broken-config',workspace_id,created_at,updated_at,1,company_id,owner_type,'batch05-broken-profile',kind,?,manifest_json,0 FROM typed_configurations WHERE id=?").bind("b".repeat(64), seed.configurationId),
+      database.prepare("INSERT INTO prospecting_schedules (id,workspace_id,created_at,updated_at,revision,profile_id,configuration_id,configuration_digest,schedule_key,timezone,intended_local_time,utc_offset_minutes,cadence,next_run_at,last_successful_watermark,active,execution_state,authority_command_id,operation_digest,idempotency_key) VALUES ('batch05-broken-schedule',?,?,?,1,'batch05-broken-profile','batch05-broken-config',?,'batch05-broken-key','America/Toronto','06:00',-240,'weekdays',?,NULL,1,'blocked_missing_capability','batch05-broken-command',?,'batch05-broken-schedule-key')").bind(seed.workspaceId, NOW, NOW, "b".repeat(64), SLOT - (60 * MINUTE), "d".repeat(64)),
+    ]);
+    await setSchedule(seed, SLOT, SLOT - DAY);
+    const results = await seed.schedule.reconcileProspectingSchedules(database, seed.workspaceId, SLOT + (30 * MINUTE));
+    assert.equal(results.length, 2);
+    assert.deepEqual(results[0], { scheduleId: "batch05-broken-schedule", failed: true, errorCode: "prospecting_schedule_conflict" });
+    assert.equal(results[1].scheduleId, seed.scheduleId);
+    assert.equal(results[1].executionState, "blocked_missing_capability");
+    assert.equal(results[1].replayed, false);
+    const broken = await database.prepare("SELECT next_run_at FROM prospecting_schedules WHERE id='batch05-broken-schedule'").first();
+    assert.equal(Number(broken.next_run_at), SLOT - (60 * MINUTE), "a genuinely failing slot is not silently advanced");
+    assert.equal((await readSchedule(seed)).nextRunAt > SLOT, true);
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("a concurrent duplicate prospecting intent replays the winner instead of surfacing a raw constraint error", async () => {
+  const seed = await activatedSchedule("batch05-intent-race");
+  try {
+    const input = {
+      profileId: seed.profileId, configurationId: seed.configurationId, configurationDigest: seed.configurationDigest,
+      scheduleId: seed.scheduleId, idempotencyKey: "batch05-race-key", at: NOW + MINUTE, watermark: null, manifest: { requestedBy: "owner" },
+    };
+    let raced = false;
+    const real = seed.fixture.database;
+    // The loser's prior read happens, then the winner commits before the loser's batch.
+    const racing = new Proxy(real, {
+      get(target, property) {
+        if (property === "prepare") return (sql) => {
+          const statement = target.prepare(sql);
+          if (raced || !sql.startsWith("SELECT id, trigger_kind, trigger_key, execution_state FROM prospecting_runs")) return statement;
+          raced = true;
+          return { bind: () => ({ first: async () => { await seed.schedule.createManualProspectingIntent(real, seed.workspaceId, input); return null; } }) };
+        };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const loser = await seed.schedule.createManualProspectingIntent(racing, seed.workspaceId, input);
+    assert.equal(raced, true);
+    assert.equal(loser.replayed, true);
+    const rows = await real.prepare("SELECT id FROM prospecting_runs WHERE workspace_id=? AND idempotency_key=?").bind(seed.workspaceId, input.idempotencyKey).all();
+    assert.equal(rows.results.length, 1);
+    assert.equal(loser.id, rows.results[0].id);
+
+    // A different trigger under the same key is a typed conflict, not a raw D1 error.
+    let racedOther = false;
+    const conflicting = new Proxy(real, {
+      get(target, property) {
+        if (property === "prepare") return (sql) => {
+          const statement = target.prepare(sql);
+          if (racedOther || !sql.startsWith("SELECT id, trigger_kind, trigger_key, execution_state FROM prospecting_runs")) return statement;
+          racedOther = true;
+          return { bind: () => ({ first: async () => null }) };
+        };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await assert.rejects(
+      seed.schedule.createManualProspectingIntent(conflicting, seed.workspaceId, { ...input, triggerKey: "manual:batch05:other" }),
+      (error) => error instanceof seed.schedule.ProspectingScheduleConflictError,
+    );
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("admission refuses a second run for a Profile while another run is active", async () => {
+  const seed = await activatedSchedule("batch05-admission-overlap");
+  try {
+    const admission = await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-run-admission.ts", import.meta.url).pathname);
+    const manual = await seed.schedule.createManualProspectingIntent(seed.fixture.database, seed.workspaceId, {
+      profileId: seed.profileId, configurationId: seed.configurationId, configurationDigest: seed.configurationDigest,
+      scheduleId: seed.scheduleId, idempotencyKey: "batch05-admission-manual", at: NOW + MINUTE, watermark: null, manifest: { requestedBy: "owner" },
+    });
+    const port = { async authorize(request) {
+      return { kind: "authorized", authorityId: `synthetic-${request.runId}`, evidenceDigest: "c".repeat(64), requestDigest: await admission.digestProspectingRunAdmissionRequest(request), validUntil: NOW + (2 * MINUTE) };
+    } };
+    const runs = await seed.fixture.database.prepare("SELECT id,execution_state,revision FROM prospecting_runs WHERE id IN (?,?)").bind(seed.initialRunId, manual.id).all();
+    assert.deepEqual(runs.results.map((row) => row.execution_state), ["blocked_missing_capability", "blocked_missing_capability"]);
+    const revisionOf = (id) => Number(runs.results.find((row) => row.id === id).revision);
+
+    const first = await admission.admitProspectingRunToQueue(seed.fixture.database, { workspaceId: seed.workspaceId, runId: seed.initialRunId, expectedRunRevision: revisionOf(seed.initialRunId), idempotencyKey: "batch05-admit-initial", now: NOW + MINUTE }, port);
+    assert.equal(first.executionState, "queued");
+    await assert.rejects(
+      admission.admitProspectingRunToQueue(seed.fixture.database, { workspaceId: seed.workspaceId, runId: manual.id, expectedRunRevision: revisionOf(manual.id), idempotencyKey: "batch05-admit-manual", now: NOW + MINUTE }, port),
+      /prospecting_run_admission_rejected/,
+    );
+    assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id=?").bind(manual.id).first()).execution_state, "blocked_missing_capability");
+
+    // Once the active run is terminal the second run may be admitted.
+    await seed.fixture.database.prepare("UPDATE prospecting_runs SET execution_state='succeeded' WHERE id=?").bind(seed.initialRunId).run();
+    const second = await admission.admitProspectingRunToQueue(seed.fixture.database, { workspaceId: seed.workspaceId, runId: manual.id, expectedRunRevision: revisionOf(manual.id), idempotencyKey: "batch05-admit-manual-after", now: NOW + MINUTE }, port);
+    assert.equal(second.executionState, "queued");
+  } finally { await seed.fixture.dispose(); }
+});

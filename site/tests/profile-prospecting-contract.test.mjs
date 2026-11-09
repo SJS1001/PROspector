@@ -542,11 +542,11 @@ test("a Profile with more than one confirmed rubric is refused at readiness and 
     const before = await counts();
     await assert.rejects(
       () => readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW + 1, idempotencyKey: "0198f400-0000-7000-8000-000000000432" }),
-      /more than one confirmed rubric.*choose one/i,
+      (error) => /more than one confirmed rubric.*choose one/i.test(error.message) && error.refusal === "rubric_ambiguous",
     );
     await assert.rejects(
       () => readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW + 2, idempotencyKey: "0198f400-0000-7000-8000-000000000433" }),
-      /more than one confirmed rubric.*choose one/i,
+      (error) => /more than one confirmed rubric.*choose one/i.test(error.message) && error.refusal === "rubric_ambiguous",
     );
     assert.deepEqual(await counts(), before, "the refusals create no activation, schedule or run");
   } finally { await fixture.dispose(); }

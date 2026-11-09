@@ -2,7 +2,7 @@ import { v7 } from "uuid";
 import { evaluateMiningQualification, type MiningQualification } from "./qualification";
 import { readCanonicalMaterialLineage, readValidatedSourcedDisproofSignalId } from "./source-policy";
 
-export class ProspectReviewError extends Error { readonly code = "prospect_review_rejected"; }
+export class ProspectReviewError extends Error { readonly code = "prospect_review_rejected"; constructor(message: string, readonly refusal?: string) { super(message); } }
 type Principal = { subject: string; legacySubject?: string };
 type Candidate = { id:string; workspace_id:string; profile_id:string; offer_id:string; configuration_id:string; run_id:string; submission_id:string; candidate_json:string; candidate_digest:string; fingerprint:string };
 
@@ -67,8 +67,8 @@ export async function persistQualificationAssessment(database:D1Database, princi
     :priorInactive?.state==="rejected"&&cooldownExpired?"review_date_due"
     :priorInactive?.state==="deferred"&&(materialSignal||Number(priorInactive.ends_at)<=now)?(materialSignal?"material_signal":"review_date_due")
     :null;
-  if(cooldownActive&&!reentryKind) throw fail("Prospect cooldown remains active; a Material Signal is required for re-entry");
-  if(priorInactive?.state==="rejected"&&!reentryKind) throw fail("Rejected prospect requires Material Signal, 90-day cooldown expiry, or sourced disproof to re-enter");
+  if(cooldownActive&&!reentryKind) throw fail("Prospect cooldown remains active; a Material Signal is required for re-entry","prospect_cooldown_active");
+  if(priorInactive?.state==="rejected"&&!reentryKind) throw fail("Rejected prospect requires Material Signal, 90-day cooldown expiry, or sourced disproof to re-enter","prospect_rejected_needs_signal");
   const assessmentId=v7(), commandId=v7(), auditId=v7(), prospectId=v7(), reentryId=v7(), reentryCommandId=v7(), reentryAuditId=v7();
   try { await database.batch([
     database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(assessmentId,workspace.id,candidate.id,configuration.id,configuration.digest,inputJson,inputDigest,anchorJson,evidenceJson,gateJson,scoreJson,evaluation.score,evaluation.outcome,stable(evaluation.tieOrder),assessmentDigest,priorInactive?.assessment_id??null,now),
@@ -83,8 +83,8 @@ export async function persistQualificationAssessment(database:D1Database, princi
 
 export async function decideQualifiedProspect(database:D1Database, principal:Principal, input:{prospectId:string; assessmentId?:string; decision:"approve"|"reject"|"defer"; reason?:string; reviewAt?:number; expectedRevision:number; idempotencyKey:string; now?:number}) {
   const reason=input.reason?.normalize("NFC").trim(); const now=input.now??Date.now();
-  if(!reason||reason.length>2000) throw fail("A review reason is required");
-  if(input.decision==="defer"&&(!Number.isSafeInteger(input.reviewAt)||input.reviewAt<=now)) throw fail("A reasoned deferred review date is required");
+  if(!reason||reason.length>2000) throw fail("A review reason is required","review_reason_required");
+  if(input.decision==="defer"&&(!Number.isSafeInteger(input.reviewAt)||input.reviewAt<=now)) throw fail("A reasoned deferred review date is required","defer_date_not_future");
   if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<1||!validKey(input.idempotencyKey)) throw fail("Invalid review command");
   const workspace=await workspaceFor(database,principal);
   const prospect=await database.prepare("SELECT p.id,p.workspace_id,p.assessment_id,p.revision,p.state,p.active,a.outcome FROM profile_prospects p JOIN qualification_assessments a ON a.id=p.assessment_id AND a.workspace_id=p.workspace_id WHERE p.id=? AND p.workspace_id=? LIMIT 1").bind(input.prospectId,workspace.id).first<{id:string;workspace_id:string;assessment_id:string;revision:number;state:string;active:number;outcome:string}>();
@@ -220,4 +220,4 @@ function recency(signal:string){return safeJson(signal).recency==="account_conte
 function text(x:unknown){return typeof x==="string"?x:"";} function number(x:unknown){return Number.isInteger(x)?x:0;} function validKey(x:string){return typeof x==="string"&&x.length>0&&x.length<=160;}
 function stable(v:unknown):string{if(Array.isArray(v))return`[${v.map(stable).join(",")}]`;if(v&&typeof v==="object"){const x=v as Record<string,unknown>;return`{${Object.keys(x).sort().map(k=>`${JSON.stringify(k)}:${stable(x[k])}`).join(",")}}`;}return JSON.stringify(v);}
 async function sha256(v:string){const data=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return Array.from(new Uint8Array(data),x=>x.toString(16).padStart(2,"0")).join("");}
-function fail(message:string){return new ProspectReviewError(message);}
+function fail(message:string,refusal?:string){return new ProspectReviewError(message,refusal);}
