@@ -861,6 +861,40 @@ function confirmedResearchContext(knowledge: KnowledgeItem[]) {
     .map((item) => `${item.question}: ${item.confirmedAnswer}`).join("\n");
 }
 
+type RunClaim = { userId: string; runId: string; digest: string; trigger: string };
+
+// Migration 0010 allows one queued/running run per workspace. The conflict
+// target names that partial index, so two overlapping starts cannot both insert
+// (and both spend): the loser gets no row back.
+async function tryClaimProspectingRun(sql: Sql, claim: RunClaim): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    insert into prospecting_runs (id, user_id, configuration_digest, trigger, status, started_at)
+    values (${claim.runId}, ${claim.userId}, ${claim.digest}, ${claim.trigger}, ${"running"}, ${new Date().toISOString()})
+    on conflict (user_id) where status in ('queued', 'running') do nothing
+    returning id
+  `;
+  return rows.length === 1;
+}
+
+async function tryClaimDiscoveryRun(sql: Sql, claim: RunClaim): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    insert into discovery_runs (id, user_id, configuration_digest, trigger, status, started_at)
+    values (${claim.runId}, ${claim.userId}, ${claim.digest}, ${claim.trigger}, ${"running"}, ${new Date().toISOString()})
+    on conflict (user_id) where status in ('queued', 'running') do nothing
+    returning id
+  `;
+  return rows.length === 1;
+}
+
+export async function claimProspectingRun(sql: Sql, claim: RunClaim): Promise<void> {
+  if (!(await tryClaimProspectingRun(sql, claim)))
+    throw new Error("A prospecting run is already active. Wait for it to finish.");
+}
+
+export async function claimDiscoveryRun(sql: Sql, claim: RunClaim): Promise<void> {
+  if (!(await tryClaimDiscoveryRun(sql, claim))) throw new Error("A discovery run is already active.");
+}
+
 async function startHunt(userId: string, trigger: "initial" | "manual" | "scheduled") {
   const sql = await getSql();
   await ensureWorkspace(sql, userId);
@@ -929,13 +963,8 @@ async function startHunt(userId: string, trigger: "initial" | "manual" | "schedu
   }
 
   const runId = idFor(userId, `run:${Date.now()}`);
-  await sql`
-    insert into prospecting_runs (
-      id, user_id, configuration_digest, trigger, status, started_at
-    ) values (
-      ${runId}, ${userId}, ${digest}, ${trigger}, ${"running"}, ${new Date().toISOString()}
-    )
-  `;
+  // The select above fails fast; this claim is the authority under concurrency.
+  await claimProspectingRun(sql, { userId, runId, digest, trigger });
 
   const existing = await sql<{ fingerprint: string | null }>`
     select fingerprint from prospects where user_id = ${userId}
@@ -1227,10 +1256,8 @@ export const activateProduct = createServerFn({ method: "POST" })
     `;
     if (busy) return loadWorkspace(context.userId);
     const runId = idFor(context.userId, `disc:${Date.now()}`);
-    await sql`
-      insert into discovery_runs (id, user_id, configuration_digest, trigger, status, started_at)
-      values (${runId}, ${context.userId}, ${digest}, ${"initial"}, ${"running"}, ${now})
-    `;
+    if (!(await tryClaimDiscoveryRun(sql, { userId: context.userId, runId, digest, trigger: "initial" })))
+      return loadWorkspace(context.userId);
     try {
       await executeDiscovery({ sql, userId: context.userId, runId, digest, snapshot });
     } catch (error) {
@@ -1261,10 +1288,7 @@ export const runDiscovery = createServerFn({ method: "POST" })
     if (busy) throw new Error("A discovery run is already active.");
     const snapshot = JSON.parse(product.snapshot_json) as ReturnType<typeof snapshotFromKnowledge>;
     const runId = idFor(context.userId, `disc:${Date.now()}`);
-    await sql`
-      insert into discovery_runs (id, user_id, configuration_digest, trigger, status, started_at)
-      values (${runId}, ${context.userId}, ${product.digest}, ${"manual"}, ${"running"}, ${new Date().toISOString()})
-    `;
+    await claimDiscoveryRun(sql, { userId: context.userId, runId, digest: product.digest, trigger: "manual" });
     try {
       await executeDiscovery({ sql, userId: context.userId, runId, digest: product.digest, snapshot });
     } catch (error) {
@@ -1408,23 +1432,101 @@ export const approvePackage = createServerFn({ method: "POST" })
     return loadWorkspace(context.userId);
   });
 
+const SUPPRESSION_KINDS = ["email", "domain", "phone", "contact", "org", "all"] as const;
+const HOST_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
+
+/** ASCII (IDNA) hostname, or null when the text cannot be a mail domain. */
+function hostname(text: string): string | null {
+  let host: string;
+  try {
+    host = new URL(`http://${text}`).hostname;
+  } catch {
+    return null;
+  }
+  host = host.replace(/\.$/, "");
+  const labels = host.split(".");
+  if (host.length > 253 || labels.length < 2 || !labels.every((label) => HOST_LABEL.test(label))) return null;
+  if (!/^([a-z]{2,63}|xn--[a-z0-9-]{1,59})$/.test(labels[labels.length - 1])) return null;
+  return host;
+}
+
+/**
+ * Normalise a domain entry to the bare host the matcher compares with the part
+ * of the mailbox after '@'. Returns the ASCII form, plus the Unicode form when
+ * the owner typed one, so either spelling of a mailbox is blocked.
+ */
+export function normalizeSuppressionDomain(raw: string): string[] | null {
+  let text = raw.normalize("NFC").trim().toLowerCase();
+  text = text.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^@/, "");
+  text = text.split(/[/?#]/)[0].replace(/:\d*$/, "").replace(/\.$/, "");
+  if (!text || /[\s@]/.test(text)) return null;
+  text = text.replace(/^www\./, "");
+  const ascii = hostname(text);
+  if (!ascii) return null;
+  return !/[^ -~]/.test(text) || text === ascii ? [ascii] : [ascii, text];
+}
+
+export function normalizeSuppressionEmail(raw: string): string | null {
+  const text = raw.normalize("NFC").trim().toLowerCase().replace(/^mailto:/, "");
+  const match = /^([^\s@,;<>]+)@([^\s@,;<>]+\.[^\s@,;<>]+)$/.exec(text);
+  if (!match || !hostname(match[2])) return null;
+  return text;
+}
+
+export type SuppressionResult = WorkspaceDTO & { suppressionWarning?: string };
+
 export const addSuppression = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { kind: string; value: string; reason: string }) => ({
-    kind: ["email", "domain", "phone", "contact", "org", "all"].includes(input.kind) ? input.kind : "email",
-    value: input.value.normalize("NFC").trim().toLowerCase(),
-    reason: input.reason.normalize("NFC").trim(),
+    kind: input.kind,
+    value: String(input.value ?? "").normalize("NFC").trim(),
+    reason: String(input.reason ?? "").normalize("NFC").trim(),
   }))
-  .handler(async ({ context, data }) => {
+  .handler(async ({ context, data }): Promise<SuppressionResult> => {
+    // Fail closed: an entry that could never match is rejected, never stored as a no-op.
+    if (!(SUPPRESSION_KINDS as readonly string[]).includes(data.kind)) throw new Error("Choose what to block.");
     if (!data.value || !data.reason) throw new Error("Value and reason are required.");
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
-    await sql`
-      insert into suppressions (id, user_id, kind, value, reason)
-      values (${idFor(context.userId, `sup:${data.kind}:${data.value}`)}, ${context.userId}, ${data.kind}, ${data.value}, ${data.reason})
-      on conflict (user_id, kind, value) do nothing
-    `;
-    return loadWorkspace(context.userId);
+    let values: string[];
+    let warning: string | undefined;
+    if (data.kind === "domain") {
+      const domains = normalizeSuppressionDomain(data.value);
+      if (!domains)
+        throw new Error("Enter a domain such as example.com (no address, spaces or wildcards). To block one person, choose Email.");
+      values = domains;
+    } else if (data.kind === "email") {
+      const email = normalizeSuppressionEmail(data.value);
+      if (!email) throw new Error("Enter a full email address such as name@example.com.");
+      values = [email];
+    } else if (data.kind === "contact") {
+      const [contact] = await sql<{ id: string }>`
+        select id from contacts where user_id = ${context.userId} and id = ${data.value}
+      `;
+      if (!contact) throw new Error("No contact with that contact id is in this workspace.");
+      values = [contact.id];
+    } else if (data.kind === "phone") {
+      if (!/[0-9]/.test(data.value)) throw new Error("Enter a phone number with digits.");
+      values = [data.value.toLowerCase()];
+    } else {
+      values = [data.value.toLowerCase()];
+      if (data.kind === "org") {
+        const [match] = await sql<{ id: string }>`
+          select id from prospects
+          where user_id = ${context.userId} and lower(trim(account_name)) = ${values[0]} limit 1
+        `;
+        if (!match)
+          warning = "Saved, but no prospect in this workspace has exactly that organization name yet. It blocks only an exact name match.";
+      }
+    }
+    for (const value of values)
+      await sql`
+        insert into suppressions (id, user_id, kind, value, reason)
+        values (${idFor(context.userId, `sup:${data.kind}:${value}`)}, ${context.userId}, ${data.kind}, ${value}, ${data.reason})
+        on conflict (user_id, kind, value) do nothing
+      `;
+    const workspace = await loadWorkspace(context.userId);
+    return warning ? { ...workspace, suppressionWarning: warning } : workspace;
   });
 
 export const saveConnections = createServerFn({ method: "POST" })
@@ -1584,19 +1686,44 @@ export const mergeContacts = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     if (data.keepId === data.dropId) throw new Error("Pick two different contacts.");
     if (!data.reason) throw new Error("A merge reason is required.");
-    const sql = await getSql();
-    await ensureWorkspace(sql, context.userId);
-    const rows = await sql<{ id: string; prospect_id: string; email_kind: string }>`
-      select id, prospect_id, email_kind from contacts
-      where user_id = ${context.userId} and id in (${data.keepId}, ${data.dropId})
-    `;
-    if (rows.length !== 2) throw new Error("Both contacts must belong to this workspace.");
-    if (rows[0].prospect_id !== rows[1].prospect_id) throw new Error("Only merge contacts on the same prospect.");
-    await sql`delete from contacts where user_id = ${context.userId} and id = ${data.dropId}`;
-    await sql`
-      insert into identity_merges (id, user_id, keep_id, drop_id, reason)
-      values (${idFor(context.userId, `merge:${data.keepId}:${data.dropId}`)}, ${context.userId}, ${data.keepId}, ${data.dropId}, ${data.reason})
-    `;
+    const db = await getSql();
+    await ensureWorkspace(db, context.userId);
+    const userId = context.userId;
+    await db.transaction(async (sql) => {
+      const rows = await sql<{ id: string; prospect_id: string; email_kind: string; email_display: string }>`
+        select id, prospect_id, email_kind, email_display from contacts
+        where user_id = ${userId} and id in (${data.keepId}, ${data.dropId})
+      `;
+      if (rows.length !== 2) throw new Error("Both contacts must belong to this workspace.");
+      if (rows[0].prospect_id !== rows[1].prospect_id) throw new Error("Only merge contacts on the same prospect.");
+      // Contact suppressions match by id, so move the dropped contact's opt-out to
+      // the survivor and pin every mailbox of either contact before the delete.
+      const suppressed = await sql<{ value: string; reason: string }>`
+        select value, reason from suppressions
+        where user_id = ${userId} and kind = ${"contact"} and value in (${data.keepId}, ${data.dropId})
+      `;
+      for (const row of suppressed.filter((item) => item.value === data.dropId))
+        await sql`
+          insert into suppressions (id, user_id, kind, value, reason)
+          values (${idFor(userId, `sup:contact:${data.keepId}`)}, ${userId}, ${"contact"}, ${data.keepId}, ${row.reason})
+          on conflict (user_id, kind, value) do nothing
+        `;
+      if (suppressed.length) {
+        const reason = `Merged contact suppression: ${suppressed[0].reason}`;
+        for (const email of new Set(rows.map((row) => normalizeSuppressionEmail(row.email_display ?? ""))))
+          if (email)
+            await sql`
+              insert into suppressions (id, user_id, kind, value, reason)
+              values (${idFor(userId, `sup:email:${email}`)}, ${userId}, ${"email"}, ${email}, ${reason})
+              on conflict (user_id, kind, value) do nothing
+            `;
+      }
+      await sql`delete from contacts where user_id = ${userId} and id = ${data.dropId}`;
+      await sql`
+        insert into identity_merges (id, user_id, keep_id, drop_id, reason)
+        values (${idFor(userId, `merge:${data.keepId}:${data.dropId}`)}, ${userId}, ${data.keepId}, ${data.dropId}, ${data.reason})
+      `;
+    });
     return loadWorkspace(context.userId);
   });
 

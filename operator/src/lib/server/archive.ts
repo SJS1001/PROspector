@@ -125,6 +125,26 @@ function plain(value: unknown): unknown {
   if (typeof value === "bigint") return Number(value);
   return value;
 }
+/** Terminal reason for a run that was queued or running when the process stopped. */
+export const INTERRUPTED_RUN_REASON = "Interrupted; not resumed";
+/**
+ * Runs only reach a terminal status inside the request that started them, so a
+ * quit, crash or sleep mid-run leaves an orphan that would refuse every later
+ * start. Call once at server start (after migrations, before serving requests):
+ * no request can own a run at that moment. Not resumed; the owner starts again.
+ */
+export async function recoverInterruptedRuns(
+  sql: Pick<Sql, "query">,
+): Promise<{ prospecting: number; discovery: number }> {
+  const update = (table: "prospecting_runs" | "discovery_runs") =>
+    sql.query<{ id: string }>(
+      `update ${table} set status = 'failed', terminal_reason = $1, finished_at = now() where status in ('queued', 'running') returning id`,
+      [INTERRUPTED_RUN_REASON],
+    );
+  const prospecting = await update("prospecting_runs");
+  const discovery = await update("discovery_runs");
+  return { prospecting: prospecting.length, discovery: discovery.length };
+}
 export async function exportWorkspaceArchive(
   owner: string,
   adapter: ArchiveAdapter,
@@ -535,6 +555,7 @@ export async function restoreWorkspaceArchive(
       identity_merges: ["keep_id", "drop_id"],
       enrichment_grants: ["prospect_id"],
     };
+    const restoredAt = new Date().toISOString();
     const transform = (table: Table, original: Row): Row => {
       const row = { ...original };
       for (const key of ["id", ...(refs[table] ?? [])])
@@ -555,6 +576,16 @@ export async function restoreWorkspaceArchive(
         row.acknowledged = false;
       }
       if (table === "outreach_packages" && row.status === "approved") row.status = "draft";
+      // No request owns an archived in-flight run; restoring it active would
+      // refuse every later hunt or discovery.
+      if (
+        (table === "prospecting_runs" || table === "discovery_runs") &&
+        ["queued", "running"].includes(row.status as string)
+      ) {
+        row.status = "failed";
+        row.terminal_reason = INTERRUPTED_RUN_REASON;
+        row.finished_at = row.finished_at ?? restoredAt;
+      }
       if (table === "operating_state") row.monthly_budget_cents = 0;
       return row;
     };
