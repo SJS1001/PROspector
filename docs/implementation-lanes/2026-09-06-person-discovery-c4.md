@@ -38,10 +38,28 @@ The post-browser verifier opens persisted SQLite read-only and permits only the
 expected synthetic authority and person-discovery rows. It requires exact counts
 for the single workspace/company/product/play/Offer/prospect/contact lineage, two
 suggestions and provenance rows, one terminal owner decision, and two verification
-intents. It independently requires zero schedules, contact point observations,
-eligibility snapshots, verification receipts, enrichment grants/reservations/
-spend/provider quotes, outreach packages/messages/outbox, exports, R2 objects,
-multipart uploads, and all other non-allowlisted nonempty application tables.
+intents. It independently requires zero schedules, outreach packages/messages/
+outbox, runner spend, exports, R2 objects, multipart uploads, and all other
+non-allowlisted nonempty application tables.
+
+## Verification result (added after C4 by PR #82)
+
+Recording a verification intent still creates no evidence. A separate,
+DEV-only local consumer (`site/domain/person-discovery-c4-verification.ts`,
+route `POST /api/local-demo/person-discovery-c4/verification`) is the only
+reader of `contact_verification_intents`. It runs only under the same exact
+C4 conjunction, derives every binding from the latest current
+`initial_verification` intent, and delegates grant, reservation, synthetic
+provider port, evidence verifier, settlement and ContactReady projection to the
+canonical Phase 5 services with a zero-cost synthetic quote. The browser
+journey clicks **Run local synthetic verification** after the intents, and the
+post-browser verifier now requires exactly one contact point observation,
+evidence assignment, verification receipt, grant, reservation, provider quote,
+and one `ContactReady`/eligible snapshot with a settled zero-cost reservation.
+Replay returns the durable snapshot; an uncertain outcome is reconciled and not
+retried; stale intent authority is rejected before any quote or grant. Only
+`initial_verification` intents are consumed: no consumer turns a
+`stale_refresh` intent into refreshed evidence yet.
 
 This evidence does not select a provider, create a credential, contact a real
 person, enable prospecting, export data, send/call, alter hosted state, or satisfy
