@@ -1,6 +1,6 @@
 ---
 repo: SJS1001/PROspector
-branch: cursor/schedule-overlap-state-de84
+branch: claude/owner-local-completion-20261109
 baseline_sha: c8000d7c99ebf4b7f3cdb01e737860ce8da18327
 baseline_record: PR 156 head, parent dc12fd32627ef5848e8b9977ab6ef6deab5ffbf0
 checklist_introducing_commit: 469395bbfcf4032bb2021426d563c930a4748f95
@@ -9,18 +9,18 @@ plans_total: 74
 plans_uncredited: 48
 v1_requirements_checked: 0/17
 phase_4_to_7_plans: 44
-stop: true
+stop: false
 cancel: false
 needs_user: true
 all_done: false
 development_running: false
-development_authorized: false
-authorized_scope: none
+development_authorized: true
+authorized_scope: local-synthetic-issues-6-7-8-11-and-local-phase-4-7
 setup_authorized: true
 retry_count: 0
-failure_fingerprint: waiting-external-acceptance-and-review-quota
+failure_fingerprint: none
 prior_failure_fingerprint: openrouter-jev-offline-only
-last_progress_at: 2026-11-08T19:55:00Z
+last_progress_at: 2026-11-09T00:00:00Z
 last_progress: OpenRouter is a selectable provider. Jev decisions on that selection use POST https://openrouter.ai/api/alpha/decisions with the OpenRouter key only. Direct TypeSafe stays on /systemone. Offline tests passed. Live OpenRouter and owner acceptance were not tested. Requirement inventory now lives in COMPLETION_LEDGER.md.
 watchdog:
   repos: [PROspector, Distributor, DigitalRain]
@@ -42,16 +42,29 @@ Reporting scope is three projects: PROspector, Distributor, and DigitalRain. Ser
 
 The product baseline is `c8000d7c99ebf4b7f3cdb01e737860ce8da18327` on `cursor/profile-misfire-ledger-de84` (PR 156). This checklist was introduced by `469395bbfcf4032bb2021426d563c930a4748f95` on `cursor/schedule-overlap-state-de84`. The live branch SHA is the commit that last changed this file. Confirm `git rev-parse HEAD` equals `git log -1 --format=%H -- COMPLETION.md`.
 
+## Owner authorization, 2026-11-09
+
+Recorded from the owner (SJS1001) in a Claude Code session on 2026-11-09. Quoted decisions are the owner's words.
+
+- Stop flags lifted for local work ("Permission to override the project's own stop flags ... YES"). Development is authorized locally, including local Phase 6 and Phase 7 implementation, and open issues #6, #7, #8 and #11.
+- Hosted test target: "save for later we will run locally for now". No hosted, deployment or greenfield-target action is authorized. 04-11 and 04-12 stay blocked because their hosted proof does not exist.
+- Live accounts: the owner will add Gmail, contact-provider and OpenRouter credentials personally. No live provider call, send, or spend is authorized until the owner adds them and sets a spend limit.
+- Sign-offs: the owner agreed to sign off the blocked gates. 03-11 will be recorded only after the owner reviews a written summary of the local proof. No gate is marked accepted by this section.
+- Issue #7 labels: the owner proposed Jev draft labels. Owner confirmation of a sample is still required for independent quality labels.
+- 07-04 migration index: not decided. `NNNN` stays.
+
+Formal plan credit stays 26/74 and formal requirement acceptance stays 0/17. Local results are labelled locally accepted only, never formal credit.
+
 ## Flags
 
 | Flag | Value | Meaning |
 | --- | --- | --- |
-| stop | true | The OpenRouter feature batch is committed. Do not start another implementation from this wait. |
+| stop | false | Owner lifted the stop for local work on 2026-11-09. See Owner authorization. |
 | cancel | false | Earlier cancels stay recorded. Do not relaunch them. |
 | needs_user | true | Plan acceptance and the review quota still need a person. That does not undo the OpenRouter code. |
 | all_done | false | Neither the product nor the three-project report is complete. |
 | development_running | false | No shard is running. |
-| development_authorized | false | The authorized OpenRouter and Jev-endpoint edit is committed. |
+| development_authorized | true | Local scope only, per Owner authorization 2026-11-09. |
 | retry_count | 0 | No recovery retry has been consumed. |
 | failure_fingerprint | waiting-external-acceptance-and-review-quota | Not a test failure. Do not rerun a green suite or buy review credits. |
 | prior_failure_fingerprint | scope-correction-development-cancelled | Do not revive that run, and do not cite it as a passing test. |
