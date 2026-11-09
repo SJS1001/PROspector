@@ -4,6 +4,8 @@ This ledger is the v1 requirement inventory. It is not the 26/74 plan-credit led
 
 Local extracts merged on 2026-11-09 are recorded below as test evidence only. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
 
+Session `claude-ee67a286-2026-11-09` (owner-authorized local work, branch `claude/owner-local-completion-20261109`, commit `0c3ce490d707c0fa0b4eac9178ab05c75491d96f`): merged issue work for #6 (docs), #7 (protocol, label-agreement scorer and fixtures), #8 (plain-language Contacts labels and a Review-to-Contacts link) and #11 (browser run record). `cd site && npm test` exited 0 with 1175 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `npm run lint` exited 0; `npm run test:browser` 2 pass; `npm run test:browser:operator-journey` 2 pass; `npm run test:browser:person-discovery` 1 fail (recorded as negative evidence under REQ-contact-verification). No requirement status changed.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->
@@ -30,7 +32,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
     "recorded_at": "2026-11-08T21:00:33Z",
     "session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
     "seeded_at": "2026-11-08T21:00:33Z",
-    "last_source_review_at": "2026-11-09T06:05:00Z",
+    "last_source_review_at": "2026-11-09T15:30:00Z",
     "verification_mapping": "partial"
   },
   "requirements": [
@@ -723,8 +725,8 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "not_assessed",
-      "last_touched_at": "2026-11-08T21:00:33Z",
-      "last_touched_session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
+      "last_touched_at": "2026-11-09T15:30:00Z",
+      "last_touched_session": "claude-ee67a286-2026-11-09",
       "evidence": [
         {
           "kind": "artifact",
@@ -747,6 +749,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "Traceability status is Pending. This inventory row was not given a requirement-scoped acceptance receipt. Discovery did not treat the checkbox as proof."
+        },
+        {
+          "kind": "test",
+          "pr_url": null,
+          "pr_number": null,
+          "artifact_path": "site/tests/browser/person-discovery-c4.spec.ts",
+          "evidence_commit": "0c3ce490d707c0fa0b4eac9178ab05c75491d96f",
+          "test_scope": "cd site && npm run test:browser:person-discovery",
+          "test_counts": {
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 1,
+          "observed_at": "2026-11-09T15:30:00Z",
+          "recorded_at": "2026-11-09T15:30:00Z",
+          "session": "claude-ee67a286-2026-11-09",
+          "limitations": "Negative evidence. The synthetic no-known-person C4 lane stops before ContactReady: the Contacts projection only honours the settlement attestor when controlled_enrichment is activated, which this lane never does, so the contact stays NeedsReview with contact_attestation_unavailable. The issue-#6 checkbox 5 claim based on PR #82 is not supported on this commit. Not acceptance; formal acceptance stays 0/17 and plan credit stays 26/74."
         }
       ]
     },
@@ -956,7 +979,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
     },
     {
       "id": "REQ-initial-operating-target",
-      "title": "The operator can run the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` workflow weekdays at 06:00 America/Toronto, keep Greenfield Draft/nurture, and report seven newly Export-ready Prospects per Monday\u2013Sunday week while showing all funnel losses and preserving every quality gate.",
+      "title": "The operator can run the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` workflow weekdays at 06:00 America/Toronto, keep Greenfield Draft/nurture, and report seven newly Export-ready Prospects per Monday–Sunday week while showing all funnel losses and preserving every quality gate.",
       "class": "requirement",
       "status": "open",
       "source_status": "Pending",
