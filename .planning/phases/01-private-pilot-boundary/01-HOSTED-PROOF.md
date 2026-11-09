@@ -2,6 +2,14 @@
 
 Date: 2026-07-30
 
+> **Retired project, localhost-only harness (owner decision 2026-11-09).** The
+> Sites project and URL recorded below are a historical record only. That
+> project is permanently retired and must not be resolved or accessed.
+> `site/scripts/hosted-boundary-proof.mjs` now accepts only `localhost`,
+> `127.0.0.1` or `[::1]` and refuses any other host before it reads a session
+> file or sends a request. A future hosted target needs its own provisioning
+> record for the new environment; none exists today.
+
 ## Release provenance
 
 | Field | Value |
@@ -33,9 +41,12 @@ cd site
 npm run lint
 npm test
 node scripts/hosted-boundary-proof.mjs --help
-node scripts/hosted-boundary-proof.mjs \
-  --base-url https://prospector-steven-pilot.djstif.chatgpt.site/
+node scripts/hosted-boundary-proof.mjs --base-url http://127.0.0.1:8787/
 ```
+
+The `--base-url` must be a local development server. The command recorded in
+the outcomes below ran against the retired project on 2026-07-30 and must not
+be repeated.
 
 Authenticated harness modes accept only a local operator-supplied Cookie
 transport and never print or persist it. Browser proof does not extract browser

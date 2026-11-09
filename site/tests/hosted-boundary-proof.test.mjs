@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   loadSessionHeaders,
+  main,
   normalizedBaseUrl,
   readOwnerState,
   runOwnerProof,
@@ -124,7 +125,14 @@ test("hosted proof harness validates denial and durable R2 evidence", async () =
 test("hosted proof harness rejects untrusted destinations and identity headers", async () => {
   assert.throws(
     () => normalizedBaseUrl("https://invalid.example"),
-    /untrusted_base_url/u,
+    /non_loopback_host_refused/u,
+  );
+  // The retired Sites pilot hostname is no longer allowed; it is built from
+  // parts here so this test never hard-codes it as a usable target.
+  const retired = ["prospector-steven-pilot", "djstif", "chatgpt", "site"].join(".");
+  assert.throws(
+    () => normalizedBaseUrl(`https://${retired}/`),
+    /non_loopback_host_refused/u,
   );
 
   const temporaryDirectory = await mkdtemp(
@@ -158,3 +166,46 @@ function json(status, value, headers = {}) {
     },
   });
 }
+
+test("hosted proof harness is localhost-only and never sends the session cookie to a non-loopback host", async () => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "prospector-proof-localhost-"),
+  );
+  const retired = ["prospector-steven-pilot", "djstif", "chatgpt", "site"].join(".");
+  const headersFile = join(temporaryDirectory, "session.json");
+  await writeFile(headersFile, JSON.stringify({ cookie: "session=secret-must-not-leave" }), { mode: 0o600 });
+  const fetchBeforeTest = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, options = {}) => {
+    requests.push({ url: String(input), headers: new Headers(options.headers).get("cookie") });
+    return json(404, { error: "not_found" });
+  };
+  try {
+    for (const host of [
+      `https://${retired}/`,
+      "https://example.com/",
+      "https://localhost.example.com/",
+      "https://127.0.0.1.example.com/",
+      "http://192.168.1.10:8787/",
+      "http://[::2]:8787/",
+      "https://0.0.0.0/",
+    ]) {
+      for (const mode of ["denied", "owner-read", "owner-proof"]) {
+        const argv = ["--base-url", host, "--mode", mode];
+        if (mode !== "denied") argv.push("--session-headers-file", headersFile);
+        await assert.rejects(
+          main(argv),
+          /non_loopback_host_refused/u,
+          `${mode} against ${host} must be refused`,
+        );
+      }
+    }
+    assert.deepEqual(requests, [], "no request, and so no cookie, is sent to a refused host");
+    for (const loopback of ["http://localhost:8787", "http://127.0.0.1:8787", "http://[::1]:8787"]) {
+      assert.equal(normalizedBaseUrl(loopback).hostname.replace(/^\[|\]$/gu, ""), new URL(loopback).hostname.replace(/^\[|\]$/gu, ""));
+    }
+  } finally {
+    globalThis.fetch = fetchBeforeTest;
+    await rm(temporaryDirectory, { recursive: true });
+  }
+});

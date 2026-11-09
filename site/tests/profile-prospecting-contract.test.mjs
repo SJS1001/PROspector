@@ -511,6 +511,47 @@ test("D-01 stale candidates cannot overwrite a replacement authority or mutate t
   } finally { await fixture.dispose(); }
 });
 
+test("a Profile with more than one confirmed rubric is refused at readiness and activation with a plain message", async () => {
+  const fixture = await createD1Fixture("phase4-two-rubrics-refused");
+  try {
+    await applyMigrations(fixture.database);
+    const readiness = await loadProfileReadiness(fixture);
+    // Pure readiness: exactly one confirmed rubric is complete, two are ambiguous and incomplete.
+    const kinds = { fit_target:"fit", disqualifier:"disqualifier", roles:"roles", signals:"signals", geography_language:"timezone", rubric:"rubric", proof_guardrail:"proof_policy", contact_strategy:"contact_policy", outreach_strategy:"outreach_policy", schedule_timezone:"schedule", compliance:"compliance", output_policy:"output_target" };
+    const complete = readiness.PROFILE_READINESS_CATEGORIES.map((category, index) => ({ id: `v-${index}`, digest: "a".repeat(64), kind: kinds[category], scope_type: "profile", scope_id: "p", status: "confirmed" }));
+    const authority = { productConfiguration:{ id:"pc", digest:"b".repeat(64) }, acceptedPlay:{ id:"play", revision:1 }, offer:{ id:"offer", knowledgeVersionId:"v", digest:"c".repeat(64) } };
+    const evaluate = (versions) => readiness.evaluateProfileReadiness({ profile:{ id:"p", lifecycle:"draft" }, authority, versions });
+    assert.equal(evaluate(complete).complete, true, "a single confirmed rubric keeps working");
+    const doubled = evaluate([...complete, { ...complete.find((v) => v.kind === "rubric"), id: "v-rubric-second", digest: "d".repeat(64) }]);
+    assert.equal(doubled.complete, false, "two confirmed rubrics fail closed");
+    assert.equal(doubled.items.find((item) => item.category === "rubric").status, "ambiguous");
+    assert.deepEqual(doubled.missing, ["rubric"]);
+
+    // Database path: a candidate made with one rubric cannot be activated once a second is confirmed.
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000431" });
+    const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first();
+    const company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
+    const authorityCommand = await fixture.database.prepare("SELECT authority_command_id FROM knowledge_versions WHERE id='phase4-version-5'").first();
+    await fixture.database.batch([
+      fixture.database.prepare("INSERT INTO knowledge_items (id,workspace_id,created_at,updated_at,revision,company_id,scope_type,scope_id,kind,slot,current_version_id) VALUES ('phase4-item-rubric-2',?,?,?,1,?,'profile',?,'rubric','second',NULL)").bind(workspace.id, NOW, NOW, company.id, seeded.profileId),
+      fixture.database.prepare("INSERT INTO knowledge_versions (id,workspace_id,created_at,updated_at,revision,scope_type,scope_id,kind,value_json,status,source_digest,knowledge_item_id,proposal_id,decision_id,authority_command_id,value_digest,predecessor_version_id) VALUES ('phase4-version-rubric-2',?,?,?,1,'profile',?,'rubric','{}','confirmed',?,'phase4-item-rubric-2',NULL,NULL,?,?,NULL)").bind(workspace.id, NOW, NOW, seeded.profileId, "e".repeat(64), authorityCommand.authority_command_id, "e".repeat(64)),
+      fixture.database.prepare("UPDATE knowledge_items SET current_version_id='phase4-version-rubric-2' WHERE id='phase4-item-rubric-2'"),
+    ]);
+    const counts = async () => Promise.all(["typed_configurations", "profile_configuration_activations", "prospecting_schedules", "prospecting_runs"].map(async (table) => [table, await countRows(fixture.database, table)]));
+    const before = await counts();
+    await assert.rejects(
+      () => readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW + 1, idempotencyKey: "0198f400-0000-7000-8000-000000000432" }),
+      (error) => /more than one confirmed rubric.*choose one/i.test(error.message) && error.refusal === "rubric_ambiguous",
+    );
+    await assert.rejects(
+      () => readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW + 2, idempotencyKey: "0198f400-0000-7000-8000-000000000433" }),
+      (error) => /more than one confirmed rubric.*choose one/i.test(error.message) && error.refusal === "rubric_ambiguous",
+    );
+    assert.deepEqual(await counts(), before, "the refusals create no activation, schedule or run");
+  } finally { await fixture.dispose(); }
+});
+
 test("04-03 readiness classification is table-driven and never trusts a client authority shape", async () => {
   const fixture = await createD1Fixture("phase4-readiness-matrix");
   try {

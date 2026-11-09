@@ -568,6 +568,7 @@ test("stale, unknown, missing, and stale-predecessor states give explicit recove
       ["schedule_required", "Set up a search schedule first."],
       ["review_reason_required", "Add a short reason"],
       ["profile_not_ready", "Finish the missing profile readiness items first."],
+      ["rubric_ambiguous", "This profile has more than one confirmed rubric. Choose one rubric, then try again."],
     ]) {
       const refused = renderToStaticMarkup(
         React.createElement(workspace.ProspectingWorkspace, { projection: ownerProjection, initialNotice: code }),

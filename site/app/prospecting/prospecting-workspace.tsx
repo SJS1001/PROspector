@@ -34,6 +34,7 @@ export type RefusalCode =
   | "prospect_cooldown_active"
   | "prospect_rejected_needs_signal"
   | "profile_not_ready"
+  | "rubric_ambiguous"
   | "schedule_required"
   | "runner_unavailable";
 const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
@@ -42,6 +43,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
   "prospect_cooldown_active",
   "prospect_rejected_needs_signal",
   "profile_not_ready",
+  "rubric_ambiguous",
   "schedule_required",
   "runner_unavailable",
 ]);
@@ -54,6 +56,8 @@ const PROSPECTING_NOTICES: Record<Exclude<Notice, "">, string> = Object.freeze({
   prospect_rejected_needs_signal:
     "This prospect was rejected earlier. It needs a new material signal, a 90-day cooldown expiry, or sourced disproof first.",
   profile_not_ready: "Finish the missing profile readiness items first.",
+  rubric_ambiguous:
+    "This profile has more than one confirmed rubric. Choose one rubric, then try again.",
   schedule_required: "Set up a search schedule first.",
   runner_unavailable: "No runner is available yet, so nothing was issued.",
   stale:
