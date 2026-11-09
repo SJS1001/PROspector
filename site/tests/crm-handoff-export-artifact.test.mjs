@@ -171,6 +171,38 @@ test("builds one deterministic tenant-bound in-memory artifact from an exact aut
   }
 });
 
+test("each selected row must be supplied exactly once; duplicates cannot stand in for a selected row", async () => {
+  const { vite, subject } = await load();
+  try {
+    const a = row();
+    const b = row({ prospect_id: "synthetic-prospect-0003", contact_id: "synthetic-contact-0003", contact_point_id: "synthetic-contact-point-0003" });
+    const input = await request(subject, [a, b]);
+    for (const [label, rows] of [["[A,A]", [a, a]], ["[B,B]", [b, b]], ["[A,B,B]", [a, b, b]], ["[A,A,B]", [a, a, b]]]) {
+      await assert.rejects(
+        subject.validateCrmHandoffExportRequest({ ...input, rows }),
+        code("crm_handoff_export_selection_mismatch"),
+        label,
+      );
+      await assert.rejects(
+        subject.buildCrmHandoffExportArtifact({ ...input, rows }),
+        code("crm_handoff_export_selection_mismatch"),
+        label,
+      );
+    }
+    const reordered = await subject.validateCrmHandoffExportRequest({ ...input, rows: [b, a] });
+    assert.equal(reordered.accepted, true);
+    assert.equal(reordered.rowCount, 2);
+    const artifact = await subject.buildCrmHandoffExportArtifact({ ...input, rows: [b, a] });
+    assert.equal(artifact.manifest.rowCount, 2);
+    assert.equal(artifact.validation.rowCount, artifact.manifest.rowCount);
+    const csv = new TextDecoder().decode(artifact.bytes);
+    assert.match(csv, /synthetic-prospect-0002/u);
+    assert.match(csv, /synthetic-prospect-0003/u);
+  } finally {
+    await vite.close();
+  }
+});
+
 test("validation requires an explicit intact authorization for the exact selected row set", async () => {
   const { vite, subject } = await load();
   try {
