@@ -204,6 +204,11 @@ export async function buildCrmHandoffExportArtifact(value: unknown): Promise<Crm
     selectedAt: selection.authorizedAt,
     rows: accepted.rows,
   });
+  // The artifact must contain exactly the validated rows; refuse rather than
+  // return an artifact that silently dropped an authorized row.
+  if (artifact.manifest.rowCount !== accepted.validation.rowCount) {
+    throw new CrmHandoffExportError("crm_handoff_export_selection_mismatch");
+  }
   const unsignedManifest = {
     schema: CRM_HANDOFF_EXPORT_CONTRACT.artifactSchema,
     csvSchemaVersion: artifact.manifest.csvSchemaVersion,
@@ -274,21 +279,28 @@ async function evaluate(value: unknown) {
     if (selected.size !== selection.selectedRows.length || rows.length !== selected.size) {
       fail("crm_handoff_export_selection_mismatch");
     }
+    // Each selected identity must be matched exactly once, so the supplied
+    // identities equal the selected key set (a duplicate cannot stand in for
+    // a missing selected row).
+    const matched = new Set<string>();
     for (const row of rows) {
       assertFixedFictionalRow(row);
       if (row.source_workspace_id !== current.workspaceId) fail("crm_handoff_export_cross_tenant");
       const prospectId = syntheticRowId("prospect_id", row.prospect_id);
       const contactId = syntheticRowId("contact_id", row.contact_id);
       const contactPointId = syntheticRowId("contact_point_id", row.contact_point_id);
-      const reference = selected.get(rowIdentity({
+      const identity = rowIdentity({
         prospectId,
         contactId,
         contactPointId,
-      }));
-      if (!reference || reference.rowDigest !== await digestRow(row)) {
+      });
+      const reference = selected.get(identity);
+      if (!reference || matched.has(identity) || reference.rowDigest !== await digestRow(row)) {
         fail("crm_handoff_export_selection_mismatch");
       }
+      matched.add(identity);
     }
+    if (matched.size !== selected.size) fail("crm_handoff_export_selection_mismatch");
 
     const validation = Object.freeze({
       kind: "crm_handoff_export_validation" as const,
