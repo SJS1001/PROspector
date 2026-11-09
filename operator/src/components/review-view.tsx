@@ -1,4 +1,9 @@
 import { sourceLabel, uiText } from "@/lib/domain/plain-language";
+import {
+  deferDecisionReady,
+  reviewDecisionHint,
+  reviewDecisionReady,
+} from "@/lib/domain/review-gates";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PageHeading, Panel, ErrorNote, WorkspaceLoadError } from "@/components/shell";
@@ -14,7 +19,7 @@ import type { Prospect, ReviewDecision } from "@/lib/domain/types";
 
 export function ReviewView() {
   const { data, isPending, isError } = useWorkspace();
-  if (isPending) return <p className="text-sm text-muted">Loading the review queue…</p>;
+  if (isPending) return <p className="text-sm text-muted" role="status">Loading the review queue…</p>;
   if (isError || !data)
     return <WorkspaceLoadError message="The review queue could not be loaded." />;
 
@@ -74,6 +79,8 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
   }
 
   function submit(decision: ReviewDecision) {
+    if (!reviewDecisionReady(reason)) return;
+    if (decision === "defer" && !deferDecisionReady(reason, reviewAt)) return;
     review.mutate({
       prospectId: item.id,
       assessmentId: item.assessmentId,
@@ -83,6 +90,11 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
       reviewAt: decision === "defer" ? reviewAt : undefined,
     });
   }
+
+  const decisionReady = reviewDecisionReady(reason);
+  const deferReady = deferDecisionReady(reason, reviewAt);
+  const decisionHint = review.isPending ? null : reviewDecisionHint(reason, reviewAt);
+  const decisionHintId = `review-decision-hint-${item.id}`;
 
   return (
     <details
@@ -140,9 +152,9 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
         <label className="grid gap-1 text-xs text-muted">
           Reason
           <textarea
-            required
             value={reason}
             onChange={(event) => setReason(event.target.value)}
+            aria-describedby={decisionHint ? decisionHintId : undefined}
             className="min-h-20 w-full rounded-[10px] border border-line bg-cream p-3 text-sm text-ink"
             placeholder="Why this decision?"
           />
@@ -157,11 +169,30 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
           />
         </label>
 
+        {decisionHint ? (
+          <p id={decisionHintId} className="text-xs text-muted">
+            {decisionHint}
+          </p>
+        ) : null}
+        {review.isPending ? (
+          <p className="text-xs text-muted" role="status">
+            Saving your decision…
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button disabled={review.isPending} onClick={() => submit("approve")}>
+          <Button
+            disabled={review.isPending || !decisionReady}
+            aria-describedby={decisionHint ? decisionHintId : undefined}
+            onClick={() => submit("approve")}
+          >
             Approve
           </Button>
-          <Button variant="outline" disabled={review.isPending} onClick={() => submit("defer")}>
+          <Button
+            variant="outline"
+            disabled={review.isPending || !deferReady}
+            aria-describedby={decisionHint ? decisionHintId : undefined}
+            onClick={() => submit("defer")}
+          >
             Review later
           </Button>
           {confirming ? (
@@ -174,7 +205,12 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
                 cancelConfirmation();
               }}
             >
-              <Button variant="danger" disabled={review.isPending} onClick={() => submit("reject")}>
+              <Button
+                variant="danger"
+                disabled={review.isPending || !decisionReady}
+                aria-describedby={decisionHint ? decisionHintId : undefined}
+                onClick={() => submit("reject")}
+              >
                 Confirm rejection
               </Button>
               <Button variant="ghost" disabled={review.isPending} onClick={cancelConfirmation}>
@@ -185,7 +221,8 @@ function ReviewCard({ item, initiallyOpen = true }: { item: Prospect; initiallyO
             <span ref={opener} className="contents">
               <Button
                 variant="danger"
-                disabled={review.isPending}
+                disabled={review.isPending || !decisionReady}
+                aria-describedby={decisionHint ? decisionHintId : undefined}
                 onClick={() => setConfirming(true)}
               >
                 Reject

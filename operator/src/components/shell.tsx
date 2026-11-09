@@ -20,7 +20,8 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useWorkspace, workspaceKey } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 import { AccessScreen } from "@/components/access-screen";
-import { TASKS, NAVIGATION_GROUPS, taskUnlocked } from "@/lib/domain/journey";
+import { TASKS, NAVIGATION_GROUPS, nextAction, taskUnlocked } from "@/lib/domain/journey";
+import { lockedTaskReason } from "@/lib/domain/review-gates";
 import type { WorkspaceDTO } from "@/lib/domain/types";
 
 const ICONS = {
@@ -79,6 +80,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   if (!user) return <AccessScreen mode="login" />;
 
   const current = TASKS.find((item) => item.id === task) ?? TASKS[0];
+  const nextHref = workspace.data ? nextAction(workspace.data).href : null;
 
   return (
     <div className="app-window">
@@ -132,16 +134,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
               const activeGroup =
                 group.tasks.some((id) => id === task) ||
                 (group.label === "Today" && task === "brief");
+              const containsNext = group.tasks.some(
+                (id) => TASKS.find((entry) => entry.id === id)?.href === nextHref,
+              );
+              const lockedReasons: string[] = [];
+              for (const id of group.tasks) {
+                const entry = TASKS.find((item) => item.id === id);
+                if (!entry || taskUnlocked(entry.unlock, gate)) continue;
+                const reason = lockedTaskReason(entry.unlock);
+                if (reason) lockedReasons.push(reason);
+              }
+              const groupLater =
+                !group.direct && !activeGroup && lockedReasons.length === group.tasks.length
+                  ? lockedReasons[0]
+                  : null;
               const links = group.tasks.map((id) => {
                 const item = TASKS.find((entry) => entry.id === id)!;
                 const Icon = ICONS[item.id];
                 const active = item.id === task || (item.id === "status" && task === "brief");
                 const open = taskUnlocked(item.unlock, gate);
+                const later = open || active ? null : lockedTaskReason(item.unlock);
+                const waiting = open && item.id === "review" && queueCount > 0 ? queueCount : 0;
                 return (
                   <Link
                     key={item.id}
                     to={item.href}
                     aria-current={active ? "page" : undefined}
+                    aria-label={
+                      later
+                        ? `${item.label}. ${later}`
+                        : waiting
+                          ? `${item.label}, ${waiting} waiting`
+                          : undefined
+                    }
                     onClick={() => {
                       setMobileNavOpen(false);
                       requestAnimationFrame(() =>
@@ -155,10 +180,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   >
                     <Icon aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.6} />
                     <span>{item.label}</span>
-                    {open && item.id === "review" && queueCount > 0 ? (
+                    {waiting ? (
                       <em className="ml-auto min-w-5 rounded-sm bg-lime px-1.5 text-center text-2xs font-semibold not-italic text-paper">
-                        {queueCount}
+                        {waiting}
                       </em>
+                    ) : later ? (
+                      <span className="ml-auto text-2xs text-subtle">Later</span>
                     ) : null}
                   </Link>
                 );
@@ -166,14 +193,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
               return group.direct ? (
                 <div key={group.label}>{links}</div>
               ) : (
-                <details key={group.label} open={activeGroup} className="group/nav">
+                <details key={group.label} open={activeGroup || containsNext} className="group/nav">
                   <summary
+                    aria-label={groupLater ? `${group.label}. ${groupLater}` : undefined}
                     className={cn(
                       "flex min-h-11 cursor-pointer list-none items-center justify-between rounded-sm px-2.5 text-sm [&::-webkit-details-marker]:hidden",
                       activeGroup ? "text-ink" : "text-muted",
                     )}
                   >
-                    {group.label}
+                    <span>{group.label}</span>
+                    {groupLater ? <span className="text-2xs text-subtle">Later</span> : null}
                     <ChevronDown
                       aria-hidden="true"
                       className="size-3 transition-transform group-open/nav:rotate-180"

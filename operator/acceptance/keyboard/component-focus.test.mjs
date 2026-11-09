@@ -6,6 +6,11 @@ import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
 import { sourceLabel, uiText } from "../../src/lib/domain/plain-language.ts";
+import {
+  deferDecisionReady,
+  reviewDecisionHint,
+  reviewDecisionReady,
+} from "../../src/lib/domain/review-gates.ts";
 
 function mount(file, exportName, mocks, props = {}) {
   const slots = [];
@@ -185,12 +190,23 @@ for (const dismissal of ["Cancel", "Escape"]) {
       "@/components/ui/button": button,
       "@/components/ui/badge": { Badge: "badge" },
       "@/lib/domain/plain-language": { sourceLabel, uiText },
+      "@/lib/domain/review-gates": { deferDecisionReady, reviewDecisionHint, reviewDecisionReady },
       "@/lib/workspace": {
         useReviewProspect: () => ({ isPending: false, mutate() { mutations++; } }),
         useParkGreenfield: () => ({ isPending: false }),
       },
     }, { item: { id: "fictional", assessment: { dimensions: [] } } });
     const findButton = (label) => app.find((node) => node.type === "button" && node.props.children === label);
+    assert.equal(findButton("Approve").props.disabled, true);
+    assert.equal(findButton("Reject").props.disabled, true);
+    assert.equal(findButton("Review later").props.disabled, true);
+    findButton("Approve").props.onClick();
+    assert.equal(mutations, 0, "an empty reason cannot submit");
+    app.find((node) => node.type === "textarea").props.onChange({ target: { value: "Fictional owner reason" } });
+    app.render();
+    assert.equal(findButton("Approve").props.disabled, false);
+    assert.equal(findButton("Reject").props.disabled, false);
+    assert.equal(findButton("Review later").props.disabled, true, "defer still needs a date");
     findButton("Reject").props.onClick();
     app.render();
     assert.equal(app.focused(), findButton("Confirm rejection"));
