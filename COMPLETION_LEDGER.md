@@ -6,6 +6,8 @@ Local extracts merged on 2026-11-09 are recorded below as test evidence only. Re
 
 Session `claude-ee67a286-2026-11-09` (owner-authorized local work, branch `claude/owner-local-completion-20261109`, commit `0c3ce490d707c0fa0b4eac9178ab05c75491d96f`): merged issue work for #6 (docs), #7 (protocol, label-agreement scorer and fixtures), #8 (plain-language Contacts labels and a Review-to-Contacts link) and #11 (browser run record). `cd site && npm test` exited 0 with 1175 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `npm run lint` exited 0; `npm run test:browser` 2 pass; `npm run test:browser:operator-journey` 2 pass; `npm run test:browser:person-discovery` 1 fail (recorded as negative evidence under REQ-contact-verification). Fix `72a1b74` then made that lane pass and the full suite pass with 1176 tests (positive evidence under the same row). No requirement status changed.
 
+Session `claude-011p7Tfj-2026-11-09` (owner-authorized local work, review fix batch 02, PR #167 from branch `claude/review-fix-02-dnc-crm-export`, commit `c8de3ea9b1ea0c22256878e21d5b6a19109b799b`, merged into `claude/owner-local-completion-20261109` as `59c8bdff75fcfc089a9c1a5a90a1458b4eb4cdb1` at 2026-11-09T18:48Z): do_not_call in the synthetic manual-call decision service is recordable after any eligibility or freshness gate lapses, and the synthetic CRM export rejects duplicate rows standing in for selected rows. From `site/` on Node v22.23.4: `npm run build` exit 0; `node --test --test-concurrency=1` gave tests/manual-call-decision-service 21/21, tests/outreach-preparation-manual-call 15/15, tests/outreach-preparation-audit-envelope 12/12 and tests/crm-handoff-export-artifact 9/9; `npm run lint` exit 0; `npm test` exited 0 with 1183 pass, 0 fail, 0 cancelled, 0 skipped (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Recorded at 2026-11-09T18:50Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->
@@ -927,6 +929,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
           "recorded_at": "2026-11-09T06:05:00Z",
           "session": "extract-merges-2026-11-09",
           "limitations": "Synthetic decision service only. do_not_call orders suppression before the outcome inside an injected repository. No phone number, URI, dial, or provider. Not production suppression. Not plan credit. Formal acceptance stays 0/17."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/167",
+          "pr_number": 167,
+          "artifact_path": "site/domain/manual-call-decision-service.ts",
+          "evidence_commit": "c8de3ea9b1ea0c22256878e21d5b6a19109b799b",
+          "test_scope": "node --test --test-concurrency=1 tests/manual-call-decision-service.test.mjs",
+          "test_counts": {
+            "tests": 21,
+            "passed": 21,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T17:20:00Z",
+          "recorded_at": "2026-11-09T18:50:00Z",
+          "session": "claude-011p7Tfj-2026-11-09",
+          "limitations": "Review batch 02 (2026-11-09 code review finding 4). Synthetic decision service only: do_not_call is now recordable after approval expiry, phone-freshness lapse, an already-present suppression, or an authority change, and always uses the current suppression subjects and pending work; scope, approval and phone binding, and synthetic classification are still required, and other outcomes keep the fail-closed gate. Injected test repository only; no real commitCurrentOutcome implementation, route, phone number, URI, dial, or provider. Not production suppression. Not plan credit. Formal acceptance stays 0/17."
         }
       ]
     },
@@ -995,6 +1018,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
           "recorded_at": "2026-11-09T06:05:00Z",
           "session": "extract-merges-2026-11-09",
           "limitations": "In-memory synthetic CSV selection validation only. No download, delivery, archive, or restore. Not Plans 07-07 or 07-10. Not plan credit. Formal acceptance stays 0/17."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/167",
+          "pr_number": 167,
+          "artifact_path": "site/domain/crm-handoff-export-artifact.ts",
+          "evidence_commit": "c8de3ea9b1ea0c22256878e21d5b6a19109b799b",
+          "test_scope": "node --test --test-concurrency=1 tests/crm-handoff-export-artifact.test.mjs",
+          "test_counts": {
+            "tests": 9,
+            "passed": 9,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T17:20:00Z",
+          "recorded_at": "2026-11-09T18:50:00Z",
+          "session": "claude-011p7Tfj-2026-11-09",
+          "limitations": "Review batch 02 (2026-11-09 code review finding on duplicate export rows). In-memory synthetic CSV selection validation only: each selected row must be supplied exactly once, and the builder refuses if the artifact row count differs from the validated count. No download, delivery, archive, or restore. Not Plans 07-07 or 07-10. Not plan credit. Formal acceptance stays 0/17."
         }
       ]
     },
