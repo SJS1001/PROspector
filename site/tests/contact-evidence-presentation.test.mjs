@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { createD1Fixture } from "./helpers/d1.mjs";
 
 test("contact evidence renders bounded kind, class, source category, and deterministic UTC time without private details", async () => {
@@ -32,6 +33,25 @@ test("malformed or privacy-unsafe projections fail closed without rendering cont
         candidate.contactsPage.items[0][field] = value;
         assert.equal(leaves.normalizeContactsProjection(candidate), null, `${field} fails the exact page closed`);
       }
+    }
+  } finally { await fixture.dispose(); }
+});
+
+test("every valid reason code has its own plain-language label and the fallback names no cause", async () => {
+  const fixture = await createD1Fixture("contact-reason-labels");
+  try {
+    const source = readFileSync(new URL("../app/prospects/contact-leaves.tsx", import.meta.url), "utf8");
+    const codes = [...source.match(/const REASON_CODES = \[([^\]]*)\]/)[1].matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+    assert.equal(codes.length, 17);
+    const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
+    const seen = new Set();
+    for (const code of codes) {
+      const html = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: projection([], [code]) }));
+      assert.doesNotMatch(html, /Needs review; see reference details/, `${code} has its own label`);
+      const label = html.match(/Needs your review<\/strong> — ([^<]*)</)?.[1];
+      assert.ok(label, `${code} renders a reason`);
+      assert.ok(!seen.has(label), `${code} label is distinct`);
+      seen.add(label);
     }
   } finally { await fixture.dispose(); }
 });

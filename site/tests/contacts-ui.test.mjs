@@ -566,7 +566,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
       identityPage: page([{ id: "identity-1", subjectKind: "contact", kind: "merge", revision: 2, candidateRevisions: [{ subjectId: "contact-1", revision: 1 }, { subjectId: "contact-2", revision: 1 }], sourceLineageIds: ["lineage-1"] }]),
       authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false },
     } }));
-    for (const text of ["contact-1", "mailbox_verified", "contact-2", "verification_pending", "contact-3", "contact_evidence_stale", "2 candidates and 1 source record", "Verified and usable", "Suggestion only, not usable", "Needs your review", "Verification is still pending", "The verification is out of date"]) assert.match(projected, new RegExp(text));
+    for (const text of ["contact-1", "mailbox_verified", "contact-2", "verification_pending", "contact-3", "contact_evidence_stale", "2 candidates and 1 source record", "Verified", "Suggestion only, not usable", "Needs your review", "Verification is still pending", "The verification is out of date"]) assert.match(projected, new RegExp(text));
   } finally { await fixture.dispose(); }
 });
 

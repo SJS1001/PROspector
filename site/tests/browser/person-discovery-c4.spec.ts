@@ -71,7 +71,7 @@ test("synthetic Approved Prospect reaches governed intents, survives restart, an
   await expect(page.getByRole("heading", { name: "Decision recorded" })).toBeVisible();
   await expect(page.getByText("Jordan Synthetic", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Verified contacts" })).toBeVisible();
-  await expect(page.getByText("ContactReady", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Verified", { exact: true }).first()).toBeVisible();
   await assertNoOverlay(page);
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.locator(".person-discovery-workspace")).toBeVisible();
