@@ -7,6 +7,7 @@ const SCHEDULE_EXECUTION_STATES = new Set(["blocked_missing_capability", "active
 
 export class ProspectingScheduleConflictError extends Error {
   readonly code = "prospecting_schedule_conflict";
+  constructor(message: string, readonly refusal?: string) { super(message); }
 }
 
 type Intent = {
