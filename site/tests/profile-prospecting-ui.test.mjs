@@ -755,6 +755,7 @@ test("Review Queue keeps each prospect draft and exact command isolated", async 
       second,
       "defer",
       drafts[second.id],
+      new Date("2026-08-15T09:00").getTime(),
     );
     assert.equal(deferred.prospectId, "prospect-2");
     assert.equal(deferred.assessmentId, "assessment-2");
@@ -771,6 +772,46 @@ test("Review Queue keeps each prospect draft and exact command isolated", async 
       }),
       null,
     );
+  });
+});
+
+test("Review Defer accepts only future review dates and never builds a past-date command", async () => {
+  await withView("review-command.ts", async (review) => {
+    const item = { id: "prospect-1", assessment_id: "assessment-1", revision: 3 };
+    const now = new Date("2026-11-09T10:05:30").getTime();
+    const past = { reason: "Revisit later", reviewAt: "2026-11-08T10:05" };
+    const currentMinute = { reason: "Revisit later", reviewAt: "2026-11-09T10:05" };
+    const future = { reason: "Revisit later", reviewAt: "2026-11-09T10:06" };
+    assert.equal(review.buildReviewCommand(item, "defer", past, now), null);
+    assert.equal(review.reviewDateError("defer", past, now), review.REVIEW_DATE_IN_PAST);
+    assert.equal(review.buildReviewCommand(item, "defer", currentMinute, now), null);
+    assert.equal(review.reviewDateError("defer", currentMinute, now), review.REVIEW_DATE_IN_PAST);
+    const command = review.buildReviewCommand(item, "defer", future, now);
+    assert.equal(command.reviewAt, new Date("2026-11-09T10:06").getTime());
+    assert.equal(review.reviewDateError("defer", future, now), null);
+    assert.equal(review.reviewDateError("approve", past, now), null, "only Defer carries a review date");
+    assert.ok(review.buildReviewCommand(item, "approve", past, now));
+    assert.equal(review.minimumReviewAt(now), "2026-11-09T10:06");
+    assert.equal(review.minimumReviewAt(new Date("2026-11-09T10:06:00").getTime()), "2026-11-09T10:07");
+    assert.equal(review.minimumReviewAt(new Date("2026-12-31T23:59:10").getTime()), "2027-01-01T00:00");
+  });
+});
+
+test("Review Defer date input sets a future-only minimum", async () => {
+  await withView("review-queue.tsx", async (view) => {
+    const html = renderToStaticMarkup(
+      React.createElement(view.ReviewQueue, {
+        busy: false,
+        onCommand() {
+          throw new Error("SSR must not mutate");
+        },
+        queue: [{ id: "qualified-prospect", assessment_id: "assessment-qualified", revision: 2, offer_id: "offer-1", score: 8, outcome: "Passed", configuration_digest: DIGEST }],
+      }),
+    );
+    const min = html.match(/type="datetime-local"[^>]*min="([^"]+)"/)?.[1];
+    assert.ok(min, "the defer date input carries a min attribute");
+    assert.ok(new Date(min).getTime() > Date.now() - 60_000);
+    assert.match(min, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
   });
 });
 
