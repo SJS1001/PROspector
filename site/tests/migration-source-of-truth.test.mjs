@@ -284,7 +284,11 @@ test("the Stage 2 hosted manifest is an intact, byte-identical prefix of the can
     .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim().replaceAll("`", "")))
     .map(([order, name, sha]) => ({ order, name, sha }));
 
-  assert.ok(rows.length > 0, "the manifest must still list its release chain");
+  assert.equal(rows.length, 22, "checked manifest must cover 0000 through 0021 and no further");
+  assert.equal(rows[9].name, "0009_gorgeous_captain_universe.sql");
+  assert.equal(rows.at(-1).name, "0021_runner-ingestion-integrity.sql");
+  assert.match(manifest, /nothing after `0009` has hosted evidence/);
+  assert.doesNotMatch(manifest, /0022_/);
   assertCanonicalPrefix(rows.map((row) => row.name), "02-99-MIGRATION-MANIFEST.md");
   assert.ok(
     CANONICAL_MIGRATION_COUNT >= rows.length,
