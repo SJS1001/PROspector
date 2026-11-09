@@ -6,6 +6,10 @@
 **Portable checkpoint:** use the latest `origin/main` commit
 **Focus:** Continue from the verified greenfield local baseline while preserving every external-effect gate.
 
+## Current checkpoint — 2026-11-07
+
+`origin/main` is merge `cb0c690d227d0397e61c86fb15f034e3dfd524ee` (PR #149, integrated source `cde8db7e5f6d2bfe05fbfa0d9d19df00355124dc`). The merge records local Phase 4–7 preparation and correctness slices plus D1 fixture diagnostics. Formal plan credit remains 26/74. All 17 v1 requirements remain unaccepted. The parent-attested canonical `npm test` on that source is local validation only; it does not explain the earlier full-gate socket and commercial-init failures and it grants no hosted, provider, or effect authority. Read `docs/implementation-lanes/2026-11-07-pr149-merged-baseline.md` before treating `main` as an acceptance candidate. Open PR #118 still occupies migration index 21 with a different migration and must be renumbered rather than merged as-is.
+
 ## Current local release — 2026-10-29
 
 The supported personal-use app is `operator/` on `main`, integrated through PRs #131 and #142. The owner accepted local use and completed the actual Mac reboot check: launcher, company/product, saved settings and search history persisted. The installed checkout and GitHub main matched at `7dd6b56a05699ed6e1bb01bebf6879abb66178f5` before this documentation update.

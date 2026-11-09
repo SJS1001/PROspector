@@ -31,6 +31,8 @@ dependency order. It is not accepted for execution, grants no
 plan/requirement/phase credit, and grants no hosted, provider, credential,
 real-data, persistence, export, or outbound authority.
 
+**2026-11-07 PR #149 merge:** `main` at `cb0c690d227d0397e61c86fb15f034e3dfd524ee` contains the local Phase 4 replay/re-entry, queue-admission, and runner-ingestion lease slices, the Phase 4 cross-card UI regression, the Phase 5 snapshot-copy guard, the Phase 7 handoff-expiry recheck, and the D1 diagnostic instrumentation. The plan checkboxes below stay unchecked. The parent-attested local canonical run is validation evidence, not plan, requirement, or phase acceptance. Detail: `docs/implementation-lanes/2026-11-07-pr149-merged-baseline.md`.
+
 **Phase Numbering:**
 
 - Integer phases (1, 2, 3): planned milestone work.
