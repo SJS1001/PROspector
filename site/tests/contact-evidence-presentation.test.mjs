@@ -9,7 +9,7 @@ test("contact evidence renders bounded kind, class, source category, and determi
   try {
     const leaves = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contact-leaves.tsx", import.meta.url).pathname);
     const html = renderToStaticMarkup(React.createElement(leaves.ContactsReadFirst, { projection: projection([{ kind: "phone", verificationClass: "source_verified", method: "authoritative_source_reconfirmed", verifiedAt: 1_700_000_000_000 }]) }));
-    for (const expected of ["Observation kind", "phone", "Verification class", "source_verified", "Source category", "authoritative_business_source", "2023-11-14T22:13:20.000Z"]) assert.match(html, new RegExp(expected));
+    for (const expected of ["Type", "Phone", "Check", "Verified at the source", "Source", "Official business source", "2023-11-14T22:13:20.000Z", "source_verified", "authoritative_business_source"]) assert.match(html, new RegExp(expected));
     assert.doesNotMatch(html, /authoritative_source_reconfirmed|Verification method/);
     assert.doesNotMatch(html, /private-provider|sourceReference|contact@example|\+1555/i);
   } finally { await fixture.dispose(); }

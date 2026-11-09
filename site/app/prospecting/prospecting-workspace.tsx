@@ -217,6 +217,11 @@ export function ProspectingWorkspace({
       />
       {mode === "review" ? (
         <>
+          <p className="next-step">
+            Next step: once a prospect is approved, open{" "}
+            <a href="/contacts">Contacts</a> to find a verified person to
+            reach. Nothing is contacted from this page.
+          </p>
           <ReviewQueue
             queue={
               (projection.queue ??
