@@ -44,6 +44,18 @@ export function ConsensusInterviewView({
   const [reason, setReason] = useState("");
   const [destinationId, setDestinationId] = useState("");
   const [decision, setDecision] = useState<InterviewDecisionCommand["decision"] | null>(null);
+  const snapshot = interviewSnapshotKey(state);
+  const [draftFor, setDraftFor] = useState(snapshot);
+  if (draftFor !== snapshot) {
+    // A new question, revision or stored answer means the previous submission
+    // succeeded or was superseded: no draft or owner decision may carry over.
+    setDraftFor(snapshot);
+    setAnswer("use_recommendation");
+    setValue("");
+    setReason("");
+    setDestinationId("");
+    setDecision(null);
+  }
 
   useEffect(() => {
     if (state.status === "awaiting_confirmation") confirmationHeading.current?.focus();
@@ -175,6 +187,12 @@ function QuestionSnapshot({ question, destination }: { question: QuestionProject
     <section className="recommendation"><h3>Recommendation</h3>{question.requiresOwnerInput ? <p>No recommendation was generated. Owner input is required.</p> : question.recommendationDetail ? <><p>{question.recommendationDetail.rationale}</p>{question.recommendationDetail.value && <p><b>Recommended value:</b> {question.recommendationDetail.value.excerpt}</p>}</> : <p>No structured recommendation is present in this authoritative question snapshot.</p>}</section>
     <section><h3>Prerequisite Knowledge Versions</h3>{question.prerequisiteKnowledge.length ? <ul>{question.prerequisiteKnowledge.map((item) => <li key={`${item.id}:${item.digest}`}><code>{item.id}</code> · <code>{item.digest}</code></li>)}</ul> : <p>None recorded for this question snapshot.</p>}</section>
   </div>;
+}
+
+/** Identity of the exact question snapshot and stored answer a draft belongs to. */
+export function interviewSnapshotKey(state: InterviewState) {
+  if (state.status !== "active" && state.status !== "awaiting_confirmation") return state.status;
+  return [state.status, state.question.id, state.question.revision, state.status === "awaiting_confirmation" ? state.answer.id : ""].join(":");
 }
 
 function scopeLabel(scopeType: InterviewDestination["scopeType"]) {
