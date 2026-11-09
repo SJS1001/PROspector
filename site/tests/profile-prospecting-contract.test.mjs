@@ -274,6 +274,66 @@ test("rejected prospects re-enter after cooldown expiry or a Material Signal wit
   } finally { await fixture.dispose(); }
 });
 
+test("an unpinned or ambiguous rubric identity fails the immutable_configuration gate instead of passing a placeholder digest", async () => {
+  const fixture = await createD1Fixture("phase4-rubric-digest-fail-closed");
+  try {
+    await applyMigrations(fixture.database);
+    const seeded = await seedProfileAuthority(fixture, OWNER, NOW);
+    const readiness = await loadProfileReadiness(fixture);
+    const candidate = await readiness.createProfileConfigurationCandidate(fixture.database, OWNER, { profileId: seeded.profileId, expectedProfileRevision: seeded.revision, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000421" });
+    const activation = await readiness.activateProfileConfiguration(fixture.database, OWNER, { candidateId: candidate.id, expectedRevision: candidate.revision, expectedDigest: candidate.digest, now: NOW, idempotencyKey: "0198f400-0000-7000-8000-000000000422" });
+    const workspace = await fixture.database.prepare("SELECT id FROM workspaces WHERE owner_subject=?").bind(OWNER.subject).first();
+    const profile = await fixture.database.prepare("SELECT play_id FROM customer_profiles WHERE id=?").bind(seeded.profileId).first();
+    const company = await fixture.database.prepare("SELECT id FROM companies WHERE workspace_id=?").bind(workspace.id).first();
+    const pinned = await fixture.database.prepare("SELECT * FROM typed_configurations WHERE id=?").bind(activation.configuration.id).first();
+    const manifest = JSON.parse(pinned.manifest_json);
+    const rubric = manifest.confirmedCategoryInputs?.rubric;
+    assert.ok(Array.isArray(rubric) && rubric.length === 1 && /^[0-9a-f]{64}$/.test(rubric[0].digest), "the activated fixture pins exactly one confirmed rubric");
+    const variant = (mutate) => { const copy = JSON.parse(pinned.manifest_json); delete copy.rubricDigest; mutate(copy); return JSON.stringify(copy); };
+    const manifests = {
+      "rubric-two": variant((copy) => { copy.confirmedCategoryInputs.rubric = [rubric[0], { ...rubric[0], id: `${rubric[0].id}-second`, digest: "e".repeat(64) }]; }),
+      "rubric-none": variant((copy) => { delete copy.confirmedCategoryInputs.rubric; }),
+      "rubric-bad": variant((copy) => { copy.confirmedCategoryInputs.rubric = [{ ...rubric[0], digest: "not-a-digest" }]; }),
+      "rubric-one": variant(() => {}),
+    };
+    const digest = "b".repeat(64);
+    const writes = [
+      fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES ('rubric-assignment-command',?,?,?,1,'test.rubric.assignment','rubric-assignment-key',?,1,'prospecting_run',?,'accepted')").bind(workspace.id,NOW,NOW,"f".repeat(64),activation.initialRun.id),
+      fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES ('rubric-assignment-audit',?,'system','test','test.rubric','prospecting_run',?,'{}',?)").bind(workspace.id,activation.initialRun.id,NOW),
+      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='queued' WHERE id=? AND workspace_id=?").bind(activation.initialRun.id,workspace.id),
+      fixture.database.prepare("INSERT INTO runner_assignments (id,workspace_id,created_at,updated_at,revision,run_id,profile_id,configuration_id,configuration_digest,audience,token_hash,nonce_hash,instruction_version,tool_configuration_digest,quota_json,quota_digest,expires_at,status,authority_command_id,audit_event_id) VALUES ('rubric-assignment',?,?,?,1,?,?,?,?,'rubric',?,?, 'v1',?,'{}',?,?,'issued','rubric-assignment-command','rubric-assignment-audit')").bind(workspace.id,NOW,NOW,activation.initialRun.id,seeded.profileId,activation.configuration.id,activation.configuration.digest,"0".repeat(64),"1".repeat(64),"2".repeat(64),"3".repeat(64),NOW + 100000),
+      fixture.database.prepare("UPDATE prospecting_runs SET execution_state='assigned' WHERE id=? AND workspace_id=?").bind(activation.initialRun.id,workspace.id),
+      fixture.database.prepare("INSERT INTO runner_submissions (id,workspace_id,run_id,assignment_id,configuration_id,submission_json,submission_digest,provenance_json,provenance_digest,status,operation_digest,idempotency_key,created_at) VALUES ('rubric-submission',?,?,?,?, '{}',?,'{}',?,'accepted',?,'rubric-submission-key',?)").bind(workspace.id,activation.initialRun.id,"rubric-assignment",activation.configuration.id,digest,digest,digest,NOW),
+      fixture.database.prepare("INSERT INTO prospecting_source_lineage (id,workspace_id,run_id,submission_id,source_id,source_url,publisher_identity,underlying_origin_identity,independence_group,source_tier,published_at,occurred_at,retrieved_at,excerpt,lineage_json,lineage_digest,created_at) VALUES ('rubric-lineage',?,?,?,NULL,'https://rubric.example.invalid/','rubric.example.invalid','rubric.example.invalid','origin:rubric.example.invalid',1,NULL,?,?,?, '{}',?,?)").bind(workspace.id,activation.initialRun.id,"rubric-submission",NOW,NOW,"excerpt",digest,NOW),
+      fixture.database.prepare("INSERT INTO prospecting_signals (id,workspace_id,profile_id,run_id,submission_id,source_lineage_id,signal_kind,material,signal_json,signal_digest,created_at) VALUES ('rubric-signal',?,?,?,?,?,'operating-signal',0,'{}',?,?)").bind(workspace.id,seeded.profileId,activation.initialRun.id,"rubric-submission","rubric-lineage",digest,NOW),
+    ];
+    for (const [index, [name, manifestJson]] of Object.entries(manifests).entries()) {
+      const configurationId = `${name}-configuration`, targetId = `${name}-target`, accountId = `${name}-account`;
+      const candidateJson = JSON.stringify({ accountId, targetId, accountFit:2,painStrength:2,timingUrgency:1,dataReadiness:1,commercialViability:1, requiredEvidence:["target","pain","timing","operation","offer"] });
+      writes.push(
+        fixture.database.prepare("INSERT INTO typed_configurations (id,workspace_id,created_at,updated_at,revision,company_id,owner_type,owner_id,kind,digest,manifest_json,active) VALUES (?,?,?,?,1,?,'profile',?,'profile_effective',?,?,0)").bind(configurationId,workspace.id,NOW,NOW,pinned.company_id,seeded.profileId,String(index + 4).repeat(64),manifestJson),
+        fixture.database.prepare("INSERT INTO organizations (id,workspace_id,created_at,updated_at,revision,company_id,canonical_name,identity_digest) VALUES (?,?,?,?,1,?,?,?)").bind(`${name}-org`,workspace.id,NOW,NOW,company.id,`Rubric organization ${name}`,String(index + 4).repeat(64)),
+        fixture.database.prepare("INSERT INTO accounts (id,workspace_id,created_at,updated_at,revision,play_id,organization_id,state) VALUES (?,?,?,?,1,?,?,'draft')").bind(accountId,workspace.id,NOW,NOW,profile.play_id,`${name}-org`),
+        fixture.database.prepare("INSERT INTO targets (id,workspace_id,created_at,updated_at,revision,profile_id,account_id,state) VALUES (?,?,?,?,1,?,?,'draft')").bind(targetId,workspace.id,NOW,NOW,seeded.profileId,accountId),
+        fixture.database.prepare("INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES (?,?,?,?,1,?,'phase4-offer',?,?,?, ?,?,?,'received')").bind(`${name}-candidate`,workspace.id,NOW,NOW,seeded.profileId,activation.initialRun.id,"rubric-submission",configurationId,String(index + 4).repeat(64),candidateJson,String(index + 4).repeat(64)),
+      );
+    }
+    await fixture.database.batch(writes);
+    const review = await fixture.vite.ssrLoadModule(new URL("../domain/prospect-review.ts", import.meta.url).pathname);
+    for (const name of ["rubric-two", "rubric-none", "rubric-bad"]) {
+      const result = await review.persistQualificationAssessment(fixture.database, OWNER, { candidateId: `${name}-candidate`, now: NOW + 1 });
+      assert.equal(result.evaluation.outcome, "InsufficientEvidence", `${name}: a placeholder rubric identity cannot qualify`);
+      assert.equal(result.evaluation.gateChecks.find((check) => check.gate === "immutable_configuration").passed, false, `${name}: the immutable_configuration gate fails closed`);
+      assert.equal(result.queueState, "absent");
+      assert.notEqual(result.evaluation.rubricDigest, "0".repeat(64));
+    }
+    const single = await review.persistQualificationAssessment(fixture.database, OWNER, { candidateId: "rubric-one-candidate", now: NOW + 1 });
+    assert.equal(single.evaluation.outcome, "Passed", "exactly one confirmed rubric remains a pinned rubric identity");
+    assert.equal(single.evaluation.rubricDigest, rubric[0].digest);
+    assert.equal(single.evaluation.gateChecks.find((check) => check.gate === "immutable_configuration").passed, true);
+  } finally { await fixture.dispose(); }
+});
+
 async function loadProfileReadiness(fixture) {
   try {
     return await fixture.vite.ssrLoadModule(new URL("../domain/profile-readiness.ts", import.meta.url).pathname);
