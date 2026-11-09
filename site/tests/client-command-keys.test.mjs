@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "vite";
 
-// Client-only command transport: per-intent idempotency keys and the single
-// CSRF-refresh retry. Fetch is stubbed; no server, provider, or network.
+// Client-only command transport: per-intent idempotency keys, and no automatic
+// retry after an expired CSRF token (owner rule, 2026-11-09). Fetch is stubbed;
+// no server, provider, or network.
 
 const PRODUCT_A = "01890000-0000-7000-8000-00000000000a";
 const PRODUCT_B = "01890000-0000-7000-8000-00000000000b";
@@ -99,23 +100,13 @@ test("Market Discovery maps 409 to a conflict without retrying and drops the key
   });
 });
 
-test("Market Discovery refreshes CSRF once on invalid_csrf_token and retries with the same key", async () => {
+test("Market Discovery never retries after an expired CSRF token and drops the key", async () => {
   await withModule("discovery/discovery-workspace.tsx", async (discovery) => {
     const keys = new Map();
-    let stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, emptyDiscoveryProjection()), json(200, emptyDiscoveryProjection())]);
-    assert.equal((await discovery.postDiscoveryMutation(stub.fetcher, discover(PRODUCT_A), keys)).kind, "applied");
-    assert.equal(stub.gets().length, 1);
-    assert.equal(stub.posts().length, 2);
-    assert.equal(stub.posts()[0].body.idempotencyKey, stub.posts()[1].body.idempotencyKey);
-    assert.equal(stub.calls[1].url, `/api/discovery?productId=${PRODUCT_A}`);
-
-    stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, emptyDiscoveryProjection()), json(403, { error: "invalid_csrf_token" })]);
-    assert.equal((await discovery.postDiscoveryMutation(stub.fetcher, discover(PRODUCT_A), keys)).kind, "refused", "a second 403 is not retried again");
-    assert.equal(stub.calls.length, 3);
-
-    stub = stubFetch([json(403, { error: "invalid_same_origin" })]);
+    const stub = stubFetch([json(403, { error: "invalid_csrf_token" })]);
     assert.equal((await discovery.postDiscoveryMutation(stub.fetcher, discover(PRODUCT_A), keys)).kind, "refused");
-    assert.equal(stub.calls.length, 1, "only invalid_csrf_token triggers the refresh");
+    assert.equal(stub.calls.length, 1, "exactly one POST and no refresh GET");
+    assert.equal(keys.size, 0, "a definitive refusal drops the key");
   });
 });
 
@@ -136,55 +127,32 @@ test("Contacts grant keys are minted per prospect intent and survive only an unk
   });
 });
 
-test("Contacts confirmation refreshes CSRF once and retries with the same key; 409 is not retried", async () => {
+test("Contacts confirmation never retries after an expired CSRF token or a 409", async () => {
   await withModule("prospects/contacts-workspace.tsx", async (contacts) => {
     const input = { authorityReady: true, confirmed: true, pending: false, idempotencyKey: "grant-key-1" };
     const command = { prospectId: "prospect-1", expectedProspectRevision: 1 };
-    let stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, {}), json(200, { command: null })]);
-    const response = await contacts.postContactConfirmation(stub.fetcher, input, command);
-    assert.equal(response.status, 200);
-    assert.equal(stub.gets().length, 1);
-    assert.equal(stub.gets()[0].url, "/api/contacts");
-    assert.deepEqual(stub.posts().map((post) => post.body.idempotencyKey), ["grant-key-1", "grant-key-1"]);
-
-    stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, {}), json(403, { error: "invalid_csrf_token" })]);
-    assert.equal((await contacts.postContactConfirmation(stub.fetcher, input, command)).status, 403);
-    assert.equal(stub.calls.length, 3);
-
-    stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(404, { error: "unavailable" })]);
-    assert.equal((await contacts.postContactConfirmation(stub.fetcher, input, command)).status, 404, "a refresh 404 collapses instead of retrying");
-    assert.equal(stub.posts().length, 1);
-
-    stub = stubFetch([json(409, { error: "idempotency_conflict" })]);
-    assert.equal((await contacts.postContactConfirmation(stub.fetcher, input, command)).status, 409);
-    assert.equal(stub.calls.length, 1, "a 409 never triggers a retry");
-  });
-});
-
-test("Prospecting commands refresh CSRF once with the same key and never retry other refusals", async () => {
-  await withModule("prospecting/prospecting-workspace.tsx", async (prospecting) => {
-    const body = { action: "manual_find", profileId: "profile-1" };
-    let stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, {}), json(200, { authority: "owner" })]);
-    assert.equal((await prospecting.postProspectingCommand(stub.fetcher, body, "profile-1")).status, 200);
-    assert.equal(stub.gets().length, 1);
-    assert.equal(stub.gets()[0].url, "/api/prospecting?profileId=profile-1");
-    assert.equal(stub.posts().length, 2);
-    assert.ok(stub.posts()[0].body.idempotencyKey);
-    assert.equal(stub.posts()[0].body.idempotencyKey, stub.posts()[1].body.idempotencyKey);
-
-    stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, {}), json(403, { error: "invalid_csrf_token" })]);
-    assert.equal((await prospecting.postProspectingCommand(stub.fetcher, body, "profile-1")).status, 403);
-    assert.equal(stub.calls.length, 3, "exactly one refresh and one retry");
-
-    for (const status of [409, 400, 404, 500]) {
-      stub = stubFetch([json(status, { error: "refused" })]);
-      assert.equal((await prospecting.postProspectingCommand(stub.fetcher, body, "profile-1")).status, status);
-      assert.equal(stub.calls.length, 1, `status ${status} is never retried`);
+    for (const [status, error] of [[403, "invalid_csrf_token"], [409, "idempotency_conflict"]]) {
+      const stub = stubFetch([json(status, { error })]);
+      assert.equal((await contacts.postContactConfirmation(stub.fetcher, input, command)).status, status);
+      assert.equal(stub.calls.length, 1, `a ${status} never triggers a retry`);
+      assert.equal(stub.posts()[0].body.idempotencyKey, "grant-key-1");
     }
   });
 });
 
-test("Contacts granted operation is never retried after a CSRF refusal; identity merge retries once with its key", async () => {
+test("Prospecting commands are sent once with a key and never retried, including an expired CSRF token", async () => {
+  await withModule("prospecting/prospecting-workspace.tsx", async (prospecting) => {
+    const body = { action: "manual_find", profileId: "profile-1" };
+    for (const status of [403, 409, 400, 404, 500]) {
+      const stub = stubFetch([json(status, { error: status === 403 ? "invalid_csrf_token" : "refused" })]);
+      assert.equal((await prospecting.postProspectingCommand(stub.fetcher, body)).status, status);
+      assert.equal(stub.calls.length, 1, `status ${status} is never retried`);
+      assert.ok(stub.posts()[0].body.idempotencyKey);
+    }
+  });
+});
+
+test("Contacts granted operation and identity merge are never retried after an expired CSRF token", async () => {
   await withModule("prospects/contacts-workspace.tsx", async (contacts) => {
     let stub = stubFetch([json(403, { error: "invalid_csrf_token" })]);
     const response = await contacts.postGrantedOperationOnce(stub.fetcher, { grantId: "grant-1", confirmed: true }, { current: false });
@@ -192,11 +160,10 @@ test("Contacts granted operation is never retried after a CSRF refusal; identity
     assert.equal(stub.calls.length, 1);
 
     const merge = { action: "apply_identity_merge", suggestionId: "suggestion-1", expectedRevision: 1, idempotencyKey: "identity-key-1", primaryId: "subject-1" };
-    stub = stubFetch([json(403, { error: "invalid_csrf_token" }), json(200, {}), json(200, {})]);
+    stub = stubFetch([json(403, { error: "invalid_csrf_token" })]);
     const attempt = { current: false };
-    assert.equal((await contacts.postContactsCommandOnce(stub.fetcher, merge, attempt, true)).status, 200);
-    assert.deepEqual(stub.posts().map((post) => post.body.idempotencyKey), ["identity-key-1", "identity-key-1"]);
-    assert.equal(stub.gets().length, 1);
-    assert.equal(await contacts.postContactsCommandOnce(stub.fetcher, merge, attempt, true), null, "the attempt guard still holds");
+    assert.equal((await contacts.postContactsCommandOnce(stub.fetcher, merge, attempt)).status, 403);
+    assert.equal(stub.calls.length, 1, "exactly one POST and no refresh GET");
+    assert.equal(await contacts.postContactsCommandOnce(stub.fetcher, merge, attempt), null, "the attempt guard still holds");
   });
 });

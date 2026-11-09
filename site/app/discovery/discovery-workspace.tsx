@@ -51,22 +51,15 @@ export type DiscoveryMutationOutcome = { kind: "applied"; projection: Projection
 /** The full command intent (action, Product, revision, proposal, decision and fields) scopes its idempotency key. */
 export function discoveryIntentKey(body: Record<string, unknown>) { return JSON.stringify(Object.keys(body).sort().map((name) => [name, body[name]])); }
 /** Sends one discovery command. The key is kept only while the outcome is unknown, so the owner's retry of the same intent replays
- * instead of duplicating; it is dropped on success or any definitive refusal. A 403 invalid_csrf_token re-GETs once (issuing a fresh
- * token) and retries once with the same key. Nothing else is retried. */
+ * instead of duplicating; it is dropped on success or any definitive refusal. Nothing is retried automatically, including an
+ * expired CSRF token (403): the owner sees the outcome and decides. */
 export async function postDiscoveryMutation(fetcher: typeof fetch, body: Record<string, unknown>, keys: Map<string, string>): Promise<DiscoveryMutationOutcome> {
   const intent = discoveryIntentKey(body);
   const idempotencyKey = keys.get(intent) ?? crypto.randomUUID(); keys.set(intent, idempotencyKey);
   const post = () => fetcher("/api/discovery", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-prospector-intent": "discovery-mutation" }, body: JSON.stringify({ ...body, idempotencyKey }) });
   const definitive = (outcome: DiscoveryMutationOutcome) => { keys.delete(intent); return outcome; };
   try {
-    let response = await post();
-    if (await isInvalidCsrfRefusal(response)) {
-      const productId = typeof body.productId === "string" ? body.productId : null;
-      const refreshed = await fetcher(`/api/discovery${productId ? `?productId=${encodeURIComponent(productId)}` : ""}`, { credentials: "same-origin", cache: "no-store" });
-      if (refreshed.status === 404) return definitive({ kind: "unauthorized" });
-      if (!refreshed.ok) return definitive({ kind: "refused" });
-      response = await post();
-    }
+    const response = await post();
     if (response.status === 404) return definitive({ kind: "unauthorized" });
     if (response.status === 409) return definitive({ kind: "conflict" });
     if (response.status >= 400 && response.status < 500) return definitive({ kind: "refused" });
@@ -77,7 +70,6 @@ export async function postDiscoveryMutation(fetcher: typeof fetch, body: Record<
     return { kind: "unknown" };
   }
 }
-async function isInvalidCsrfRefusal(response: Response) { if (response.status !== 403) return false; try { const body = record(await response.clone().json()); return body?.error === "invalid_csrf_token"; } catch { return false; } }
 function validate(value: unknown): Projection {
   const projection = record(value);
   if (!projection || !Array.isArray(projection.products) || !Array.isArray(projection.runs) || !Array.isArray(projection.proposals) || !Object.hasOwn(projection, "readiness") || !Object.hasOwn(projection, "privateSyntheticProof")) throw malformed();

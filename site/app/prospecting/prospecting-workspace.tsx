@@ -40,47 +40,24 @@ const PROSPECTING_NOTICES = Object.freeze({
 });
 
 /**
- * Posts one prospecting command. The single-use CSRF token is consumed before
- * command validation, so a refused command can leave no token behind. On a 403
- * invalid_csrf_token only, re-GET the projection (which issues a fresh token)
- * and retry exactly once with the same idempotency key. Nothing else retries.
+ * Posts one prospecting command with a fresh idempotency key. It is never
+ * retried automatically: an expired CSRF token (403) or a lost response is
+ * reported to the owner as an unverified outcome instead.
  */
 export async function postProspectingCommand(
   fetcher: typeof fetch,
   body: Record<string, unknown>,
-  profileId?: string,
 ): Promise<Response> {
-  const idempotencyKey = crypto.randomUUID();
-  const post = () =>
-    fetcher("/api/prospecting", {
-      method: "POST",
-      cache: "no-store",
-      credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        "x-prospector-intent": "prospecting-mutation",
-      },
-      body: JSON.stringify({ ...body, idempotencyKey }),
-    });
-  const response = await post();
-  if (!(await isInvalidCsrfRefusal(response))) return response;
-  const read = (id?: string) =>
-    fetcher(prospectingUrl(id), { cache: "no-store", credentials: "same-origin" });
-  let refreshed = await read(profileId);
-  if (refreshed.status === 404 && profileId) refreshed = await read();
-  if (refreshed.status === 404) return refreshed;
-  if (!refreshed.ok) return response;
-  return post();
-}
-
-async function isInvalidCsrfRefusal(response: Response) {
-  if (response.status !== 403) return false;
-  try {
-    const body = (await response.clone().json()) as { error?: unknown } | null;
-    return body?.error === "invalid_csrf_token";
-  } catch {
-    return false;
-  }
+  return fetcher("/api/prospecting", {
+    method: "POST",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      "x-prospector-intent": "prospecting-mutation",
+    },
+    body: JSON.stringify({ ...body, idempotencyKey: crypto.randomUUID() }),
+  });
 }
 
 export function ProspectingWorkspace({
@@ -169,11 +146,7 @@ export function ProspectingWorkspace({
       setBusy(true);
       setNotice("");
       try {
-        const response = await postProspectingCommand(
-          fetch,
-          body,
-          selectedProfileId || undefined,
-        );
+        const response = await postProspectingCommand(fetch, body);
         if (response.status === 409) {
           setNotice("stale");
           return;
@@ -191,7 +164,7 @@ export function ProspectingWorkspace({
         setBusy(false);
       }
     },
-    [onUnauthorized, selectedProfileId],
+    [onUnauthorized],
   );
   const denied =
     projection.authority === "blocked" ||
