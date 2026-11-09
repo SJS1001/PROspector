@@ -55,13 +55,36 @@ const DISPLAY_CAPABILITY_IDS = [
   CAPABILITY_IDS.providerBoundary,
 ] as const;
 
-export async function handleCapabilitiesGet(
+type CapabilityStatusBody = {
+  ok: true;
+  owner: { admitted: true };
+  workspace: { companyName: string };
+  overallStatus: "proven" | "blocked" | "unproven";
+  capabilities: Array<ReturnType<typeof projectCapabilityState>>;
+};
+
+/**
+ * Read-only capability projection. It never issues a CSRF token or writes any
+ * row, so a server render can call it without leaving orphan state behind.
+ *
+ * - `ready`: the admitted owner's workspace exists and its evidence was read.
+ * - `workspace_absent`: the owner is admitted and has no workspace yet.
+ * - `denied`: the identity is not the configured pilot owner.
+ * - `unavailable`: any other failure; it is never evidence of a blank workspace.
+ */
+export type CapabilityProjectionResult =
+  | { kind: "ready"; state: CapabilityStatusBody; principalSubject: string }
+  | { kind: "workspace_absent" }
+  | { kind: "denied" }
+  | { kind: "unavailable" };
+
+export async function readCapabilityProjection(
   dependencies: CapabilityHandlerDependencies,
-): Promise<Response> {
+): Promise<CapabilityProjectionResult> {
   try {
     const principal = await admittedPrincipal(dependencies);
     const workspace = await dependencies.getWorkspace(principal);
-    if (!workspace) return privateWorkspaceUnavailable();
+    if (!workspace) return { kind: "workspace_absent" };
     const evidence = evidenceMap(await dependencies.readEvidence(workspace.id));
     const capabilities = DISPLAY_CAPABILITY_IDS.map((capabilityId) =>
       projectCapabilityState({
@@ -70,16 +93,39 @@ export async function handleCapabilitiesGet(
         evidence: evidence.get(capabilityId) ?? null,
       }),
     );
-    const response = json({
-      ok: true,
-      owner: { admitted: true },
-      workspace: { companyName: workspace.companyName },
-      overallStatus: overallStatus(capabilities.map((item) => item.status)),
-      capabilities,
-    });
+    return {
+      kind: "ready",
+      principalSubject: principal.subject,
+      state: {
+        ok: true,
+        owner: { admitted: true },
+        workspace: { companyName: workspace.companyName },
+        overallStatus: overallStatus(capabilities.map((item) => item.status)),
+        capabilities,
+      },
+    };
+  } catch (error) {
+    if (error instanceof PilotAccessError) return { kind: "denied" };
+    return { kind: "unavailable" };
+  }
+}
+
+export async function handleCapabilitiesGet(
+  dependencies: CapabilityHandlerDependencies,
+): Promise<Response> {
+  const projection = await readCapabilityProjection(dependencies);
+  if (projection.kind === "denied" || projection.kind === "workspace_absent") {
+    return privateWorkspaceUnavailable();
+  }
+  if (projection.kind === "unavailable") {
+    return json({ error: "capability_status_unavailable" }, 503);
+  }
+  try {
+    // The browser GET route alone primes the CSRF token its later probe POST
+    // must redeem.
     return withCsrfCookie(
-      response,
-      await dependencies.issueCsrfToken(principal.subject),
+      json(projection.state),
+      await dependencies.issueCsrfToken(projection.principalSubject),
       dependencies.csrfCookieMode,
     );
   } catch (error) {
