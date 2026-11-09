@@ -427,27 +427,21 @@ authorized, and no Plan 07-01, 07-02, 07-05, 07-06, or Phase 7 credit follows
 from them. `docs/implementation-lanes/2026-09-05-completion-inventory.md`
 records the same boundary as Phase 7 `0/10`, "CSV/weekly cores only".
 
-One gap follows directly from the weekly-outcome core and is pinned rather than
-closed. The reducer models a fourteen-state prospect lifecycle and counts the
-first transition to `ExportReady`, but `profile_prospects.state` in
-`site/db/schema.ts` admits only `qualified`, `approved`, `rejected`, `deferred`,
-and `cooled_down`, and no prospect state-transition history table exists. Ten of
-the fourteen modelled states have no persisted counterpart, so nothing in the
-repository can currently produce the history stream `reduceWeeklyOutcome`
-consumes. `NotQualified`, `InsufficientEvidence`, and `Disqualified` do appear
-in `prospecting_candidates.status`, but that is a different entity's status and
-does not back a Prospect state. The reverse gap also holds: persisted
-`cooled_down` is not modelled, so a future adapter must map or reject it rather
-than pass it through.
+The weekly reducer still models fourteen states and counts the first transition
+to `ExportReady`. `profile_prospects.state` remains the narrower Phase 4
+projection (`qualified`, `approved`, `rejected`, `deferred`, `cooled_down`).
+Additive migration `0022_prospect-transition-history.sql` and
+`site/domain/prospect-transition-history.ts` now store owner-admitted creation
+and state-transition rows in the reducer's vocabulary. That ledger is local
+persistence only: it is not wired to a route, it does not change the current
+prospect projection, and it does not execute Plan 07-04. `cooled_down` stays
+unmapped. `contact_linked` and loss events stay unbacked. No `07-04-SUMMARY.md`
+is authorized.
 
-`site/tests/weekly-outcome-persisted-state-conformance.test.mjs` holds both
-directions against exact allowlists so neither can widen, or be silently closed
-by a schema edit, without a deliberate decision. It additionally requires the
-reducer's runtime `STATES` array and its `ProspectState` union — two separate
-hand-maintained copies — to list exactly the same states, and asserts that no
-persisted event kind yet carries `state_transition`, `prospect_created`, or
-`contact_linked`. Actually persisting those transitions is Plan 07-04 work and
-is not authorized by this lane.
+`site/tests/weekly-outcome-persisted-state-conformance.test.mjs` requires the
+ledger enum to cover the reducer vocabulary, the runtime `STATES` array to
+match `ProspectState`, and only `prospect_created` plus `state_transition` to
+be persisted.
 
 Validation recorded on 2026-09-07: the extended conformance suite passed 4/4,
 the weekly-outcome pair (`weekly-outcome` and

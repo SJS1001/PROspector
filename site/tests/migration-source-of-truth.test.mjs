@@ -60,10 +60,10 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   CANONICAL_MIGRATION_FILENAMES.forEach((filename, index) => {
     assert.equal(filename.slice(0, 4), String(index).padStart(4, "0"), `${filename} must sit at journal index ${index}`);
   });
-  // Regression: the chain reaches the release-evidence binding migration
-  // rather than stopping at the historical person-discovery boundary.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 22);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0021_runner-ingestion-integrity.sql");
+  // Regression: the chain reaches the transition-history migration rather
+  // than stopping at the runner-ingestion lease.
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 23);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0022_prospect-transition-history.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {
@@ -72,6 +72,19 @@ test("the canonical chain is exactly the set of checked SQL files", async () => 
     .map((entry) => entry.name)
     .sort();
   assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].sort(), onDisk, "no orphan SQL file and no journal entry without a file");
+});
+
+test("0022 snapshot advances 0021 and records the prospect transition ledger", async () => {
+  const predecessor = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0021_snapshot.json"), "utf8"));
+  const current = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0022_snapshot.json"), "utf8"));
+  assert.notEqual(current.id, predecessor.id, "a migration snapshot must not duplicate its predecessor identity");
+  assert.equal(current.prevId, predecessor.id, "0022 must chain directly from 0021");
+  assert.equal(current.tables.prospect_transition_events.name, "prospect_transition_events");
+  assert.deepEqual(
+    current.tables.prospect_transition_events.indexes.prospect_transition_sequence_unique.columns,
+    ["prospect_id", "sequence"],
+  );
+  assert.equal(current.tables.runner_assignments.indexes.runner_assignment_active_run_unique.isUnique, true);
 });
 
 test("0021 snapshot advances 0020 and records both runner-ingestion unique indexes", async () => {
