@@ -116,3 +116,20 @@ shown, not that a local handoff stage exists.
 No hosted, Cloudflare, Access, provider, credential, real-data, export, send,
 call, or spend action. The retired Sites project was not accessed. No plan or
 requirement status was changed, and no `*-SUMMARY.md` was created.
+
+## Update: C4 projection fixed at `72a1b74` (supersedes the C4 notes above)
+
+The contradiction in section 1 and in the blockers list is resolved in source. The branch that recorded the run above (`claude/issue-11-browser-journey-run`) rewrote the C4 spec to expect `NeedsReview`. That rewrite was not merged, because it pinned the defect. The verifier change, which forbids `phase_activation_gates` instead of expecting one row, was kept. A clean workspace has no gate row: migration 0009 inserts its guard row only when runner spend rows already exist, and the consumer unit test already asserted zero.
+
+Fix: `app/api/contacts/route.ts` sets `localDemoContactAttestation: true` and a local build epoch only from its `import.meta.env.DEV` branch, and only when the exact C4 loopback binding is active. With that flag, `domain/contacts-handler.ts` verifies settlements with the supplied C4 attestor for reads. Commands stay closed (`capability.available` is false), and nothing writes `phase_activation_gates`. Without the flag, or without a verifying attestor, the row stays `NeedsReview` / `contact_attestation_unavailable`.
+
+Receipts at `72a1b74`. Commands were run outside the sandbox because Miniflare needs loopback.
+
+| Command | Result |
+| --- | --- |
+| `node --test --test-concurrency=1 --test-force-exit tests/person-discovery-verification-consumer.test.mjs` | 8 pass, 0 fail. The new projection test fails without the fix (0/1). |
+| focused: production-bundle-boundary, person-discovery-c4-boundary, contacts-ui, contacts-pagination, controlled-enrichment-integration, contact-evidence-presentation | 9, 6, 22, 5, 11 and 3 pass. 0 fail. |
+| `npm run test:browser:person-discovery` | exit 0, 1 passed. The spec asserts the plain-language `Verified` label. Verifier `status: passed`, `forbiddenRows=0`, `r2Objects=0`, `r2Multipart=0`, 1 `ContactReady` eligibility snapshot. |
+| `npm run test:browser` / `npm run test:browser:operator-journey` | 2 passed / 2 passed |
+
+What this changes in the checkbox table: fictional person/contact verification is now demonstrated through the screens in the local C4 lane. Checkbox 1 is still not met as a single continuous journey. The fake research run stage still needs the owner's 04-08 amendment, and the local handoff stage is still only the refused CRM preview. Checkbox 2's owner review of the C4 dev verification endpoint is still open. This is local synthetic evidence only. It is not hosted identity acceptance, not live provider acceptance, and not plan credit.
