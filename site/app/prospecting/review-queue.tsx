@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   buildReviewCommand,
   EMPTY_REVIEW_DRAFT,
+  minimumReviewAt,
+  reviewDateError,
   updateReviewDraft,
   type ReviewDrafts,
 } from "./review-command";
@@ -63,6 +65,10 @@ export function ReviewQueue({
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingDecision | null>(null);
   const pendingRef = useRef<PendingDecision | null>(null);
+  const [dateErrors, setDateErrors] = useState<Record<string, string>>({});
+  const [minReviewAt, setMinReviewAt] = useState(() =>
+    minimumReviewAt(Date.now()),
+  );
   const rejectButtons = useRef(new Map<string, HTMLButtonElement>());
   const confirmButtons = useRef(new Map<string, HTMLButtonElement>());
   useEffect(() => {
@@ -70,11 +76,15 @@ export function ReviewQueue({
   }, [confirming]);
   const submit = async (item: Queue, decision: Decision) => {
     if (pendingRef.current) return;
-    const command = buildReviewCommand(
-      item,
-      decision,
-      drafts[item.id] ?? EMPTY_REVIEW_DRAFT,
-    );
+    const draft = drafts[item.id] ?? EMPTY_REVIEW_DRAFT;
+    const now = Date.now();
+    const dateError = reviewDateError(decision, draft, now);
+    if (dateError) {
+      setMinReviewAt(minimumReviewAt(now));
+      setDateErrors((current) => ({ ...current, [item.id]: dateError }));
+      return;
+    }
+    const command = buildReviewCommand(item, decision, draft, now);
     if (!command) return;
     const nextPending = { prospectId: item.id, decision };
     pendingRef.current = nextPending;
@@ -185,16 +195,35 @@ export function ReviewQueue({
                 <input
                   type="datetime-local"
                   value={draft.reviewAt}
-                  onChange={(event) =>
-                    setDrafts((current) =>
-                      updateReviewDraft(current, item.id, {
-                        reviewAt: event.target.value,
-                      }),
-                    )
+                  min={minReviewAt}
+                  aria-invalid={dateErrors[item.id] ? true : undefined}
+                  aria-describedby={
+                    dateErrors[item.id] ? `review-date-error-${item.id}` : undefined
                   }
+                  onFocus={() => setMinReviewAt(minimumReviewAt(Date.now()))}
+                  onChange={(event) => {
+                    const reviewAt = event.target.value;
+                    setDrafts((current) =>
+                      updateReviewDraft(current, item.id, { reviewAt }),
+                    );
+                    setDateErrors((current) => {
+                      if (!current[item.id]) return current;
+                      const next = { ...current };
+                      delete next[item.id];
+                      return next;
+                    });
+                  }}
                   disabled={controlsBusy}
                 />
               </label>
+              {dateErrors[item.id] && (
+                <p
+                  id={`review-date-error-${item.id}`}
+                  role="alert"
+                >
+                  {dateErrors[item.id]}
+                </p>
+              )}
               <div className="decision-actions">
                 <button
                   type="button"

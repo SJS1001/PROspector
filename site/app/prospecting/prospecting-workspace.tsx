@@ -39,6 +39,27 @@ const PROSPECTING_NOTICES = Object.freeze({
     "Unable to load the authoritative workspace. No action was applied.",
 });
 
+/**
+ * Posts one prospecting command with a fresh idempotency key. It is never
+ * retried automatically: an expired CSRF token (403) or a lost response is
+ * reported to the owner as an unverified outcome instead.
+ */
+export async function postProspectingCommand(
+  fetcher: typeof fetch,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  return fetcher("/api/prospecting", {
+    method: "POST",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      "x-prospector-intent": "prospecting-mutation",
+    },
+    body: JSON.stringify({ ...body, idempotencyKey: crypto.randomUUID() }),
+  });
+}
+
 export function ProspectingWorkspace({
   projection: initial,
   mode = "prospects",
@@ -125,19 +146,7 @@ export function ProspectingWorkspace({
       setBusy(true);
       setNotice("");
       try {
-        const response = await fetch("/api/prospecting", {
-          method: "POST",
-          cache: "no-store",
-          credentials: "same-origin",
-          headers: {
-            "content-type": "application/json",
-            "x-prospector-intent": "prospecting-mutation",
-          },
-          body: JSON.stringify({
-            ...body,
-            idempotencyKey: crypto.randomUUID(),
-          }),
-        });
+        const response = await postProspectingCommand(fetch, body);
         if (response.status === 409) {
           setNotice("stale");
           return;
