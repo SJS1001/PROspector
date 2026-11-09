@@ -9,6 +9,8 @@ import { getSql, type Sql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { executeDiscovery } from "@/lib/server/discover";
 import { executeHunt } from "@/lib/server/hunt";
+import { completeJson } from "@/lib/server/llm";
+import { buildResearchPrompt, parseResearchAnswer } from "@/lib/server/research";
 import { revealFromPages } from "@/lib/server/reveal";
 import { connectionFlags, putSecret, type SecretName } from "@/lib/server/secrets";
 import { prepareManualMessage, approveManualMessage, handoffManualMessage, manualCrmCsv, eligibleCrmContacts, packageDigest } from "@/lib/server/manual-workflow";
@@ -1172,8 +1174,6 @@ export const researchQuestion = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { questionId: string }) => ({ questionId: input.questionId }))
   .handler(async ({ context, data }) => {
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) throw new Error("Research is unavailable in this environment.");
     const sql = await getSql();
     await ensureWorkspace(sql, context.userId);
     const [item] = await sql<KnowledgeRow>`
@@ -1188,38 +1188,9 @@ export const researchQuestion = createServerFn({ method: "POST" })
       where user_id = ${context.userId} and status = ${"confirmed"}
       order by sort_order
     `;
-    const prompt = `Research-first Consensus Interview helper. Return JSON {"evidence":"","inference":"","recommendation":""}.
-Question: ${item.question}
-Already confirmed: ${priors.map((row) => `${row.question} => ${row.confirmed_answer}`).join(" | ") || "none"}
-Keep recommendation short. Do not invent customers or emails.`;
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(40_000),
-      body: JSON.stringify({
-        model: "grok-4.5",
-        messages: [{ role: "user", content: prompt }],
-        search_parameters: { mode: "on" },
-        max_tokens: 700,
-      }),
-    });
-    if (!res.ok) throw new Error(`Research failed (${res.status}).`);
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = body.choices?.[0]?.message?.content ?? "";
-    const json = text.match(/\{[\s\S]*\}/)?.[0];
-    let evidence = item.evidence;
-    let inference = item.inference;
-    let recommendation = item.recommendation;
-    if (json) {
-      try {
-        const parsed = JSON.parse(json) as { evidence?: string; inference?: string; recommendation?: string };
-        evidence = parsed.evidence?.slice(0, 800) || evidence;
-        inference = parsed.inference?.slice(0, 800) || inference;
-        recommendation = parsed.recommendation?.slice(0, 400) || recommendation;
-      } catch {
-        /* keep prior research labels */
-      }
-    }
+    const prior = { evidence: item.evidence, inference: item.inference, recommendation: item.recommendation };
+    const text = await completeJson(sql, context.userId, buildResearchPrompt(item.question, priors));
+    const { evidence, inference, recommendation } = parseResearchAnswer(text, prior);
     await sql`
       update knowledge_items
       set evidence = ${evidence}, inference = ${inference}, recommendation = ${recommendation}
