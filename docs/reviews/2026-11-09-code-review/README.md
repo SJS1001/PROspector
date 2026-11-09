@@ -376,6 +376,8 @@ Kept: 45 findings (12 medium, 33 low, none critical or high). Refuted and droppe
 - When a prospecting command is refused because of a validation error (for example a defer date in the past, or manual_find with no active schedule), should the server return its own error code and the UI show its own message? Right now every such refusal shows 'This candidate changed in another tab', and tests pin that sentence. Context: Finding 'Review Defer sends past dates and the server's validation error is shown as changed in another tab' (low). The client batch adds a min date and a client-side check, but leaves the copy alone, because site/tests/profile-prospecting-ui.test.mjs:564 and site/tests/browser/operator-journey-e1.spec.ts:12 pin it. Splitting the codes means changing prospecting-handler.ts conflict() and adding new user-facing wording.
 - Should do-not-contact entries for a domain also block that domain's subdomains (so 'acme.com' blocks x@mail.acme.com)? Context: The operator do-not-contact batch normalises domain entries ('@acme.com', 'https://www.acme.com' become 'acme.com') but keeps exact matching. Matching subdomains would make the block wider. That is product behaviour, so it was left out of the batch.
 
+**Decided 2026-11-09:** the owner accepted every recommendation. See "Owner decisions on code-review questions, 2026-11-09" in `COMPLETION.md`.
+
 ## Deferred
 
 - operator: 'Scraped mailboxes are labelled with invented buyer roles by list position' (low, data quality; fns.ts:1300-1307 plus contacts-view.tsx). Deferred because this round's run-liveness/DNC batch owns fns.ts. Pick it up afterwards: store role 'unknown'/'published mailbox' and a neutral name.

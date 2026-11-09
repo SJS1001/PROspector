@@ -55,6 +55,18 @@ Recorded from the owner (SJS1001) in a Claude Code session on 2026-11-09. Quoted
 
 Formal plan credit stays 26/74 and formal requirement acceptance stays 0/17. Local results are labelled locally accepted only, never formal credit.
 
+## Owner decisions on code-review questions, 2026-11-09
+
+The owner answered the seven open questions in `docs/reviews/2026-11-09-code-review/README.md` with "go with your recommendations". These decisions are binding for later sessions. None of them grants plan credit or authorizes hosted action, live providers, sending or spend.
+
+1. **Operator spend cap is enforced.** Every AI call counts against the monthly cap, including Jev qualification calls. New calls are refused once the cap is reached, with a plain message. A cap of 0 means no AI is allowed. Archive restore must keep the stored cap and must not reset it to 0.
+2. **Migration 0021 stays frozen.** Local databases created before 0021 that hold duplicate live runner assignments or duplicate complete submissions must be rebuilt, not repaired in place. No hosted database has 0021 applied.
+3. **The prospect transition history must enforce the allowed-transition graph** from IMPLEMENTATION-SPEC.md and must match `profile_prospects.state`. This is built when the module is first wired into a live path, not before. Until then the module stays unwired.
+4. **`site/scripts/hosted-boundary-proof.mjs` becomes localhost-only.** The retired Sites hostname is removed. A future target host comes from the new environment's provisioning record, never from a hard-coded value.
+5. **A Profile with more than one confirmed rubric is refused at activation**, with a message asking the owner to choose one.
+6. **Prospecting validation refusals get their own error codes and honest messages** (for example a past defer date, or `manual_find` with no active schedule). They are no longer shown as "This candidate changed in another tab". The existing E1 rule that an expired CSRF token is never retried automatically still stands.
+7. **Operator do-not-contact domain entries also block subdomains**, so `acme.com` blocks `x@mail.acme.com`.
+
 ## Flags
 
 | Flag | Value | Meaning |
