@@ -346,3 +346,92 @@ test("quarantined Knowledge projections render as metadata only without a value"
     await vite.close();
   }
 });
+
+test("hosted interview projection swaps reset the owner draft and decision for each new question or answer", async () => {
+  const { act, create } = await import("react-test-renderer");
+  const react = (await import("@vitejs/plugin-react")).default;
+  const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const vite = await createServer({ configFile: false, logLevel: "silent", plugins: [react()], server: { middlewareMode: true } });
+  const originalWindow = globalThis.window;
+  const originalFetch = globalThis.fetch;
+  let renderer;
+  try {
+    const { KnowledgeWorkspace } = await vite.ssrLoadModule(new URL("../app/knowledge/knowledge-workspace.tsx", import.meta.url).pathname);
+    const company = { id: "company-1", type: "company", parentId: null, name: "Synthetic Company", lifecycle: "active", revision: 1 };
+    const question = (id, ordinal) => ({
+      id, revision: 1, ordinal, prompt: `Synthetic prompt ${ordinal}`, evidenceFindings: [], evidenceState: { status: "missing", findingCount: 0 },
+      prerequisiteKnowledge: [], inferenceDetail: null, recommendationDetail: null, destination: { scopeType: "company", id: company.id },
+      requiresOwnerInput: true, knowledgeKind: "identity",
+    });
+    const base = (sessionRevision) => ({ displayName: "Owner", workspace: { id: "workspace-1", companyName: company.name }, session: { id: "session-1", revision: sessionRevision } });
+    const projection = (interview) => ({
+      onboarding: { status: "complete", externalEffects: false, company: { id: "company-1", name: company.name, revision: 1 }, product: { id: "product-1", name: "Synthetic Product", revision: 1 }, marketPlay: { id: "play-1", name: "Synthetic Market", revision: 1 }, customerProfile: { id: "profile-1", name: "Synthetic Profile", revision: 1 }, fitKnowledgeVersionId: "knowledge-version-1" },
+      commercial: { path: [company], products: [], plays: [], profiles: [], offers: [] }, library: [], drift: [], replacements: [], interview,
+    });
+    const awaitingFirst = projection({ status: "awaiting_confirmation", ...base(2), question: question("question-1", 1), answer: { id: "answer-1", operationDigest: "digest-answer-1", submittedAt: 1_700_000_000_000 } });
+    const activeSecond = projection({ status: "active", ...base(3), question: question("question-2", 2) });
+    const awaitingSecond = projection({ status: "awaiting_confirmation", ...base(4), question: question("question-2", 2), answer: { id: "answer-2", operationDigest: "digest-answer-2", submittedAt: 1_700_000_100_000 } });
+    const mutationResponses = [activeSecond, awaitingSecond];
+    const posts = [];
+    let gets = 0;
+    globalThis.window = { location: { hostname: "knowledge.example", search: "" }, setTimeout, clearTimeout };
+    globalThis.fetch = async (url, init = {}) => {
+      if (init.method === "POST") {
+        posts.push({ url, body: JSON.parse(init.body) });
+        return new Response(JSON.stringify(mutationResponses.shift()), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      gets += 1;
+      return new Response(JSON.stringify(awaitingFirst), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const radios = (name) => renderer.root.findAll((node) => node.type === "input" && node.props.type === "radio" && node.props.name === name);
+    const submitButton = () => renderer.root.find((node) => node.type === "button" && node.props.type === "submit");
+    const textInputs = () => renderer.root.findAll((node) => (node.type === "input" && node.props.type !== "radio") || node.type === "textarea");
+    const submitForm = () => act(async () => { renderer.root.find((node) => node.type === "form").props.onSubmit({ preventDefault() {} }); });
+
+    await act(async () => { renderer = create(React.createElement(KnowledgeWorkspace, { onUnauthorized() { assert.fail("synthetic owner must stay authorized"); } })); });
+    await settle();
+    assert.equal(gets, 1);
+    assert.match(submitButton().props.children, /Choose an owner decision/);
+
+    const correct = radios("interview-decision").find((node) => node.props.checked === false && /Correct/.test(String(node.parent.children.at(-1))));
+    await act(async () => { correct.props.onChange(); });
+    await act(async () => { textInputs()[0].props.onChange({ target: { value: "Question one correction" } }); });
+    await act(async () => { textInputs()[1].props.onChange({ target: { value: "Question one reason" } }); });
+    await submitForm();
+    await settle();
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].body.action, "record_interview_decision");
+    assert.equal(posts[0].body.answerId, "answer-1");
+    assert.equal(gets, 1, "hosted mutation must swap the projection without the loading/unmount path");
+
+    assert.match(JSON.stringify(renderer.toJSON()), /Synthetic prompt 2/);
+    const [ownerValue, ownerReason] = textInputs();
+    assert.equal(ownerValue.props.value, "", "question one correction must not pre-fill question two");
+    assert.equal(ownerReason.props.value, "", "question one reason must not pre-fill question two");
+
+    await act(async () => { ownerValue.props.onChange({ target: { value: "Question two value" } }); });
+    await act(async () => { textInputs()[1].props.onChange({ target: { value: "Question two reason" } }); });
+    await submitForm();
+    await settle();
+    assert.equal(posts.length, 2);
+    assert.equal(posts[1].body.action, "submit_interview_answer");
+    assert.equal(posts[1].body.questionId, "question-2");
+    assert.equal(gets, 1);
+
+    assert.match(JSON.stringify(renderer.toJSON()), /digest-answer-2/);
+    assert.deepEqual(radios("interview-decision").map((node) => node.props.checked), [false, false, false, false], "no owner decision may be pre-selected for a new answer");
+    assert.equal(submitButton().props.disabled, true);
+    assert.match(submitButton().props.children, /Choose an owner decision/);
+    assert.equal(textInputs().length, 0, "no stale correction fields may be shown before an explicit decision");
+    const workspaceSource = await readFile(new URL("../app/knowledge/knowledge-workspace.tsx", import.meta.url), "utf8");
+    assert.match(workspaceSource, /<ConsensusInterviewView key=\{interviewSnapshotKey\(state\)\}/, "the interview view must also remount per question snapshot and answer");
+  } finally {
+    if (renderer) await act(async () => { renderer.unmount(); });
+    globalThis.window = originalWindow;
+    globalThis.fetch = originalFetch;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    await vite.close();
+  }
+});
