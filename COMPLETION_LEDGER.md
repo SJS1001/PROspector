@@ -4,7 +4,7 @@ This ledger is the v1 requirement inventory. It is not the 26/74 plan-credit led
 
 Local extracts merged on 2026-11-09 are recorded below as test evidence only. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
 
-Session `claude-ee67a286-2026-11-09` (owner-authorized local work, branch `claude/owner-local-completion-20261109`, commit `0c3ce490d707c0fa0b4eac9178ab05c75491d96f`): merged issue work for #6 (docs), #7 (protocol, label-agreement scorer and fixtures), #8 (plain-language Contacts labels and a Review-to-Contacts link) and #11 (browser run record). `cd site && npm test` exited 0 with 1175 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `npm run lint` exited 0; `npm run test:browser` 2 pass; `npm run test:browser:operator-journey` 2 pass; `npm run test:browser:person-discovery` 1 fail (recorded as negative evidence under REQ-contact-verification). No requirement status changed.
+Session `claude-ee67a286-2026-11-09` (owner-authorized local work, branch `claude/owner-local-completion-20261109`, commit `0c3ce490d707c0fa0b4eac9178ab05c75491d96f`): merged issue work for #6 (docs), #7 (protocol, label-agreement scorer and fixtures), #8 (plain-language Contacts labels and a Review-to-Contacts link) and #11 (browser run record). `cd site && npm test` exited 0 with 1175 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `npm run lint` exited 0; `npm run test:browser` 2 pass; `npm run test:browser:operator-journey` 2 pass; `npm run test:browser:person-discovery` 1 fail (recorded as negative evidence under REQ-contact-verification). Fix `72a1b74` then made that lane pass and the full suite pass with 1176 tests (positive evidence under the same row). No requirement status changed.
 
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
@@ -32,7 +32,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
     "recorded_at": "2026-11-08T21:00:33Z",
     "session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
     "seeded_at": "2026-11-08T21:00:33Z",
-    "last_source_review_at": "2026-11-09T15:30:00Z",
+    "last_source_review_at": "2026-11-09T17:30:00Z",
     "verification_mapping": "partial"
   },
   "requirements": [
@@ -725,7 +725,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "not_assessed",
-      "last_touched_at": "2026-11-09T15:30:00Z",
+      "last_touched_at": "2026-11-09T17:30:00Z",
       "last_touched_session": "claude-ee67a286-2026-11-09",
       "evidence": [
         {
@@ -770,6 +770,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
           "recorded_at": "2026-11-09T15:30:00Z",
           "session": "claude-ee67a286-2026-11-09",
           "limitations": "Negative evidence. The synthetic no-known-person C4 lane stops before ContactReady: the Contacts projection only honours the settlement attestor when controlled_enrichment is activated, which this lane never does, so the contact stays NeedsReview with contact_attestation_unavailable. The issue-#6 checkbox 5 claim based on PR #82 is not supported on this commit. Not acceptance; formal acceptance stays 0/17 and plan credit stays 26/74."
+        },
+        {
+          "kind": "test",
+          "pr_url": null,
+          "pr_number": null,
+          "artifact_path": "site/tests/browser/person-discovery-c4.spec.ts",
+          "evidence_commit": "72a1b749f8755e11bdb3900288b6392dd45762ce",
+          "test_scope": "cd site && npm run test:browser:person-discovery",
+          "test_counts": {
+            "tests": 1,
+            "passed": 1,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T17:30:00Z",
+          "recorded_at": "2026-11-09T17:30:00Z",
+          "session": "claude-ee67a286-2026-11-09",
+          "limitations": "Local synthetic C4 lane after the dev-only Contacts read-projection fix: the discovered fictional contact is shown as Verified, the verifier passed with forbiddenRows=0 and no R2 objects, and no gate row was written. Same commit: cd site && npm test 1176 pass / 0 fail across 169 files; npm run lint exit 0. Dev-only local evidence, not hosted or live-provider acceptance. Formal acceptance stays 0/17 and plan credit stays 26/74."
         }
       ]
     },
