@@ -24,6 +24,7 @@ export function csrfCookie(
   token: string,
   mode: CsrfCookieMode = "secure",
 ): string {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new CsrfTokenError("Invalid token");
   if (mode === "local-demo") {
     return `${LOCAL_CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=900; HttpOnly; SameSite=Strict`;
   }
