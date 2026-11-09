@@ -115,7 +115,7 @@
   },
   {
     "path": "src/lib/domain/openrouter-policy.ts",
-    "sha256": "724a81002f81b2fea749e2347a0ff8c59cb0185b74c7c1d889ead498e393c45d",
+    "sha256": "f384cd9d65db5889599f02e61064478b549d94e2c8723c38fe62fd2d0d5849ad",
     "imports": []
   },
   {
@@ -262,7 +262,7 @@
   },
   {
     "path": "src/lib/server/secrets.ts",
-    "sha256": "9ba525de70cb4023484c328ce5d74a7d0e838736116c404ce42dfe0a57c4f2d8",
+    "sha256": "f38a61ec728fd97c9caf44b0a7a553cb9924d01069f565e267064efd2afed9fa",
     "imports": [
       "@/lib/domain/llm",
       "@/lib/domain/openrouter-policy",
