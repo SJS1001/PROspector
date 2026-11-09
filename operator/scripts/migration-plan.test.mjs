@@ -71,6 +71,7 @@ test("the operator migration plan includes the auth schema and ordered applicati
       "0007_connections.sql",
       "0008_operating_complete.sql",
       "0009_search_progress.sql",
+      "0010_single_active_run.sql",
     ],
   );
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes(AUTH_MIGRATION));
