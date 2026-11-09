@@ -132,6 +132,11 @@ test("the operator advances the guarded Phase 4–7 journey, reloads it, and cre
   await page.reload();
   await expect(page.getByText("Journey progress: 4 of 4 operator steps complete.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Phase 7 · Portability compatibility" })).toBeVisible();
+  // Issue #11's local-handoff stage: the CRM precondition is shown, and refused.
+  const handoff = page.locator("section").filter({ has: page.getByRole("heading", { name: "Phase 7 · CRM handoff precondition" }) });
+  await expect(handoff.locator("dt", { hasText: "Eligible rows" }).locator("+ dd")).toHaveText("0");
+  await expect(handoff.locator("dt", { hasText: "Materialization" }).locator("+ dd")).toHaveText("refused");
+  await expect(handoff.getByText("Only synthetic schema metadata is shown; no export payload is created.")).toBeVisible();
   await expect(page.locator('a[download], [download], a[href^="blob:"], a[href^="data:"]')).toHaveCount(0);
   await assertNoOverlay(page);
   await assertAxe(page);
