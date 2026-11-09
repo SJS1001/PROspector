@@ -97,7 +97,10 @@ test("Anthropic workspace selection is validated, saved, projected, and sent onl
   assert.equal(requests.at(-1).headers["anthropic-workspace-id"], undefined);
   fail = true;
   await assert.rejects(completeJson(sql, "fictional", "fixture"), /Open Settings.*workspace ID/);
-  for (const request of requests) assert.equal(new URL(request.url).origin, "https://api.anthropic.com");
+  for (const request of requests) {
+    assert.equal(new URL(request.url).origin, "https://api.anthropic.com");
+    assert.equal(request.redirect, "error", "Anthropic search refuses redirects");
+  }
 });
 
 test("a key saved for Anthropic is never sent after switching to groq, custom or OpenRouter without a new key", async (t) => {
