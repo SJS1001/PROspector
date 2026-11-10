@@ -144,6 +144,8 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
     "insert into prospecting_runs (id,user_id,configuration_digest,trigger,status) values ('dup','owner','digest','manual','running')",
   );
   context.allRejected = false;
+  // JEV reviews the result, so savedWithJev must also count only inserted rows.
+  context.jev = "on";
   for (let attempt = 0; attempt < 2; attempt++) {
     context.calls = 0;
     context.writes = [];
@@ -168,6 +170,8 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
   const progress = JSON.parse(run.progress_json);
   assert.equal(progress.saved, 0);
   assert.equal(progress.activity.at(-1), "0 results saved");
+  assert.ok(progress.jev.applied > 0, "JEV reviewed the result that was already saved");
+  assert.equal(progress.jev.savedWithJev, 0);
   assert.equal(run.candidate_count, 0);
   assert.equal(run.qualified_count, 0);
   assert.match(run.terminal_reason, /Plant 2: already in this workspace\./);
@@ -195,5 +199,6 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
   ).rows;
   assert.equal(JSON.parse(fresh.progress_json).saved, 1);
   assert.equal(JSON.parse(fresh.progress_json).activity.at(-1), "1 results saved");
+  assert.equal(JSON.parse(fresh.progress_json).jev.savedWithJev, 1);
   assert.equal(fresh.candidate_count, 1);
 });

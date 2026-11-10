@@ -5,11 +5,14 @@ import type { Sql } from "../db";
 // All joins include ownership; all suppression scopes win before data leaves.
 // A domain entry blocks that domain and its subdomains (acme.com blocks
 // x@mail.acme.com, not x@notacme.com), per owner decision 7, 2026-11-09.
-// Both sides drop trailing dots first: x@acme.com. is the same mailbox as
-// x@acme.com (the DNS root label), so it must not escape an entry.
-const mailbox = `rtrim(lower(trim(c.email_display)), '.')`;
+// Both sides map the IDNA full stops (U+3002, U+FF0E, U+FF61) to '.', which
+// RFC 3490 section 3.1 and the URL parser treat as label separators, then drop
+// trailing dots: x@acme.com., x@acme.com\u3002 and x@mail\u3002acme.com are the
+// same mailboxes as x@acme.com and x@mail.acme.com, so none may escape an entry.
+const dots = (text: string) => `translate(lower(trim(${text})), '\u3002\uFF0E\uFF61', '...')`;
+const mailbox = `rtrim(${dots("c.email_display")}, '.')`;
 const mailDomain = `split_part(${mailbox}, '@', 2)`;
-const entry = `rtrim(lower(trim(s.value)), '.')`;
+const entry = `rtrim(${dots("s.value")}, '.')`;
 const eligible = `p.user_id = $1 and p.status = 'approved' and p.approved_at is not null
   and r.state = 'approved' and r.outcome = 'Passed'
   and c.email_kind in ('verified', 'public_source')

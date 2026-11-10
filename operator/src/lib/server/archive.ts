@@ -1,5 +1,6 @@
 import { opportunitySchema } from "../domain/opportunity.ts";
 import { createHash } from "node:crypto";
+import { domainToASCII, domainToUnicode } from "node:url";
 import type { Sql } from "../db";
 
 /** Version 1 is the complete operator workspace schema from migrations 0002–0008.
@@ -177,6 +178,16 @@ export async function exportWorkspaceArchive(
   });
 }
 
+/** True when the part after the last '@' is already in the form the URL parser
+ * gives it (ASCII, or the canonical Unicode of its ASCII form). */
+function canonicalMailDomain(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return true;
+  const domain = email.slice(at + 1).toLowerCase();
+  const ascii = domainToASCII(domain);
+  return ascii === domain || (ascii !== "" && domainToUnicode(ascii) === domain);
+}
+
 /** Checks the entire envelope, fields, database types, duplicates and live references before replacement. */
 export async function validateWorkspaceArchive(
   input: unknown,
@@ -298,12 +309,16 @@ export async function validateWorkspaceArchive(
   for (const row of a.tables.enrichment_grants)
     if (row.spent_at === null || (row.cost_cents as number) < 0)
       throw new Error("Invalid spent enrichment history");
-  // A trailing dot names the same mailbox (x@acme.com. is x@acme.com). No local
+  // A trailing dot names the same mailbox (x@acme.com. is x@acme.com), and so
+  // does any domain the URL parser maps to another spelling: the IDNA full stops
+  // U+3002, U+FF0E and U+FF61, fullwidth letters, a decomposed accent. No local
   // path stores one, so an archive that carries one is crafted and is refused
   // rather than restored as a spelling that might slip past do-not-contact.
-  for (const row of a.tables.contacts)
-    if ((row.email_display as string).trim().endsWith("."))
+  for (const row of a.tables.contacts) {
+    const email = (row.email_display as string).trim();
+    if (email.endsWith(".") || !canonicalMailDomain(email))
       throw new Error("Invalid contacts.email_display");
+  }
   for (const row of a.tables.prospects) {
     let assessment: unknown;
     try {

@@ -152,10 +152,11 @@
   },
   {
     "path": "src/lib/server/archive.ts",
-    "sha256": "4a5e3f96c7a621373f51ed8ead0fbc84f46410c86938f81ef408e1f6f772ff1a",
+    "sha256": "c57f41134af9a58be5677743e34d381d67e7b52626ff74a04b53ff532e994cd5",
     "imports": [
       "../domain/opportunity.ts",
-      "node:crypto"
+      "node:crypto",
+      "node:url"
     ]
   },
   {
@@ -217,7 +218,7 @@
   },
   {
     "path": "src/lib/server/manual-workflow.ts",
-    "sha256": "4e6446eba9e22f95784ed7ac60c1e7d6e440173edd97f4f4437db978b074185c",
+    "sha256": "4dd041406a8ad6f3949d34ffd8f9b1b5c98e7fe159a9bd346714a19492ee476d",
     "imports": [
       "node:crypto"
     ]

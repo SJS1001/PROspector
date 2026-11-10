@@ -149,7 +149,20 @@ test("a crafted archive mailbox with a trailing dot is refused before mutation",
     await fixture(pg);
     const a = await exportWorkspaceArchive("a", adapter),
       before = await exportWorkspaceArchive("b", adapter);
-    for (const email of ["a@example.com.", "a@mail.example.com..", " a@example.com. "]) {
+    for (const email of [
+      "a@example.com.",
+      "a@mail.example.com..",
+      " a@example.com. ",
+      // IDNA full stops (U+3002, U+FF0E, U+FF61) are label separators too, so
+      // each of these is the same mailbox as a@example.com or a@mail.example.com.
+      "a@example.com\u3002",
+      "a@example.com\uFF0E",
+      "a@example.com\uFF61",
+      "a@mail\u3002example.com",
+      "a@example\uFF0Ecom",
+      // Fullwidth letters map to ASCII the same way (a fullwidth e in example.com is an ASCII e).
+      "a@\uFF45xample.com",
+    ]) {
       const crafted = structuredClone(a);
       crafted.tables.contacts[0].email_display = email;
       rehash(crafted);
@@ -163,6 +176,16 @@ test("a crafted archive mailbox with a trailing dot is refused before mutation",
     // The ordinary spelling still restores.
     await restoreWorkspaceArchive("b", a, adapter);
     assert.equal((await exportWorkspaceArchive("b", adapter)).tables.contacts.length, 1);
+    // A non-ASCII local part (the seed stores one) is not a domain spelling and
+    // still restores.
+    const local = structuredClone(a);
+    local.tables.contacts[0].email_display = "champion.engebø@example.com";
+    rehash(local);
+    await restoreWorkspaceArchive("b", local, adapter);
+    assert.equal(
+      (await exportWorkspaceArchive("b", adapter)).tables.contacts[0].email_display,
+      "champion.engebø@example.com",
+    );
   } finally {
     await pg.close();
   }
