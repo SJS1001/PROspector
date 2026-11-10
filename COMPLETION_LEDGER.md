@@ -41,6 +41,15 @@ The merged tree is identical to the tested combined tree `9500380`. From `site/`
 
 Evidence is local and synthetic only. Production eligibility still refuses, and no provider call, migration or send state was added. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
 
+Session `claude-ee67a286-2026-11-09`, Phase 6–7 Wave 2 (local build, owner-authorized). Merged into `claude/owner-local-completion-20261109` with tip `badbdeb`:
+- PR #193: Lane E, governed enqueue and originated mail sync (06-06 Tasks 1 and 3), tested head `dc69a73`.
+- PR #192: Lane F, manual call backed by D1 with the phone action disabled (06-07), tested head `ef9ba7d`.
+- PR #191: Lane I, CSV handoff service shell (07-06 partial), tested head `aaa1642`.
+
+The merged tree is identical to the tested combined tree `817d5d1`. From `site/`, after `npm run build`, `node --test --test-concurrency=1` over the outreach-dispatch, manual-call, crm-handoff, outreach-artifacts, suppression, outreach-persistence, manual-call-decision-service, mining-handoff-ui, weekly-outcome, workspace-recovery, crm-csv-codec, crm-handoff-delivery, crm-handoff-export-artifact, crm-handoff-projection, production-bundle-boundary, outreach-preparation-boundary, outreach-outbox-event-scope-guard-reachability and migration-source-of-truth suites gave 238 tests: 223 pass, 0 fail, 15 todo. eslint on the changed domain files exited 0. The full `npm test` was not run for this wave.
+
+Evidence is local and synthetic only. Production eligibility still refuses, and no provider call, migration or D1 send state was added. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->

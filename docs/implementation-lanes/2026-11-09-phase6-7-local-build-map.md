@@ -82,3 +82,5 @@ Guard checks every lane re-runs:
 - **D-3:** whether to reopen the D1 send states for a fake-port dispatch path. Recommended: defer.
 - **D-4:** the archive crypto (a memory-hard KDF) for 07-07/07-08.
 - **D-6:** site domain suppression blocks subdomains (applied by default, reversible).
+- **D-7 (found in Wave 2):** the enqueue/lease SQL and the 0010 and 0015–0017 triggers treat any confirmed-domain, Organization or Company tombstone as workspace-wide, and ignore the channel for Contact tombstones. Blocking one domain therefore stops all email work in the workspace. This fails safe (over-blocks). Narrowing it to whole-label matching (D-6) needs a migration. Recommended: fix together with D-1 when migrations reopen.
+- **D-8 (found in Wave 2):** in production, a manual-call `do_not_call` blocks the Contact's phone but not the same E.164 number on other Contacts, because D1 stores only the phone digest. Planned fix: Lane G passes the number from the owner command, or the stop rule accepts a digest-based subject.
