@@ -6,7 +6,7 @@
 import { readFile } from "node:fs/promises";
 import { CANONICAL_MIGRATION_FILENAMES } from "../../scripts/migration-chain.mjs";
 import { createD1Fixture } from "./d1.mjs";
-import { OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuthority } from "./outreach-fixture.mjs";
+import { OUTREACH_FIXTURE_FORWARD_MIGRATIONS, OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuthority } from "./outreach-fixture.mjs";
 
 export const HANDOFF_T0 = OUTREACH_NOW + 1_000;
 
@@ -81,7 +81,8 @@ export async function handoffFixture(name, { identity, approvalExpiresAt = OUTRE
       packageVersionId: packageVersion.id, expectedVersion: 1, expiresAt: approvalExpiresAt, idempotencyKey: "handoff-package-approval",
     });
     const cutoff = CANONICAL_MIGRATION_FILENAMES.findIndex((filename) => filename.startsWith("0017_"));
-    await applyFiles(fixture.database, CANONICAL_MIGRATION_FILENAMES.slice(cutoff + 1));
+    await applyFiles(fixture.database, CANONICAL_MIGRATION_FILENAMES.slice(cutoff + 1)
+      .filter((filename) => !OUTREACH_FIXTURE_FORWARD_MIGRATIONS.includes(filename)));
     return { fixture, seeded, outreach, packageVersion, packageApproval };
   } catch (error) {
     await fixture.dispose();
