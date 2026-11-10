@@ -43,8 +43,10 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
   });
   const { executeHunt } = await server.ssrLoadModule("/src/lib/server/hunt.ts");
   const sql = async (strings, ...values) => {
-    context.writes.push({ query: strings.join("?"), values });
-    return [];
+    const query = strings.join("?");
+    context.writes.push({ query, values });
+    // The stub database has no rows yet, so every prospect insert succeeds.
+    return query.includes("insert into prospects") ? [{ id: values[0] }] : [];
   };
   sql.transaction = async (work) => work(sql);
   const snapshot = {
@@ -142,6 +144,8 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
     "insert into prospecting_runs (id,user_id,configuration_digest,trigger,status) values ('dup','owner','digest','manual','running')",
   );
   context.allRejected = false;
+  // JEV reviews the result, so savedWithJev must also count only inserted rows.
+  context.jev = "on";
   for (let attempt = 0; attempt < 2; attempt++) {
     context.calls = 0;
     context.writes = [];
@@ -155,11 +159,46 @@ test("hunt filters unsupported leads and bounds feedback searches", async (t) =>
       knownFingerprints: new Set(),
     });
   }
-  const [run] = (await pg.query("select status from prospecting_runs where id = 'dup'")).rows;
+  const [run] = (
+    await pg.query(
+      "select status, candidate_count, qualified_count, progress_json, terminal_reason from prospecting_runs where id = 'dup'",
+    )
+  ).rows;
   assert.equal(run.status, "succeeded");
+  // The only accepted result was already saved, so nothing new was saved and
+  // the run must not claim one.
+  const progress = JSON.parse(run.progress_json);
+  assert.equal(progress.saved, 0);
+  assert.equal(progress.activity.at(-1), "0 results saved");
+  assert.ok(progress.jev.applied > 0, "JEV reviewed the result that was already saved");
+  assert.equal(progress.jev.savedWithJev, 0);
+  assert.equal(run.candidate_count, 0);
+  assert.equal(run.qualified_count, 0);
+  assert.match(run.terminal_reason, /Plant 2: already in this workspace\./);
   const [kept] = (
     await pg.query("select account_name, state from prospects where id = $1", [existingId])
   ).rows;
   assert.deepEqual(kept, { account_name: "Earlier Plant", state: "approved" });
   assert.equal((await pg.query("select id from signals where run_id = 'dup'")).rows.length, 1);
+  // A new prospect in the same commit is counted once it is actually inserted.
+  await pg.exec(
+    "insert into prospecting_runs (id,user_id,configuration_digest,trigger,status) values ('fresh','owner','digest','manual','running')",
+  );
+  await pg.query("delete from prospects where id = $1", [existingId]);
+  context.calls = 0;
+  await executeHunt({
+    sql: db,
+    userId: "owner",
+    runId: "fresh",
+    digest: "digest",
+    snapshot,
+    knownFingerprints: new Set(),
+  });
+  const [fresh] = (
+    await pg.query("select candidate_count, progress_json from prospecting_runs where id = 'fresh'")
+  ).rows;
+  assert.equal(JSON.parse(fresh.progress_json).saved, 1);
+  assert.equal(JSON.parse(fresh.progress_json).activity.at(-1), "1 results saved");
+  assert.equal(JSON.parse(fresh.progress_json).jev.savedWithJev, 1);
+  assert.equal(fresh.candidate_count, 1);
 });

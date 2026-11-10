@@ -152,10 +152,11 @@
   },
   {
     "path": "src/lib/server/archive.ts",
-    "sha256": "739e0d0e9a899a7d2ac265482af1507393a140a6a17c28b3f621c902481aa422",
+    "sha256": "c57f41134af9a58be5677743e34d381d67e7b52626ff74a04b53ff532e994cd5",
     "imports": [
       "../domain/opportunity.ts",
-      "node:crypto"
+      "node:crypto",
+      "node:url"
     ]
   },
   {
@@ -199,7 +200,7 @@
   },
   {
     "path": "src/lib/server/hunt.ts",
-    "sha256": "57b59993d1467dd6a2d57a782a8737d1e7c889278460ce8efcc55e9155f47f3b",
+    "sha256": "4927dbc43f555bcd336f010b8da9149648a0f07e327166fa27579f07f22f54db",
     "imports": [
       "./opportunity",
       "./search-response",
@@ -217,7 +218,7 @@
   },
   {
     "path": "src/lib/server/manual-workflow.ts",
-    "sha256": "e967398d36b534273a23d9126109ff4347ff63712ea587629a371b96f778f33d",
+    "sha256": "4dd041406a8ad6f3949d34ffd8f9b1b5c98e7fe159a9bd346714a19492ee476d",
     "imports": [
       "node:crypto"
     ]

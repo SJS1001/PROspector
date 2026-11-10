@@ -22,7 +22,7 @@
 import { spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
@@ -93,15 +93,25 @@ export function projectRoot() {
  * Both sides are resolved through symlinks: node realpaths `import.meta.url`
  * but leaves `process.argv[1]` as typed, so comparing them raw makes a CLI
  * launched through a symlinked path (`/tmp` on macOS) a silent no-op.
+ *
+ * An entry that names this script (same file name) but does not resolve to it
+ * throws instead of returning false, so a direct run is never skipped silently.
  */
-export function isMainModule(moduleUrl) {
-  const entry = process.argv[1];
+export function isMainModule(moduleUrl, entry = process.argv[1]) {
   if (!entry) return false;
+  const self = realpathSync(fileURLToPath(moduleUrl));
+  let target;
   try {
-    return realpathSync(entry) === fileURLToPath(moduleUrl);
+    target = realpathSync(entry);
   } catch {
-    return false;
+    target = null;
   }
+  if (target === self) return true;
+  if (basename(entry) === basename(self))
+    throw new Error(
+      `direct-run guard: ${entry} names ${basename(self)} but does not resolve to ${self}`,
+    );
+  return false;
 }
 
 function main(argv) {

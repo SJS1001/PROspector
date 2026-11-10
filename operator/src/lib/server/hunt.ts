@@ -32,6 +32,7 @@ type HuntInsert = {
   evidenceDate: string;
   fingerprint: string;
   publishedOn: string | null;
+  jevApplied: boolean;
 };
 
 async function proposeCandidates(
@@ -80,7 +81,6 @@ export async function executeHunt(opts: {
   const accepted: HuntInsert[] = [];
   const reasons: string[] = [];
   let verifiedSources = 0;
-  let acceptedWithJev = 0;
   const attempted = new Set<string>();
   // One bounded follow-up uses rejection feedback instead of returning the same weak batch.
   for (let pass = 0; pass < 2 && !accepted.length; pass++) {
@@ -206,7 +206,6 @@ export async function executeHunt(opts: {
         }
         opts.knownFingerprints.add(qualified.fingerprint);
         await report(`${item.candidate.accountName}: source checked · ${qualified.score}/10`);
-        if (jevApplied) acceptedWithJev++;
         accepted.push({
           accountName: item.candidate.accountName,
           targetName: item.candidate.targetName,
@@ -222,6 +221,7 @@ export async function executeHunt(opts: {
           evidenceDate: item.page.publishedOn ?? qualified.evidenceDate,
           fingerprint: qualified.fingerprint,
           publishedOn: item.page.publishedOn ?? null,
+          jevApplied,
         });
       }
     }
@@ -239,6 +239,9 @@ export async function executeHunt(opts: {
   await opts.sql.transaction(async (tx) => {
     // Deterministic ids: a prospect already saved by an earlier or overlapping
     // run is kept as-is rather than failing this run and losing its results.
+    // Only rows this commit actually inserted are reported as saved.
+    const saved: HuntInsert[] = [];
+    const kept: string[] = [];
     for (const item of accepted) {
       const prospectId = idFor(opts.userId, `hunt:${item.fingerprint}`);
       const assessmentId = idFor(opts.userId, `assess:${item.fingerprint}:${opts.runId}`);
@@ -248,7 +251,7 @@ export async function executeHunt(opts: {
           : item.outcome === "Disqualified"
             ? "disqualified"
             : "assessed";
-      await tx`
+      const inserted = await tx<{ id: string }>`
       insert into prospects (
         id, user_id, account_name, account_id, target_name, target_id, offer_id,
         score, outcome, state, revision, configuration_digest, assessment_id,
@@ -262,7 +265,10 @@ export async function executeHunt(opts: {
         ${item.evidenceDate}, ${"run"}, ${opts.runId}, ${item.fingerprint}
       )
       on conflict (id) do nothing
+      returning id
     `;
+      if (inserted.length) saved.push(item);
+      else kept.push(`${item.accountName}: already in this workspace.`);
       await tx`
       insert into signals (
         id, user_id, run_id, prospect_id, url, title, excerpt, tier, content_hash,
@@ -276,21 +282,21 @@ export async function executeHunt(opts: {
     `;
     }
 
-    jevProgress.savedWithJev = acceptedWithJev;
-    progress.saved = accepted.length;
+    jevProgress.savedWithJev = saved.filter((item) => item.jevApplied).length;
+    progress.saved = saved.length;
     progress.stage = "complete";
-    progress.activity = [...progress.activity, `${accepted.length} results saved`].slice(-24);
-    const qualified = accepted.filter((item) => item.outcome === "Passed").length;
+    progress.activity = [...progress.activity, `${saved.length} results saved`].slice(-24);
+    const qualified = saved.filter((item) => item.outcome === "Passed").length;
     const terminal =
-      accepted.length === 0
-        ? (reasons[0] ?? "Live research returned a valid empty candidate list for this search.")
-        : `${accepted.length} retrieved · ${qualified} passed. ${reasons.slice(0, 2).join(" ")}`.trim();
+      saved.length === 0
+        ? ([...kept, ...reasons][0] ?? "Live research returned a valid empty candidate list for this search.")
+        : `${saved.length} saved · ${qualified} passed. ${[...kept, ...reasons].slice(0, 2).join(" ")}`.trim();
 
     await tx`
     update prospecting_runs
     set status = ${"succeeded"},
         progress_json = ${JSON.stringify(progress)},
-        candidate_count = ${accepted.length},
+        candidate_count = ${saved.length},
         qualified_count = ${qualified},
         terminal_reason = ${terminal},
         finished_at = ${new Date().toISOString()}
