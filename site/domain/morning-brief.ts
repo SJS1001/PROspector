@@ -11,8 +11,10 @@
  * no database, repository, route, persistence, scheduler, runner, provider,
  * export, delivery, archive, restore, environment, filesystem, or network
  * port. It imports no preparation-only module. Its read-only Morning Brief
- * route supplies persisted Phase 4 observations only. It reports the upstream
- * schedule state and never requests,
+ * route supplies persisted Phase 4 observations, the 0022 transition ledger,
+ * and 0023 restore evidence, and declares which weekly evidence kinds are not
+ * persisted so they are reported unknown rather than zero. It reports the
+ * upstream schedule state and never requests,
  * authorizes, provisions, or records a schedule-activation command. It reports
  * handoff readiness counts and never reads an eligibility row, serializes a
  * CSV byte, computes an artifact checksum, persists a version, or delivers a
@@ -24,6 +26,8 @@
 import {
   reduceWeeklyOutcome,
   WEEKLY_OUTCOME_LOSS_CATEGORIES,
+  WEEKLY_OUTCOME_MAX_EVENTS_PER_PROSPECT,
+  WEEKLY_OUTCOME_MAX_PROSPECTS,
   WEEKLY_OUTCOME_TARGET,
   WEEKLY_OUTCOME_TIME_ZONE,
   type WeeklyOutcomeAvailable,
@@ -97,6 +101,19 @@ export const MORNING_BRIEF_EFFECTS = Object.freeze({
 export type MorningBriefExclusionReason =
   (typeof MORNING_BRIEF_EXCLUSION_REASONS)[number];
 
+/**
+ * Weekly evidence kinds an adapter can declare it does not persist. A declared
+ * gap withholds the figure that kind would feed (the contact count or the loss
+ * ledger) instead of letting its absence read as zero.
+ */
+export const MORNING_BRIEF_WEEKLY_EVIDENCE_GAPS = Object.freeze([
+  "contact_links_not_persisted",
+  "loss_events_not_persisted",
+] as const);
+
+export type MorningBriefWeeklyEvidenceGap =
+  (typeof MORNING_BRIEF_WEEKLY_EVIDENCE_GAPS)[number];
+
 export type SafeReference = Readonly<{ id: string; digest: string }>;
 
 /**
@@ -142,6 +159,17 @@ export type UpstreamScheduleObservation = Readonly<{
 }>;
 
 /**
+ * Positive evidence that the upstream schedule table holds no active row at
+ * all for the Profile. It is distinct from `null`, which also covers an active
+ * row the read adapter rejected, so only this value can prove a restored
+ * target's schedule is disabled.
+ */
+export type UpstreamScheduleAbsence = Readonly<{
+  kind: "no_active_schedule_row";
+  profileId: string;
+}>;
+
+/**
  * A counts-only preview of current CRM handoff readiness. It carries no row,
  * contact value, CSV byte, artifact checksum, or delivery handle.
  */
@@ -162,6 +190,8 @@ export type HandoffReadinessPreview = Readonly<{
 
 export type WorkspaceOrigin =
   | Readonly<{ kind: "original" }>
+  /** A restore lock is open with no result: the target may be half-imported. */
+  | Readonly<{ kind: "restore_in_progress"; lockedAt: string }>
   | Readonly<{
     kind: "restored";
     restoreRef: SafeReference;
@@ -209,11 +239,13 @@ export type MorningBriefInput = Readonly<{
   scope: MorningBriefScope;
   asOf: string;
   weeklyHistory: unknown;
-  scheduleObservation: UpstreamScheduleObservation | null;
+  scheduleObservation: UpstreamScheduleObservation | UpstreamScheduleAbsence | null;
   handoffReadiness: HandoffReadinessPreview | null;
   reviewFunnel: ReviewFunnelObservation | null;
   workspaceOrigin: WorkspaceOrigin | null;
   greenfieldProfiles: readonly GreenfieldProfileNote[];
+  /** Omitted means every weekly evidence kind the history models is persisted. */
+  weeklyEvidenceGaps?: readonly MorningBriefWeeklyEvidenceGap[];
 }>;
 
 /** Reasons the whole brief cannot render. Scope and clock failures only. */
@@ -230,11 +262,14 @@ export type WeeklySectionUnavailableReason =
   | "weekly_history_absent"
   | "weekly_history_scope_mismatch"
   | "weekly_history_as_of_mismatch"
+  | "weekly_history_evidence_contradicted"
   | "weekly_outcome_unavailable";
 
 export type FunnelSectionUnavailableReason = "funnel_review_history_absent";
 
-export type RestoreSectionUnavailableReason = "workspace_origin_not_persisted";
+export type RestoreSectionUnavailableReason =
+  | "workspace_origin_not_persisted"
+  | "workspace_restore_in_progress";
 
 export type ScheduleBlockReason =
   | "schedule_observation_absent"
@@ -244,7 +279,8 @@ export type ScheduleBlockReason =
   | "schedule_upstream_authority_invalid"
   | "schedule_observation_in_future"
   | "schedule_observation_stale"
-  | "workspace_restored_pending_fresh_upstream_activation";
+  | "workspace_restored_pending_fresh_upstream_activation"
+  | "workspace_restore_in_progress";
 
 export type HandoffBlockReason =
   | "handoff_preview_absent"
@@ -289,7 +325,8 @@ type MorningBriefWeeklyPanel = Readonly<{
   newlyExportReadyProspectCount: number;
   remainingProspectsToTarget: number;
   distinctStableProspectCount: number;
-  distinctStableContactCount: number;
+  /** `null` when contact linkage is a declared evidence gap. */
+  distinctStableContactCount: number | null;
   cohort: readonly WeeklyOutcomeCohortEntry[];
   explanation: typeof MORNING_BRIEF_WEEKLY_EXPLANATION;
 }>;
@@ -373,7 +410,9 @@ export type MorningBriefAvailable = Readonly<{
   scope: MorningBriefScope;
   pilotNotice: typeof MORNING_BRIEF_PILOT_NOTICE;
   weekly: MorningBriefWeeklySection;
+  /** `null` when the weekly section is unavailable or loss facts are a declared gap. */
   losses: MorningBriefLossPanel | null;
+  weeklyEvidenceGaps: readonly MorningBriefWeeklyEvidenceGap[];
   schedule: MorningBriefSchedulePanel;
   handoff: MorningBriefHandoffPanel;
   funnel: MorningBriefFunnelPanel;
@@ -459,21 +498,31 @@ type NormalizedInput = Readonly<{
   scope: MorningBriefScope;
   asOf: string;
   weekly: WeeklySlot;
-  scheduleObservation: UpstreamScheduleObservation | null;
+  scheduleObservation: UpstreamScheduleObservation | UpstreamScheduleAbsence | null;
   handoffReadiness: HandoffReadinessPreview | null;
   reviewFunnel: ReviewFunnelObservation | null;
   workspaceOrigin: WorkspaceOrigin | null;
   greenfieldProfiles: readonly GreenfieldProfileNote[];
+  weeklyEvidenceGaps: readonly MorningBriefWeeklyEvidenceGap[];
 }>;
 
+const INPUT_KEYS = [
+  "scope", "asOf", "weeklyHistory", "scheduleObservation", "handoffReadiness",
+  "reviewFunnel", "workspaceOrigin", "greenfieldProfiles",
+] as const;
+
 function normalizeInput(value: unknown): NormalizedInput {
-  const input = exactRecord(value, [
-    "scope", "asOf", "weeklyHistory", "scheduleObservation", "handoffReadiness",
-    "reviewFunnel", "workspaceOrigin", "greenfieldProfiles",
-  ]);
+  const declaresGaps = Object.keys(ownDescriptors(value)).includes("weeklyEvidenceGaps");
+  const input = exactRecord(
+    value,
+    declaresGaps ? [...INPUT_KEYS, "weeklyEvidenceGaps"] : INPUT_KEYS,
+  );
   const scope = normalizeScope(input.scope);
   const asOf = instant(input.asOf);
-  const weekly = weeklySlot(input.weeklyHistory, scope, asOf);
+  const weeklyEvidenceGaps = declaresGaps
+    ? normalizeEvidenceGaps(input.weeklyEvidenceGaps)
+    : [];
+  const weekly = weeklySlot(input.weeklyHistory, scope, asOf, weeklyEvidenceGaps);
   const scheduleObservation = input.scheduleObservation === null
     ? null
     : normalizeScheduleObservation(input.scheduleObservation);
@@ -500,7 +549,20 @@ function normalizeInput(value: unknown): NormalizedInput {
     reviewFunnel,
     workspaceOrigin,
     greenfieldProfiles,
+    weeklyEvidenceGaps,
   });
+}
+
+function normalizeEvidenceGaps(value: unknown): readonly MorningBriefWeeklyEvidenceGap[] {
+  const gaps = denseArray(value, MORNING_BRIEF_WEEKLY_EVIDENCE_GAPS.length).map((entry) => {
+    if (typeof entry !== "string"
+      || !MORNING_BRIEF_WEEKLY_EVIDENCE_GAPS.includes(entry as MorningBriefWeeklyEvidenceGap)) {
+      malformed();
+    }
+    return entry as MorningBriefWeeklyEvidenceGap;
+  });
+  unique(gaps);
+  return sortText(gaps);
 }
 
 /**
@@ -508,12 +570,32 @@ function normalizeInput(value: unknown): NormalizedInput {
  * unreducible history makes this one section unavailable; it never becomes a
  * zero cohort and never blocks the rest of the brief.
  */
-function weeklySlot(value: unknown, scope: MorningBriefScope, asOf: string): WeeklySlot {
+function weeklySlot(
+  value: unknown,
+  scope: MorningBriefScope,
+  asOf: string,
+  gaps: readonly MorningBriefWeeklyEvidenceGap[],
+): WeeklySlot {
   if (value === null) {
     return deepFreeze({ ok: false, reason: "weekly_history_absent", weeklyReasonCodes: [] });
   }
   try {
-    return deepFreeze({ ok: true, value: reduceScopedWeeklyOutcome(value, scope, asOf) });
+    const reduced = reduceScopedWeeklyOutcome(value, scope, asOf);
+    // A kind the adapter declared unpersisted cannot also appear in the
+    // history. Read through the same own-data-descriptor path the reducer used.
+    const kinds = new Set(
+      denseArray(exactRecordAtLeast(value, ["histories"]).histories, WEEKLY_OUTCOME_MAX_PROSPECTS)
+        .flatMap((history) => denseArray(
+          exactRecordAtLeast(history, ["events"]).events,
+          WEEKLY_OUTCOME_MAX_EVENTS_PER_PROSPECT,
+        ))
+        .map((event) => exactRecordAtLeast(event, ["kind"]).kind),
+    );
+    if ((gaps.includes("loss_events_not_persisted") && kinds.has("loss"))
+      || (gaps.includes("contact_links_not_persisted") && kinds.has("contact_linked"))) {
+      throw new WeeklySectionUnavailable("weekly_history_evidence_contradicted");
+    }
+    return deepFreeze({ ok: true, value: reduced });
   } catch (error) {
     if (error instanceof WeeklySectionUnavailable) {
       return deepFreeze({
@@ -613,7 +695,17 @@ function reduceScopedWeeklyOutcome(
   return result;
 }
 
-function normalizeScheduleObservation(value: unknown): UpstreamScheduleObservation {
+function normalizeScheduleObservation(
+  value: unknown,
+): UpstreamScheduleObservation | UpstreamScheduleAbsence {
+  if (Object.keys(ownDescriptors(value)).includes("kind")) {
+    const absence = exactRecord(value, ["kind", "profileId"]);
+    if (absence.kind !== "no_active_schedule_row") malformed();
+    return deepFreeze({
+      kind: "no_active_schedule_row",
+      profileId: stableId(absence.profileId),
+    });
+  }
   const input = exactRecord(value, [
     "observationRef", "profileId", "configurationDigest", "cadence", "localTime",
     "timeZone", "upstreamAuthority", "readinessRef", "state", "observedAt",
@@ -669,6 +761,12 @@ function normalizeWorkspaceOrigin(value: unknown, asOf: string): WorkspaceOrigin
     exactRecord(value, ["kind"]);
     return deepFreeze({ kind: "original" });
   }
+  if (discriminant.kind === "restore_in_progress") {
+    const inProgress = exactRecord(value, ["kind", "lockedAt"]);
+    const lockedAt = instant(inProgress.lockedAt);
+    if (Date.parse(lockedAt) > Date.parse(asOf)) malformed();
+    return deepFreeze({ kind: "restore_in_progress", lockedAt });
+  }
   if (discriminant.kind !== "restored") malformed();
   const input = exactRecord(value, [
     "kind", "restoreRef", "restoredAt", "freshUpstreamActivation",
@@ -710,14 +808,18 @@ function project(input: NormalizedInput): MorningBriefAvailable {
   const origin = input.workspaceOrigin;
   const restorePending = origin !== null && origin.kind === "restored"
     && !hasFreshUpstreamActivation(origin, input.asOf);
+  const restoreInProgress = origin !== null && origin.kind === "restore_in_progress";
   return deepFreeze({
     status: "available",
     generatedAt: input.asOf,
     scope: input.scope,
     pilotNotice: MORNING_BRIEF_PILOT_NOTICE,
-    weekly: projectWeekly(input.weekly),
-    losses: input.weekly.ok ? projectLosses(input.weekly.value) : null,
-    schedule: projectSchedule(input, restorePending),
+    weekly: projectWeekly(input.weekly, input.weeklyEvidenceGaps),
+    losses: input.weekly.ok && !input.weeklyEvidenceGaps.includes("loss_events_not_persisted")
+      ? projectLosses(input.weekly.value)
+      : null,
+    weeklyEvidenceGaps: input.weeklyEvidenceGaps,
+    schedule: projectSchedule(input, restorePending, restoreInProgress),
     handoff: projectHandoff(input),
     funnel: projectFunnel(input.reviewFunnel),
     workspace: projectRestore(origin, restorePending),
@@ -765,22 +867,22 @@ function projectFunnel(observation: ReviewFunnelObservation | null): MorningBrie
 }
 
 /**
- * Workspace origin is not persisted anywhere in the checked schema. Absent
- * input reports unavailable and keeps the restored-effects fence closed rather
- * than assuming an original workspace.
+ * Absent origin input, or a restore still in progress, reports unavailable and
+ * keeps the restored-effects fence closed rather than assuming an original
+ * workspace.
  */
 function projectRestore(
   origin: WorkspaceOrigin | null,
   restorePending: boolean,
 ): MorningBriefRestorePanel {
-  if (origin === null) {
+  if (origin === null || origin.kind === "restore_in_progress") {
     return deepFreeze({
       status: "unavailable",
       origin: null,
       restoreRef: null,
       restoredEffectsFenced: true,
       freshUpstreamActivationRef: null,
-      reasonCodes: ["workspace_origin_not_persisted"],
+      reasonCodes: [origin === null ? "workspace_origin_not_persisted" : "workspace_restore_in_progress"],
     });
   }
   return deepFreeze({
@@ -805,7 +907,10 @@ function hasFreshUpstreamActivation(
   return activatedAt > Date.parse(origin.restoredAt) && activatedAt <= Date.parse(asOf);
 }
 
-function projectWeekly(slot: WeeklySlot): MorningBriefWeeklySection {
+function projectWeekly(
+  slot: WeeklySlot,
+  gaps: readonly MorningBriefWeeklyEvidenceGap[],
+): MorningBriefWeeklySection {
   if (!slot.ok) {
     return deepFreeze({
       status: "unavailable",
@@ -835,7 +940,9 @@ function projectWeekly(slot: WeeklySlot): MorningBriefWeeklySection {
     newlyExportReadyProspectCount: weekly.counts.newlyExportReadyProspectCount,
     remainingProspectsToTarget: weekly.counts.remainingProspectsToTarget,
     distinctStableProspectCount: weekly.counts.distinctStableProspectCount,
-    distinctStableContactCount: weekly.counts.distinctStableContactCount,
+    distinctStableContactCount: gaps.includes("contact_links_not_persisted")
+      ? null
+      : weekly.counts.distinctStableContactCount,
     cohort: weekly.cohort,
     explanation: MORNING_BRIEF_WEEKLY_EXPLANATION,
   });
@@ -860,13 +967,33 @@ function projectLosses(weekly: WeeklyOutcomeAvailable): MorningBriefLossPanel {
 function projectSchedule(
   input: NormalizedInput,
   restorePending: boolean,
+  restoreInProgress: boolean,
 ): MorningBriefSchedulePanel {
   const observation = input.scheduleObservation;
   const reasonCodes: ScheduleBlockReason[] = [];
   if (restorePending) reasonCodes.push("workspace_restored_pending_fresh_upstream_activation");
-  if (observation === null) {
+  // A target still being restored may be half-imported, so no schedule
+  // evidence read from it can be reported as a state.
+  if (restoreInProgress) reasonCodes.push("workspace_restore_in_progress");
+  if (observation === null || "kind" in observation) {
     reasonCodes.push("schedule_observation_absent");
-    return schedulePanel("unknown", null, null, null, null, reasonCodes);
+    if (observation !== null && observation.profileId !== input.scope.profileId) {
+      reasonCodes.push("schedule_scope_mismatch");
+    }
+    const sorted = sortText(reasonCodes);
+    if (restoreInProgress || reasonCodes.includes("schedule_scope_mismatch")) {
+      return schedulePanel("blocked", null, null, null, null, sorted);
+    }
+    // Only positive evidence that no active row exists proves a restored
+    // target disabled pending Phase 4. `null` also covers an active row the
+    // read adapter rejected, so it stays unknown.
+    if (restorePending && observation !== null) {
+      return schedulePanel(
+        "disabled_pending_fresh_upstream_activation", "disabled",
+        null, null, null, sorted,
+      );
+    }
+    return schedulePanel("unknown", null, null, null, null, sorted);
   }
   if (observation.cadence !== MORNING_BRIEF_SCHEDULE_DEFINITION.cadence
     || observation.localTime !== MORNING_BRIEF_SCHEDULE_DEFINITION.localTime
