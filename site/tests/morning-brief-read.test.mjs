@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyPhase4Migrations, createD1Fixture } from "./helpers/d1.mjs";
+import { createHash } from "node:crypto";
+import { applyMigrationsThrough, createD1Fixture } from "./helpers/d1.mjs";
+
+// The read composes the 0022 transition ledger and the 0023 restore evidence,
+// so every fixture carries the canonical chain through 0023.
+const applyPhase4Migrations = (database) => applyMigrationsThrough(database, "0023_handoff_recovery.sql");
 
 const AS_OF = "2026-03-16T03:59:59.999Z";
 const WINDOW_START = "2026-03-09T05:00:00.000Z";
@@ -116,7 +121,7 @@ function hexOf(key, salt) {
   return out;
 }
 
-test("reads scope, schedule and review funnel from persisted rows while weekly, handoff and restore stay unavailable", async () => {
+test("reads scope, schedule, review funnel and workspace origin from persisted rows while weekly and handoff stay unavailable", async () => {
   const fixture = await createD1Fixture("morning-brief-read-happy");
   try {
     await applyPhase4Migrations(fixture.database);
@@ -163,9 +168,11 @@ test("reads scope, schedule and review funnel from persisted rows while weekly, 
 
     assert.equal(brief.handoff.status, "blocked");
     assert.equal(brief.handoff.counts, null);
-    assert.equal(brief.workspace.status, "unavailable");
-    assert.deepEqual(brief.workspace.reasonCodes, ["workspace_origin_not_persisted"]);
-    assert.equal(brief.workspace.restoredEffectsFenced, true);
+    // 0023 persists restore results; with none applied the origin is a fact.
+    assert.deepEqual(brief.workspace, {
+      status: "current", origin: "original", restoreRef: null,
+      restoredEffectsFenced: false, freshUpstreamActivationRef: null, reasonCodes: [],
+    });
 
     assert.deepEqual(brief.greenfield.profiles, [], "inactive sibling profiles are excluded");
     assert.ok(Object.values(brief.authority).every((v) => v === false));
@@ -458,8 +465,12 @@ test("multi-profile reads sort active hierarchy paths and omit duplicate, inacti
       prepare(sql) {
         return {
           bind() {
-            if (/SELECT w\.id AS workspace_id\s+FROM workspaces/u.test(sql)) {
-              return { first: async () => ({ workspace_id: "workspace-owned" }) };
+            if (/SELECT w\.id AS workspace_id, w\.owner_subject AS owner_subject\s+FROM workspaces/u.test(sql)) {
+              return { first: async () => ({ workspace_id: "workspace-owned", owner_subject: "owner-subject" }) };
+            }
+            // The read-only recovery reader re-admits the owner on every call.
+            if (/^SELECT id FROM workspaces WHERE id=\? AND owner_subject=\?/u.test(sql)) {
+              return { first: async () => ({ id: "workspace-owned" }) };
             }
             if (/JOIN workspace_companies/u.test(sql)) {
               return { all: async () => ({ results: scopeRows }) };
@@ -468,7 +479,7 @@ test("multi-profile reads sort active hierarchy paths and omit duplicate, inacti
             if (/GROUP BY prd\.decision/u.test(sql)) return { all: async () => ({ results: [] }) };
             if (/COUNT\(DISTINCT prd\.prospect_id\)/u.test(sql)) return { first: async () => ({ prospect_count: 0 }) };
             if (/FROM prospect_cooldowns/u.test(sql)) return { first: async () => ({ cooldown_count: 0 }) };
-            return { all: async () => ({ results: [] }) };
+            return { first: async () => null, all: async () => ({ results: [] }) };
           },
         };
       },
@@ -591,6 +602,312 @@ test("a schedule whose authority command belongs to another workspace never surf
     assert.equal(result.profiles[0].schedule.reportedState, null);
     assert.equal(result.profiles[0].schedule.readinessRef, null);
     assert.deepEqual(result.profiles[0].schedule.reasonCodes, ["schedule_observation_absent"]);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+// -- 07-05: persisted weekly history and restore origin ----------------------
+
+const STATES_TO_EXPORT = ["Candidate", "Qualified", "Approved", "ContactReady", "PackageReady", "ExportReady"];
+
+function sha(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/** Appends one contiguous immutable 0022 stream; returns the inserted rows. */
+async function seedTransitions(database, workspaceId, prospectId, steps) {
+  const rows = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const { state, at } = steps[index];
+    const sequence = index + 1;
+    const row = {
+      id: `pte-${prospectId}-${sequence}`,
+      operationDigest: sha(`operation:${workspaceId}:${prospectId}:${sequence}`),
+      occurredAt: at,
+    };
+    await run(
+      database,
+      `INSERT INTO prospect_transition_events
+        (id, workspace_id, prospect_id, sequence, event_kind, prior_state, new_state,
+         expected_prospect_revision, actor_kind, actor_reference_digest, source_kind, reason_code,
+         evidence_reference_id, evidence_reference_digest, idempotency_key, operation_digest,
+         occurred_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'application', ?, 'qualification', 'synthetic', ?, ?, ?, ?, ?, ?)`,
+      row.id, workspaceId, prospectId, sequence,
+      sequence === 1 ? "prospect_created" : "state_transition",
+      sequence === 1 ? null : steps[index - 1].state, state,
+      sha(`actor:${prospectId}`), `evidence-${prospectId}-${sequence}`, sha(`evidence:${prospectId}:${sequence}`),
+      `idem-pte-${prospectId}-${sequence}`, row.operationDigest, at, at,
+    );
+    rows.push(row);
+  }
+  return rows;
+}
+
+function exportSteps(exportAt, extra = []) {
+  const base = Date.UTC(2026, 1, 1, 5);
+  return [
+    ...STATES_TO_EXPORT.slice(0, -1).map((state, index) => ({ state, at: base + index * 86_400_000 })),
+    { state: "ExportReady", at: exportAt },
+    ...extra,
+  ];
+}
+
+/** Records every prepared statement and refuses any batch or exec seam. */
+function recordingDatabase(database, statements) {
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === "prepare") return (sql) => { statements.push(sql); return target.prepare(sql); };
+      if (property === "batch" || property === "exec") return () => { throw new Error(`write seam ${String(property)} used`); };
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+const EVIDENCE_TABLES = [
+  "prospect_transition_events", "handoff_recovery_commands", "handoff_recovery_audit_events",
+  "handoff_schedule_observations", "handoff_weekly_reports", "handoff_weekly_report_entries",
+  "recovery_restore_results", "profile_configuration_activations", "prospecting_schedules", "audit_events",
+];
+
+async function evidenceCounts(database) {
+  const counts = {};
+  for (const table of EVIDENCE_TABLES) {
+    counts[table] = Number((await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count);
+  }
+  const schedule = await database.prepare("SELECT COALESCE(SUM(revision), 0) AS revisions FROM prospecting_schedules").first();
+  counts.scheduleRevisions = Number(schedule.revisions);
+  return counts;
+}
+
+test("the weekly cohort is projected from persisted first Export-ready transitions with explicit evidence gaps and zero writes", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-weekly-history");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "main");
+    await seedSchedule(fixture.database, ctx);
+    await seedOffer(fixture.database, ctx);
+    const ws = "workspace-main";
+    const fresh = await seedReviewedProspect(fixture.database, ctx, "fresh", "approve", Date.UTC(2026, 2, 10, 12));
+    const earlier = await seedReviewedProspect(fixture.database, ctx, "earlier", "approve", Date.UTC(2026, 2, 2, 12));
+    const pending = await seedReviewedProspect(fixture.database, ctx, "pending", "approve", Date.UTC(2026, 2, 11, 12));
+    const late = await seedReviewedProspect(fixture.database, ctx, "late", "approve", Date.UTC(2026, 2, 12, 12));
+
+    // First-ever ExportReady inside the Toronto week (2026-03-10 10:00 EDT).
+    const freshRows = await seedTransitions(fixture.database, ws, fresh("prospect"), exportSteps(Date.UTC(2026, 2, 10, 14)));
+    // First ExportReady in the previous week, then reversal and re-export this week.
+    await seedTransitions(fixture.database, ws, earlier("prospect"), exportSteps(Date.UTC(2026, 2, 3, 15), [
+      { state: "NeedsReview", at: Date.UTC(2026, 2, 10, 12) },
+      { state: "ExportReady", at: Date.UTC(2026, 2, 11, 12) },
+    ]));
+    // ContactReady never implies ExportReady.
+    await seedTransitions(fixture.database, ws, pending("prospect"), exportSteps(0).slice(0, 4));
+    // An ExportReady after the evaluation instant is not yet history.
+    await seedTransitions(fixture.database, ws, late("prospect"), exportSteps(Date.parse(AS_OF) + 3_600_000));
+
+    const before = await evidenceCounts(fixture.database);
+    const statements = [];
+    const result = await read.readMorningBrief(
+      recordingDatabase(fixture.database, statements),
+      { subject: "owner-main" },
+      { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
+    );
+
+    assert.equal(result.status, "available");
+    const brief = result.profiles[0];
+    assert.equal(brief.weekly.status, "current");
+    assert.equal(brief.weekly.week.start.localDate, "2026-03-09");
+    assert.equal(brief.weekly.newlyExportReadyProspectCount, 1);
+    assert.equal(brief.weekly.remainingProspectsToTarget, 6);
+    assert.equal(brief.weekly.distinctStableProspectCount, 4);
+    assert.deepEqual(brief.weekly.cohort, [{
+      prospectId: fresh("prospect"),
+      firstExportReadyEventId: freshRows[5].id,
+      occurredAt: "2026-03-10T14:00:00.000Z",
+      localDate: "2026-03-10",
+      utcOffsetMinutes: -240,
+      auditRef: { id: freshRows[5].id, digest: freshRows[5].operationDigest },
+    }]);
+    // Contact linkage and loss facts are not persisted: unknown, never zero.
+    assert.equal(brief.weekly.distinctStableContactCount, null);
+    assert.equal(brief.losses, null);
+    assert.deepEqual(brief.weeklyEvidenceGaps, ["contact_links_not_persisted", "loss_events_not_persisted"]);
+    // Review funnel stays a separate Phase 4 fact.
+    assert.equal(brief.funnel.countsExportReadyOutcomes, false);
+
+    assert.ok(statements.length > 0);
+    for (const sql of statements) assert.match(sql, /^\s*SELECT\b/iu, sql);
+    assert.deepEqual(await evidenceCounts(fixture.database), before, "the brief read wrote nothing");
+    assert.ok(Object.values(brief.effects).every((value) => value === 0));
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("another workspace's transition history never enters this owner's weekly cohort", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-weekly-scope");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const owned = await seedWorkspace(fixture.database, "owned");
+    await seedOffer(fixture.database, owned);
+    const foreign = await seedWorkspace(fixture.database, "foreign");
+    await seedOffer(fixture.database, foreign);
+    const mine = await seedReviewedProspect(fixture.database, owned, "mine", "approve", Date.UTC(2026, 2, 10, 12));
+    const theirs = await seedReviewedProspect(fixture.database, foreign, "theirs", "approve", Date.UTC(2026, 2, 10, 12));
+    await seedTransitions(fixture.database, "workspace-owned", mine("prospect"), exportSteps(Date.UTC(2026, 2, 12, 14)));
+    await seedTransitions(fixture.database, "workspace-foreign", theirs("prospect"), exportSteps(Date.UTC(2026, 2, 11, 14)));
+
+    const result = await read.readMorningBrief(
+      fixture.database, { subject: "owner-owned" },
+      { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
+    );
+    const brief = result.profiles[0];
+    assert.equal(brief.weekly.status, "current");
+    assert.deepEqual(brief.weekly.cohort.map((entry) => entry.prospectId), [mine("prospect")]);
+    assert.equal(brief.weekly.distinctStableProspectCount, 1);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a profile with no Prospects reports a complete, empty weekly cohort", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-weekly-empty");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    await seedWorkspace(fixture.database, "empty");
+    const result = await read.readMorningBrief(
+      fixture.database, { subject: "owner-empty" },
+      { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END },
+    );
+    const brief = result.profiles[0];
+    assert.equal(brief.weekly.status, "current");
+    assert.equal(brief.weekly.newlyExportReadyProspectCount, 0);
+    assert.equal(brief.weekly.remainingProspectsToTarget, 7);
+    assert.deepEqual(brief.weekly.cohort, []);
+    assert.equal(brief.losses, null, "an empty history still cannot report zero losses it never records");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+async function seedActivation(database, ctx, key, createdAt) {
+  const { id } = ctx;
+  const ws = id("workspace");
+  await run(database, "INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, subject_type, subject_id, detail_json, created_at) VALUES (?, ?, 'owner', 'owner', 'profile.activate', 'profile', ?, '{}', ?)", `audit-${key}`, ws, id("profile"), createdAt);
+  for (const kind of ["candidate", "activation"]) {
+    await run(database, "INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) VALUES (?, ?, ?, ?, 1, 'profile_activation', ?, ?, 1, 'profile', ?, 'accepted')", `cmd-${kind}-${key}`, ws, createdAt, createdAt, `k-${kind}-${key}`, sha(`${kind}:${key}`), id("profile"));
+  }
+  // A Phase 4 candidate names an inactive profile configuration of its own.
+  await run(database, "INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES (?, ?, ?, ?, 1, ?, 'profile', ?, 'profile_effective', ?, '{}', 0)", `config-${key}`, ws, createdAt, createdAt, id("company"), id("profile"), sha(`config:${key}`));
+  await run(database, "INSERT INTO profile_configuration_candidates (id, workspace_id, created_at, updated_at, revision, profile_id, configuration_id, predecessor_configuration_id, authority_command_id, audit_event_id, candidate_digest, status) VALUES (?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?, 'candidate')", `candidate-${key}`, ws, createdAt, createdAt, id("profile"), `config-${key}`, `cmd-candidate-${key}`, `audit-${key}`, sha(`candidate-digest:${key}`));
+  const operationDigest = sha(`activation-digest:${key}`);
+  await run(database, "INSERT INTO profile_configuration_activations (id, workspace_id, profile_id, candidate_id, previous_configuration_id, configuration_id, authority_command_id, audit_event_id, operation_digest, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)", `activation-${key}`, ws, id("profile"), `candidate-${key}`, `config-${key}`, `cmd-activation-${key}`, `audit-${key}`, operationDigest, createdAt);
+  return { id: `activation-${key}`, digest: operationDigest };
+}
+
+async function seedAppliedRestore(database, ctx, completedAt) {
+  const { id } = ctx;
+  const ws = id("workspace");
+  const owner = (await database.prepare("SELECT owner_subject FROM workspaces WHERE id=?").bind(ws).first()).owner_subject;
+  const command = (key, kind) => database.prepare("INSERT INTO handoff_recovery_commands (id,workspace_id,owner_subject,command_kind,idempotency_key,operation_digest,expected_revision,result_kind,result_id,created_at) VALUES (?,?,?,?,?,?,0,'synthetic',?,?)")
+    .bind(`cmd-${key}`, ws, owner, kind, `key-${key}`, sha(`restore-command:${key}`), key, completedAt);
+  const resultDigest = sha("restore-result");
+  await database.batch([
+    command("dry", "dry_run.record"),
+    command("lock", "restore_lock.acquire"),
+    database.prepare("INSERT INTO recovery_dry_runs (id,workspace_id,command_id,source_workspace_id,archive_manifest_digest,archive_ciphertext_sha256,archive_schema_version,outcome,reason_code,nonce_digest,expires_at,target_state_digest,invariant_digest,dry_run_digest,created_at) VALUES ('dry-run',?,'cmd-dry','source-workspace',?,?,'prospector/portable-workspace-schema/v1','accepted','verified',?,?,?,?,?,?)")
+      .bind(ws, sha("m"), sha("c"), sha("n"), completedAt + 60_000, sha("t"), sha("i"), sha("d"), completedAt),
+    database.prepare("INSERT INTO recovery_restore_locks (id,workspace_id,dry_run_id,command_id,nonce_digest,acquired_at,created_at) VALUES ('restore-lock',?,'dry-run','cmd-lock',?,?,?)").bind(ws, sha("n"), completedAt, completedAt),
+    command("result", "restore_result.record"),
+    database.prepare("INSERT INTO recovery_restore_results (id,workspace_id,lock_id,command_id,outcome,reason_code,restored_record_count,restored_object_count,result_digest,schedules_enabled,effects_enabled,completed_at,created_at) VALUES ('restore-result',?,'restore-lock','cmd-result','applied','restored',1,1,?,0,0,?,?)")
+      .bind(ws, resultDigest, completedAt, completedAt),
+  ]);
+  return { id: "restore-result", digest: resultDigest };
+}
+
+test("a restored workspace stays DisabledPendingFreshUpstreamActivation until a fresh Phase 4 activation, read with zero writes", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-restored");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "main");
+    // The source carried an activation and the restored target arrives with schedules disabled.
+    await seedActivation(fixture.database, ctx, "source", Date.UTC(2026, 2, 1, 12));
+    await seedSchedule(fixture.database, ctx, { active: 0, executionState: "paused" });
+    const restoreRef = await seedAppliedRestore(fixture.database, ctx, Date.UTC(2026, 2, 15, 12));
+    const options = { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END };
+
+    const before = await evidenceCounts(fixture.database);
+    const statements = [];
+    const pending = (await read.readMorningBrief(recordingDatabase(fixture.database, statements), { subject: "owner-main" }, options)).profiles[0];
+    assert.deepEqual(pending.workspace, {
+      status: "current", origin: "restored", restoreRef,
+      restoredEffectsFenced: true, freshUpstreamActivationRef: null, reasonCodes: [],
+    });
+    assert.equal(pending.schedule.status, "disabled_pending_fresh_upstream_activation");
+    assert.equal(pending.schedule.reportedState, "disabled");
+    assert.ok(pending.schedule.reasonCodes.includes("workspace_restored_pending_fresh_upstream_activation"));
+    assert.equal(pending.schedule.changeableFromThisSurface, false);
+    for (const sql of statements) assert.match(sql, /^\s*SELECT\b/iu, sql);
+    assert.deepEqual(await evidenceCounts(fixture.database), before, "the brief read wrote nothing");
+
+    // Only Phase 4 can change this: a fresh activation after the restore plus
+    // its re-enabled schedule is then reported, never caused, by the brief.
+    const activationRef = await seedActivation(fixture.database, ctx, "fresh", Date.UTC(2026, 2, 15, 18));
+    await run(fixture.database, "UPDATE prospecting_schedules SET active=1, execution_state='active', revision=revision+1, updated_at=? WHERE id=?", Date.UTC(2026, 2, 16, 3), ctx.id("schedule"));
+    const activated = (await read.readMorningBrief(fixture.database, { subject: "owner-main" }, options)).profiles[0];
+    assert.equal(activated.workspace.origin, "restored");
+    assert.deepEqual(activated.workspace.freshUpstreamActivationRef, activationRef);
+    assert.equal(activated.schedule.status, "current");
+    assert.equal(activated.schedule.reportedState, "enabled");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a restore completed after the evaluation instant is not yet the workspace origin", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-restore-future");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "main");
+    await seedAppliedRestore(fixture.database, ctx, Date.parse(AS_OF) + 60_000);
+    const brief = (await read.readMorningBrief(fixture.database, { subject: "owner-main" }, {
+      asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END,
+    })).profiles[0];
+    assert.equal(brief.status, "available");
+    assert.equal(brief.workspace.origin, "original");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("the brief composes only the read-only handoff recovery reader", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../domain/morning-brief-read.ts", import.meta.url), "utf8");
+  assert.match(source, /\bcreateD1HandoffRecoveryReader\b/u);
+  assert.doesNotMatch(source, /\bcreateD1HandoffRecoveryRepository\b/u);
+  assert.doesNotMatch(source, /\.record[A-Z]\w*\(|acquireRestoreLock/u);
+
+  const fixture = await createD1Fixture("morning-brief-read-reader-surface");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    await seedWorkspace(fixture.database, "main");
+    const recovery = await fixture.vite.ssrLoadModule(new URL("../domain/handoff-recovery-repository.ts", import.meta.url).pathname);
+    const reader = recovery.createD1HandoffRecoveryReader(fixture.database, { workspaceId: "workspace-main", ownerSubject: "owner-main" });
+    assert.equal(Object.isFrozen(reader), true);
+    const methods = Object.keys(reader).sort();
+    assert.ok(methods.length > 0);
+    for (const method of methods) assert.match(method, /^read[A-Z]/u, method);
+    await assert.rejects(
+      recovery.createD1HandoffRecoveryReader(fixture.database, { workspaceId: "workspace-main", ownerSubject: "someone-else" }).readRestoreOrigin({ throughAt: Date.parse(AS_OF) }),
+      /not_admitted/u,
+    );
   } finally {
     await fixture.dispose();
   }

@@ -838,3 +838,94 @@ test("the module composes no port, provider, effect, or preparation dependency",
     .map((match) => match[1]);
   assert.deepEqual(imports, ["./weekly-outcome"]);
 });
+
+// -- 07-05 Task 2: persisted-history evidence gaps and restored schedule state --
+
+const EVIDENCE_GAPS = ["contact_links_not_persisted", "loss_events_not_persisted"];
+
+function transitionOnlyHistories() {
+  return [
+    history("prospect-one", exportPath("2026-03-10T14:00:00.000Z")),
+    history("prospect-two", exportPath("2026-03-12T14:00:00.000Z")),
+    history("prospect-lost", [
+      { kind: "prospect_created", occurredAt: "2026-01-05T05:00:00.000Z", initialState: "Candidate" },
+      { kind: "state_transition", occurredAt: "2026-03-11T14:00:00.000Z", fromState: "Candidate", toState: "Rejected" },
+    ]),
+  ];
+}
+
+test("declared evidence gaps withhold the loss ledger and contact count instead of reporting zero", async () => {
+  const { result } = await compose({ weeklyHistory: { histories: transitionOnlyHistories() } }, {
+    transform: (value) => ({ ...value, weeklyEvidenceGaps: [...EVIDENCE_GAPS].reverse() }),
+  });
+  assert.equal(result.status, "available");
+  assert.equal(result.weekly.status, "current");
+  // The cohort still comes from first Export-ready transitions alone.
+  assert.equal(result.weekly.newlyExportReadyProspectCount, 2);
+  assert.equal(result.weekly.remainingProspectsToTarget, 5);
+  assert.equal(result.weekly.distinctStableProspectCount, 3);
+  // Unpersisted kinds are reported as unknown, never as a zero result.
+  assert.equal(result.weekly.distinctStableContactCount, null);
+  assert.equal(result.losses, null);
+  assert.deepEqual(result.weeklyEvidenceGaps, EVIDENCE_GAPS);
+  assert.equal(Object.isFrozen(result.weeklyEvidenceGaps), true);
+});
+
+test("without declared gaps the brief keeps its ten-category ledger and reports no gap", async () => {
+  const { result } = await compose();
+  assert.equal(result.status, "available");
+  assert.deepEqual(result.weeklyEvidenceGaps, []);
+  assert.deepEqual(Object.keys(result.losses), LOSS_CATEGORIES);
+  assert.equal(result.weekly.distinctStableContactCount, 3);
+});
+
+test("a history that contradicts a declared gap makes only the weekly section unavailable", async () => {
+  // The default histories carry loss and contact events, so declaring them
+  // unpersisted is contradictory evidence and the cohort is withheld.
+  const { result } = await compose({}, {
+    transform: (value) => ({ ...value, weeklyEvidenceGaps: EVIDENCE_GAPS }),
+  });
+  assert.equal(result.status, "available");
+  assert.equal(result.weekly.status, "unavailable");
+  assert.deepEqual(result.weekly.reasonCodes, ["weekly_history_evidence_contradicted"]);
+  assert.equal(result.weekly.newlyExportReadyProspectCount, null);
+  assert.equal(result.losses, null);
+  assert.equal(result.schedule.status, "current", "the rest of the brief still renders");
+});
+
+test("unknown, duplicate, or non-array evidence gaps fail the brief closed", async () => {
+  for (const gaps of [["exports_not_persisted"], ["loss_events_not_persisted", "loss_events_not_persisted"], "loss_events_not_persisted", null]) {
+    const { result } = await compose({ weeklyHistory: { histories: transitionOnlyHistories() } }, {
+      transform: (value) => ({ ...value, weeklyEvidenceGaps: gaps }),
+    });
+    assert.equal(result.status, "unavailable", JSON.stringify(gaps));
+    assert.deepEqual(result.reasonCodes, ["morning_brief_input_malformed"], JSON.stringify(gaps));
+  }
+});
+
+test("a restored workspace with no active upstream schedule row reports disabled pending fresh activation, not unknown", async () => {
+  const { result } = await compose({
+    scheduleObservation: null,
+    workspaceOrigin: {
+      kind: "restored",
+      restoreRef: reference("restore-1"),
+      restoredAt: "2026-03-15T12:00:00.000Z",
+      freshUpstreamActivation: null,
+    },
+  });
+  assert.equal(result.status, "available");
+  assert.equal(result.schedule.status, "disabled_pending_fresh_upstream_activation");
+  assert.equal(result.schedule.reportedState, "disabled");
+  assert.deepEqual(result.schedule.reasonCodes, [
+    "schedule_observation_absent",
+    "workspace_restored_pending_fresh_upstream_activation",
+  ]);
+  assert.equal(result.schedule.observationRef, null);
+  assert.equal(result.schedule.changeableFromThisSurface, false);
+  assert.equal(result.effects.schedulerCalls, 0);
+
+  // An original workspace with no schedule row stays a neutral unknown.
+  const original = await compose({ scheduleObservation: null });
+  assert.equal(original.result.schedule.status, "unknown");
+  assert.equal(original.result.schedule.reportedState, null);
+});
