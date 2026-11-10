@@ -405,7 +405,15 @@ export function createD1HandoffRecoveryRepository(database: D1Database, scopeVal
         return exclusion;
       }).sort((left, right) => compareTuple([left.prospectId, left.contactId ?? "", left.tombstoneId], [right.prospectId, right.contactId ?? "", right.tombstoneId]));
       if (new Set(exclusions.map((exclusion) => `${exclusion.prospectId}\u0000${exclusion.contactId ?? ""}\u0000${exclusion.tombstoneId}`)).size !== exclusions.length) throw conflict("duplicate_exclusion");
+      // A frozen snapshot is self-consistent: a Prospect-wide exclusion (null
+      // Contact) or a Contact exclusion refuses any contactable row it covers.
+      // The suppression decision stays upstream; this only refuses evidence
+      // that contradicts itself.
+      const excluded = new Set(exclusions.map((exclusion) => `${exclusion.prospectId}\u0000${exclusion.contactId ?? ""}`));
+      if (rows.some((row) => excluded.has(`${row.prospectId}\u0000`) || excluded.has(`${row.prospectId}\u0000${row.contactId}`))) throw conflict("suppressed_export_row");
       await admitted();
+      const selectedAt = now();
+      await requireRowPackageLineage(database, scope.workspaceId, rows, selectedAt);
       const tombstoneIds = [...new Set(exclusions.map((exclusion) => exclusion.tombstoneId))];
       const scopeKinds = new Map<string, string>();
       for (let offset = 0; offset < tombstoneIds.length; offset += 100) {
@@ -443,7 +451,7 @@ export function createD1HandoffRecoveryRepository(database: D1Database, scopeVal
           if ((await readFenceCount(database, scope.workspaceId)) !== input.suppressionFenceCount) throw conflict("suppression_fence_stale");
         },
         statements: (commandId) => {
-          const at = now();
+          const at = selectedAt;
           return [
             database.prepare(
               `INSERT INTO handoff_export_snapshots (
@@ -766,6 +774,8 @@ function replayOrConflict(row: CommandRow, plan: WritePlan): HandoffRecoveryWrit
 function classify(error: unknown): string {
   const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : "";
   if (message.includes("suppression fence")) return "suppression_fence_stale";
+  if (message.includes("contradicts a suppression exclusion") || message.includes("contradicts a contactable row")) return "suppressed_export_row";
+  if (message.includes("in-scope package lineage")) return "package_approval_unavailable";
   if (message.includes("active or applied restore")) return "restore_lock_unavailable";
   if (message.includes("current accepted dry run")) return "dry_run_not_accepted";
   if (message.includes("schedules disabled")) return "schedules_must_start_disabled";
@@ -810,6 +820,38 @@ async function readFirstExportReady(database: D1Database, workspaceId: string, w
   ).bind(workspaceId, windowStartAt, windowEndAt, MAX_COHORT + 1));
   if (rows.length > MAX_COHORT) throw conflict("cohort_too_large");
   return Object.freeze(rows.map((row) => Object.freeze({ prospectId: row.prospect_id, transitionEventId: row.id, sequence: Number(row.sequence), occurredAt: Number(row.occurred_at) })));
+}
+
+/**
+ * Every contactable row must cite an in-scope, unrevoked, unexpired package
+ * approval for its own Prospect and Contact, and one of that version's
+ * selected contact points. Package decisions stay upstream; this refuses a
+ * row the upstream lineage no longer supports. 0023 repeats it below.
+ */
+async function requireRowPackageLineage(database: D1Database, workspaceId: string, rows: readonly ExportSnapshotRowInput[], at: number) {
+  const approvalIds = [...new Set(rows.map((row) => row.packageApprovalId))];
+  const lineage = new Map<string, { version_id: string; prospect_id: string; contact_id: string; expires_at: number; revoked: number; selected_json: string | null }>();
+  for (let offset = 0; offset < approvalIds.length; offset += 100) {
+    const chunk = approvalIds.slice(offset, offset + 100);
+    for (const row of await all<{ approval_id: string; version_id: string; prospect_id: string; contact_id: string; expires_at: number; revoked: number; selected_json: string | null }>(database.prepare(
+      `SELECT approval.id approval_id,version.id version_id,package.prospect_id,package.contact_id,approval.expires_at,
+              EXISTS (SELECT 1 FROM outreach_approval_revocations revocation WHERE revocation.package_approval_id=approval.id AND revocation.workspace_id=approval.workspace_id) revoked,
+              json_extract(version.snapshot_json,'$.selectedContactPointDigests') selected_json
+       FROM outreach_package_approvals approval
+       JOIN outreach_package_versions version ON version.id=approval.package_version_id AND version.workspace_id=approval.workspace_id
+       JOIN outreach_packages package ON package.id=version.package_id AND package.workspace_id=version.workspace_id
+       WHERE approval.workspace_id=? AND approval.id IN (${placeholders(chunk.length)})`,
+    ).bind(workspaceId, ...chunk))) lineage.set(row.approval_id, row);
+  }
+  for (const row of rows) {
+    const approval = lineage.get(row.packageApprovalId);
+    if (
+      !approval || approval.version_id !== row.packageVersionId || approval.prospect_id !== row.prospectId || approval.contact_id !== row.contactId
+      || Number(approval.revoked) === 1 || !(Number(approval.expires_at) > at)
+    ) throw conflict("package_approval_unavailable");
+    const selected: unknown = approval.selected_json === null ? [] : JSON.parse(approval.selected_json);
+    if (!Array.isArray(selected) || !selected.includes(row.contactPointDigest)) throw conflict("contact_point_not_selected");
+  }
 }
 
 async function readFenceCount(database: D1Database, workspaceId: string) {

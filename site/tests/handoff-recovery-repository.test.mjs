@@ -422,7 +422,7 @@ test("export snapshots persist frozen rows behind a transactional suppression fe
   const exclusion = await database.prepare("SELECT * FROM handoff_suppression_exclusions WHERE snapshot_id=?").bind(suppressed.id).first();
   assert.equal(exclusion.tombstone_id, tombstone.id);
   assert.equal(exclusion.scope_kind, "exact_email");
-  assert.equal(await count(database, "handoff_export_snapshot_rows", "snapshot_id=?", [suppressed.id]), 0, "a suppressed subject is never a contactable row");
+  assert.equal(await count(database, "handoff_export_snapshot_rows", "snapshot_id=?", [suppressed.id]), 0, "an exclusion-only snapshot freezes no contactable row; the contradiction case is covered below");
 
   await insertRestoreTarget(database, "other-workspace", "other-owner");
   await assert.rejects(database.prepare("INSERT INTO handoff_export_snapshot_rows (id,workspace_id,snapshot_id,ordinal,prospect_id,contact_id,contact_point_digest,package_version_id,package_approval_id,row_identity_digest,created_at) VALUES ('cross-row','other-workspace',?,0,?,?,?,?,?,?,?)")
@@ -432,6 +432,93 @@ test("export snapshots persist frozen rows behind a transactional suppression fe
   await assert.rejects(database.prepare("UPDATE handoff_export_snapshot_rows SET contact_point_digest=? WHERE snapshot_id=?").bind(hex("0"), snapshot.id).run(), /immutable/u);
   await assert.rejects(database.prepare("DELETE FROM handoff_suppression_exclusions").run(), /immutable/u);
   assert.equal(await count(database, "outreach_suppression_tombstones"), 1, "Phase 6 tombstones stay append-only and untouched");
+});
+
+/**
+ * Builds one raw snapshot batch (command, snapshot, then rows and exclusions
+ * in the given order) so the 0023 triggers are exercised without the
+ * repository's own prechecks. Each batch is atomic, so a refused batch leaves
+ * nothing behind and the same ids can be reused.
+ */
+function rawSnapshotBatch(context, { fence, items, tag = "7" }) {
+  const { database } = context.fixture;
+  const workspaceId = context.seeded.workspaceId;
+  const rows = items.filter((item) => item.kind === "row");
+  const exclusions = items.filter((item) => item.kind === "exclusion");
+  let rowOrdinal = 0;
+  let exclusionOrdinal = 0;
+  return database.batch([
+    database.prepare("INSERT INTO handoff_recovery_commands (id,workspace_id,owner_subject,command_kind,idempotency_key,operation_digest,expected_revision,result_kind,result_id,created_at) VALUES (?,?,?,'export_snapshot.record',?,?,?,'export_snapshot',?,?)")
+      .bind(`raw-${tag}-command`, workspaceId, OUTREACH_OWNER.subject, `raw-${tag}-key`, hex(tag), fence, `raw-${tag}-snapshot`, T0),
+    database.prepare("INSERT INTO handoff_export_snapshots (id,workspace_id,command_id,export_definition_digest,policy_digest,configuration_digest,package_set_digest,suppression_fence_count,snapshot_digest,selected_at,prospect_count,contact_row_count,exclusion_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .bind(`raw-${tag}-snapshot`, workspaceId, `raw-${tag}-command`, hex("a"), hex("b"), context.seeded.configurationDigest, hex("c"), fence, hex(tag), T0, rows.length > 0 ? 1 : 0, rows.length, exclusions.length, T0),
+    ...items.map((item) => item.kind === "row"
+      ? database.prepare("INSERT INTO handoff_export_snapshot_rows (id,workspace_id,snapshot_id,ordinal,prospect_id,contact_id,contact_point_digest,package_version_id,package_approval_id,row_identity_digest,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(`raw-${tag}-row-${rowOrdinal}`, workspaceId, `raw-${tag}-snapshot`, rowOrdinal++, context.seeded.prospectId, context.seeded.contactId, item.contactPointDigest ?? context.seeded.contactPointDigest, context.packageVersion.id, context.packageApproval.id, hex(String(rowOrdinal)), item.createdAt ?? T0)
+      : database.prepare("INSERT INTO handoff_suppression_exclusions (id,workspace_id,snapshot_id,ordinal,prospect_id,contact_id,tombstone_id,scope_kind,exclusion_digest,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        .bind(`raw-${tag}-exclusion-${exclusionOrdinal}`, workspaceId, `raw-${tag}-snapshot`, exclusionOrdinal++, context.seeded.prospectId, item.contactId, item.tombstoneId, item.scopeKind, hex("e"), T0)),
+  ]);
+}
+
+test("a frozen snapshot never holds the same Prospect and Contact as both a contactable row and a suppression exclusion", async (t) => {
+  const context = await handoffFixture("handoff-export-suppression-contradiction");
+  t.after(() => context.fixture.dispose());
+  const { database } = context.fixture;
+  const repository = context.repository();
+  const tombstone = await context.outreach.recordSuppression({
+    subjectKind: "exact_email", subjectDigest: context.seeded.contactPointDigest, channel: "email", reason: "unsubscribe",
+    sourceEventDigest: hex("c"), aliasDigests: [], effectiveAt: OUTREACH_NOW - 1, idempotencyKey: "contradiction-suppression",
+  });
+  const before = await tableCounts(database);
+  const contactExclusion = { prospectId: context.seeded.prospectId, contactId: context.seeded.contactId, tombstoneId: tombstone.id };
+  await assert.rejects(repository.recordExportSnapshot(snapshotInput(context, {
+    suppressionFenceCount: 1, exclusions: [contactExclusion], idempotencyKey: "contradiction-contact",
+  })), conflictWith("suppressed_export_row"), "a Contact excluded by a tombstone is never also a contactable row");
+  await assert.rejects(repository.recordExportSnapshot(snapshotInput(context, {
+    suppressionFenceCount: 1, exclusions: [{ ...contactExclusion, contactId: null }], idempotencyKey: "contradiction-prospect",
+  })), conflictWith("suppressed_export_row"), "a Prospect-wide exclusion refuses every row for that Prospect");
+  assert.deepEqual(await tableCounts(database), before, "a contradictory snapshot writes nothing");
+
+  const exclusionItem = { kind: "exclusion", contactId: context.seeded.contactId, tombstoneId: tombstone.id, scopeKind: "exact_email" };
+  await assert.rejects(rawSnapshotBatch(context, { fence: 1, items: [exclusionItem, { kind: "row" }] }), /contradicts a (?:suppression exclusion|contactable row)/u, "a row after its exclusion is refused below the repository");
+  await assert.rejects(rawSnapshotBatch(context, { fence: 1, items: [{ kind: "row" }, exclusionItem] }), /contradicts a (?:suppression exclusion|contactable row)/u, "an exclusion after its row is refused below the repository");
+  await assert.rejects(rawSnapshotBatch(context, { fence: 1, items: [{ ...exclusionItem, contactId: null }, { kind: "row" }] }), /contradicts a (?:suppression exclusion|contactable row)/u, "a Prospect-wide exclusion refuses the row below the repository");
+  assert.deepEqual(await tableCounts(database), before, "refused raw batches write nothing");
+  await rawSnapshotBatch(context, { fence: 1, items: [exclusionItem], tag: "1" });
+  await rawSnapshotBatch(context, { fence: 1, items: [{ kind: "row" }], tag: "2" });
+  assert.equal(await count(database, "handoff_export_snapshot_rows", "snapshot_id='raw-2-snapshot'"), 1, "the same raw row records when no exclusion covers it (positive control)");
+
+  const recorded = await repository.recordExportSnapshot(snapshotInput(context, { suppressionFenceCount: 1, rows: [], exclusions: [contactExclusion], idempotencyKey: "exclusion-only" }));
+  assert.equal(await count(database, "handoff_suppression_exclusions", "snapshot_id=?", [recorded.id]), 1, "an exclusion-only snapshot still records");
+});
+
+test("export snapshot rows require an unrevoked, unexpired package approval and one of its selected contact points", async (t) => {
+  const context = await handoffFixture("handoff-export-package-lineage");
+  t.after(() => context.fixture.dispose());
+  const { database } = context.fixture;
+  await rawSnapshotBatch(context, { fence: 0, items: [{ kind: "row" }], tag: "1" });
+  assert.equal(await count(database, "handoff_export_snapshot_rows", "snapshot_id='raw-1-snapshot'"), 1, "a raw row with full lineage records (positive control)");
+  const before = await tableCounts(database);
+  await assert.rejects(context.repository().recordExportSnapshot(snapshotInput(context, {
+    rows: [{ ...snapshotInput(context).rows[0], contactPointDigest: hex("0") }], idempotencyKey: "unselected-contact-point",
+  })), conflictWith("contact_point_not_selected"));
+  await assert.rejects(rawSnapshotBatch(context, { fence: 0, items: [{ kind: "row", contactPointDigest: hex("0") }] }), /package lineage/u, "an unselected contact point is refused below the repository");
+
+  const expiresAt = OUTREACH_NOW + 20_000;
+  await assert.rejects(context.repository(expiresAt).recordExportSnapshot(snapshotInput(context, { idempotencyKey: "expired-approval" })), conflictWith("package_approval_unavailable"));
+  await assert.rejects(rawSnapshotBatch(context, { fence: 0, items: [{ kind: "row", createdAt: expiresAt }] }), /package lineage/u, "an expired approval is refused below the repository");
+  assert.deepEqual(await tableCounts(database), before, "refused lineage writes nothing");
+
+  await context.outreach.revokeApproval({
+    targetKind: "package_approval", targetApprovalId: context.packageApproval.id, reasonCode: "owner_revoked",
+    sourceEventDigest: hex("4"), idempotencyKey: "handoff-revoke-package",
+  });
+  const lineage = await context.repository().readPackageApprovalLineage([context.seeded.prospectId]);
+  assert.deepEqual(lineage.map((entry) => entry.revoked), [true]);
+  const afterRevocation = await tableCounts(database);
+  await assert.rejects(context.repository().recordExportSnapshot(snapshotInput(context, { idempotencyKey: "revoked-approval" })), conflictWith("package_approval_unavailable"));
+  await assert.rejects(rawSnapshotBatch(context, { fence: 0, items: [{ kind: "row" }] }), /package lineage/u, "a revoked approval is refused below the repository");
+  assert.deepEqual(await tableCounts(database), afterRevocation, "a revoked approval writes nothing");
 });
 
 test("export artifacts are immutable, one per frozen snapshot, and delivery expiry never changes their bytes", async (t) => {
@@ -472,11 +559,30 @@ test("archive metadata keeps only public envelope parameters and refuses any sec
     ["nested password", { manifest: { records: 1, nested: { password: "x" } } }],
     ["credential", { manifest: { records: 1, credential: "x" } }],
     ["bearer", { manifest: { records: 1, bearerToken: "x" } }],
+    ["refresh token", { kdfParameters: { ...archiveInput().kdfParameters, refresh_token: "x" } }],
+    ["api key", { manifest: { records: 1, apiKey: "x" } }],
+    ["private key", { manifest: { records: 1, private_key: "x" } }],
+    ["authorization", { manifest: { records: 1, Authorization: "x" } }],
+    ["cookie", { manifest: { records: 1, cookie: "x" } }],
   ]) {
     await assert.rejects(repository.recordArchive(archiveInput({ ...patch, idempotencyKey: `secret-${label.replaceAll(" ", "-")}` })), conflictWith("secret_bearing_metadata"), label);
   }
-  await assert.rejects(database.prepare("INSERT INTO recovery_archives SELECT 'forged-archive',workspace_id,command_id,format_version,schema_version,compatibility_min,compatibility_max,manifest_json,?,?,byte_length,?,cipher,kdf,?,record_count,object_count,tombstone_count,reauth_reference_digest,created_at FROM recovery_archives WHERE id=?")
-    .bind(hex("0"), hex("0"), "recovery/archives/forged.bin", '{"passphrase":"x"}', archive.id).run(), /CHECK constraint failed/u);
+  // The database CHECK refuses every key family the repository refuses, so a
+  // raw or future non-repository insert cannot store one either.
+  const forgedArchive = (manifestJson, kdfParametersJson) => database.prepare("INSERT INTO recovery_archives SELECT 'forged-archive',workspace_id,command_id,format_version,schema_version,compatibility_min,compatibility_max,?,?,?,byte_length,?,cipher,kdf,?,record_count,object_count,tombstone_count,reauth_reference_digest,created_at FROM recovery_archives WHERE id=?")
+    .bind(manifestJson, hex("0"), hex("0"), "recovery/archives/forged.bin", kdfParametersJson, archive.id).run();
+  const SECRET_KEYS = ["passphrase", "password", "secret", "credential", "bearer", "oauth", "refresh_token", "accessToken", "token", "cookie", "Authorization", "private_key", "privateKey", "private-key", "api_key", "apiKey", "API-KEY"];
+  for (const key of SECRET_KEYS) {
+    await assert.rejects(forgedArchive(stored.manifest_json, JSON.stringify({ [key]: "x" })), /CHECK constraint failed/u, `kdf_parameters_json ${key}`);
+    await assert.rejects(forgedArchive(JSON.stringify({ [key]: "x" }), stored.kdf_parameters_json), /CHECK constraint failed/u, `manifest_json ${key}`);
+  }
+  const snapshot = await repository.recordExportSnapshot(snapshotInput(context));
+  const artifact = await repository.recordExportArtifact(artifactInput(snapshot.id));
+  const forgedManifest = (manifestJson) => database.prepare("INSERT INTO handoff_export_artifacts SELECT 'forged-artifact',workspace_id,snapshot_id,command_id,schema_version,media_type,?,?,byte_length,?,?,row_count,prospect_count,created_at FROM handoff_export_artifacts WHERE id=?")
+    .bind("handoff/exports/forged.csv", hex("0"), manifestJson, hex("0"), artifact.id).run();
+  for (const key of SECRET_KEYS) {
+    await assert.rejects(forgedManifest(JSON.stringify({ [key]: "x" })), /CHECK constraint failed/u, `artifact manifest_json ${key}`);
+  }
   await assert.rejects(database.prepare("UPDATE recovery_archives SET kdf='none' WHERE id=?").bind(archive.id).run(), /immutable/u);
   assert.equal(await count(database, "recovery_archives"), 1);
 });

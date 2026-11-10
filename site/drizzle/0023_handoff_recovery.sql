@@ -38,7 +38,7 @@ CREATE TABLE `handoff_export_artifacts` (
 	FOREIGN KEY (`snapshot_id`) REFERENCES `handoff_export_snapshots`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`command_id`) REFERENCES `handoff_recovery_commands`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "handoff_export_artifact_digest_check" CHECK(length("handoff_export_artifacts"."content_sha256") = 64 and "handoff_export_artifacts"."content_sha256" not glob '*[^0-9a-f]*' and length("handoff_export_artifacts"."manifest_digest") = 64 and "handoff_export_artifacts"."manifest_digest" not glob '*[^0-9a-f]*'),
-	CONSTRAINT "handoff_export_artifact_shape_check" CHECK("handoff_export_artifacts"."byte_length" > 0 and "handoff_export_artifacts"."row_count" >= "handoff_export_artifacts"."prospect_count" and "handoff_export_artifacts"."prospect_count" >= 0 and "handoff_export_artifacts"."media_type" = 'text/csv' and length("handoff_export_artifacts"."schema_version") between 1 and 128 and "handoff_export_artifacts"."schema_version" not glob '*[^A-Za-z0-9._:/-]*' and length("handoff_export_artifacts"."object_key") between 1 and 512 and "handoff_export_artifacts"."object_key" not glob '*[^A-Za-z0-9._/-]*' and "handoff_export_artifacts"."object_key" not like '%..%' and "handoff_export_artifacts"."object_key" not like '/%' and json_valid("handoff_export_artifacts"."manifest_json") and length("handoff_export_artifacts"."manifest_json") <= 65536 and lower("handoff_export_artifacts"."manifest_json") not like '%passphrase%' and lower("handoff_export_artifacts"."manifest_json") not like '%password%' and lower("handoff_export_artifacts"."manifest_json") not like '%secret%' and lower("handoff_export_artifacts"."manifest_json") not like '%credential%' and lower("handoff_export_artifacts"."manifest_json") not like '%bearer%' and lower("handoff_export_artifacts"."manifest_json") not like '%oauth%')
+	CONSTRAINT "handoff_export_artifact_shape_check" CHECK("handoff_export_artifacts"."byte_length" > 0 and "handoff_export_artifacts"."row_count" >= "handoff_export_artifacts"."prospect_count" and "handoff_export_artifacts"."prospect_count" >= 0 and "handoff_export_artifacts"."media_type" = 'text/csv' and length("handoff_export_artifacts"."schema_version") between 1 and 128 and "handoff_export_artifacts"."schema_version" not glob '*[^A-Za-z0-9._:/-]*' and length("handoff_export_artifacts"."object_key") between 1 and 512 and "handoff_export_artifacts"."object_key" not glob '*[^A-Za-z0-9._/-]*' and "handoff_export_artifacts"."object_key" not like '%..%' and "handoff_export_artifacts"."object_key" not like '/%' and json_valid("handoff_export_artifacts"."manifest_json") and length("handoff_export_artifacts"."manifest_json") <= 65536 and lower("handoff_export_artifacts"."manifest_json") not like '%passphrase%' and lower("handoff_export_artifacts"."manifest_json") not like '%password%' and lower("handoff_export_artifacts"."manifest_json") not like '%secret%' and lower("handoff_export_artifacts"."manifest_json") not like '%credential%' and lower("handoff_export_artifacts"."manifest_json") not like '%bearer%' and lower("handoff_export_artifacts"."manifest_json") not like '%oauth%' and lower("handoff_export_artifacts"."manifest_json") not like '%token%' and lower("handoff_export_artifacts"."manifest_json") not like '%cookie%' and lower("handoff_export_artifacts"."manifest_json") not like '%authorization%' and lower("handoff_export_artifacts"."manifest_json") not like '%private_key%' and lower("handoff_export_artifacts"."manifest_json") not like '%privatekey%' and lower("handoff_export_artifacts"."manifest_json") not like '%api_key%' and lower("handoff_export_artifacts"."manifest_json") not like '%apikey%')
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `handoff_export_artifact_snapshot_unique` ON `handoff_export_artifacts` (`snapshot_id`);--> statement-breakpoint
@@ -259,7 +259,7 @@ CREATE TABLE `recovery_archives` (
 	FOREIGN KEY (`command_id`) REFERENCES `handoff_recovery_commands`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "recovery_archive_digest_check" CHECK(length("recovery_archives"."manifest_digest") = 64 and "recovery_archives"."manifest_digest" not glob '*[^0-9a-f]*' and length("recovery_archives"."ciphertext_sha256") = 64 and "recovery_archives"."ciphertext_sha256" not glob '*[^0-9a-f]*' and length("recovery_archives"."reauth_reference_digest") = 64 and "recovery_archives"."reauth_reference_digest" not glob '*[^0-9a-f]*'),
 	CONSTRAINT "recovery_archive_envelope_check" CHECK(length("recovery_archives"."format_version") between 1 and 128 and "recovery_archives"."format_version" not glob '*[^A-Za-z0-9._:/-]*' and length("recovery_archives"."schema_version") between 1 and 128 and "recovery_archives"."schema_version" not glob '*[^A-Za-z0-9._:/-]*' and length("recovery_archives"."compatibility_min") between 1 and 128 and "recovery_archives"."compatibility_min" not glob '*[^A-Za-z0-9._:/-]*' and length("recovery_archives"."compatibility_max") between 1 and 128 and "recovery_archives"."compatibility_max" not glob '*[^A-Za-z0-9._:/-]*' and length("recovery_archives"."cipher") between 1 and 32 and "recovery_archives"."cipher" not glob '*[^a-z0-9-]*' and length("recovery_archives"."kdf") between 1 and 32 and "recovery_archives"."kdf" not glob '*[^a-z0-9-]*' and length("recovery_archives"."object_key") between 1 and 512 and "recovery_archives"."object_key" not glob '*[^A-Za-z0-9._/-]*' and "recovery_archives"."object_key" not like '%..%' and "recovery_archives"."object_key" not like '/%'),
-	CONSTRAINT "recovery_archive_metadata_check" CHECK(json_valid("recovery_archives"."manifest_json") and length("recovery_archives"."manifest_json") <= 65536 and lower("recovery_archives"."manifest_json") not like '%passphrase%' and lower("recovery_archives"."manifest_json") not like '%password%' and lower("recovery_archives"."manifest_json") not like '%secret%' and lower("recovery_archives"."manifest_json") not like '%credential%' and lower("recovery_archives"."manifest_json") not like '%bearer%' and lower("recovery_archives"."manifest_json") not like '%oauth%' and json_valid("recovery_archives"."kdf_parameters_json") and length("recovery_archives"."kdf_parameters_json") <= 65536 and lower("recovery_archives"."kdf_parameters_json") not like '%passphrase%' and lower("recovery_archives"."kdf_parameters_json") not like '%password%' and lower("recovery_archives"."kdf_parameters_json") not like '%secret%' and lower("recovery_archives"."kdf_parameters_json") not like '%credential%' and lower("recovery_archives"."kdf_parameters_json") not like '%bearer%' and lower("recovery_archives"."kdf_parameters_json") not like '%oauth%' and "recovery_archives"."byte_length" > 0 and "recovery_archives"."record_count" >= 0 and "recovery_archives"."object_count" >= 0 and "recovery_archives"."tombstone_count" >= 0)
+	CONSTRAINT "recovery_archive_metadata_check" CHECK(json_valid("recovery_archives"."manifest_json") and length("recovery_archives"."manifest_json") <= 65536 and lower("recovery_archives"."manifest_json") not like '%passphrase%' and lower("recovery_archives"."manifest_json") not like '%password%' and lower("recovery_archives"."manifest_json") not like '%secret%' and lower("recovery_archives"."manifest_json") not like '%credential%' and lower("recovery_archives"."manifest_json") not like '%bearer%' and lower("recovery_archives"."manifest_json") not like '%oauth%' and lower("recovery_archives"."manifest_json") not like '%token%' and lower("recovery_archives"."manifest_json") not like '%cookie%' and lower("recovery_archives"."manifest_json") not like '%authorization%' and lower("recovery_archives"."manifest_json") not like '%private_key%' and lower("recovery_archives"."manifest_json") not like '%privatekey%' and lower("recovery_archives"."manifest_json") not like '%api_key%' and lower("recovery_archives"."manifest_json") not like '%apikey%' and json_valid("recovery_archives"."kdf_parameters_json") and length("recovery_archives"."kdf_parameters_json") <= 65536 and lower("recovery_archives"."kdf_parameters_json") not like '%passphrase%' and lower("recovery_archives"."kdf_parameters_json") not like '%password%' and lower("recovery_archives"."kdf_parameters_json") not like '%secret%' and lower("recovery_archives"."kdf_parameters_json") not like '%credential%' and lower("recovery_archives"."kdf_parameters_json") not like '%bearer%' and lower("recovery_archives"."kdf_parameters_json") not like '%oauth%' and lower("recovery_archives"."kdf_parameters_json") not like '%token%' and lower("recovery_archives"."kdf_parameters_json") not like '%cookie%' and lower("recovery_archives"."kdf_parameters_json") not like '%authorization%' and lower("recovery_archives"."kdf_parameters_json") not like '%private_key%' and lower("recovery_archives"."kdf_parameters_json") not like '%privatekey%' and lower("recovery_archives"."kdf_parameters_json") not like '%api_key%' and lower("recovery_archives"."kdf_parameters_json") not like '%apikey%' and "recovery_archives"."byte_length" > 0 and "recovery_archives"."record_count" >= 0 and "recovery_archives"."object_count" >= 0 and "recovery_archives"."tombstone_count" >= 0)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `recovery_archive_manifest_unique` ON `recovery_archives` (`workspace_id`,`manifest_digest`);--> statement-breakpoint
@@ -426,8 +426,27 @@ WHEN NOT EXISTS (
     AND version.id = NEW.package_version_id
     AND package.prospect_id = NEW.prospect_id
     AND package.contact_id = NEW.contact_id
+    AND approval.expires_at > NEW.created_at
+    AND NOT EXISTS (
+      SELECT 1 FROM `outreach_approval_revocations` revocation
+      WHERE revocation.package_approval_id = approval.id AND revocation.workspace_id = approval.workspace_id
+    )
+    AND EXISTS (
+      SELECT 1 FROM json_each(version.snapshot_json, '$.selectedContactPointDigests') selected
+      WHERE selected.value = NEW.contact_point_digest
+    )
 )
 BEGIN SELECT RAISE(ABORT, 'export snapshot row requires in-scope package lineage'); END;--> statement-breakpoint
+CREATE TRIGGER `handoff_export_row_suppression_insert`
+BEFORE INSERT ON `handoff_export_snapshot_rows`
+WHEN EXISTS (
+  SELECT 1 FROM `handoff_suppression_exclusions` exclusion
+  WHERE exclusion.snapshot_id = NEW.snapshot_id
+    AND exclusion.workspace_id = NEW.workspace_id
+    AND exclusion.prospect_id = NEW.prospect_id
+    AND (exclusion.contact_id IS NULL OR exclusion.contact_id = NEW.contact_id)
+)
+BEGIN SELECT RAISE(ABORT, 'export snapshot row contradicts a suppression exclusion in the same snapshot'); END;--> statement-breakpoint
 CREATE TRIGGER `handoff_exclusion_scope_insert`
 BEFORE INSERT ON `handoff_suppression_exclusions`
 WHEN NOT EXISTS (
@@ -444,6 +463,16 @@ WHEN NOT EXISTS (
   )
 )
 BEGIN SELECT RAISE(ABORT, 'suppression exclusion requires in-scope tombstone lineage'); END;--> statement-breakpoint
+CREATE TRIGGER `handoff_exclusion_row_suppression_insert`
+BEFORE INSERT ON `handoff_suppression_exclusions`
+WHEN EXISTS (
+  SELECT 1 FROM `handoff_export_snapshot_rows` snapshot_row
+  WHERE snapshot_row.snapshot_id = NEW.snapshot_id
+    AND snapshot_row.workspace_id = NEW.workspace_id
+    AND snapshot_row.prospect_id = NEW.prospect_id
+    AND (NEW.contact_id IS NULL OR snapshot_row.contact_id = NEW.contact_id)
+)
+BEGIN SELECT RAISE(ABORT, 'suppression exclusion contradicts a contactable row in the same snapshot'); END;--> statement-breakpoint
 CREATE TRIGGER `handoff_export_artifact_scope_insert`
 BEFORE INSERT ON `handoff_export_artifacts`
 WHEN NOT EXISTS (
