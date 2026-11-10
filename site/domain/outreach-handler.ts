@@ -4,6 +4,7 @@ import { canonicalDigest } from "./enrichment-grant-issuance";
 import { blockedClickToCallEligibilityPort, createD1ManualCallService, type ManualCallEligibilityPort, type ManualCallPhoneRecheckInput } from "./manual-call";
 import { ManualCallDecisionError, type ManualCallOutcome } from "./manual-call-decision-service";
 import { composeMessageVersionService } from "./message-version";
+import { draftOutreachFromEvidence, listDraftCandidates } from "./outreach-draft-derivation";
 import { createGovernedOutboxEnqueue, type EnqueueResult } from "./outbox";
 import { composeOutreachPackageService, type ContactEvidence, type OutreachPackageService } from "./outreach-package";
 import type { OutreachBinding, OutreachRepositoryScope } from "./outreach-repository";
@@ -23,6 +24,11 @@ import { normalizeConfirmedDomain, normalizeE164Phone, normalizeExactEmail, phon
  *   refuse, so approval, queueing and calling are refused with a reason.
  * - The phone action stays disabled until 06-13 Task 3 owner acceptance. No
  *   result carries a callable target, and nothing reaches a provider.
+ * - `draft_package` derives a draft Package and Message Version from the
+ *   server's current evidence with fixed templates (no AI or provider call).
+ *   The browser names the Prospect and Contact and may confirm the recipient
+ *   address, which is accepted only when it digests to a selected verified
+ *   email point; From is the configured pilot owner address. It approves nothing.
  * - D-8: a `do_not_call` outcome may carry the E.164 number the owner
  *   confirms. It is accepted only when its digest equals the stored phone
  *   digest, and it is then handed to the manual-call stop rule so the number
@@ -70,6 +76,9 @@ export type OutreachServices = Readonly<{
 }>;
 
 export type OutreachServicesFactory = (database: D1Database, scope: OutreachScope) => OutreachServices;
+
+/** Server-derived command context. The HTTP layer supplies the admitted owner's configured address; nothing comes from the body. */
+export type OutreachCommandContext = Readonly<{ senderAddress?: string | null }>;
 
 export type OutreachHandlerDependencies = {
   database: D1Database;
@@ -150,7 +159,8 @@ export async function handleOutreachPost(request: Request, dependencies: Outreac
       throw error;
     }
     const scope = await workspaceScope(dependencies, principal);
-    const result = await executeOutreachCommand(dependencies.database, scope, servicesFor(dependencies, scope), body);
+    const context: OutreachCommandContext = Object.freeze({ senderAddress: normalizeExactEmail(dependencies.pilotOwnerEmail) });
+    const result = await executeOutreachCommand(dependencies.database, scope, servicesFor(dependencies, scope), body, context);
     return fresh(json(result.body, result.status));
   } catch (error) {
     if (error instanceof PilotAccessError) return privateWorkspaceUnavailable();
@@ -197,7 +207,8 @@ type RecordCallOutcome = Readonly<{
   action: "record_call_outcome"; packageApprovalId: string; phoneObservationId: string; expectedDecisionDigest: string;
   outcome: ManualCallOutcome; notes: string; idempotencyKey: string; confirmedPhoneE164: string | null;
 }>;
-type OutreachCommand = ApprovePackage | ApproveMessage | QueueMessage | RecordSuppression | RecordCallOutcome;
+type DraftPackage = Readonly<{ action: "draft_package"; prospectId: string; contactId: string; confirmedRecipientEmail: string | null; idempotencyKey: string }>;
+type OutreachCommand = ApprovePackage | ApproveMessage | QueueMessage | RecordSuppression | RecordCallOutcome | DraftPackage;
 type CommandResult = Readonly<{ action: OutreachCommand["action"]; status: "applied" | "replayed" | "refused"; reasonCodes: readonly string[]; providerCalls: 0 } & Record<string, unknown>>;
 
 const SHAPES: Readonly<Record<OutreachCommand["action"], Readonly<{ required: readonly string[]; optional: readonly string[] }>>> = Object.freeze({
@@ -206,6 +217,7 @@ const SHAPES: Readonly<Record<OutreachCommand["action"], Readonly<{ required: re
   queue_message: { required: ["action", "messageApprovalId"], optional: [] },
   record_suppression: { required: ["action", "subjectKind", "channel", "reason", "confirmed", "idempotencyKey"], optional: ["value"] },
   record_call_outcome: { required: ["action", "packageApprovalId", "phoneObservationId", "expectedDecisionDigest", "outcome", "notes", "idempotencyKey"], optional: ["confirmedPhoneE164"] },
+  draft_package: { required: ["action", "prospectId", "contactId", "idempotencyKey"], optional: ["confirmedRecipientEmail"] },
 });
 
 /** Strict closed-shape parse. Anything else, including a client-supplied scope, sender or approval, is refused. */
@@ -231,6 +243,15 @@ export function parseOutreachCommand(value: unknown): OutreachCommand {
       });
     case "queue_message":
       return Object.freeze({ action, messageApprovalId: id("messageApprovalId") });
+    case "draft_package": {
+      let confirmed: string | null = null;
+      if (Object.hasOwn(body, "confirmedRecipientEmail")) {
+        // Only a confirmation of an address the server already holds by digest; never content or authority.
+        if (typeof body.confirmedRecipientEmail !== "string" || body.confirmedRecipientEmail.length < 1 || body.confirmedRecipientEmail.length > 320) throw new OutreachCommandError("invalid_command");
+        confirmed = body.confirmedRecipientEmail;
+      }
+      return Object.freeze({ action, prospectId: id("prospectId"), contactId: id("contactId"), confirmedRecipientEmail: confirmed, idempotencyKey: id("idempotencyKey") });
+    }
     case "record_suppression": {
       const subjectKind = body.subjectKind;
       if (typeof subjectKind !== "string" || !Object.hasOwn(CHANNELS_BY_KIND, subjectKind)) throw new OutreachCommandError("invalid_command");
@@ -280,7 +301,7 @@ export function parseOutreachCommand(value: unknown): OutreachCommand {
 class UnsupportedActionError extends Error {}
 
 /** Parse, run one command through its trusted service, and reload the authoritative projection. */
-export async function executeOutreachCommand(database: D1Database, scope: OutreachScope, services: OutreachServices, value: unknown): Promise<Readonly<{ status: number; body: Record<string, unknown> }>> {
+export async function executeOutreachCommand(database: D1Database, scope: OutreachScope, services: OutreachServices, value: unknown, context: OutreachCommandContext = {}): Promise<Readonly<{ status: number; body: Record<string, unknown> }>> {
   let command: OutreachCommand;
   try {
     command = parseOutreachCommand(value);
@@ -288,13 +309,24 @@ export async function executeOutreachCommand(database: D1Database, scope: Outrea
     if (error instanceof UnsupportedActionError) return { status: 400, body: { error: "unsupported_action" } };
     return { status: 400, body: { error: "invalid_command" } };
   }
-  const result = await runCommand(database, scope, services, command);
+  const result = await runCommand(database, scope, services, command, context);
   const projection = await readOutreachProjection(database, scope, services);
   return { status: result.status === "refused" ? 409 : 200, body: { command: result, projection } };
 }
 
-async function runCommand(database: D1Database, scope: OutreachScope, services: OutreachServices, command: OutreachCommand): Promise<CommandResult> {
+async function runCommand(database: D1Database, scope: OutreachScope, services: OutreachServices, command: OutreachCommand, context: OutreachCommandContext): Promise<CommandResult> {
   switch (command.action) {
+    case "draft_package": {
+      const result = await draftOutreachFromEvidence(database, repositoryScopeOf(scope), {
+        prospectId: command.prospectId, contactId: command.contactId, confirmedRecipientEmail: command.confirmedRecipientEmail,
+        senderAddress: typeof context.senderAddress === "string" ? context.senderAddress : null, idempotencyKey: command.idempotencyKey,
+      });
+      if (result.kind === "refused") return refusedResult(command.action, result.reasonCodes);
+      return completed(command.action, result.replayed, {
+        packageVersionId: result.packageVersionId, packageArtifactDigest: result.packageArtifactDigest,
+        messageVersionIds: result.messageVersionIds, authority: result.authority,
+      });
+    }
     case "approve_package": {
       const inputs = await services.authorityInputs(command.packageVersionId);
       const result = await services.packages.approve({
@@ -593,6 +625,7 @@ export async function readOutreachProjection(database: D1Database, scope: Outrea
       id: row.id, stopKind: row.stop_kind, subjectKind: row.subject_kind, reasonCode: boundedCode(row.reason_code), effectiveAt: Number(row.effective_at),
     }))),
     delivery: Object.freeze(delivery),
+    draftCandidates: await listDraftCandidates(database, repositoryScopeOf(scope)),
     effects: Object.freeze({ providerCalls: 0 as const }),
   });
 }
@@ -631,6 +664,9 @@ async function phoneCalls(database: D1Database, scope: OutreachScope, services: 
 // Helpers
 // ---------------------------------------------------------------------------
 
+function repositoryScopeOf(scope: OutreachScope): OutreachRepositoryScope {
+  return Object.freeze({ workspaceId: scope.workspaceId, ownerSubject: scope.ownerSubject, now: scope.now });
+}
 function plainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 }

@@ -29,6 +29,10 @@ export type OutreachCallCard = Readonly<{
   decision: Readonly<{ eligible: boolean; reasonCodes: readonly string[]; decisionDigest: string }>;
   phoneAction: Readonly<{ enabled: false; reason: string }>;
 }>;
+export type OutreachDraftCandidate = Readonly<{
+  prospectId: string; contactId: string; contactName: string; ready: boolean; reasonCodes: readonly string[];
+  alreadyDrafted: boolean; recipientConfirmationRequired: boolean;
+}>;
 export type OutreachProjection = Readonly<{
   schema: "outreach-projection/v1"; generatedAt: number;
   gates: Readonly<{ approval: OutreachGate; queue: OutreachGate; phone: Readonly<{ enabled: false; reason: string }> }>;
@@ -36,6 +40,7 @@ export type OutreachProjection = Readonly<{
   suppressions: readonly Readonly<{ id: string; subjectKind: string; channel: string; reason: string; effectiveAt: number; aliasCount: number }>[];
   stops: readonly Readonly<{ id: string; stopKind: string; subjectKind: string; reasonCode: string; effectiveAt: number }>[];
   delivery: readonly Readonly<{ outboxItemId: string; messageVersionId: string; state: string; revision: number; reasonCode: string; at: number }>[];
+  draftCandidates: readonly OutreachDraftCandidate[];
   effects: Readonly<{ providerCalls: 0 }>;
 }>;
 
@@ -46,7 +51,7 @@ export const BLOCKED_OUTREACH_PROJECTION: OutreachProjection = Object.freeze({
     queue: Object.freeze({ available: false, reason: "Outreach status has not loaded yet. No email will be sent." }),
     phone: Object.freeze({ enabled: false as const, reason: "owner_uat_pending" }),
   }),
-  packages: [], messages: [], calls: [], suppressions: [], stops: [], delivery: [], effects: Object.freeze({ providerCalls: 0 as const }),
+  packages: [], messages: [], calls: [], suppressions: [], stops: [], delivery: [], draftCandidates: [], effects: Object.freeze({ providerCalls: 0 as const }),
 });
 
 export type CallForm = Readonly<{ outcome: string; notes: string; number: string }>;
@@ -61,6 +66,10 @@ export type OutreachInteraction = Readonly<{
   callForms: Readonly<Record<string, CallForm>>;
   suppressionForm: SuppressionForm;
   confirming: Confirming;
+  /** Owner-typed recipient confirmations, keyed by draftKey. */
+  draftForms: Readonly<Record<string, string>>;
+  onDraftChange(key: string, value: string): void;
+  onDraft(candidate: OutreachDraftCandidate): void;
   onReview(key: string, value: boolean): void;
   onApprovePackage(card: OutreachPackageCard): void;
   onApproveMessage(card: OutreachMessageCard): void;
@@ -75,6 +84,7 @@ export type OutreachInteraction = Readonly<{
 const noop = () => undefined;
 export const READ_ONLY_INTERACTION: OutreachInteraction = Object.freeze({
   pending: false, reviewed: {}, callForms: {}, suppressionForm: EMPTY_SUPPRESSION_FORM, confirming: null,
+  draftForms: {}, onDraftChange: noop, onDraft: noop,
   onReview: noop, onApprovePackage: noop, onApproveMessage: noop, onQueue: noop, onCallChange: noop, onRecordCall: noop,
   onSuppressionChange: noop, onConfirm: noop, onConfirmSuppression: noop,
 });
@@ -149,6 +159,24 @@ const REASONS: Readonly<Record<string, string>> = Object.freeze({
   invalid_command: "The request was not a valid Outreach command.",
   owner_uat_pending: "Phone calling stays off until the owner acceptance test is done (06-13).",
   not_eligible: "Phone is not eligible for calling.",
+  eligibility_snapshot_unavailable: "There is no current, verified readiness check for this contact.",
+  prospect_not_approved: "The prospect is not approved for outreach.",
+  prospect_changed: "The prospect changed after the contact's readiness was checked.",
+  contact_changed: "The contact changed after its readiness was checked.",
+  contact_point_changed: "A contact point changed after the readiness check.",
+  configuration_unavailable: "The profile configuration is not active.",
+  configuration_changed: "The profile configuration changed after the readiness check.",
+  knowledge_drift: "Product or market knowledge changed and needs review first.",
+  qualification_unavailable: "The prospect's qualification result is not available.",
+  review_decision_unavailable: "The owner's approval of this prospect is not available.",
+  evidence_missing: "There is no current evidence with an available source.",
+  source_missing: "An evidence source is not available.",
+  claim_guardrail_missing: "There is no confirmed Claim Guardrail for this profile.",
+  recipient_confirmation_required: "Type the contact's verified email address to confirm it.",
+  recipient_confirmation_mismatch: "The address you typed does not match the contact's verified email. Nothing was drafted.",
+  sender_address_unavailable: "The owner's sending address is not known.",
+  package_already_drafted: "This prospect and contact already has an Outreach Package.",
+  invalid_draft_target: "The prospect or contact reference is not valid.",
 });
 
 /** Plain language for a server reason code. Unknown codes stay readable. */
@@ -252,6 +280,11 @@ export function normalizeOutreachProjection(value: unknown): OutreachProjection 
     suppressions: list(body.suppressions, (item) => Object.freeze({ id: str(item.id, 128), subjectKind: str(item.subjectKind, 32), channel: str(item.channel, 16), reason: str(item.reason, 32), effectiveAt: num(item.effectiveAt), aliasCount: num(item.aliasCount) }), 50),
     stops: list(body.stops, (item) => Object.freeze({ id: str(item.id, 128), stopKind: str(item.stopKind, 32), subjectKind: str(item.subjectKind, 32), reasonCode: str(item.reasonCode, 96), effectiveAt: num(item.effectiveAt) }), 50),
     delivery: list(body.delivery, (item) => Object.freeze({ outboxItemId: str(item.outboxItemId, 128), messageVersionId: str(item.messageVersionId, 128), state: str(item.state, 32), revision: num(item.revision), reasonCode: str(item.reasonCode, 96), at: num(item.at) }), 50),
+    draftCandidates: list(body.draftCandidates, (item) => Object.freeze({
+      prospectId: str(item.prospectId, 128), contactId: str(item.contactId, 128), contactName: str(item.contactName, 160),
+      ready: item.ready === true, reasonCodes: strs(item.reasonCodes, 16, 96), alreadyDrafted: item.alreadyDrafted === true,
+      recipientConfirmationRequired: item.recipientConfirmationRequired === true,
+    }), 10),
     effects: Object.freeze({ providerCalls: 0 as const }),
   });
 }
@@ -262,6 +295,7 @@ export function normalizeOutreachProjection(value: unknown): OutreachProjection 
 
 function when(ms: number | null) { return ms ? `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC` : "not set"; }
 function safeId(value: string) { return value.replaceAll(/[^A-Za-z0-9_-]/gu, "-").slice(0, 80); }
+export function draftKey(candidate: Pick<OutreachDraftCandidate, "prospectId" | "contactId">) { return `${candidate.prospectId}|${candidate.contactId}`; }
 export function callKey(card: Pick<OutreachCallCard, "packageApprovalId" | "phoneObservationId">) { return `${card.packageApprovalId}|${card.phoneObservationId}`; }
 
 /** A native control with an adjacent, focusable explanation. Disabled controls always say why. */
@@ -321,10 +355,42 @@ function PackageSection({ projection, interaction }: { projection: OutreachProje
   return <section className="panel outreach-section" aria-labelledby="outreach-packages">
     <h2 id="outreach-packages">Outreach Packages to review</h2>
     <p>An Outreach Package is the plan for one prospect: the angle, the contact points and the drafts. Approving it allows CRM eligibility only. Each email still needs its own approval.</p>
+    {projection.draftCandidates.length > 0 && <>
+      <h3>Draft from current evidence</h3>
+      <p>Drafts use fixed templates and cite the current evidence by reference. No AI or outside service writes them, and drafting approves nothing.</p>
+      <ul className="outreach-cards" aria-label="Draft candidates">{projection.draftCandidates.map((candidate) => <DraftCandidateCard key={draftKey(candidate)} candidate={candidate} interaction={interaction} />)}</ul>
+    </>}
     {projection.packages.length === 0
-      ? <p>Create a complete Outreach Package from current evidence before review. Drafting packages here is not available yet.</p>
+      ? <p>{projection.draftCandidates.length > 0 ? "No Outreach Package yet. Draft one from current evidence above, then review it here." : "No Outreach Package yet. A draft can be made here once an approved prospect has a contact whose readiness is current."}</p>
       : <ul className="outreach-cards" aria-label="Package versions">{projection.packages.map((card) => <PackageCard key={card.packageVersionId} card={card} gate={projection.gates.approval} interaction={interaction} />)}</ul>}
   </section>;
+}
+
+function DraftCandidateCard({ candidate, interaction }: { candidate: OutreachDraftCandidate; interaction: OutreachInteraction }) {
+  const key = draftKey(candidate);
+  const id = safeId(`draft-${key}`);
+  const confirmation = (interaction.draftForms[key] ?? "").trim();
+  const needsConfirmation = candidate.ready && candidate.recipientConfirmationRequired;
+  const enabled = candidate.ready && !candidate.alreadyDrafted && !interaction.pending && (!needsConfirmation || confirmation.length > 0);
+  const reason = candidate.alreadyDrafted ? "This prospect and contact already has an Outreach Package. Review it below. Nothing is approved or sent."
+    : !candidate.ready ? `${reasonList(candidate.reasonCodes) || "Current evidence is not ready for a draft."} Nothing is approved or sent.`
+      : interaction.pending ? "Saving…"
+        : needsConfirmation && confirmation.length === 0 ? "Type the contact's verified email address to confirm it. Nothing is approved or sent."
+          : "Creates a draft package and email draft from current evidence for your review. Nothing is approved or sent.";
+  return <li className="outreach-card">
+    <h4>{candidate.contactName || "Contact"}</h4>
+    <KeyValues label={`Draft status for ${candidate.contactName || "this contact"}`} rows={[
+      ["Current evidence", candidate.alreadyDrafted ? "Already drafted" : candidate.ready ? "Ready for a draft" : "Not ready"],
+      ["Email draft", candidate.ready ? (candidate.recipientConfirmationRequired ? "Included after you confirm the address" : "None (no verified email)") : "Not available"],
+    ]} />
+    {needsConfirmation && !candidate.alreadyDrafted && <p>
+      <label htmlFor={`${id}-recipient`}>Verified email address (to confirm)</label>{" "}
+      <input id={`${id}-recipient`} type="email" autoComplete="off" spellCheck={false} maxLength={320} value={interaction.draftForms[key] ?? ""}
+        disabled={interaction.pending} onChange={(event) => interaction.onDraftChange(key, event.currentTarget.value)} />
+    </p>}
+    <OutreachAction label="Draft package from current evidence" enabled={enabled} explanation={reason} explanationId={`${id}-reason`} onClick={() => interaction.onDraft(candidate)} />
+    <TechnicalDetails label={`draft for ${candidate.contactName || "this contact"}`} rows={[["Prospect", candidate.prospectId], ["Contact", candidate.contactId]]} />
+  </li>;
 }
 
 function PackageCard({ card, gate: approvalGate, interaction }: { card: OutreachPackageCard; gate: OutreachGate; interaction: OutreachInteraction }) {
