@@ -2,7 +2,70 @@
 
 This ledger is the v1 requirement inventory. It is not the 26/74 plan-credit ledger in `COMPLETION.md`. Formal acceptance is the count of rows whose status is `verified`. That count is 0. A product percent is unknown while `verification_mapping` is `partial`. Do not divide 26 by 74 or by 17 and call the result completion.
 
-Local extracts merged on 2026-11-09 are recorded below as test evidence only. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
+Local extracts merged on 2026-11-09 are recorded below as test evidence only. PR #173 (operator review batch 03: run recovery, atomic run claims, do-not-contact normalisation and merge suppression) is recorded the same way; its macOS browser-workflow run is owner-attested, not re-recorded in last-run.json. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
+
+Session entry, review fix batch 12 (operator tests), PR #170. Source SHA `409065b9b1f0779950c27f80d064aaf542c7c652`, merged into `claude/research-uses-configured-llm` as `5cbbf206c0f08b9c87a7134878516906d31a0d50` on 2026-11-09 at about 19:10Z. Session `session_011p7TfhvrePA3bUJrvFeUp8`. Tests ran at about 17:20Z on Node 22.23.4 from `operator/`. Changes: operator `npm test` now runs `scripts/test-all.mjs`, which collects all 13 `src/**/*.test.ts` files (9 before) and the OpenRouter settings keyboard acceptance test. `vault.test.ts` now tampers with real sealed secrets and covers the unsafe-permission and missing-key refusals. `local-start.mjs` exits 0 only on the shutdown signal it forwarded; any other child signal exits 128 + signo. Results: `node --experimental-strip-types --test src/lib/server/vault.test.ts` 6/6 pass. `node --test scripts/local-start-exit.test.mjs scripts/with-app-env.test.mjs` 16/16 pass. `npm test` scripts group 299/299, source group 107/107, keyboard group 1/1, exit 0. `npx tsc --noEmit` exit 0. eslint 0 errors. Root `node --test tests/completion-ledger.test.mjs` 3/3 pass. Environment note: `scripts/local-foundation.test.mjs` "foundation HTTP and recovery lifecycle" needs `npm run build` first; without it the test fails the same way on the base branch. Not verified: a real server crash by signal. This is test tooling, not one of the 17 v1 requirements, so it is not attached to a requirement row. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-ee67a286-2026-11-09`, review round two (operator). Merged into `claude/research-uses-configured-llm` with tip `949f925`:
+- PR #166: review batch 01, AI key bound to its provider.
+- PR #185: owner decisions 1 and 7. The spend cap is enforced, restore keeps the live month's spend, and do-not-contact domains block subdomains.
+- PR #171: batch 11. PRs #170 and #173 are recorded above.
+
+Before the merge, the combined tree was identical to the tested head `e72b72e`. `cd operator && npm test` gave 323/324 for scripts, 118/118 for source and 1/1 for acceptance. The one failure was `local-foundation`, because port 8080 was held by the owner's app. After `npm run build`, with the app paused, `node --test scripts/local-foundation.test.mjs` gave 10/10. `npx tsc --noEmit` was clean, eslint on the changed files was clean, and `auditGraph()` equals `reviewed-graph.json`.
+
+An independent adversarial review of #185 found a restore bypass of the cap. It was fixed, and the regression test fails without the fix. Evidence is local and synthetic only. No requirement status changed, and formal acceptance stays 0/17.
+
+Session `claude-ee67a286-2026-11-09` (owner-authorized local work, branch `claude/owner-local-completion-20261109`, commit `0c3ce490d707c0fa0b4eac9178ab05c75491d96f`): merged issue work for #6 (docs), #7 (protocol, label-agreement scorer and fixtures), #8 (plain-language Contacts labels and a Review-to-Contacts link) and #11 (browser run record). `cd site && npm test` exited 0 with 1175 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `npm run lint` exited 0; `npm run test:browser` 2 pass; `npm run test:browser:operator-journey` 2 pass; `npm run test:browser:person-discovery` 1 fail (recorded as negative evidence under REQ-contact-verification). Fix `72a1b74` then made that lane pass and the full suite pass with 1176 tests (positive evidence under the same row). No requirement status changed.
+
+Session `claude-ee67a286-2026-11-09`, later the same day: the owner accepted all seven code-review recommendations. They are recorded in `COMPLETION.md` ("Owner decisions on code-review questions, 2026-11-09"). This was a docs-only change; no requirement status changed.
+
+Session `claude-session_011p7Tficwu9deKJtxSa8dhw` (2026-11-09, owner-authorized local work, 2026-11-09 code review batch 09): PR #168 merged into `claude/owner-local-completion-20261109` as merge commit `769b0401c82d32f2770f106c7a669887fe104f6f` (tested head `ee13240a47dcba940bb667b44312f2ab64e8201c`). The home page now uses a read-only `readCapabilityProjection` in `site/domain/capability-handler.ts`. Server render writes no `csrf_tokens` row, and only a confirmed absent workspace lands on onboarding; a failed capability read stays on Status. `GET /api/capabilities` still issues the CSRF cookie with unchanged HTTP responses. On `ee13240`: `cd site && npm ci` exited 0; `npm run build` exited 0; `node scripts/run-test-suite.mjs tests/home-admission-boundary.test.mjs` 17 pass / 0 fail; `tests/capabilities-route.test.mjs` 5 pass; `tests/capability-state.test.mjs` 1 pass; `tests/csrf-cookie.test.mjs` 1 pass; `npm run lint` exited 0; `npm test` exited 0 with 1181 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `node --test tests/completion-ledger.test.mjs` 3 pass. Local and synthetic only (in-memory D1 fake for the home tests); not checked in a browser. This is a code-review fix, not one of the 17 v1 requirements, so it is not attached to a requirement row. No requirement status changed; formal acceptance stays 0/17 and plan credit stays 26/74.
+
+Session `claude-011p7Tfj-2026-11-09` (owner-authorized local work, review fix batch 02, PR #167 from branch `claude/review-fix-02-dnc-crm-export`, commit `c8de3ea9b1ea0c22256878e21d5b6a19109b799b`, merged into `claude/owner-local-completion-20261109` as `59c8bdff75fcfc089a9c1a5a90a1458b4eb4cdb1` at 2026-11-09T18:48Z): do_not_call in the synthetic manual-call decision service is recordable after any eligibility or freshness gate lapses, and the synthetic CRM export rejects duplicate rows standing in for selected rows. From `site/` on Node v22.23.4: `npm run build` exit 0; `node --test --test-concurrency=1` gave tests/manual-call-decision-service 21/21, tests/outreach-preparation-manual-call 15/15, tests/outreach-preparation-audit-envelope 12/12 and tests/crm-handoff-export-artifact 9/9; `npm run lint` exit 0; `npm test` exited 0 with 1183 pass, 0 fail, 0 cancelled, 0 skipped (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Recorded at 2026-11-09T18:50Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-session_011p7TfirSGRdriCZLJkd3rD` (2026-11-09, owner-authorized local work, 2026-11-09 code review batch 06): PR #169 from branch `claude/review-fix-06-interview-reset` merged into `claude/owner-local-completion-20261109` as merge commit `ac457e635e92e6f4e2e267ec3fbc04774ff11093` (tested head `7d00c4ca42419a683f5c2978b895f56be000eb59`). `ConsensusInterviewView` no longer carries the answer, value, reason, destination or owner decision from one question or stored answer to the next on the hosted projection-swap path: `InterviewPane` keys the view by `interviewSnapshotKey` (question id, question revision, stored answer id), and the view also resets its draft when that identity changes. Copy and the mutation transport are unchanged. From `site/` on Node v22.23.4: `npm ci` exit 0; `node --test --test-concurrency=1 tests/knowledge-ui.test.mjs` 11/11 (1 new react-test-renderer test, failing before the fix); `tests/interview-local-progression.test.mjs` 5/5; `npm run build && node scripts/run-test-suite.mjs` on knowledge-ui, interview-local-progression, knowledge-onboarding-handler and interview-handler 21 pass / 0 fail; `npm run lint` exit 0; `npm test` exited 0 with 1177 pass, 0 fail, 0 cancelled, 0 skipped across 169 files (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Local and synthetic only; not checked in a browser or on a hosted deployment. This is a code-review fix, not one of the 17 v1 requirements, so it is not attached to a requirement row. Recorded at 2026-11-09T19:20Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-session_011p7TfjetG3be8aP8fFuPVB` (2026-11-09, owner-authorized local work, 2026-11-09 code review batch 04): PR #176 from branch `claude/review-fix-04-material-signal-reentry` merged into `claude/owner-local-completion-20261109` as merge commit `f3f2159714e2cd9cc5c0da8b3df842f1b3e3faec` (tested head `c9b58fa30f8d92d06863375c2fb6f8c7da972f16`, base `3bb26ecbfd648b1a424d8dd7210b8c2deb1aa5ec`) at 2026-11-09T19:23Z. In `site/domain/prospect-review.ts`, a re-entry Material Signal for a rejected prospect in cooldown, or a deferred prospect before its review date, must now be observed and retrieved strictly after the owner's decision, and its observation identity (fingerprint, or kind + underlying origin + occurredAt) must be absent from the decided assessment's evidence and from other submissions already reported for the same prospect; otherwise the cooldown refusal stands. Sourced disproof is unchanged. `rubricDigest()` no longer falls back to an all-zero digest: a missing, malformed or not-exactly-one confirmed rubric fails the immutable_configuration gate (InsufficientEvidence). Activation and the multi-rubric owner question are untouched. The cooldown test now submits real non-material evidence. From `site/` on Node v22.23.4: `npm ci` exit 0; `npm run build` exit 0; `node --test --test-concurrency=1` gave tests/prospecting-ingestion 7/7 (2 new tests, failing before the fix), tests/profile-prospecting-contract 14/14 (1 new test, failing before the fix) and tests/prospecting-ingestion-lifecycle 6/6; `node scripts/run-test-suite.mjs` on those three files 27 pass / 0 fail; `npm run lint` exit 0; `npm test` exited 0 with 1179 pass, 0 fail, 0 skipped, 0 todo across 169 files (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Local and synthetic only; no independent review ran (the Codex review hit its usage limit). This is a code-review fix, not one of the 17 v1 requirements, so it is not attached to a requirement row. Recorded at 2026-11-09T19:30Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-session_011p7TfmZ5KfM5qLnbNpj26Q` (2026-11-09, owner-authorized local work, 2026-11-09 code review batch 05): PR #175 from branch `claude/review-fix-05-run-liveness` merged into `claude/owner-local-completion-20261109` as merge commit `37f26116cb58cf147afb5998c0981278df2ea1e4` (tested head `b640ec25779c4734e671c0be21203fd92fdbdee4`, base `3bb26ecbfd648b1a424d8dd7210b8c2deb1aa5ec`) at 2026-11-09T21:46Z. Four prospecting-liveness fixes in `site/domain/`. (1) `completeProspectingRun` sets the schedule watermark to `MAX(current, MIN(run upper, next_run_at - 1))`, so a manual run can neither move it backwards nor onto an unreconciled due slot; `reconcileProspectingSchedules` records an already-inverted slot as `skipped_misfire` with reason `watermark_at_or_after_slot` and advances it, and isolates each schedule, returning `{scheduleId, failed, errorCode}` for a failing one. (2) `submitRunnerObservations` accepts an exact idempotent replay (same assignment, idempotency key and operation digest) after capability expiry so a retryable ingestion can be reprocessed; new or different data after expiry is still refused. Runner ingress returns 503 with `Retry-After: 5` for a pending claim or a `processing_retryable` failure, and 200 only for a terminal accepted state. (3) `admitProspectingRunToQueue` refuses a run while another run for the same Profile is queued, assigned, running, submitted or validating; the production admission port stays reject-only. (4) `createProspectingIntent` replays a concurrent exact duplicate and maps any other insert conflict to `ProspectingScheduleConflictError` (409). No migrations. From `site/` on Node v22.23.4: `npm ci` exit 0; `npm run build` exit 0; `node --test --test-concurrency=1` gave tests/prospecting-schedule-misfire 7/7 (5 new tests, failing before the fix) and tests/prospecting-ingestion-lifecycle 8/8 (2 new tests, failing before the fix), plus 14 related prospecting, runner and admission files with 0 failures (102 pass in total across the 16 files); `npm run lint` exit 0; `npm test` exited 0 with 1183 pass, 0 fail, 0 cancelled, 0 skipped across 169 files (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Local and synthetic only; not checked on a hosted deployment or with a live runner, and no independent review ran (the Codex review hit its usage limit). This is a code-review fix, not one of the 17 v1 requirements, so it is not attached to a requirement row. Recorded at 2026-11-09T21:57Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-session_011p7TfiEXmMq48z48QrnwWH` (2026-11-09, owner-authorized local work, 2026-11-09 code review batch 10): PR #174 from branch `claude/review-fix-10-bootstrap-replay-tests` merged into `claude/owner-local-completion-20261109` as merge commit `f281ea7efdbe91238dbdf123615da6bc5dac47b4` (tested head `431151e29f62152672052ff6e16b2004795d31f9`, base `3bb26ecbfd648b1a424d8dd7210b8c2deb1aa5ec`) at 2026-11-09T21:46Z. Two test guards that could not fail now can; product behaviour is unchanged. `site/scripts/person-discovery-browser-bootstrap.mjs` and `site/scripts/operator-journey-browser-bootstrap.mjs` now run `PRAGMA foreign_key_check` with `--json` and decide it with an exported `assertForeignKeyCheckClean`, which fails on a non-zero exit, unreadable or unexpected output, or any violation row. Against local wrangler on a scratch D1 with a planted violation, the old regex check passed and the new check fails. In `site/tests/discovery-handler-ui.test.mjs`, the D1 boundary test now replays a consumed CSRF token (403 `invalid_csrf_token`, domain rows unchanged) and sends a body over 8192 bytes with a fresh token (413 `payload_too_large`, domain rows unchanged); the regex-only test is renamed as a source-structure check. Temporarily disabling `consumeCsrfToken`, or raising the body limit, in the handler made the test fail; the handler was restored and is not part of the PR. From `site/` on Node v22.23.4: `npm ci` exit 0; `node --test --test-concurrency=1 tests/lane-bootstrap-fk-check.test.mjs` 6/6 (new, failing before the fix); `npm run build && node scripts/run-test-suite.mjs tests/discovery-handler-ui.test.mjs` 9/9; `tests/local-bootstrap.test.mjs` 3/3; `tests/migration-source-of-truth.test.mjs` 15/15; `npm run lint` exit 0; `npm run test:browser:person-discovery` bootstrap ready, 1 pass; `npm run test:browser:operator-journey` bootstrap ready, 2 pass (both lanes needed the container's pre-installed Playwright browsers linked into the gitignored `site/.local/playwright-browsers`; no code change); `npm test` exited 0 with 1182 pass, 0 fail, 0 cancelled, 0 skipped across 170 files (no loopback EPERM). From the repo root, `node --test tests/completion-ledger.test.mjs` 3/3. Local and synthetic only; no CI ran on the PR and the Codex review hit its usage limit. This is a code-review fix, not one of the 17 v1 requirements, so it is not attached to a requirement row. Recorded at 2026-11-09T21:57Z. No requirement status changed. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-ee67a286-2026-11-09`, review round two (site). Merged into `claude/owner-local-completion-20261109` with tip `52d8ab9`:
+- PR #172: batch 07, with no automatic retry after an expired CSRF token (owner rule).
+- PR #174: batch 10.
+- PR #175: batch 05.
+- PR #177: batch 08.
+- PR #183: owner decision 6, prospecting refusal codes.
+- PR #184: owner decisions 4 and 5. The boundary proof is localhost-only, and activation requires a single rubric (`rubric_ambiguous`).
+
+Before the merge, the combined tree was identical to the tested tree `e14a5d7`. `cd site && npm test` passed 1224/1224 across 172 files. `npm run lint` exited 0. `npm run test:browser:person-discovery` gave 1 pass and `npm run test:browser:operator-journey` gave 2 pass. `node --test tests/completion-ledger.test.mjs` gave 3/3.
+
+Evidence is local and synthetic only. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
+
+Session `claude-ee67a286-2026-11-09`, 03-11 preparation. At `8f81d03`, `cd site && npm run test:phase3` exited 0 with 29 pass and 0 fail. `node --test --test-concurrency=1 tests/phase3-release-preflight.test.mjs` exited 0 with 3 pass and 0 fail. The owner-review summary is in `docs/implementation-lanes/2026-11-09-03-11-owner-review-summary.md`. 03-11 still depends on the hosted 03-09 and 03-10 proofs and is not complete. No requirement status changed.
+
+Session `claude-ee67a286-2026-11-09`, Phase 6–7 Wave 1 (local build, owner-authorized). Merged into `claude/owner-local-completion-20261109` with tip `fd9637f`:
+- PR #189: Lane A, outreach package and message version services (06-03), tested head `45dbe97`.
+- PR #190: Lane B, suppression resolver, stop rules and pre-dispatch cancel (06-04), tested head `62858df`.
+- PR #188: Lane C, Phase 7 contract tests (07-01, 07-02, 07-03), tested head `d7b9848`.
+
+The merged tree is identical to the tested combined tree `9500380`. From `site/`, `node --test --test-concurrency=1` over the outreach-artifacts, suppression, outreach-persistence, manual-call-decision-service, crm-handoff, mining-handoff-ui, weekly-outcome, workspace-recovery, outreach-preparation-boundary, outreach-outbox-event-scope-guard-reachability and migration-source-of-truth suites gave 171 tests: 154 pass, 0 fail, 17 todo (plans not implemented yet). eslint on the changed domain files exited 0 and `npm run build` exited 0. The full `npm test` was not run for this wave.
+
+Evidence is local and synthetic only. Production eligibility still refuses, and no provider call, migration or send state was added. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
+
+Session `claude-ee67a286-2026-11-09`, Phase 6–7 Wave 2 (local build, owner-authorized). Merged into `claude/owner-local-completion-20261109` with tip `badbdeb`:
+- PR #193: Lane E, governed enqueue and originated mail sync (06-06 Tasks 1 and 3), tested head `dc69a73`.
+- PR #192: Lane F, manual call backed by D1 with the phone action disabled (06-07), tested head `ef9ba7d`.
+- PR #191: Lane I, CSV handoff service shell (07-06 partial), tested head `aaa1642`.
+
+The merged tree is identical to the tested combined tree `817d5d1`. From `site/`, after `npm run build`, `node --test --test-concurrency=1` over the outreach-dispatch, manual-call, crm-handoff, outreach-artifacts, suppression, outreach-persistence, manual-call-decision-service, mining-handoff-ui, weekly-outcome, workspace-recovery, crm-csv-codec, crm-handoff-delivery, crm-handoff-export-artifact, crm-handoff-projection, production-bundle-boundary, outreach-preparation-boundary, outreach-outbox-event-scope-guard-reachability and migration-source-of-truth suites gave 238 tests: 223 pass, 0 fail, 15 todo. eslint on the changed domain files exited 0. The full `npm test` was not run for this wave.
+
+Evidence is local and synthetic only. Production eligibility still refuses, and no provider call, migration or D1 send state was added. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
+
+Session `claude-ee67a286-2026-11-09`, Phase 6–7 Wave 3 Lane G (local build, owner-authorized). PR #194 (owner Outreach handler, Outreach workspace and public unsubscribe, 06-08 local; tested head `f83304e`) merged into `claude/owner-local-completion-20261109` as `47ae08a`. The merged tree differs from the tested head only by the ledger-only PR #186. From `site/`: `tests/outreach-ui.test.mjs` gave 23 tests, 20 pass, 0 fail, 3 todo; the outreach-dispatch, manual-call, suppression, outreach-artifacts, outreach-persistence, client-command-keys and contacts-ui suites gave 117 tests, 116 pass, 0 fail, 1 todo; the boundary, reachability, migration and production-bundle guards gave 30 pass after `npm run build`; `npm run lint` exited 0; `npm run test:browser:operator-journey` gave 2 pass. Open decision D-8 (manual-call number tombstone) is addressed by an owner-confirmed number checked against the stored digest. The full `npm test` was not run for this lane.
+
+Evidence is local and synthetic only. Production eligibility still refuses and the phone action stays disabled. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
 
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
@@ -30,7 +93,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
     "recorded_at": "2026-11-08T21:00:33Z",
     "session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
     "seeded_at": "2026-11-08T21:00:33Z",
-    "last_source_review_at": "2026-11-09T06:05:00Z",
+    "last_source_review_at": "2026-11-09T19:14:58Z",
     "verification_mapping": "partial"
   },
   "requirements": [
@@ -65,8 +128,8 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "insufficient",
-      "last_touched_at": "2026-11-08T21:00:33Z",
-      "last_touched_session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
+      "last_touched_at": "2026-11-09T19:14:58Z",
+      "last_touched_session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
       "evidence": [
         {
           "kind": "artifact",
@@ -89,6 +152,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "The requirements traceability cell says local implementation is complete and acceptance is pending. No requirement-scoped test count is recorded here. The session that wrote the 2026-09-03 requirements update is unknown. Plan credit 26/74 is not this requirement's acceptance."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/173",
+          "pr_number": 173,
+          "artifact_path": "operator/scripts/run-recovery.test.mjs",
+          "evidence_commit": "a0fd31bf7ea3885bcfe09b31d5e7efd4816816b5",
+          "test_scope": "cd operator && node --test scripts/run-recovery.test.mjs scripts/manual-workflow-actions.test.mjs scripts/hunt-evidence.test.mjs",
+          "test_counts": {
+            "tests": 19,
+            "passed": 19,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T19:14:58Z",
+          "recorded_at": "2026-11-09T19:14:58Z",
+          "session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
+          "limitations": "Operator app only, synthetic PGlite fixture with stubbed providers. Interrupted queued/running runs are failed at server start and on archive restore; migration 0010 allows one active prospecting and one active discovery run per workspace, so overlapping starts cannot both run and spend; hunt saves skip existing prospect ids. Real concurrent Postgres sessions and a real quit mid-hunt were not exercised. The macOS browser-workflow acceptance run of the PR head is recorded on the owner's attestation only: the last-run.json shared from it matched the 29 Oct copy, so EVIDENCE.md and last-run.json were not refreshed. Not Plan 02-99 acceptance, not plan credit. Formal acceptance stays 0/17. Plan credit stays 26/74."
         }
       ]
     },
@@ -723,8 +807,8 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "not_assessed",
-      "last_touched_at": "2026-11-08T21:00:33Z",
-      "last_touched_session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
+      "last_touched_at": "2026-11-09T17:30:00Z",
+      "last_touched_session": "claude-ee67a286-2026-11-09",
       "evidence": [
         {
           "kind": "artifact",
@@ -747,6 +831,48 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "Traceability status is Pending. This inventory row was not given a requirement-scoped acceptance receipt. Discovery did not treat the checkbox as proof."
+        },
+        {
+          "kind": "test",
+          "pr_url": null,
+          "pr_number": null,
+          "artifact_path": "site/tests/browser/person-discovery-c4.spec.ts",
+          "evidence_commit": "0c3ce490d707c0fa0b4eac9178ab05c75491d96f",
+          "test_scope": "cd site && npm run test:browser:person-discovery",
+          "test_counts": {
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 1,
+          "observed_at": "2026-11-09T15:30:00Z",
+          "recorded_at": "2026-11-09T15:30:00Z",
+          "session": "claude-ee67a286-2026-11-09",
+          "limitations": "Negative evidence. The synthetic no-known-person C4 lane stops before ContactReady: the Contacts projection only honours the settlement attestor when controlled_enrichment is activated, which this lane never does, so the contact stays NeedsReview with contact_attestation_unavailable. The issue-#6 checkbox 5 claim based on PR #82 is not supported on this commit. Not acceptance; formal acceptance stays 0/17 and plan credit stays 26/74."
+        },
+        {
+          "kind": "test",
+          "pr_url": null,
+          "pr_number": null,
+          "artifact_path": "site/tests/browser/person-discovery-c4.spec.ts",
+          "evidence_commit": "72a1b749f8755e11bdb3900288b6392dd45762ce",
+          "test_scope": "cd site && npm run test:browser:person-discovery",
+          "test_counts": {
+            "tests": 1,
+            "passed": 1,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T17:30:00Z",
+          "recorded_at": "2026-11-09T17:30:00Z",
+          "session": "claude-ee67a286-2026-11-09",
+          "limitations": "Local synthetic C4 lane after the dev-only Contacts read-projection fix: the discovered fictional contact is shown as Verified, the verifier passed with forbiddenRows=0 and no R2 objects, and no gate row was written. Same commit: cd site && npm test 1176 pass / 0 fail across 169 files; npm run lint exit 0. Dev-only local evidence, not hosted or live-provider acceptance. Formal acceptance stays 0/17 and plan credit stays 26/74."
         }
       ]
     },
@@ -838,8 +964,8 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "not_assessed",
-      "last_touched_at": "2026-11-08T21:00:33Z",
-      "last_touched_session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
+      "last_touched_at": "2026-11-09T19:14:58Z",
+      "last_touched_session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
       "evidence": [
         {
           "kind": "artifact",
@@ -883,6 +1009,48 @@ The source SHA below is the code inspected before this ledger file existed. It i
           "recorded_at": "2026-11-09T06:05:00Z",
           "session": "extract-merges-2026-11-09",
           "limitations": "Synthetic decision service only. do_not_call orders suppression before the outcome inside an injected repository. No phone number, URI, dial, or provider. Not production suppression. Not plan credit. Formal acceptance stays 0/17."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/167",
+          "pr_number": 167,
+          "artifact_path": "site/domain/manual-call-decision-service.ts",
+          "evidence_commit": "c8de3ea9b1ea0c22256878e21d5b6a19109b799b",
+          "test_scope": "node --test --test-concurrency=1 tests/manual-call-decision-service.test.mjs",
+          "test_counts": {
+            "tests": 21,
+            "passed": 21,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T17:20:00Z",
+          "recorded_at": "2026-11-09T18:50:00Z",
+          "session": "claude-011p7Tfj-2026-11-09",
+          "limitations": "Review batch 02 (2026-11-09 code review finding 4). Synthetic decision service only: do_not_call is now recordable after approval expiry, phone-freshness lapse, an already-present suppression, or an authority change, and always uses the current suppression subjects and pending work; scope, approval and phone binding, and synthetic classification are still required, and other outcomes keep the fail-closed gate. Injected test repository only; no real commitCurrentOutcome implementation, route, phone number, URI, dial, or provider. Not production suppression. Not plan credit. Formal acceptance stays 0/17."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/173",
+          "pr_number": 173,
+          "artifact_path": "operator/scripts/manual-workflow-actions.test.mjs",
+          "evidence_commit": "a0fd31bf7ea3885bcfe09b31d5e7efd4816816b5",
+          "test_scope": "cd operator && node --test scripts/manual-workflow-actions.test.mjs",
+          "test_counts": {
+            "tests": 14,
+            "passed": 14,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T19:14:58Z",
+          "recorded_at": "2026-11-09T19:14:58Z",
+          "session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
+          "limitations": "Operator app only, synthetic PGlite fixture. addSuppression now normalises domains (scheme, path, port, leading @, www.), validates email shape, requires an existing contact id, warns on an unmatched org, and rejects values that could never match; mergeContacts carries contact suppression to the kept contact and pins both mailboxes in one transaction. Matching is unchanged: subdomains are not blocked (open owner question). No sender identity or unsubscribe control is covered. Not production enforcement at send time, not Plan 02-99 acceptance, not plan credit. Formal acceptance stays 0/17. Plan credit stays 26/74."
         }
       ]
     },
@@ -951,12 +1119,33 @@ The source SHA below is the code inspected before this ledger file existed. It i
           "recorded_at": "2026-11-09T06:05:00Z",
           "session": "extract-merges-2026-11-09",
           "limitations": "In-memory synthetic CSV selection validation only. No download, delivery, archive, or restore. Not Plans 07-07 or 07-10. Not plan credit. Formal acceptance stays 0/17."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/167",
+          "pr_number": 167,
+          "artifact_path": "site/domain/crm-handoff-export-artifact.ts",
+          "evidence_commit": "c8de3ea9b1ea0c22256878e21d5b6a19109b799b",
+          "test_scope": "node --test --test-concurrency=1 tests/crm-handoff-export-artifact.test.mjs",
+          "test_counts": {
+            "tests": 9,
+            "passed": 9,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T17:20:00Z",
+          "recorded_at": "2026-11-09T18:50:00Z",
+          "session": "claude-011p7Tfj-2026-11-09",
+          "limitations": "Review batch 02 (2026-11-09 code review finding on duplicate export rows). In-memory synthetic CSV selection validation only: each selected row must be supplied exactly once, and the builder refuses if the artifact row count differs from the validated count. No download, delivery, archive, or restore. Not Plans 07-07 or 07-10. Not plan credit. Formal acceptance stays 0/17."
         }
       ]
     },
     {
       "id": "REQ-initial-operating-target",
-      "title": "The operator can run the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` workflow weekdays at 06:00 America/Toronto, keep Greenfield Draft/nurture, and report seven newly Export-ready Prospects per Monday\u2013Sunday week while showing all funnel losses and preserving every quality gate.",
+      "title": "The operator can run the seeded `Digitalrain -> ONE -> ONE for Mining -> Operating` workflow weekdays at 06:00 America/Toronto, keep Greenfield Draft/nurture, and report seven newly Export-ready Prospects per Monday–Sunday week while showing all funnel losses and preserving every quality gate.",
       "class": "requirement",
       "status": "open",
       "source_status": "Pending",

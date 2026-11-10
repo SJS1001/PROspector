@@ -27,6 +27,8 @@ const LOCAL_DEMO_ENV = {
   OWNER_SUBJECT_PEPPER: PEPPER,
 };
 
+const WORKSPACE_ROW = { id: "ws_home_fixture", company_name: "Fixture Co" };
+
 const rejections = [];
 const recordRejection = (reason) => rejections.push(reason);
 process.on("unhandledRejection", recordRejection);
@@ -66,17 +68,78 @@ for (const [label, bindings, host] of DENIED_CASES) {
   });
 }
 
-test("the configured local-demo owner is still admitted and lands off Pilot Status", async () => {
-  const markup = await renderHome(LOCAL_DEMO_ENV, LOOPBACK_HOST);
+test("the configured local-demo owner with a blank workspace is admitted and lands off Pilot Status", async () => {
+  const db = fakeD1({ workspace: null });
+  const markup = await renderHome({ ...LOCAL_DEMO_ENV, DB: db }, LOOPBACK_HOST);
   assert.match(markup, /class="app-shell"/);
   assert.doesNotMatch(markup, /Private workspace unavailable/);
   assert.doesNotMatch(markup, /class="access-screen"/);
-  // A blank workspace has no accepted capability evidence, so `page.tsx`
-  // coerces the default status landing view to the setup task. Labels come from
-  // `operatorTaskLabel` in app/workspace-view.ts.
+  // The workspace lookup really ran against the bound database and found no
+  // workspace, so `page.tsx` coerces the default status landing view to the
+  // setup task. Labels come from `operatorTaskLabel` in app/workspace-view.ts.
+  assert.ok(db.statements.some((sql) => /FROM workspaces/u.test(sql)), "the blank case must read the bound database");
   assert.match(markup, /aria-current="page">Company &amp; products</u);
   assert.doesNotMatch(markup, /aria-current="page">Status</u);
   assertNoSecretsInMarkup(markup);
+  await assertNoUnhandledRejections();
+});
+
+// A failed capability read is not evidence that the workspace is blank. An
+// established owner whose read fails must stay on Status, whose existing
+// loading/error/retry state handles it, rather than be sent to onboarding.
+for (const [label, failure] of [
+  ["the workspace lookup", "workspace"],
+  ["the evidence read", "evidence"],
+]) {
+  test(`a capability read failure in ${label} renders Status, not onboarding`, async () => {
+    const db = fakeD1({ workspace: WORKSPACE_ROW, fail: failure });
+    const markup = await renderHome({ ...LOCAL_DEMO_ENV, DB: db }, LOOPBACK_HOST);
+    assert.match(markup, /class="app-shell"/);
+    assert.doesNotMatch(markup, /class="access-screen"/);
+    assert.match(markup, /aria-current="page">Status</u);
+    assert.doesNotMatch(markup, /aria-current="page">Company &amp; products</u);
+    assert.match(markup, /class="pilot-(loading|error)"/u);
+    assertNoSecretsInMarkup(markup);
+    await assertNoUnhandledRejections();
+  });
+}
+
+test("an established workspace lands on Pilot Status with its projected capabilities", async () => {
+  const db = fakeD1({ workspace: WORKSPACE_ROW });
+  const markup = await renderHome({ ...LOCAL_DEMO_ENV, DB: db }, LOOPBACK_HOST);
+  assert.match(markup, /class="app-shell"/);
+  assert.match(markup, /aria-current="page">Status</u);
+  assert.doesNotMatch(markup, /class="pilot-(loading|error)"/u);
+  assertNoSecretsInMarkup(markup);
+  await assertNoUnhandledRejections();
+});
+
+// The server render cannot deliver a Set-Cookie to the browser, so issuing a
+// CSRF token there would only write an unredeemable row. Rendering `/` must
+// never touch csrf_tokens, for any workspace shape.
+test("rendering / writes no csrf_tokens row", async () => {
+  for (const options of [{ workspace: WORKSPACE_ROW }, { workspace: null }, { workspace: WORKSPACE_ROW, fail: "evidence" }]) {
+    const db = fakeD1(options);
+    await renderHome({ ...LOCAL_DEMO_ENV, DB: db }, LOOPBACK_HOST);
+    assert.ok(db.statements.length > 0, "the render must have read the bound database");
+    assert.deepEqual(db.statements.filter((sql) => /csrf_tokens/iu.test(sql)), []);
+  }
+  await assertNoUnhandledRejections();
+});
+
+// The browser GET route keeps issuing exactly one CSRF token with its cookie.
+test("GET /api/capabilities still issues a CSRF token and Set-Cookie", async () => {
+  const db = fakeD1({ workspace: WORKSPACE_ROW });
+  const response = await withHomeModules({ ...LOCAL_DEMO_ENV, DB: db }, LOOPBACK_HOST, async (load) => {
+    const { handleCapabilitiesGet } = await load("../domain/capability-handler.ts");
+    const { capabilityDependencies } = await load("../app/api/capability-runtime.ts");
+    const request = new Request(`http://${LOOPBACK_HOST}/api/capabilities`, { headers: { host: LOOPBACK_HOST } });
+    return handleCapabilitiesGet(capabilityDependencies(globalThis.__prospectorHomeTestEnv, request));
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("set-cookie") ?? "", /^prospector-local-csrf=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=900; HttpOnly; SameSite=Strict$/u);
+  assert.equal(db.statements.filter((sql) => /INSERT INTO csrf_tokens/iu.test(sql)).length, 1);
+  assert.equal((await response.json()).workspace.companyName, WORKSPACE_ROW.company_name);
   await assertNoUnhandledRejections();
 });
 
@@ -160,15 +223,58 @@ async function loadOwnerAdmission() {
 }
 
 async function renderHome(bindings, host) {
+  return withHomeModules(bindings, host, async (load) => {
+    const page = await load("../app/page.tsx");
+    return renderToStaticMarkup(await page.default({ searchParams: Promise.resolve({}) }));
+  });
+}
+
+async function withHomeModules(bindings, host, run) {
   globalThis.__prospectorHomeTestEnv = bindings;
   globalThis.__prospectorHomeTestHeaders = { host };
   const server = await testServer();
   try {
-    const page = await server.ssrLoadModule(new URL("../app/page.tsx", import.meta.url).pathname);
-    return renderToStaticMarkup(await page.default({ searchParams: Promise.resolve({}) }));
+    return await run((path) => server.ssrLoadModule(new URL(path, import.meta.url).pathname));
   } finally {
     await server.close();
     delete globalThis.__prospectorHomeTestEnv;
     delete globalThis.__prospectorHomeTestHeaders;
   }
+}
+
+// A minimal synthetic D1 binding that records every statement it is asked to
+// prepare. `workspace` is the row the workspace lookup returns (null for a
+// blank workspace); `fail` makes the named read reject.
+function fakeD1({ workspace = null, fail = null } = {}) {
+  const statements = [];
+  const statement = (sql) => {
+    const bound = {
+      bind: () => bound,
+      async first() {
+        if (/FROM workspaces/u.test(sql)) {
+          if (fail === "workspace") throw new Error("synthetic D1 failure");
+          return workspace;
+        }
+        return null;
+      },
+      async all() {
+        if (/FROM audit_events/u.test(sql) && fail === "evidence") throw new Error("synthetic D1 failure");
+        return { results: [] };
+      },
+      async run() {
+        return { success: true, meta: { changes: 1 } };
+      },
+    };
+    return bound;
+  };
+  return {
+    statements,
+    prepare(sql) {
+      statements.push(sql);
+      return statement(sql);
+    },
+    async batch(prepared) {
+      return prepared.map(() => ({ success: true, results: [] }));
+    },
+  };
 }

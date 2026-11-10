@@ -597,32 +597,8 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
       validateSuppression(input);
       await requireAdmission(database, scope);
       const now = positiveTime(clock());
-      if (!positive(input.effectiveAt) || input.effectiveAt > now) throw conflict();
-      const aliasDigests = uniqueSorted(input.aliasDigests);
-      const aliasSnapshotJson = canonical(aliasDigests);
-      const aliasSnapshotDigest = await digest({ schema: "outreach-suppression-aliases/v1", aliasDigests });
-      const tombstoneDigest = await digest({ schema: "outreach-suppression-tombstone/v1", subjectKind: input.subjectKind, subjectDigest: input.subjectDigest, channel: input.channel, reason: input.reason, sourceEventDigest: input.sourceEventDigest, aliasSnapshotDigest, effectiveAt: input.effectiveAt });
-      const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "suppression.record", tombstoneDigest });
-      const tombstoneId = derivedId("ost", operationDigest);
-      const stopId = derivedId("ose", operationDigest);
-      const commandId = derivedId("ocm", operationDigest);
-      const statements = [
-        commandStatement(database, scope, { id: commandId, kind: "suppression.record", key: input.idempotencyKey, digest: operationDigest, expectedVersion: 0, resultKind: "suppression_tombstone", resultId: tombstoneId, now }),
-        database.prepare(
-          `INSERT INTO outreach_suppression_tombstones (
-            id,workspace_id,subject_kind,subject_digest,channel,reason,source_event_digest,
-            alias_snapshot_json,alias_snapshot_digest,tombstone_digest,actor_subject,effective_at,command_id,created_at
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        ).bind(tombstoneId, scope.workspaceId, input.subjectKind, input.subjectDigest, input.channel, input.reason, input.sourceEventDigest, aliasSnapshotJson, aliasSnapshotDigest, tombstoneDigest, scope.ownerSubject, input.effectiveAt, commandId, now),
-        database.prepare(
-          `INSERT INTO outreach_stop_events (
-            id,workspace_id,stop_kind,tombstone_id,subject_kind,subject_digest,source_event_digest,
-            reason_code,command_id,effective_at,created_at
-          ) VALUES (?,?,'suppression',?,?,?,?,?,?,?,?)`,
-        ).bind(stopId, scope.workspaceId, tombstoneId, input.subjectKind, input.subjectDigest, input.sourceEventDigest, input.reason, commandId, input.effectiveAt, now),
-        await auditStatement(database, scope, commandId, "suppression.recorded", "suppression_tombstone", tombstoneId, input.reason, operationDigest, now),
-      ];
-      return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, tombstoneId, tombstoneDigest, statements);
+      const prepared = await suppressionTombstoneStatements(database, scope, input, now);
+      return commit(database, scope.workspaceId, input.idempotencyKey, prepared.operationDigest, prepared.tombstoneId, prepared.tombstoneDigest, prepared.statements);
     },
 
     isSuppressed: async (subjects: readonly Readonly<{ kind: RecordSuppressionInput["subjectKind"]; digest: string; channel: RecordSuppressionInput["channel"] }>[]): Promise<boolean> => {
@@ -648,6 +624,126 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
       return row !== null;
     },
   });
+}
+
+export type PreparedSuppressionTombstone = Readonly<{
+  tombstoneId: string;
+  tombstoneDigest: string;
+  stopEventId: string;
+  commandId: string;
+  operationDigest: string;
+  statements: readonly D1PreparedStatement[];
+}>;
+
+export type PreparedStopEvent = Readonly<{
+  stopEventId: string;
+  statement: D1PreparedStatement;
+}>;
+
+export type InboundStopEventInput = Readonly<{
+  stopKind: "reply" | "bounce";
+  subjectKind: "exact_email";
+  subjectDigest: string;
+  sourceEventDigest: string;
+  reasonCode: string;
+  anchorCommandId: string;
+  effectiveAt: number;
+}>;
+
+/**
+ * Canonical tombstone digest, shared by the writer and by ledger restore
+ * verification so the two can never disagree.
+ */
+export async function suppressionTombstoneDigest(input: Pick<RecordSuppressionInput, "subjectKind" | "subjectDigest" | "channel" | "reason" | "sourceEventDigest" | "aliasDigests" | "effectiveAt">): Promise<string> {
+  const aliasDigests = uniqueSorted(input.aliasDigests);
+  const aliasSnapshotDigest = await digest({ schema: "outreach-suppression-aliases/v1", aliasDigests });
+  return digest({ schema: "outreach-suppression-tombstone/v1", subjectKind: input.subjectKind, subjectDigest: input.subjectDigest, channel: input.channel, reason: input.reason, sourceEventDigest: input.sourceEventDigest, aliasSnapshotDigest, effectiveAt: input.effectiveAt });
+}
+
+/**
+ * Builds, but does not commit, the exact command/tombstone/stop/audit
+ * statements that `recordSuppression` commits. Callers place these first in
+ * one D1 batch so the tombstone is durable in the same transaction as any
+ * cancellation that follows it. Admission is checked before building.
+ */
+export async function prepareSuppressionTombstone(database: D1Database, scopeValue: OutreachRepositoryScope, inputValue: RecordSuppressionInput, now: number): Promise<PreparedSuppressionTombstone> {
+  const scope = capturedScope(scopeValue);
+  const input = snapshotCommand(inputValue, ["subjectKind", "subjectDigest", "channel", "reason", "sourceEventDigest", "aliasDigests", "effectiveAt", "idempotencyKey"]);
+  validateSuppression(input);
+  await requireAdmission(database, scope);
+  return suppressionTombstoneStatements(database, scope, input, positiveTime(now));
+}
+
+/**
+ * Builds one replay-safe reply/bounce stop event anchored to the command that
+ * authorized the originated message. The insert is a no-op when the same
+ * inbound source event was already recorded, so a replayed batch cannot fail.
+ */
+export async function prepareInboundStopEvent(database: D1Database, scopeValue: OutreachRepositoryScope, inputValue: InboundStopEventInput, now: number): Promise<PreparedStopEvent> {
+  const scope = capturedScope(scopeValue);
+  const input = snapshotCommand(inputValue, ["stopKind", "subjectKind", "subjectDigest", "sourceEventDigest", "reasonCode", "anchorCommandId", "effectiveAt"]);
+  if (
+    !["reply", "bounce"].includes(input.stopKind) || input.subjectKind !== "exact_email"
+    || !validDigest(input.subjectDigest) || !validDigest(input.sourceEventDigest) || !validId(input.anchorCommandId)
+    || typeof input.reasonCode !== "string" || !/^[a-z][a-z0-9_]{0,63}$/u.test(input.reasonCode)
+  ) throw conflict("invalid_stop_event");
+  await requireAdmission(database, scope);
+  const createdAt = positiveTime(now);
+  if (!positive(input.effectiveAt) || input.effectiveAt > createdAt) throw conflict("invalid_stop_event_time");
+  const stopDigest = await digest({ schema: "outreach-stop-event/v1", workspaceId: scope.workspaceId, stopKind: input.stopKind, subjectKind: input.subjectKind, subjectDigest: input.subjectDigest, sourceEventDigest: input.sourceEventDigest });
+  const stopEventId = derivedId("ose", stopDigest);
+  const statement = database.prepare(
+    `INSERT INTO outreach_stop_events (
+      id,workspace_id,stop_kind,tombstone_id,subject_kind,subject_digest,source_event_digest,
+      reason_code,command_id,effective_at,created_at
+    ) SELECT ?,?,?,NULL,?,?,?,?,cmd.id,?,?
+      FROM outreach_commands cmd
+      WHERE cmd.id=? AND cmd.workspace_id=? AND cmd.owner_subject=?
+        AND NOT EXISTS (SELECT 1 FROM outreach_stop_events prior
+          WHERE prior.workspace_id=? AND prior.stop_kind=? AND prior.source_event_digest=?)`,
+  ).bind(
+    stopEventId, scope.workspaceId, input.stopKind, input.subjectKind, input.subjectDigest, input.sourceEventDigest,
+    input.reasonCode, input.effectiveAt, createdAt,
+    input.anchorCommandId, scope.workspaceId, scope.ownerSubject,
+    scope.workspaceId, input.stopKind, input.sourceEventDigest,
+  );
+  return Object.freeze({ stopEventId, statement });
+}
+
+async function suppressionTombstoneStatements(database: D1Database, scope: OutreachRepositoryScope, input: RecordSuppressionInput, now: number): Promise<PreparedSuppressionTombstone> {
+  if (!positive(input.effectiveAt) || input.effectiveAt > now) throw conflict();
+  const aliasDigests = uniqueSorted(input.aliasDigests);
+  const aliasSnapshotJson = canonical(aliasDigests);
+  const aliasSnapshotDigest = await digest({ schema: "outreach-suppression-aliases/v1", aliasDigests });
+  const tombstoneDigest = await suppressionTombstoneDigest(input);
+  const operationDigest = await digest({ schema: "outreach-command/v1", workspaceId: scope.workspaceId, commandKind: "suppression.record", tombstoneDigest });
+  const tombstoneId = derivedId("ost", operationDigest);
+  const stopEventId = derivedId("ose", operationDigest);
+  const commandId = derivedId("ocm", operationDigest);
+  const statements = [
+    commandStatement(database, scope, { id: commandId, kind: "suppression.record", key: input.idempotencyKey, digest: operationDigest, expectedVersion: 0, resultKind: "suppression_tombstone", resultId: tombstoneId, now }),
+    database.prepare(
+      `INSERT INTO outreach_suppression_tombstones (
+        id,workspace_id,subject_kind,subject_digest,channel,reason,source_event_digest,
+        alias_snapshot_json,alias_snapshot_digest,tombstone_digest,actor_subject,effective_at,command_id,created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).bind(tombstoneId, scope.workspaceId, input.subjectKind, input.subjectDigest, input.channel, input.reason, input.sourceEventDigest, aliasSnapshotJson, aliasSnapshotDigest, tombstoneDigest, scope.ownerSubject, input.effectiveAt, commandId, now),
+    database.prepare(
+      `INSERT INTO outreach_stop_events (
+        id,workspace_id,stop_kind,tombstone_id,subject_kind,subject_digest,source_event_digest,
+        reason_code,command_id,effective_at,created_at
+      ) VALUES (?,?,'suppression',?,?,?,?,?,?,?,?)`,
+    ).bind(stopEventId, scope.workspaceId, tombstoneId, input.subjectKind, input.subjectDigest, input.sourceEventDigest, input.reason, commandId, input.effectiveAt, now),
+    await auditStatement(database, scope, commandId, "suppression.recorded", "suppression_tombstone", tombstoneId, input.reason, operationDigest, now),
+  ];
+  return Object.freeze({ tombstoneId, tombstoneDigest, stopEventId, commandId, operationDigest, statements: Object.freeze(statements) });
+}
+
+function capturedScope(scopeValue: OutreachRepositoryScope): OutreachRepositoryScope {
+  if (!plainObject(scopeValue) || !dataKeys(scopeValue, ["workspaceId", "ownerSubject"], ["now"])) throw new TypeError("invalid_outreach_repository_scope");
+  const scope = Object.freeze({ workspaceId: scopeValue.workspaceId, ownerSubject: scopeValue.ownerSubject });
+  if (!validId(scope.workspaceId) || !validId(scope.ownerSubject)) throw new TypeError("invalid_outreach_repository_scope");
+  return scope;
 }
 
 type Command = Readonly<{ id: string; kind: string; key: string; digest: string; expectedVersion: number; resultKind: string; resultId: string; now: number }>;

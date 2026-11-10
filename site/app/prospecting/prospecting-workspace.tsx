@@ -10,6 +10,7 @@ import { ReviewQueue } from "./review-queue";
 import { prospectingUrl } from "./prospecting-transport";
 import { disambiguateOperatorLabels } from "../operator-context";
 import { TaskState } from "../task-state";
+import { operatorTaskHref } from "../workspace-view";
 import { chooseOperatorPreference, readOperatorPreference, writeOperatorPreference } from "../operator-preference";
 
 export type ProspectingProjection = {
@@ -27,8 +28,38 @@ export type ProspectingProjection = {
   queue?: Record<string, unknown>[];
 };
 export type ProspectingMode = "prospects" | "review";
-type Notice = "stale" | "unknown" | "loaded" | "load_failed" | "";
-const PROSPECTING_NOTICES = Object.freeze({
+export type RefusalCode =
+  | "review_reason_required"
+  | "defer_date_not_future"
+  | "prospect_cooldown_active"
+  | "prospect_rejected_needs_signal"
+  | "profile_not_ready"
+  | "rubric_ambiguous"
+  | "schedule_required"
+  | "runner_unavailable";
+const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
+  "review_reason_required",
+  "defer_date_not_future",
+  "prospect_cooldown_active",
+  "prospect_rejected_needs_signal",
+  "profile_not_ready",
+  "rubric_ambiguous",
+  "schedule_required",
+  "runner_unavailable",
+]);
+type Notice = "stale" | "unknown" | "loaded" | "load_failed" | "" | RefusalCode;
+const PROSPECTING_NOTICES: Record<Exclude<Notice, "">, string> = Object.freeze({
+  review_reason_required: "Add a short reason for your decision, then try again.",
+  defer_date_not_future: "Pick a review date in the future.",
+  prospect_cooldown_active:
+    "This prospect is in a cooldown period. It can come back only with a new material signal.",
+  prospect_rejected_needs_signal:
+    "This prospect was rejected earlier. It needs a new material signal, a 90-day cooldown expiry, or sourced disproof first.",
+  profile_not_ready: "Finish the missing profile readiness items first.",
+  rubric_ambiguous:
+    "This profile has more than one confirmed rubric. Choose one rubric, then try again.",
+  schedule_required: "Set up a search schedule first.",
+  runner_unavailable: "No runner is available yet, so nothing was issued.",
   stale:
     "This candidate changed in another tab. Your action was not applied.",
   unknown:
@@ -37,6 +68,27 @@ const PROSPECTING_NOTICES = Object.freeze({
   load_failed:
     "Unable to load the authoritative workspace. No action was applied.",
 });
+
+/**
+ * Posts one prospecting command with a fresh idempotency key. It is never
+ * retried automatically: an expired CSRF token (403) or a lost response is
+ * reported to the owner as an unverified outcome instead.
+ */
+export async function postProspectingCommand(
+  fetcher: typeof fetch,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  return fetcher("/api/prospecting", {
+    method: "POST",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      "x-prospector-intent": "prospecting-mutation",
+    },
+    body: JSON.stringify({ ...body, idempotencyKey: crypto.randomUUID() }),
+  });
+}
 
 export function ProspectingWorkspace({
   projection: initial,
@@ -124,21 +176,13 @@ export function ProspectingWorkspace({
       setBusy(true);
       setNotice("");
       try {
-        const response = await fetch("/api/prospecting", {
-          method: "POST",
-          cache: "no-store",
-          credentials: "same-origin",
-          headers: {
-            "content-type": "application/json",
-            "x-prospector-intent": "prospecting-mutation",
-          },
-          body: JSON.stringify({
-            ...body,
-            idempotencyKey: crypto.randomUUID(),
-          }),
-        });
+        const response = await postProspectingCommand(fetch, body);
         if (response.status === 409) {
-          setNotice("stale");
+          const refusal = await response.json().then(
+            (body: { error?: unknown }) => (typeof body?.error === "string" && REFUSAL_CODES.has(body.error) ? (body.error as RefusalCode) : null),
+            () => null,
+          );
+          setNotice(refusal ?? "stale");
           return;
         }
         if (response.status === 404) {
@@ -186,7 +230,7 @@ export function ProspectingWorkspace({
         <section
           className="workspace-notice"
           aria-live="polite"
-          role={notice === "stale" || notice === "unknown" ? "alert" : "status"}
+          role={notice === "loaded" ? "status" : "alert"}
         >
           <p>{PROSPECTING_NOTICES[notice]}</p>
           {notice === "stale" && (
@@ -217,6 +261,11 @@ export function ProspectingWorkspace({
       />
       {mode === "review" ? (
         <>
+          <p>
+            Next step: after a prospect is approved, open{" "}
+            <a href={operatorTaskHref("contacts")}>Contacts</a> to see its
+            contact status. Nothing is contacted from this page.
+          </p>
           <ReviewQueue
             queue={
               (projection.queue ??

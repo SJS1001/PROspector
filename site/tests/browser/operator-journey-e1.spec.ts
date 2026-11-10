@@ -67,6 +67,24 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   await assertAnnounced(page, UNKNOWN);
   await page.unroute("**/api/prospecting**");
 
+  // 2b. A validation refusal carries its own code and an honest message; it is
+  // not presented as a cross-tab revision conflict. One attempt, no retry.
+  await page.reload();
+  await openQueue(page);
+  let refused = 0;
+  await page.route("**/api/prospecting**", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    refused += 1;
+    return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "defer_date_not_future" }) });
+  });
+  await fillApproval(page, "refusal probe");
+  await page.getByRole("button", { name: "Approve prospect" }).click();
+  await assertAnnounced(page, "Pick a review date in the future.");
+  await expect(page.getByText(STALE)).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(refused).toBe(1);
+  await page.unroute("**/api/prospecting**");
+
   // 3. Two tabs, one decision. Both load the same authoritative revision; the
   // loser must be told its action was not applied, not silently retried.
   await page.reload();
@@ -110,12 +128,12 @@ test("a qualified Prospect survives CSRF expiry and a lost response, then one ta
   expect(external).toEqual([]);
 });
 
-/** Issue #11's local-handoff stage, driven through the supported screen rather
- * than the endpoint. The seam under test is the refusal: `projectCrmHandoff`
- * consults `recheckForCrmExport`, which never returns an unblocked recheck, so
- * no row is ever admitted. A preview that merely rendered would prove nothing —
- * this asserts the empty admission, the unadmitted framing, and the absence of
- * every export affordance. */
+/** Issue #11's local-handoff stage is only a refused precondition here: no
+ * handoff happens. The Phase 7 CRM section is a fictional composition preview.
+ * Only "Eligible rows" is data-driven (`crmPreview.realAdmissionCount`, asserted
+ * 0); "Materialization: refused" and the no-export-payload sentence are fixed
+ * JSX copy in app/local-demo/_screen.tsx. The test also asserts that no
+ * download/blob/data export affordance exists and that zero effects persist. */
 test("the operator advances the guarded Phase 4–7 journey, reloads it, and creates zero effects", async ({ page, context }) => {
   const external: string[] = [];
   const requests: Array<{ method: string; origin: string; path: string; resourceType: string }> = [];
@@ -132,6 +150,11 @@ test("the operator advances the guarded Phase 4–7 journey, reloads it, and cre
   await page.reload();
   await expect(page.getByText("Journey progress: 4 of 4 operator steps complete.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Phase 7 · Portability compatibility" })).toBeVisible();
+  // Issue #11's local-handoff stage: the CRM precondition is shown, and refused.
+  const handoff = page.locator("section").filter({ has: page.getByRole("heading", { name: "Phase 7 · CRM handoff precondition" }) });
+  await expect(handoff.locator("dt", { hasText: "Eligible rows" }).locator("+ dd")).toHaveText("0");
+  await expect(handoff.locator("dt", { hasText: "Materialization" }).locator("+ dd")).toHaveText("refused");
+  await expect(handoff.getByText("Only synthetic schema metadata is shown; no export payload is created.")).toBeVisible();
   await expect(page.locator('a[download], [download], a[href^="blob:"], a[href^="data:"]')).toHaveCount(0);
   await assertNoOverlay(page);
   await assertAxe(page);

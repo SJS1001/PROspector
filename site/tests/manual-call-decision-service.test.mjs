@@ -114,9 +114,11 @@ class SyntheticRepositories {
     const key = `${input.record.workspaceId}:${input.record.actorSubject}:${input.record.idempotencyKey}`;
     const prior = this.records.get(key);
     if (prior) return { kind: prior.operationDigest === input.record.operationDigest ? "replayed" : "conflict", record: prior };
-    if (this.current.authorityRevision !== input.expectedAuthorityRevision || this.current.suppressed) return { kind: "stale", record: null };
+    if (this.current.authorityRevision !== input.expectedAuthorityRevision) return { kind: "stale", record: null };
+    // Suppression blocks every outcome except do-not-call, whose suppression write is idempotent.
+    if (this.current.suppressed && !input.doNotCallRequirements) return { kind: "stale", record: null };
     if (input.doNotCallRequirements) {
-      this.order.push("suppression");
+      this.order.push(this.current.suppressed ? "suppression-already-present" : "suppression");
       this.current = { ...this.current, suppressed: true, authorityRevision: this.current.authorityRevision + 1 };
       this.order.push("pending-work-cancellation");
       for (const work of input.doNotCallRequirements.matchingPendingWork) {
@@ -298,6 +300,114 @@ test("do_not_call requires the cancellation step even when authoritative matchin
   });
   assert.deepEqual(repositories.order, ["suppression", "pending-work-cancellation", "outcome"]);
   assert.deepEqual(repositories.lastCommitInput.doNotCallRequirements.matchingPendingWork, []);
+});
+
+async function dncAfter(mutate, idempotencyKey, notes = "Synthetic do not call after a lapsed gate.") {
+  let currentTime = NOW;
+  const { repositories, service } = await setup(authority(), () => currentTime);
+  const decision = await service.decide(principal, request());
+  assert.equal(decision.eligible, true);
+  const advanced = mutate(repositories);
+  if (typeof advanced === "number") currentTime = advanced;
+  const command = { ...request(), expectedDecisionDigest: decision.decisionDigest, outcome: "do_not_call", notes, idempotencyKey };
+  return { repositories, service, decision, command, setTime: (value) => { currentTime = value; } };
+}
+
+test("do_not_call recorded after approval expiry still suppresses, cancels pending work and records the outcome", async () => {
+  const { repositories, service, command } = await dncAfter(() => NOW + 10_001, "synthetic-dnc-expired-key");
+  const result = await service.recordOutcome(principal, command);
+  assert.equal(result.outcome, "do_not_call");
+  assert.equal(result.replayed, false);
+  assert.equal(result.suppressionRecordedFirst, true);
+  assert.deepEqual(repositories.order, ["suppression", "pending-work-cancellation", "cancel:synthetic-pending-email:2", "outcome"]);
+  assert.equal(repositories.current.suppressed, true);
+  assert.equal(repositories.records.size, 1);
+  const [record] = repositories.records.values();
+  assert.equal(record.contextReasonCodes.includes("approval_expired"), true);
+  assert.equal(record.decisionDigest, command.expectedDecisionDigest);
+  assert.equal(repositories.externalEffects, 0);
+  const replay = await service.recordOutcome(principal, command);
+  assert.equal(replay.replayed, true);
+  assert.equal(repositories.commitCount, 1);
+});
+
+test("do_not_call recorded after phone freshness lapses still suppresses and records the outcome", async () => {
+  const { repositories, service, command } = await dncAfter((repos) => {
+    repos.current = { ...repos.current, phoneObservation: { ...repos.current.phoneObservation, freshUntil: NOW + 1 } };
+    return NOW + 1;
+  }, "synthetic-dnc-stale-phone-key");
+  await service.recordOutcome(principal, command);
+  assert.deepEqual(repositories.order, ["suppression", "pending-work-cancellation", "cancel:synthetic-pending-email:2", "outcome"]);
+  assert.equal(repositories.current.suppressed, true);
+  const [record] = repositories.records.values();
+  assert.equal(record.contextReasonCodes.includes("phone_not_current_verified"), true);
+});
+
+test("do_not_call for an already suppressed contact succeeds idempotently", async () => {
+  const { repositories, service, command } = await dncAfter((repos) => {
+    repos.current = { ...repos.current, suppressed: true, authorityRevision: 8 };
+  }, "synthetic-dnc-already-suppressed-key");
+  const result = await service.recordOutcome(principal, command);
+  assert.equal(result.outcome, "do_not_call");
+  assert.equal(repositories.lastCommitInput.expectedAuthorityRevision, 8);
+  assert.deepEqual(repositories.order, ["suppression-already-present", "pending-work-cancellation", "cancel:synthetic-pending-email:2", "outcome"]);
+  assert.equal(repositories.current.suppressed, true);
+  const [record] = repositories.records.values();
+  assert.deepEqual([...record.contextReasonCodes].filter((code) => ["authority_revision_changed", "suppressed"].includes(code)), ["authority_revision_changed", "suppressed"]);
+});
+
+test("do_not_call after the authority digest changed uses the current matching pending work", async () => {
+  const { repositories, service, command } = await dncAfter((repos) => {
+    repos.current = {
+      ...repos.current,
+      matchingPendingWork: [...repos.current.matchingPendingWork, { id: "synthetic-pending-email-2", revision: 1, state: "pending" }],
+    };
+  }, "synthetic-dnc-new-work-key");
+  await service.recordOutcome(principal, command);
+  assert.deepEqual(repositories.lastCommitInput.doNotCallRequirements.matchingPendingWork, [
+    { id: "synthetic-pending-email", revision: 2, state: "pending" },
+    { id: "synthetic-pending-email-2", revision: 1, state: "pending" },
+  ]);
+  assert.deepEqual(repositories.order, [
+    "suppression", "pending-work-cancellation", "cancel:synthetic-pending-email:2", "cancel:synthetic-pending-email-2:1", "outcome",
+  ]);
+});
+
+test("a non-do-not-call outcome after approval expiry still fails closed", async () => {
+  for (const outcome of ["connected", "voicemail", "no_answer", "wrong_number", "follow_up"]) {
+    const { repositories, service, command } = await dncAfter(() => NOW + 10_001, `synthetic-expired-${outcome.replaceAll("_", "-")}`);
+    await assert.rejects(service.recordOutcome(principal, { ...command, outcome }), /stale_or_ineligible/, outcome);
+    assert.equal(repositories.commitCount, 0, outcome);
+    assert.equal(repositories.current.suppressed, false, outcome);
+  }
+});
+
+test("do_not_call still requires owner scope and the exact approval and phone binding", async () => {
+  {
+    const { repositories, service, command } = await dncAfter(() => NOW + 10_001, "synthetic-dnc-outsider-key");
+    await assert.rejects(service.recordOutcome({ workspaceId: "synthetic-workspace", subject: "synthetic-outsider" }, command), /authority_unavailable/);
+    await assert.rejects(service.recordOutcome({ workspaceId: "synthetic-other-workspace", subject: "synthetic-owner" }, command), /authority_unavailable/);
+    await assert.rejects(service.recordOutcome(principal, { ...command, packageApprovalId: "synthetic-other-approval" }), /authority_unavailable/);
+    await assert.rejects(service.recordOutcome(principal, { ...command, phoneObservationId: "synthetic-other-observation" }), /authority_unavailable/);
+    assert.equal(repositories.commitCount, 0);
+  }
+  // A repository that returns authority not bound to the request must still be refused by the service.
+  for (const [label, mutate] of [
+    ["workspace", (current) => ({ ...current, workspaceId: "synthetic-other-workspace" })],
+    ["owner", (current) => ({ ...current, ownerSubject: "synthetic-other-owner" })],
+    ["approval", (current) => ({ ...current, packageApproval: { ...current.packageApproval, id: "synthetic-other-approval" } })],
+    ["phone id", (current) => ({ ...current, phoneObservation: { ...current.phoneObservation, id: "synthetic-other-observation" } })],
+    ["phone contact", (current) => ({ ...current, phoneObservation: { ...current.phoneObservation, contactId: "synthetic-other-contact" } })],
+    ["phone kind", (current) => ({ ...current, phoneObservation: { ...current.phoneObservation, kind: "email" } })],
+    ["non-synthetic", (current) => ({ ...current, dataClassification: "production" })],
+  ]) {
+    const { repositories, service, command } = await dncAfter(() => NOW + 10_001, `synthetic-dnc-binding-${label.replaceAll(" ", "-")}`);
+    const bound = repositories.current;
+    repositories.loadCurrentAuthority = async () => structuredClone(mutate(bound));
+    await assert.rejects(service.recordOutcome(principal, command), /stale_or_ineligible|non_synthetic_authority/, label);
+    assert.equal(repositories.commitCount, 0, label);
+    assert.equal(repositories.current.suppressed, false, label);
+  }
 });
 
 test("an identical commit race returns the repository winner as a replay despite timestamp drift", async () => {

@@ -69,7 +69,8 @@ are cleared. Original status and acknowledgement are saved as
 The package event's `message_id` references its package; other delivery events
 reference their message. Original approval/dispatched timestamps remain intact.
 
-The monthly budget becomes zero, active grants are revoked, completed grant
+The stored monthly AI spend cap is kept as archived (an archive without one
+gets the new-workspace default, never 0), active grants are revoked, completed grant
 history is restored with no expiry authority, leases are absent and the stored
 schedule flag becomes off. Existing credentials remain untouched. The archive
 code never calls a provider, sends mail or starts a run. It does not cancel a

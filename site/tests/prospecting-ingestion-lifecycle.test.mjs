@@ -255,3 +255,82 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }
+
+// --- 2026-11-09 review batch 05: exact replay after capability expiry, retryable ingress status ---
+
+async function issue(seed, key, now = NOW, ttl = 60_000) {
+  const runner = await seed.fixture.vite.ssrLoadModule(new URL("../domain/runner-assignment.ts", import.meta.url).pathname);
+  const issued = await runner.issueRunnerAssignment(seed.fixture.database, {
+    workspaceId:seed.workspaceId, runId:seed.runId, profileId:seed.profileId,
+    configurationId:seed.configurationId, configurationDigest:seed.configurationDigest,
+    audience:"prospecting-runner/v1", expiresAt:now+ttl,
+    instructionVersion:"runner-instructions/v1", toolConfigurationDigest:"f".repeat(64),
+    quotas:{maxBytes:20_000,maxFindings:3,maxSources:3}, grantReference:"synthetic",
+    reason:`synthetic lifecycle ${key}`, idempotencyKey:`${key}-assignment`, now,
+    capabilitySecret:SECRET,
+  });
+  return { runner, capability:issued.capability };
+}
+function ingressRequest(capability, idempotencyKey, value) {
+  return new Request("https://prospector.test/api/prospecting/runner", {
+    method:"POST", headers:{"content-type":"application/json"},
+    body:JSON.stringify({ capability, idempotencyKey, payload:value }),
+  });
+}
+
+test("an exact same-key replay after capability expiry reprocesses a retryable submission while new or different data stays refused", async () => {
+  const seed=await setup("ledger-expired-replay");
+  try {
+    const handler=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-handler.ts",import.meta.url).pathname);
+    const { runner, capability }=await issue(seed,"expired-replay");
+    let clock=NOW+1;
+    const ingress=(materializer)=>({ database:seed.fixture.database, runnerIngressEnabled:true, runnerCapabilitySecret:SECRET, now:()=>clock, candidateMaterializer:materializer });
+
+    const failing=await handler.handleRunnerIngress(ingressRequest(capability,"expired-replay-submission",payload()),ingress(()=>{throw new Error("transient synthetic failure");}));
+    assert.equal(failing.status,503,"a retryable processing failure must tell the runner to retry");
+    assert.equal((await failing.json()).error,"runner_processing_retryable");
+    assert.equal(failing.headers.get("retry-after"),"5");
+    assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id=?").bind(seed.runId).first()).execution_state,"submitted");
+
+    clock=NOW+120_000; // past both capability and assignment expiry
+    const different=payload();
+    different.findings[0].excerpt="different synthetic observation";
+    assert.equal((await handler.handleRunnerIngress(ingressRequest(capability,"expired-replay-submission",different),ingress())).status,404,"a different digest under the same key is still refused");
+    await assert.rejects(()=>runner.submitRunnerObservations(seed.fixture.database,{capability,idempotencyKey:"expired-replay-submission",payload:different,now:clock,capabilitySecret:SECRET}),/runner_assignment_rejected/);
+    assert.equal((await handler.handleRunnerIngress(ingressRequest(capability,"expired-brand-new-submission",payload()),ingress())).status,404,"a brand-new submission on an expired capability is refused");
+    await assert.rejects(()=>runner.submitRunnerObservations(seed.fixture.database,{capability,idempotencyKey:"expired-brand-new-submission",payload:payload(),now:clock,capabilitySecret:SECRET}),/runner_assignment_rejected/);
+    assert.equal(Number((await seed.fixture.database.prepare("SELECT COUNT(*) count FROM runner_submissions WHERE run_id=?").bind(seed.runId).first()).count),1);
+
+    const replay=await handler.handleRunnerIngress(ingressRequest(capability,"expired-replay-submission",payload()),ingress());
+    assert.equal(replay.status,200);
+    const body=await replay.json();
+    assert.equal(body.replayed,true);
+    assert.equal((await seed.fixture.database.prepare("SELECT execution_state FROM prospecting_runs WHERE id=?").bind(seed.runId).first()).execution_state,"succeeded");
+    const claims=(await ledgerEvents(seed)).filter(event=>event.stage==="claim");
+    assert.deepEqual(claims.map(event=>event.attempt),[0,1]);
+  } finally { await seed.fixture.dispose(); }
+});
+
+test("a re-POST while another worker holds the processing claim returns a retryable non-2xx status", async () => {
+  const seed=await setup("ledger-pending-ingress");
+  try {
+    const handler=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-handler.ts",import.meta.url).pathname);
+    const ingestion=await seed.fixture.vite.ssrLoadModule(new URL("../domain/prospecting-ingestion.ts",import.meta.url).pathname);
+    const { runner, capability }=await issue(seed,"pending-ingress");
+    const submitted=await runner.submitRunnerObservations(seed.fixture.database,{capability,idempotencyKey:"pending-ingress-submission",payload:payload(),now:NOW+1,capabilitySecret:SECRET});
+    let release, entered;
+    const held=new Promise(resolve=>{release=resolve;});
+    const materializerEntered=new Promise(resolve=>{entered=resolve;});
+    const first=ingestion.processAcceptedRunnerSubmission(seed.fixture.database,{workspaceId:seed.workspaceId,submissionId:submitted.submissionId,now:NOW+2,materializer:async()=>{entered();await held;return [];}});
+    await materializerEntered;
+    const pending=await handler.handleRunnerIngress(ingressRequest(capability,"pending-ingress-submission",payload()),{database:seed.fixture.database,runnerIngressEnabled:true,runnerCapabilitySecret:SECRET,now:()=>NOW+3});
+    assert.equal(pending.status,503);
+    assert.deepEqual(await pending.json(),{error:"runner_processing_pending",submissionId:submitted.submissionId});
+    assert.equal(pending.headers.get("retry-after"),"5");
+    release();
+    await first;
+    const done=await handler.handleRunnerIngress(ingressRequest(capability,"pending-ingress-submission",payload()),{database:seed.fixture.database,runnerIngressEnabled:true,runnerCapabilitySecret:SECRET,now:()=>NOW+4});
+    assert.equal(done.status,200);
+    assert.deepEqual(await done.json(),{submissionId:submitted.submissionId,replayed:true});
+  } finally { await seed.fixture.dispose(); }
+});

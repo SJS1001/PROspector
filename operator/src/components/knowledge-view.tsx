@@ -177,13 +177,32 @@ function SampleLoadPanel() {
   );
 }
 
+type AnswerDraft = { questionId: string; answer: string; dirty: boolean };
+
+/**
+ * Decide the answer field's text when the question or its suggested answer changes.
+ * A new question always starts from its suggestion. On the same question, text the
+ * owner has typed is kept; an untouched field follows the latest suggestion.
+ */
+function nextAnswerDraft(current: AnswerDraft, questionId: string, seed: string): AnswerDraft {
+  if (current.questionId !== questionId) return { questionId, answer: seed, dirty: false };
+  if (current.dirty) return current;
+  if (current.answer === seed) return current;
+  return { questionId, answer: seed, dirty: false };
+}
+// end answer draft rule
+
 function QuestionCard({ item }: { item: KnowledgeItem }) {
   const [editing, setEditing] = useState(
     Boolean(item.confirmedAnswer) && item.proposedAnswer === item.confirmedAnswer,
   );
-  const [answer, setAnswer] = useState(
-    item.proposedAnswer ?? item.confirmedAnswer ?? uiText(item.recommendation),
-  );
+  const seed = item.proposedAnswer || (item.confirmedAnswer ?? uiText(item.recommendation));
+  const [draft, setDraft] = useState<AnswerDraft>({
+    questionId: item.questionId,
+    answer: seed,
+    dirty: false,
+  });
+  const answer = draft.answer;
   const answerField = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (item.status !== "proposed" || editing) answerField.current?.focus();
@@ -195,9 +214,8 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
   const busy = propose.isPending || confirm.isPending || research.isPending;
 
   useEffect(() => {
-    if (item.proposedAnswer) setAnswer(item.proposedAnswer);
-    else setAnswer(item.confirmedAnswer ?? uiText(item.recommendation));
-  }, [item.questionId, item.proposedAnswer, item.confirmedAnswer, item.recommendation]);
+    setDraft((current) => nextAnswerDraft(current, item.questionId, seed));
+  }, [item.questionId, seed]);
 
   return (
     <Panel className="p-5">
@@ -232,7 +250,12 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
             event.preventDefault();
             propose.mutate(
               { questionId: item.questionId, answer },
-              { onSuccess: () => setEditing(false) },
+              {
+                onSuccess: () => {
+                  setEditing(false);
+                  setDraft((current) => ({ ...current, dirty: false }));
+                },
+              },
             );
           }}
         >
@@ -243,7 +266,9 @@ function QuestionCard({ item }: { item: KnowledgeItem }) {
               required
               minLength={2}
               value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
+              onChange={(event) =>
+                setDraft({ questionId: item.questionId, answer: event.target.value, dirty: true })
+              }
               className="min-h-24 w-full rounded-[10px] border border-line bg-cream p-3 text-sm text-ink"
             />
           </label>

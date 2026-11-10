@@ -1,0 +1,2 @@
+target_id,stratum,organization_name,source_reference,claim_summary,owner_relevance_label,owner_reason,owner_evidence_label,owner_organization_match,owner_blinded_to_jev_draft,owner_reviewer_id,labelled_at
+EXAMPLE-001,positive,Example Fictional Co (delete this row),https://example.invalid/about,Fictional claim text,relevant|irrelevant|unknown,One sentence of why,supported_current|supported_stale|unsupported|unknown,correct|incorrect|ambiguous|unknown,true,reviewer-1,2026-01-01T00:00:00Z

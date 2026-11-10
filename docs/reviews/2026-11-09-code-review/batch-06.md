@@ -1,0 +1,17 @@
+# Batch 6: site: consensus interview resets its draft and decision per question
+
+Severity: medium. App: site. Base branch: `claude/owner-local-completion-20261109`.
+
+Files: `site/app/knowledge/consensus-interview.tsx`, `site/app/knowledge/knowledge-workspace.tsx`
+
+Findings: ConsensusInterviewView keeps answer, value, reason and decision state across questions, so stale drafts and a pre-selected decision carry over
+
+## Brief
+
+Repo: PROspector. Work only in site/. Base branch: claude/owner-local-completion-20261109. Before editing, read AGENTS.md and the root COMPLETION_LEDGER.md.
+
+FINDING (medium, approval semantics). site/app/knowledge/consensus-interview.tsx:42-46 holds answer, value, reason, destinationId and decision in useState. decision starts null so the button reads 'Choose an owner decision', which means the design requires an explicit choice. knowledge-workspace.tsx:135 renders ConsensusInterviewView with no key. On hosted (non-loopback) hosts, mutation-transport.ts sends interview actions with returnsKnowledgeProjection=true, and dispatch (knowledge-workspace.tsx:90-93) calls setState({kind:'ready'}) directly without the 'loading' state, so the component stays mounted across questions. Failure: the owner records 'Accept' on answer 1. On the next awaiting_confirmation screen 'Accept' is pre-selected and enabled, so one click accepts a different answer and snapshot that was never chosen. A correction typed for question 1 pre-fills question 2's 'Owner-confirmed value'. (On loopback the load() path unmounts and hides the bug.)
+Required fix: render ConsensusInterviewView with a key derived from question.id plus answer.id (plus any snapshot/revision id the view already receives), so state resets whenever the question or answer changes. Also clear value, reason, decision and destinationId after any successful submission inside the component. Do not change copy or the mutation transport.
+TESTS FIRST: find the existing knowledge/consensus UI tests (`ls site/tests | grep -Ei 'knowledge|consensus|interview'`; site/tests/browser/onboarding.spec.ts covers the knowledge flow). Add a unit/render test (follow the existing pattern for rendering app components in site/tests, for example react-dom/server or the existing test harness) that renders the workspace with a projection for question 1, simulates a ready-state projection swap to question 2 without unmounting, and asserts decision is null and value/reason are empty. If no non-browser render harness exists, add the case to the relevant Playwright spec, make it use the non-loopback projection path, and note in the PR whether it ran.
+FOCUSED COMMANDS (from site/, after npm ci): `npm run build && node scripts/run-test-suite.mjs <the knowledge UI test files you touched>`, `npm run lint`, and, if you edited a browser spec, `npm run test:browser` (local only; record a loopback/browser limit if it cannot run). From the repo root, run `node --test tests/completion-ledger.test.mjs`.
+CONSTRAINTS: local and synthetic only. Make no live providers, no hosted access and send nothing. Take no plan credit and mark no requirement verified. Do not change user-facing wording (tests pin 'This item changed in another tab...' and related notices). Edit only the listed files plus test files. Before ending, append a COMPLETION_LEDGER.md session entry with the changes, the commands run with counts, the SHA, the time and the session. If the ledger conflicts with another batch, keep both entries.

@@ -474,6 +474,7 @@ test("every owner-facing runtime identity caller supplies the Cloudflare binding
     "app/api/discovery/route.ts",
     "app/api/interview/route.ts",
     "app/api/knowledge/route.ts",
+    "app/api/outreach/route.ts",
     "app/api/prospecting/route.ts",
     "app/owner-admission.ts",
   ];

@@ -100,6 +100,12 @@ export type ManualCallOutcomeRecord = Readonly<{
   authorityRevision: number;
   authorityDigest: string;
   decisionDigest: string;
+  /**
+   * Current eligibility reason codes at record time. Always empty for
+   * non-do-not-call outcomes (they require an eligible, unchanged decision);
+   * for do-not-call it records which gates had lapsed, as context only.
+   */
+  contextReasonCodes: readonly string[];
   outcome: ManualCallOutcome;
   notes: string;
   notesDigest: string;
@@ -119,7 +125,9 @@ export type ManualCallOutcomeRepository = Readonly<{
    * Atomically rechecks authority and, for do-not-call, completes the exact
    * suppression and pending-work cancellation projection in the required
    * order before inserting the outcome record. A uniqueness loser returns the
-   * immutable repository winner as `replayed`.
+   * immutable repository winner as `replayed`. Do-not-call is a stop signal:
+   * an existing suppression must not block it (the suppression write is
+   * idempotent), while every other outcome stays blocked by suppression.
    */
   commitCurrentOutcome(input: Readonly<{
     expectedAuthorityRevision: number;
@@ -230,7 +238,14 @@ export function createManualCallDecisionService(dependencies: Readonly<{
     }
     const authority = await loadAuthority(dependencies.authorityRepository, principal, command);
     const decision = await evaluate(principal, command, authority, now);
-    if (!decision.eligible || decision.decisionDigest !== command.expectedDecisionDigest) {
+    const doNotCall = command.outcome === "do_not_call";
+    if (doNotCall) {
+      // A do-not-call request must stay recordable after approval expiry,
+      // phone-freshness lapse, re-projection or any authority change, so it
+      // skips the eligibility/decision-digest gate. Scope, the approval and
+      // phone-observation binding, and synthetic classification still apply.
+      if (!doNotCallBindingHolds(principal, command, authority)) throw new ManualCallDecisionError("stale_or_ineligible");
+    } else if (!decision.eligible || decision.decisionDigest !== command.expectedDecisionDigest) {
       throw new ManualCallDecisionError("stale_or_ineligible");
     }
     const record: ManualCallOutcomeRecord = deepFreeze({
@@ -248,7 +263,8 @@ export function createManualCallDecisionService(dependencies: Readonly<{
       contactId: authority.contact.id,
       authorityRevision: authority.authorityRevision,
       authorityDigest: decision.authorityDigest,
-      decisionDigest: decision.decisionDigest,
+      decisionDigest: command.expectedDecisionDigest,
+      contextReasonCodes: doNotCall ? decision.reasonCodes : [],
       outcome: command.outcome,
       notes: command.notes,
       notesDigest,
@@ -260,7 +276,7 @@ export function createManualCallDecisionService(dependencies: Readonly<{
     const committed = await dependencies.outcomeRepository.commitCurrentOutcome({
       expectedAuthorityRevision: authority.authorityRevision,
       expectedAuthorityDigest: decision.authorityDigest,
-      doNotCallRequirements: command.outcome === "do_not_call" ? deepFreeze({
+      doNotCallRequirements: doNotCall ? deepFreeze({
         suppressionSubjects: authority.suppressionSubjects,
         matchingPendingWork: authority.matchingPendingWork,
         requiredOrder: "suppression_then_pending_work_cancellation_then_outcome" as const,
@@ -287,6 +303,16 @@ async function loadAuthority(repository: ManualCallAuthorityRepository, principa
   });
   if (!loaded) throw new ManualCallDecisionError("authority_unavailable");
   return authorityInput(loaded);
+}
+
+function doNotCallBindingHolds(principal: Principal, request: DecisionRequest, authority: ManualCallAuthoritySnapshot) {
+  return authority.dataClassification === "synthetic"
+    && authority.workspaceId === principal.workspaceId
+    && authority.ownerSubject === principal.subject
+    && authority.packageApproval.id === request.packageApprovalId
+    && authority.phoneObservation.id === request.phoneObservationId
+    && authority.phoneObservation.contactId === authority.contact.id
+    && authority.phoneObservation.kind === "phone";
 }
 
 async function evaluate(principal: Principal, request: DecisionRequest, authority: ManualCallAuthoritySnapshot, now: number) {

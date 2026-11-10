@@ -24,6 +24,18 @@ const BOUNDARY = "This is a Product-level market suggestion, not an accepted Cus
 const UNKNOWN = "Authoritative discovery results could not be verified. Reload this view.";
 const READ_ERROR = "Authoritative Product discovery could not be loaded. No readiness, run, or proposal authority has changed. Reload this view.";
 
+/* Every row of every domain table, excluding single-use CSRF bookkeeping, so a
+ * rejected request can be shown to leave authoritative state unchanged. */
+async function domainSnapshot(database) {
+  const { results } = await database.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%' AND name <> 'csrf_tokens' ORDER BY name",
+  ).all();
+  const snapshot = {};
+  for (const { name } of results)
+    snapshot[name] = (await database.prepare(`SELECT * FROM "${name}"`).all()).results.map((row) => JSON.stringify(row)).sort();
+  return snapshot;
+}
+
 async function productionSource(relative, behavior) {
   try {
     return await readFile(new URL(relative, import.meta.url), "utf8");
@@ -90,22 +102,44 @@ test("D-12 discovery HTTP boundary admits the configured owner before parsing an
 
     assert.equal((await handler.handleDiscoveryPost(request({ action: "read_current_state" }, csrf, { origin: "https://attacker.example" }), dependencies(ownerIdentity))).status, 403);
     assert.equal((await handler.handleDiscoveryPost(request({ action: "unknown" }, csrf), dependencies(ownerIdentity))).status, 400);
-    const replayToken = ((await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(ownerIdentity))).headers.get("set-cookie") ?? "").split(";", 1)[0];
-    assert.equal((await handler.handleDiscoveryPost(request({ action: "submit_private_synthetic_proof", productId: "anything", idempotencyKey: "0198b5c0-0000-7000-8000-000000009002" }, replayToken), dependencies(ownerIdentity))).status, 409);
+    const freshToken = async () => ((await handler.handleDiscoveryGet(new Request("https://prospector.example/api/discovery"), dependencies(ownerIdentity))).headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const conflictToken = await freshToken();
+    assert.equal((await handler.handleDiscoveryPost(request({ action: "submit_private_synthetic_proof", productId: "anything", idempotencyKey: "0198b5c0-0000-7000-8000-000000009002" }, conflictToken), dependencies(ownerIdentity))).status, 409);
+
+    // Replay: a token that reached consumeCsrfToken and succeeded is single-use.
+    const replayed = await freshToken();
+    const accepted = await handler.handleDiscoveryPost(request({ action: "read_current_state" }, replayed), dependencies(ownerIdentity));
+    assert.equal(accepted.status, 200, "the first use of a valid token must be accepted");
+    assert.ok(Array.isArray((await accepted.json()).products));
+    const beforeReplay = await domainSnapshot(fixture.database);
+    const replay = await handler.handleDiscoveryPost(request({ action: "start_manual_discovery", productId: "anything", expectedProductRevision: 1, idempotencyKey: "0198b5c0-0000-7000-8000-000000009003" }, replayed), dependencies(ownerIdentity));
+    assert.equal(replay.status, 403);
+    assert.equal(replay.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await replay.json(), { error: "invalid_csrf_token" });
+    assert.deepEqual(await domainSnapshot(fixture.database), beforeReplay, "a replayed token must not change state");
+
+    // Oversize body: rejected as payload_too_large before any command dispatch.
+    const beforeOversize = await domainSnapshot(fixture.database);
+    const oversize = await handler.handleDiscoveryPost(request({
+      action: "start_manual_discovery", productId: "anything", expectedProductRevision: 1,
+      idempotencyKey: "0198b5c0-0000-7000-8000-000000009004", padding: "x".repeat(handler.MAX_DISCOVERY_BODY_BYTES),
+    }, await freshToken()), dependencies(ownerIdentity));
+    assert.equal(handler.MAX_DISCOVERY_BODY_BYTES, 8192);
+    assert.equal(oversize.status, 413);
+    assert.deepEqual(await oversize.json(), { error: "payload_too_large" });
+    assert.deepEqual(await domainSnapshot(fixture.database), beforeOversize, "an oversize body must not change state");
   } finally {
     await fixture.dispose();
   }
 });
 
-test("D-12 discovery handler is owner-first, closed, bounded, and replay-safe", async () => {
+test("D-12 discovery handler source keeps its owner-first, closed-dispatch structure (source-structure check only; replay and size are proven behaviourally above)", async () => {
   const source = await productionSource(
     "../domain/discovery-handler.ts",
     "the owner-bound discovery HTTP handler does not exist",
   );
   assert.match(source, /authenticatedPrincipal\(dependencies\)[\s\S]{0,500}validateSameOriginMutation/);
   assert.match(source, /discovery-mutation/);
-  assert.match(source, /8192/);
-  assert.match(source, /consumeCsrfToken/);
   for (const action of [
     "read_product_readiness",
     "make_product_ready",
@@ -118,8 +152,6 @@ test("D-12 discovery handler is owner-first, closed, bounded, and replay-safe", 
   assert.match(source, /private_workspace_unavailable/);
   assert.match(source, /cache-control["']?\s*[:,]\s*["']no-store/i);
   assert.match(source, /x-content-type-options["']?\s*[:,]\s*["']nosniff/i);
-  assert.match(source, /409/);
-  assert.match(source, /413/);
   assert.doesNotMatch(source, /oai-authenticated-user-email|request\.headers.*owner|authorizationText|providerCredential/i);
 });
 

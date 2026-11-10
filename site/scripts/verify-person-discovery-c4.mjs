@@ -17,7 +17,7 @@ const EXACT = Object.freeze({
   enrichment_budget_accounts: 4, enrichment_grant_issuance_events: 1,
   enrichment_grant_prospects: 1, enrichment_grants: 1,
   enrichment_reservation_budget_entries: 4, enrichment_reservation_events: 3,
-  enrichment_reservations: 1, provider_quotes: 1, phase_activation_gates: 1,
+  enrichment_reservations: 1, provider_quotes: 1,
 });
 const FORBIDDEN = Object.freeze([
   "runner_budget_accounts", "runner_spend_grants", "runner_spend_reservation_events", "runner_spend_reservations",
@@ -28,7 +28,7 @@ const FORBIDDEN = Object.freeze([
   "outreach_recipient_dispatch_authorities", "outreach_sender_capability_snapshots", "outreach_sender_verified_addresses",
   "outreach_unsubscribe_authority_events", "outreach_pre_call_recheck_receipts", "outreach_dispatch_attempt_preparations",
   "outreach_dispatch_attempt_preparation_events", "product_discovery_runs", "product_discovery_run_events", "product_discovery_submissions",
-  "prospecting_signals", "prospecting_source_lineage", "runner_assignment_revocations",
+  "prospecting_signals", "prospecting_source_lineage", "runner_assignment_revocations", "phase_activation_gates",
 ]);
 const ALLOWED_NONEMPTY = new Set([
   ...Object.keys(EXACT), "authority_commands", "audit_events", "typed_configurations", "product_discovery_configuration_prerequisites",

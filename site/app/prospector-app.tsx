@@ -8,6 +8,7 @@ import {
   type ProspectingProjection,
 } from "./prospecting/prospecting-workspace";
 import { ContactsWorkspace } from "./prospects/contacts-workspace";
+import { OutreachWorkspace } from "./prospects/outreach-workspace";
 import { MorningBriefWorkspace } from "./morning-brief/morning-brief-workspace";
 import {
   emptyOperatorContext,
@@ -195,6 +196,7 @@ export function ProspectorApp({
             />
           )}
           {task === CONTACTS_TASK_ID && <ContactsWorkspace onAuthUnavailable={handleUnauthorized} />}
+          {task === "outreach" && <OutreachWorkspace onAuthUnavailable={handleUnauthorized} />}
         </div>
       </section>
     </main>

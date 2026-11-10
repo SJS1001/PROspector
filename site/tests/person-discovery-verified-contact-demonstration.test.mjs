@@ -13,35 +13,24 @@ import {
  * deliberately never calls a provider or writes eligible evidence. That is
  * the correct, reviewed C1-C4 boundary and this test changes none of it.
  *
- * IMPORTANT — what this test does NOT prove: no production route or service
- * anywhere in this repository reads `contact_verification_intents` to
- * construct an enrichment assignment/verification envelope. That composition
- * (domain/enrichment-repository.ts into a route) does not exist, so this
- * test cannot exercise a real intent consumer -- there isn't one. It is
- * a component-reachability check only: it independently proves that IF
- * something (a future route/service) supplied a verified observation for
- * the exact Contact person-discovery's decision produced, the existing,
- * unmodified contact-evidence/contact-eligibility machinery
- * (domain/contact-evidence.ts, domain/contact-eligibility.ts -- the
- * "current enrichment foundations" the issue names as prior art for an
- * already-known Contact) can carry it to genuine ContactReady/eligible
- * state. The assignment/envelope below are independently synthetic
- * fixtures tied only to the decided Contact's identity (`authority.*`),
- * not derived from or consuming the recorded intent, except for the
- * channel, which is read from the intent record to keep the two
- * consistent. No new domain/service export, no new route or transport
- * action, and no persisted row anywhere.
+ * Scope of this test: it does not consume the recorded intent. It is a
+ * component-reachability check only: it independently proves that the
+ * existing, unmodified contact-evidence/contact-eligibility machinery
+ * (domain/contact-evidence.ts, domain/contact-eligibility.ts) can carry a
+ * verified observation for the exact Contact person-discovery's decision
+ * produced to genuine ContactReady/eligible state. The assignment/envelope
+ * below are independently synthetic fixtures tied only to the decided
+ * Contact's identity (`authority.*`), except for the channel, which is read
+ * from the intent record. No persisted row anywhere.
  *
- * Reaching a real end-to-end outcome through the browser/UI additionally
- * requires composing the enrichment reservation/grant/settlement pipeline
- * (domain/enrichment-repository.ts) into a route that actually consumes
- * `contact_verification_intents` -- that pipeline is currently composed
- * nowhere in app/ and doing so is a materially bigger, separately-owned
- * change outside person-discovery's scope. See the handoff note in the
- * person-discovery lane report for exactly what a browser-acceptance
- * extension would still need.
+ * The persisted intent -> ContactReady transition is proved elsewhere: the
+ * DEV-only local consumer domain/person-discovery-c4-verification.ts (PR #82)
+ * reads `contact_verification_intents` and composes the canonical enrichment
+ * grant/reservation/settlement pipeline; see
+ * tests/person-discovery-verification-consumer.test.mjs and the
+ * `npm run test:browser:person-discovery` journey.
  */
-test("the existing evidence/eligibility modules can independently reach genuine ContactReady for the Contact a discovery decision produced, with zero persistence (no production intent consumer exists yet)", async () => {
+test("the existing evidence/eligibility modules can independently reach genuine ContactReady for the Contact a discovery decision produced, with zero persistence", async () => {
   const fixture = await createPersonDiscoveryFixture("person-discovery-verified-contact");
   try {
     const { discovery, testPort, repository } = await loadPersonDiscoveryModules(fixture);

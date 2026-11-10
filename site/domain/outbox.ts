@@ -1070,7 +1070,266 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
       ) return lifecycleBlocked("attempt_unavailable");
       return dispatchRepreparationResult(preparation, stored, receipt, !committed);
     },
+
+    /**
+     * Plans the only stop transition this boundary owns: `pending` or an
+     * unexpired `leased` item becomes `cancelled`, inside the existing event
+     * trigger. It never commits. The caller places the returned statements
+     * after its durable stop/tombstone statements in one D1 batch. Each insert
+     * is fenced to the exact revision read here, so a concurrent lease or
+     * cancellation makes it a no-op instead of failing the caller's batch.
+     * Dispatching, sent and delivery-unknown states are never produced.
+     */
+    async prepareCancellationBeforeDispatch(inputValue: unknown): Promise<CancellationPlanResult> {
+      const input = exactDataRecord(inputValue, ["outboxItemIds", "reasonCode"]);
+      const itemIds = input && Array.isArray(input.outboxItemIds) ? [...input.outboxItemIds] : null;
+      if (
+        !input || !itemIds || itemIds.length < 1 || itemIds.length > MAX_CANCELLATION_TARGETS
+        || !itemIds.every(id) || new Set(itemIds).size !== itemIds.length
+        || typeof input.reasonCode !== "string" || !/^[a-z][a-z0-9_]{0,63}$/u.test(input.reasonCode)
+      ) return cancellationBlocked("invalid_request");
+      const reasonCode = input.reasonCode;
+      const now = scope.now();
+      if (!Number.isSafeInteger(now) || now <= 0) return cancellationBlocked("current_authority_unavailable");
+      const admitted = await database.prepare(
+        "SELECT 1 ok FROM workspaces WHERE id=? AND owner_subject=? LIMIT 1",
+      ).bind(scope.workspaceId, scope.ownerSubject).first();
+      if (!admitted) return cancellationBlocked("current_authority_unavailable");
+
+      const targets: CancellationTarget[] = [];
+      const skipped: CancellationSkip[] = [];
+      const statements: D1PreparedStatement[] = [];
+      for (const outboxItemId of [...itemIds].sort() as string[]) {
+        const current = await readLatestEvent(database, scope.workspaceId, outboxItemId);
+        if (!current || !validLatestEvent(current)) {
+          skipped.push(Object.freeze({ outboxItemId, reason: "unknown_item" }));
+          continue;
+        }
+        const cancellable = current.state === "pending"
+          ? current.lease_generation === 0 && current.lease_holder_id === null && current.lease_expires_at === null
+          : current.state === "leased" && current.lease_holder_id !== null && current.lease_expires_at !== null && current.lease_expires_at > now;
+        if (!cancellable) {
+          skipped.push(Object.freeze({
+            outboxItemId,
+            reason: current.state === "leased" ? "lease_expired" : "not_cancellable",
+          }));
+          continue;
+        }
+        const revision = current.revision + 1;
+        const eventDigest = await canonicalDigest({
+          schema: "outreach-outbox-event/v1",
+          outboxItemId,
+          revision,
+          state: "cancelled",
+          leaseGeneration: current.lease_generation,
+          holderId: current.lease_holder_id,
+          expiresAt: current.lease_expires_at,
+          reasonCode,
+          createdAt: now,
+        });
+        const eventId = `ooe-${eventDigest}`;
+        statements.push(database.prepare(
+          `INSERT INTO outreach_outbox_events
+            (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at)
+           SELECT ?,prior.workspace_id,prior.outbox_item_id,prior.revision+1,'cancelled',prior.lease_generation,
+                  prior.lease_holder_id,prior.lease_expires_at,?,?,?
+           FROM outreach_outbox_events prior
+           JOIN workspaces workspace ON workspace.id=prior.workspace_id AND workspace.owner_subject=?
+           WHERE prior.workspace_id=? AND prior.outbox_item_id=? AND prior.revision=? AND prior.state=?
+             AND prior.lease_generation=? AND prior.lease_holder_id IS ? AND prior.lease_expires_at IS ?
+             AND prior.created_at<=?
+             AND (prior.state='pending' OR prior.lease_expires_at>?)
+             AND NOT EXISTS (SELECT 1 FROM outreach_outbox_events later
+               WHERE later.workspace_id=prior.workspace_id AND later.outbox_item_id=prior.outbox_item_id
+                 AND later.revision>prior.revision)
+             AND NOT EXISTS (SELECT 1 FROM outreach_dispatch_attempt_preparations preparation
+               JOIN outreach_dispatch_attempt_preparation_events lifecycle
+                 ON lifecycle.workspace_id=preparation.workspace_id AND lifecycle.preparation_id=preparation.id
+               WHERE preparation.workspace_id=prior.workspace_id AND preparation.outbox_item_id=prior.outbox_item_id
+                 AND lifecycle.event_kind='voided_before_invocation'
+                 AND lifecycle.lease_generation=prior.lease_generation
+                 AND lifecycle.id=(SELECT latest.id FROM outreach_dispatch_attempt_preparation_events latest
+                   WHERE latest.workspace_id=preparation.workspace_id AND latest.preparation_id=preparation.id
+                   ORDER BY latest.revision DESC LIMIT 1))`,
+        ).bind(
+          eventId, reasonCode, eventDigest, now,
+          scope.ownerSubject,
+          scope.workspaceId, outboxItemId, current.revision, current.state,
+          current.lease_generation, current.lease_holder_id, current.lease_expires_at,
+          now,
+          now,
+        ));
+        targets.push(Object.freeze({
+          outboxItemId,
+          fromState: current.state as "pending" | "leased",
+          expectedRevision: current.revision,
+          eventId,
+          eventDigest,
+        }));
+      }
+      return Object.freeze({
+        kind: "planned",
+        reasonCode,
+        plannedAt: now,
+        targets: Object.freeze(targets),
+        skipped: Object.freeze(skipped),
+        statements: Object.freeze(statements),
+        providerInvocationAuthorized: false,
+        providerCalls: 0,
+      });
+    },
   });
+}
+
+/** The shape of a final-send contact recheck the governed enqueue accepts. */
+export type FinalSendRecheck = Readonly<{
+  boundary: string;
+  blocked: boolean;
+  eligibility: Readonly<{
+    state: string;
+    eligible: boolean;
+    reasonCodes: readonly string[];
+    points: readonly Readonly<{ observationId: string; state: string }>[];
+  }>;
+}>;
+
+/**
+ * The only contact-readiness authority the governed enqueue consults.
+ * Production composition passes `{ recheckForFinalSend }` from
+ * `contact-eligibility.ts` (always refusing, never edited or bypassed). This
+ * module keeps its single import so the outbox stays dependency-free; only
+ * tests inject a synthetic ContactReady port.
+ */
+export type FinalSendEligibilityPort = Readonly<{
+  recheckForFinalSend: (input: unknown) => FinalSendRecheck;
+}>;
+
+type FinalSendTargetRow = {
+  prospect_id: string;
+  contact_id: string;
+  configuration_id: string;
+  configuration_digest: string;
+  email_observation_id: string;
+};
+
+/**
+ * 06-06 Task 1: the governed enqueue. It asks the injected eligibility port for
+ * a current `final_send` recheck of the exact Contact and bound email point,
+ * then runs the single atomic D1 enqueue (approval consumption, outbox item and
+ * Pending event in one batch). The port sees identifiers only. A refusal, a
+ * malformed answer or a thrown error creates nothing. It never leases,
+ * dispatches or reaches a MailPort.
+ */
+export function createGovernedOutboxEnqueue(
+  database: D1Database,
+  scopeValue: Scope,
+  portsValue: Readonly<{ eligibility: FinalSendEligibilityPort }>,
+) {
+  const ports = exactDataRecord(portsValue, ["eligibility"]);
+  const eligibility = ports?.eligibility as FinalSendEligibilityPort | undefined;
+  if (!eligibility || typeof eligibility !== "object" || typeof eligibility.recheckForFinalSend !== "function") {
+    throw new TypeError("eligibility_port_required");
+  }
+  const recheck = eligibility.recheckForFinalSend.bind(eligibility);
+  const outbox = createD1OutboxRepository(database, scopeValue);
+  const scope = exactDataRecord(scopeValue, ["workspaceId", "ownerSubject"], ["now"]) as Scope;
+  const workspaceId = scope.workspaceId;
+  const ownerSubject = scope.ownerSubject;
+  const clock = scope.now ?? Date.now;
+
+  return Object.freeze({
+    async enqueueApprovedMessage(inputValue: unknown): Promise<EnqueueResult> {
+      const input = exactDataRecord(inputValue, ["messageApprovalId", "senderConnectionId"]);
+      if (!input || !id(input.messageApprovalId) || !id(input.senderConnectionId)) return blocked("invalid_request");
+      const now = clock();
+      if (!Number.isSafeInteger(now) || now <= 0) return blocked("current_authority_unavailable");
+      const target = await database.prepare(
+        `SELECT op.prospect_id,op.contact_id,pv.configuration_id,pv.configuration_digest,rda.email_observation_id
+         FROM outreach_message_approvals ma
+         JOIN outreach_message_versions mv ON mv.id=ma.message_version_id AND mv.workspace_id=ma.workspace_id
+         JOIN outreach_package_versions pv ON pv.id=mv.package_version_id AND pv.workspace_id=mv.workspace_id
+         JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+         JOIN outreach_recipient_dispatch_authorities rda ON rda.message_version_id=mv.id AND rda.workspace_id=mv.workspace_id
+           AND rda.acknowledgement_digest=ma.acknowledgement_digest AND rda.contact_id=op.contact_id
+         JOIN workspaces workspace ON workspace.id=ma.workspace_id AND workspace.owner_subject=ma.owner_subject
+         WHERE ma.id=? AND ma.workspace_id=? AND ma.owner_subject=? LIMIT 1`,
+      ).bind(input.messageApprovalId, workspaceId, ownerSubject).first<FinalSendTargetRow>();
+      if (
+        !target || !id(target.prospect_id) || !id(target.contact_id) || !id(target.configuration_id)
+        || !digest(target.configuration_digest) || !id(target.email_observation_id)
+      ) return blocked("current_authority_unavailable");
+      const recheckInput = Object.freeze({
+        boundary: "final_send" as const,
+        target: Object.freeze({ workspaceId, prospectId: target.prospect_id, contactId: target.contact_id }),
+        configuration: Object.freeze({ id: target.configuration_id, digest: target.configuration_digest }),
+        observationId: target.email_observation_id,
+        now,
+      });
+      let answer: unknown;
+      try {
+        answer = await recheck(recheckInput);
+      } catch {
+        return blocked("current_authority_unavailable");
+      }
+      if (!finalSendReady(answer, target.email_observation_id)) return blocked("current_authority_unavailable");
+      return outbox.enqueueApprovedMessage({ messageApprovalId: input.messageApprovalId, senderConnectionId: input.senderConnectionId });
+    },
+  });
+}
+
+/** Fail-closed reading of a final-send recheck: every field must say ready. */
+function finalSendReady(value: unknown, observationId: string) {
+  const recheck = exactDataRecord(value, ["boundary", "blocked", "eligibility"], ["effectsBefore", "effectsAfter"]);
+  if (!recheck || recheck.boundary !== "final_send" || recheck.blocked !== false) return false;
+  const eligibility = exactDataRecord(recheck.eligibility, ["state", "eligible", "reasonCodes", "points"]);
+  if (!eligibility || eligibility.state !== "ContactReady" || eligibility.eligible !== true) return false;
+  if (!Array.isArray(eligibility.reasonCodes) || eligibility.reasonCodes.length !== 0) return false;
+  const points = eligibility.points;
+  if (!Array.isArray(points) || points.length === 0 || points.length > 100) return false;
+  let bound = false;
+  for (const value of points) {
+    const point = exactDataRecord(value, ["observationId", "state"], ["freshnessExpiresAt", "verificationClass"]);
+    if (!point || typeof point.observationId !== "string" || point.state !== "eligible") return false;
+    if (point.observationId === observationId) bound = true;
+  }
+  return bound;
+}
+
+const MAX_CANCELLATION_TARGETS = 64;
+
+type CancellationTarget = Readonly<{
+  outboxItemId: string;
+  fromState: "pending" | "leased";
+  expectedRevision: number;
+  eventId: string;
+  eventDigest: string;
+}>;
+
+type CancellationSkip = Readonly<{
+  outboxItemId: string;
+  reason: "unknown_item" | "lease_expired" | "not_cancellable";
+}>;
+
+export type CancellationPlanResult =
+  | Readonly<{
+      kind: "planned";
+      reasonCode: string;
+      plannedAt: number;
+      targets: readonly CancellationTarget[];
+      skipped: readonly CancellationSkip[];
+      statements: readonly D1PreparedStatement[];
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>
+  | Readonly<{
+      kind: "blocked";
+      reason: "invalid_request" | "current_authority_unavailable";
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>;
+
+function cancellationBlocked(reason: "invalid_request" | "current_authority_unavailable"): CancellationPlanResult {
+  return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
 }
 
 async function readOutbox(database: D1Database, workspaceId: string, approvalId: string) {

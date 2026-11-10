@@ -43,3 +43,60 @@ test('approvals bind the reviewed digest and terminal contacts cannot be re-prep
   assert.match(outreach, /\["handed_off", "handed_to_gmail", "sent"\]\.includes\(message\.status\)/);
   assert.match(outreach, /disabled=\{draftMsg\.isPending \|\| handedOff\}/);
 });
+
+const normalized = (text) => text.replace(/\s+/g, ' ');
+
+test('search activation consent does not claim a schedule is enabled', () => {
+  const prospects = normalized(read('components/prospects-view.tsx'));
+  assert.doesNotMatch(prospects, /enables the search schedule/);
+  assert.match(
+    prospects,
+    /Save these settings and start a prospect search\? Searches run only when you start them\. Your connected AI service may charge for searches\. Nothing is sent to prospects\./,
+  );
+});
+
+test('public-source email copy says it is unverified and included in the CRM export', () => {
+  const contacts = normalized(read('components/contacts-view.tsx'));
+  assert.doesNotMatch(contacts, /cannot export this contact/);
+  assert.match(
+    contacts,
+    /item\.emailKind === "public_source" \? \( <p[^>]*> Unverified email address: found in a public source, not checked with the mail server\. It is included in the CRM CSV export\. <\/p>/,
+  );
+});
+
+async function loadDraftRule() {
+  const { stripTypeScriptTypes } = await import('node:module');
+  const source = read('components/knowledge-view.tsx');
+  const start = source.indexOf('type AnswerDraft');
+  const end = source.indexOf('// end answer draft rule');
+  assert.ok(start >= 0 && end > start, 'answer draft rule is defined in knowledge-view.tsx');
+  const js = `${stripTypeScriptTypes(source.slice(start, end))}\nexport { nextAnswerDraft };`;
+  return import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+}
+
+test('research refresh never overwrites an answer the owner has typed', async () => {
+  const { nextAnswerDraft } = await loadDraftRule();
+  const typed = { questionId: 'q1', answer: 'My own answer', dirty: true };
+  assert.deepEqual(nextAnswerDraft(typed, 'q1', 'New AI suggestion'), typed);
+
+  const untouched = { questionId: 'q1', answer: 'Old suggestion', dirty: false };
+  assert.deepEqual(nextAnswerDraft(untouched, 'q1', 'New AI suggestion'), {
+    questionId: 'q1',
+    answer: 'New AI suggestion',
+    dirty: false,
+  });
+
+  assert.deepEqual(nextAnswerDraft(typed, 'q2', 'Question two suggestion'), {
+    questionId: 'q2',
+    answer: 'Question two suggestion',
+    dirty: false,
+  });
+});
+
+test('question card wires the draft rule to typing, refresh and submit', () => {
+  const knowledge = normalized(read('components/knowledge-view.tsx'));
+  assert.match(knowledge, /setDraft\(\(current\) => nextAnswerDraft\(current, item\.questionId, seed\)\)/);
+  assert.match(knowledge, /onChange=\{\(event\) => setDraft\(\{ questionId: item\.questionId, answer: event\.target\.value, dirty: true \}\)/);
+  assert.match(knowledge, /onSuccess: \(\) => \{ setEditing\(false\); setDraft\(\(current\) => \(\{ \.\.\.current, dirty: false \}\)\); \}/);
+  assert.doesNotMatch(knowledge, /setAnswer\(/);
+});

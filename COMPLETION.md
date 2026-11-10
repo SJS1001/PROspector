@@ -1,6 +1,6 @@
 ---
 repo: SJS1001/PROspector
-branch: cursor/schedule-overlap-state-de84
+branch: claude/owner-local-completion-20261109
 baseline_sha: c8000d7c99ebf4b7f3cdb01e737860ce8da18327
 baseline_record: PR 156 head, parent dc12fd32627ef5848e8b9977ab6ef6deab5ffbf0
 checklist_introducing_commit: 469395bbfcf4032bb2021426d563c930a4748f95
@@ -9,18 +9,18 @@ plans_total: 74
 plans_uncredited: 48
 v1_requirements_checked: 0/17
 phase_4_to_7_plans: 44
-stop: true
+stop: false
 cancel: false
 needs_user: true
 all_done: false
 development_running: false
-development_authorized: false
-authorized_scope: none
+development_authorized: true
+authorized_scope: local-synthetic-issues-6-7-8-11-and-local-phase-4-7
 setup_authorized: true
 retry_count: 0
-failure_fingerprint: waiting-external-acceptance-and-review-quota
+failure_fingerprint: none
 prior_failure_fingerprint: openrouter-jev-offline-only
-last_progress_at: 2026-11-08T19:55:00Z
+last_progress_at: 2026-11-09T00:00:00Z
 last_progress: OpenRouter is a selectable provider. Jev decisions on that selection use POST https://openrouter.ai/api/alpha/decisions with the OpenRouter key only. Direct TypeSafe stays on /systemone. Offline tests passed. Live OpenRouter and owner acceptance were not tested. Requirement inventory now lives in COMPLETION_LEDGER.md.
 watchdog:
   repos: [PROspector, Distributor, DigitalRain]
@@ -42,16 +42,55 @@ Reporting scope is three projects: PROspector, Distributor, and DigitalRain. Ser
 
 The product baseline is `c8000d7c99ebf4b7f3cdb01e737860ce8da18327` on `cursor/profile-misfire-ledger-de84` (PR 156). This checklist was introduced by `469395bbfcf4032bb2021426d563c930a4748f95` on `cursor/schedule-overlap-state-de84`. The live branch SHA is the commit that last changed this file. Confirm `git rev-parse HEAD` equals `git log -1 --format=%H -- COMPLETION.md`.
 
+## Owner authorization, 2026-11-09
+
+Recorded from the owner (SJS1001) in a Claude Code session on 2026-11-09. Quoted decisions are the owner's words.
+
+- Stop flags lifted for local work ("Permission to override the project's own stop flags ... YES"). Development is authorized locally, including local Phase 6 and Phase 7 implementation, and open issues #6, #7, #8 and #11.
+- Hosted test target: "save for later we will run locally for now". No hosted, deployment or greenfield-target action is authorized. 04-11 and 04-12 stay blocked because their hosted proof does not exist.
+- Live accounts: the owner will add Gmail, contact-provider and OpenRouter credentials personally. No live provider call, send, or spend is authorized until the owner adds them and sets a spend limit.
+- Sign-offs: the owner agreed to sign off the blocked gates. 03-11 will be recorded only after the owner reviews a written summary of the local proof. No gate is marked accepted by this section.
+- Issue #7 labels: the owner proposed Jev draft labels. Owner confirmation of a sample is still required for independent quality labels.
+- 07-04 migration index: not decided. `NNNN` stays.
+
+Formal plan credit stays 26/74 and formal requirement acceptance stays 0/17. Local results are labelled locally accepted only, never formal credit.
+
+## Owner decisions on code-review questions, 2026-11-09
+
+The owner answered the seven open questions in `docs/reviews/2026-11-09-code-review/README.md` with "go with your recommendations". These decisions are binding for later sessions. None of them grants plan credit or authorizes hosted action, live providers, sending or spend.
+
+1. **Operator spend cap is enforced.** Every AI call counts against the monthly cap, including Jev qualification calls. New calls are refused once the cap is reached, with a plain message. A cap of 0 means no AI is allowed. Archive restore must keep the stored cap and must not reset it to 0.
+2. **Migration 0021 stays frozen.** Local databases created before 0021 that hold duplicate live runner assignments or duplicate complete submissions must be rebuilt, not repaired in place. No hosted database has 0021 applied.
+3. **The prospect transition history must enforce the allowed-transition graph** from IMPLEMENTATION-SPEC.md and must match `profile_prospects.state`. This is built when the module is first wired into a live path, not before. Until then the module stays unwired.
+4. **`site/scripts/hosted-boundary-proof.mjs` becomes localhost-only.** The retired Sites hostname is removed. A future target host comes from the new environment's provisioning record, never from a hard-coded value.
+5. **A Profile with more than one confirmed rubric is refused at activation**, with a message asking the owner to choose one.
+6. **Prospecting validation refusals get their own error codes and honest messages** (for example a past defer date, or `manual_find` with no active schedule). They are no longer shown as "This candidate changed in another tab". The existing E1 rule that an expired CSRF token is never retried automatically still stands.
+7. **Operator do-not-contact domain entries also block subdomains**, so `acme.com` blocks `x@mail.acme.com`.
+
+## Phase 6–7 local build rules, 2026-11-09
+
+The build is local and synthetic only. The lane map is in `docs/implementation-lanes/2026-11-09-phase6-7-local-build-map.md`. These rules bind every lane:
+
+- **Eligibility.** Phase 6/7 services take an injected eligibility/recheck port. Production composition wires the existing blocked `recheck*` functions in `site/domain/contact-eligibility.ts`, which stays unedited. Only tests inject a synthetic ContactReady. Nothing routes around the boundary.
+- **Outbox states.** `dispatching`, `sent` and `delivery_unknown` stay unreachable in D1. Send semantics are tested against the in-memory orchestrator only. There is no MailPort invocation, worker, send route or provider binding.
+- **No new migrations.** 07-04 stays blocked on its undecided index.
+- **Transition history stays unwired** (owner decision 3 applies when it is wired).
+- **Phone action.** The manual-call phone action stays disabled until 06-13 Task 3 owner UAT. No literal `tel:` or `mailto:`.
+- **Site domain suppression** also blocks subdomains, following owner decision 7's reasoning. The owner may reverse this.
+- **RED tests** for modules that do not exist yet use `test(..., { todo: "<plan> not implemented" })`.
+- **Records.** Lanes do not edit `COMPLETION.md` or `COMPLETION_LEDGER.md`; the coordinator records receipts. Lanes create no summary files and claim no credit.
+- **Still blocked:** 06-10, 06-11, 06-12, 06-13 Tasks 1–2, 07-04, 07-07 (crypto choice and hosted target), 07-08, 07-10 Task 2.
+
 ## Flags
 
 | Flag | Value | Meaning |
 | --- | --- | --- |
-| stop | true | The OpenRouter feature batch is committed. Do not start another implementation from this wait. |
+| stop | false | Owner lifted the stop for local work on 2026-11-09. See Owner authorization. |
 | cancel | false | Earlier cancels stay recorded. Do not relaunch them. |
 | needs_user | true | Plan acceptance and the review quota still need a person. That does not undo the OpenRouter code. |
 | all_done | false | Neither the product nor the three-project report is complete. |
 | development_running | false | No shard is running. |
-| development_authorized | false | The authorized OpenRouter and Jev-endpoint edit is committed. |
+| development_authorized | true | Local scope only, per Owner authorization 2026-11-09. |
 | retry_count | 0 | No recovery retry has been consumed. |
 | failure_fingerprint | waiting-external-acceptance-and-review-quota | Not a test failure. Do not rerun a green suite or buy review credits. |
 | prior_failure_fingerprint | scope-correction-development-cancelled | Do not revive that run, and do not cite it as a passing test. |
@@ -126,7 +165,7 @@ A person and an authorized target are still required for:
 - 06-10, 06-11, and 06-13, then authorized Gmail or manual-call suppression
 - 07-07 and 07-10 archive capability, weekday 06:00 America/Toronto proof, and a restore drill
 
-07-04 still names migration index `NNNN`. Do not invent it. Phase 6 and Phase 7 implementation stays closed. The matrix on the baseline, `docs/implementation-lanes/2026-11-08-phase4-7-engineering-status.md`, is unchanged by this checkpoint.
+07-04 still names migration index `NNNN`. Do not invent it. Superseded 2026-11-09: local, synthetic Phase 6 and 7 implementation is owner-authorized (see "Owner authorization, 2026-11-09"). The external gates above stay closed. The matrix on the baseline, `docs/implementation-lanes/2026-11-08-phase4-7-engineering-status.md`, is unchanged by this checkpoint.
 
 ## Distributor and DigitalRain
 
@@ -163,7 +202,7 @@ Read this file first. Do not rebuild the 44-plan audit from chat.
 
 1. Check out `cursor/schedule-overlap-state-de84` and confirm `git rev-parse HEAD` equals `git log -1 --format=%H -- COMPLETION.md`.
 2. If `development_running` is true and `last_progress_at` is less than 10 minutes old, this session still owns the overlap files. Do not start another one.
-3. The overlap revalidation already finished. If the source files are committed on top of `3c0649f04f6b28c309a21d7e08f6b393cc2c717d` with diff `c0df45307d15b5f042803b87260cdfc7e56fe35a`, do not run them again. Do not run `npm test`. Do not start Phase 6 or Phase 7. Do not open Distributor or DigitalRain work from this tree.
+3. The overlap revalidation already finished. If the source files are committed on top of `3c0649f04f6b28c309a21d7e08f6b393cc2c717d` with diff `c0df45307d15b5f042803b87260cdfc7e56fe35a`, do not run them again. Do not run `npm test`. Phase 6 and 7 local build is authorized (2026-11-09); follow "Phase 6–7 local build rules" below. Do not open Distributor or DigitalRain work from this tree.
 4. `prior_failure_fingerprint` of `scope-correction-development-cancelled` means the old shard run stays stopped. Do not cite it as a pass.
 5. If `needs_user` is true, wait. Do not rerun a green suite.
 6. `all_done` true would mean the product is accepted. It is false.

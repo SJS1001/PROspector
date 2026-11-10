@@ -153,6 +153,7 @@ export async function executeHunt(opts: {
               baseUrl: jev.baseUrl,
               transport: jev.transport,
               model: jev.model,
+              spend: jev.spend,
               accountName: item.candidate.accountName,
               targetName: item.candidate.targetName,
               url: item.page.url,
@@ -191,9 +192,11 @@ export async function executeHunt(opts: {
             opts.snapshot,
             opts.researchContext,
           );
-        } catch {
+        } catch (error) {
           reasons.push(`${item.candidate.accountName}: source explanation could not be verified.`);
-          await report(`${item.candidate.accountName}: explanation unavailable`);
+          // A spend-cap refusal is shown in plain words, not as a verification failure.
+          const capped = error instanceof Error && error.name === "SpendCapError";
+          await report(`${item.candidate.accountName}: ${capped ? error.message : "explanation unavailable"}`);
         }
         const rejected = opportunityRejection(qualified.assessment.opportunity);
         if (rejected) {
@@ -234,6 +237,8 @@ export async function executeHunt(opts: {
   progress.stage = "saving";
   await report("Saving checked results");
   await opts.sql.transaction(async (tx) => {
+    // Deterministic ids: a prospect already saved by an earlier or overlapping
+    // run is kept as-is rather than failing this run and losing its results.
     for (const item of accepted) {
       const prospectId = idFor(opts.userId, `hunt:${item.fingerprint}`);
       const assessmentId = idFor(opts.userId, `assess:${item.fingerprint}:${opts.runId}`);
@@ -256,6 +261,7 @@ export async function executeHunt(opts: {
         ${JSON.stringify(item.assessment)}, ${item.excerpt}, ${item.url}, ${item.evidenceTier},
         ${item.evidenceDate}, ${"run"}, ${opts.runId}, ${item.fingerprint}
       )
+      on conflict (id) do nothing
     `;
       await tx`
       insert into signals (
@@ -266,6 +272,7 @@ export async function executeHunt(opts: {
         ${prospectId}, ${item.url}, ${item.title}, ${item.excerpt}, ${item.evidenceTier},
         ${item.hash}, ${item.retrievedAt}, ${item.publishedOn}, ${item.publishedOn ? "dated source" : "unknown"}
       )
+      on conflict (id) do nothing
     `;
     }
 

@@ -128,7 +128,7 @@ or hosted evidence into greenfield acceptance.
 | Probe | Command | Result | Status |
 |---|---|---|---|
 | Conventional `probe-*.sh` | discovery scan | No conventional shell probes declared or found | ? N/A |
-| Hosted boundary denied probe | `node scripts/hosted-boundary-proof.mjs --base-url https://prospector-steven-pilot.djstif.chatgpt.site/` | `{"ok":true,"check":"unauthenticated_denial","status":401,"neutral":true}` | ✓ PASS |
+| Hosted boundary denied probe (historical, retired project; the harness is now localhost-only and this command is refused) | `node scripts/hosted-boundary-proof.mjs --base-url <retired Sites URL>` | `{"ok":true,"check":"unauthenticated_denial","status":401,"neutral":true}` | ✓ PASS |
 | Hosted owner proof | same harness with `--mode owner-proof --session-headers-file <local>` | Not run; authenticated transport intentionally unavailable | ? HUMAN |
 
 ### Requirements Coverage

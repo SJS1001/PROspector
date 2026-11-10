@@ -276,7 +276,7 @@ test("a populated contact page uses one observation and two settlement set queri
     const attestor = attestation.bindContactSettlementAttestor({ active: { keyId: "contacts-page-key", key }, verificationOnly: [] });
     const activeDatabase = await activatedDatabase(fixture.database), now = 1_820_000_000_000, configurationDigest = "a".repeat(64);
     const observationIds = Array.from({ length: 25 }, (_, index) => `page-observation-${index}`), reservationIds = observationIds.map((_, index) => `page-reservation-${index}`);
-    const snapshot = { id: "page-ready-snapshot", contact_id: "page-contact", prospect_id: "page-prospect", configuration_id: "page-configuration", configuration_digest: configurationDigest, configuration_revision: 1, prospect_revision: 1, state: "ContactReady", eligible: 1, observation_ids_json: JSON.stringify(observationIds), reason_codes_json: "[]", projected_at: now - 1, current_prospect_revision: 1, prospect_active: 1, prospect_state: "approved", current_configuration_id: "page-configuration", current_configuration_digest: configurationDigest, current_configuration_revision: 1, configuration_active: 1 };
+    const snapshot = { id: "page-ready-snapshot", contact_id: "page-contact", prospect_id: "page-prospect", configuration_id: "page-configuration", configuration_digest: configurationDigest, configuration_revision: 1, prospect_revision: 1, state: "ContactReady", eligible: 1, observation_ids_json: JSON.stringify(observationIds), reason_codes_json: "[]", projected_at: now - 1, current_prospect_revision: 1, prospect_active: 1, prospect_state: "approved", current_configuration_id: "page-configuration", current_configuration_digest: configurationDigest, current_configuration_revision: 1, configuration_active: 1, configuration_manifest_json: JSON.stringify({ confirmedCategoryInputs: { contact_strategy: [{ versionId: "page-contact-strategy", digest: "c".repeat(64), value: { mailboxVerifiedEmailFreshnessMs: 30 * 24 * 60 * 60 * 1000, sourceVerifiedEmailFreshnessMs: 90 * 24 * 60 * 60 * 1000, verifiedBusinessPhoneFreshnessMs: 90 * 24 * 60 * 60 * 1000 } }] } }) };
     const observations = observationIds.map((id, index) => ({ id, contact_id: "page-contact", assignment_id: `page-assignment-${index}`, kind: "email", verification_class: "mailbox_verified", method: "mailbox_verification", source_reference: `source-${index}`, retrieved_at: now - 200, observed_at: now - 100, verified_at: now - 100, configuration_id: "page-configuration", configuration_digest: configurationDigest, assignment_prospect_id: "page-prospect", assignment_contact_id: "page-contact", assignment_configuration_id: "page-configuration", assignment_configuration_digest: configurationDigest, receipt_reservation_id: reservationIds[index] }));
     const classes = { observations: 0, headers: 0, settlements: 0 }, requested = {};
     const database = { prepare(sql) {
@@ -285,6 +285,8 @@ test("a populated contact page uses one observation and two settlement set queri
       if (text.startsWith("SELECT count(*) total FROM contact_eligibility_snapshots")) return { bind() { return { async first() { return { total: 1 }; } }; } };
       if (text.includes("FROM contact_point_observations o JOIN json_each")) return { bind(ids) { classes.observations += 1; requested.observations = JSON.parse(ids); return { async all() { return { results: observations }; } }; } };
       if (text.includes("terminal.observation_ids_json terminal_observation_ids_json") && !text.includes("row_number()")) return { bind(ids) { classes.headers += 1; requested.reservations = JSON.parse(ids); return { async all() { return { results: reservationIds.map((reservationId, index) => ({ reservation_id: reservationId, terminal_observation_ids_json: JSON.stringify([observationIds[index]]) })) }; } }; } };
+      if (text.startsWith("SELECT identity_digest FROM contacts")) return { bind() { return { async first() { return { identity_digest: "9".repeat(64) }; } }; } };
+      if (text.includes("FROM suppressions WHERE") || text.includes("FROM outreach_suppression_tombstones")) return { bind() { return { async all() { return { results: [] }; } }; } };
       if (text.includes("row_number() OVER (PARTITION BY reservation.id")) return { bind(reservations, ids) { classes.settlements += 1; requested.settlementReservations = JSON.parse(reservations); requested.settlementObservations = JSON.parse(ids); return { async all() { return { results: [] }; } }; } };
       return activeDatabase.prepare(sql);
     }, batch: activeDatabase.batch };
@@ -543,7 +545,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
   try {
     const workspace = await fixture.vite.ssrLoadModule(new URL("../app/prospects/contacts-workspace.tsx", import.meta.url).pathname);
     const html = renderToStaticMarkup(React.createElement(workspace.ContactsWorkspace));
-    for (const text of ["Eligibility", "Verified contacts", "Contact Suggestions", "Authority and identity", "Stage 1", "Stage 2", "No provider call will be made"]) assert.match(html, new RegExp(text));
+    for (const text of ["Contact readiness", "Verified contacts", "Contact Suggestions", "Approvals and duplicate contacts", "Stage 1", "Stage 2", "No provider call will be made"]) assert.match(html, new RegExp(text));
     assert.match(html, /aria-live="polite"/); assert.match(html, /contacts-granted-operation-explanation/); assert.equal((html.match(/contacts-granted-operation-explanation/g) ?? []).length, 2, "one unique explanation ID is referenced once and rendered once");
     const pageSource = await source("app/contacts/page.tsx"); assert.match(pageSource, /admitOperatorSession/); assert.match(pageSource, /activeTask="contacts"/);
     let posts = 0;
@@ -566,7 +568,7 @@ test("Contacts UI is reachable through a dedicated owner page, mounts read-first
       identityPage: page([{ id: "identity-1", subjectKind: "contact", kind: "merge", revision: 2, candidateRevisions: [{ subjectId: "contact-1", revision: 1 }, { subjectId: "contact-2", revision: 1 }], sourceLineageIds: ["lineage-1"] }]),
       authority: { stage: "reject_only", grantCreation: "blocked", operation: "blocked", providerCall: false },
     } }));
-    for (const text of ["contact-1", "mailbox_verified", "contact-2", "verification_pending", "contact-3", "contact_evidence_stale", "2 candidates and 1 lineage record"]) assert.match(projected, new RegExp(text));
+    for (const text of ["contact-1", "mailbox_verified", "contact-2", "verification_pending", "contact-3", "contact_evidence_stale", "2 candidates and 1 source record", "Verified", "Suggestion only, not usable", "Needs your review", "Verification is still pending", "The verification is out of date"]) assert.match(projected, new RegExp(text));
   } finally { await fixture.dispose(); }
 });
 

@@ -1,0 +1,492 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+import { countRows, createD1Fixture } from "./helpers/d1.mjs";
+import { OUTREACH_NOW } from "./helpers/outreach-fixture.mjs";
+import {
+  MODULES,
+  RECIPIENT,
+  SENDER_CONNECTION_ID,
+  SENDER_SUBJECT_DIGEST,
+  assertNoForbiddenStates,
+  claimLease,
+  digestOf,
+  enqueuePair,
+  fakeMailPort,
+  fakeOriginStore,
+  insertSenderConnection,
+  latestEvent,
+  prepareApprovedPair,
+  scope,
+  syntheticFinalSendPort,
+} from "./helpers/outreach-dispatch-lane.mjs";
+
+// 06-06 Task 1 (governed enqueue) and Task 3 (originated mail sync), local
+// and synthetic only. Task 2 (Dispatching/Sent/DeliveryUnknown in D1) is out
+// of scope: every D1 path here reports providerCalls 0, the fake MailPort's
+// dispatch and reconcile counters stay at zero, and the forbidden send states
+// never appear in outreach_outbox_events.
+
+const NO_SEND_ROWS = ["outreach_message_approval_consumptions", "outreach_outbox_items", "outreach_outbox_events"];
+const SYNC_NOW = OUTREACH_NOW + 2_000;
+const ORIGIN_MESSAGE_ID = "gmail-message-0001";
+const ORIGIN_THREAD_ID = "gmail-thread-0001";
+
+async function rowCounts(fixture, tables = NO_SEND_ROWS) {
+  const counts = {};
+  for (const table of tables) counts[table] = await countRows(fixture.database, table);
+  return counts;
+}
+
+function originRecord(outboxItemId, overrides = {}) {
+  return {
+    connectionId: SENDER_CONNECTION_ID,
+    outboxItemId,
+    leaseGeneration: 1,
+    originatedMessageId: ORIGIN_MESSAGE_ID,
+    originatedThreadId: ORIGIN_THREAD_ID,
+    connectionSubjectDigest: SENDER_SUBJECT_DIGEST,
+    ...overrides,
+  };
+}
+
+function reply(originated, overrides = {}) {
+  return { kind: "reply", originated, sender: RECIPIENT, subject: "Re: Synthetic governed outreach", excerpt: "Thanks, happy to talk next week.", occurredAt: OUTREACH_NOW + 1_500, ...overrides };
+}
+
+function bounce(originated, bounceClass, overrides = {}) {
+  return { kind: "bounce", originated, bounceClass, subject: "Undeliverable", excerpt: "Synthetic delivery status notification.", occurredAt: OUTREACH_NOW + 1_500, ...overrides };
+}
+
+async function originatedContext(fixture) {
+  const context = await prepareApprovedPair(fixture);
+  const queued = await enqueuePair(fixture, context);
+  // The origin Message was leased once (generation 1). D1 cannot represent a
+  // send, so the in-memory origin store stands in for the provider identifiers.
+  assert.equal((await claimLease(fixture, context, queued.origin.outboxItemId, "synthetic-worker-origin")).kind, "claimed");
+  return { ...context, queued };
+}
+
+async function loadSync(fixture, context, ports, now = SYNC_NOW) {
+  const syncModule = await fixture.vite.ssrLoadModule(MODULES.sync);
+  return syncModule.createOriginatedMailSync(fixture.database, scope(context.seeded, now), ports);
+}
+
+function syncInput(overrides = {}) {
+  return { connectionId: SENDER_CONNECTION_ID, observedAfter: OUTREACH_NOW, observedThrough: SYNC_NOW, ...overrides };
+}
+
+test("governed enqueue requires a current ContactReady final-send recheck and the production port always refuses", async () => {
+  const fixture = await createD1Fixture("dispatch-enqueue-eligibility");
+  try {
+    const context = await prepareApprovedPair(fixture);
+    const outboxModule = await fixture.vite.ssrLoadModule(MODULES.outbox);
+    const input = { messageApprovalId: context.approvals.origin.id, senderConnectionId: context.senderConnectionId };
+    const governed = (port) => outboxModule.createGovernedOutboxEnqueue(fixture.database, scope(context.seeded), { eligibility: port });
+
+    assert.throws(() => outboxModule.createGovernedOutboxEnqueue(fixture.database, scope(context.seeded), {}), /eligibility_port_required/);
+    assert.throws(() => outboxModule.createGovernedOutboxEnqueue(fixture.database, scope(context.seeded), { eligibility: {} }), /eligibility_port_required/);
+
+    const refusedBy = async (label, port) => {
+      assert.deepEqual(await governed(port).enqueueApprovedMessage(input), { kind: "blocked", reason: "current_authority_unavailable", providerCalls: 0 }, label);
+      assert.deepEqual(await rowCounts(fixture), { outreach_message_approval_consumptions: 0, outreach_outbox_items: 0, outreach_outbox_events: 0 }, label);
+    };
+    const eligibilityModule = await fixture.vite.ssrLoadModule(new URL("../domain/contact-eligibility.ts", import.meta.url).pathname);
+    await refusedBy("production recheckForFinalSend always refuses", Object.freeze({ recheckForFinalSend: eligibilityModule.recheckForFinalSend }));
+    for (const [label, overrides] of [
+      ["blocked recheck", { blocked: true }],
+      ["wrong boundary", { boundary: "package_approval" }],
+      ["not ContactReady", { state: "NeedsReview", eligible: false }],
+      ["eligible flag false", { eligible: false }],
+      ["reason codes present", { reasonCodes: ["phase4_approval_missing"] }],
+      ["bound point stale", { points: [{ observationId: context.seeded.observationId, state: "stale" }] }],
+      ["bound point missing", { points: [] }],
+      ["port throws", { throws: true }],
+    ]) {
+      await refusedBy(label, syntheticFinalSendPort(context.seeded, overrides).port);
+    }
+    await refusedBy("malformed recheck", Object.freeze({ recheckForFinalSend: () => null }));
+
+    const ready = syntheticFinalSendPort(context.seeded);
+    const queued = await governed(ready.port).enqueueApprovedMessage(input);
+    assert.equal(queued.kind, "queued");
+    assert.equal(queued.replayed, false);
+    assert.equal(queued.providerCalls, 0);
+    assert.equal((await latestEvent(fixture, queued.outboxItemId)).state, "pending");
+    assert.deepEqual(await rowCounts(fixture), { outreach_message_approval_consumptions: 1, outreach_outbox_items: 1, outreach_outbox_events: 1 });
+
+    // The port sees identifiers only, never Message content or recipients.
+    assert.equal(ready.calls.length, 1);
+    const seen = ready.calls[0];
+    assert.deepEqual(seen.target, { workspaceId: context.seeded.workspaceId, prospectId: context.seeded.prospectId, contactId: context.seeded.contactId });
+    assert.equal(seen.boundary, "final_send");
+    assert.equal(seen.observationId, context.seeded.observationId);
+    assert.ok(Object.isFrozen(seen));
+    const serialized = JSON.stringify(seen);
+    for (const leaked of [RECIPIENT, "Synthetic governed outreach message", "Hello from the offline fixture"]) {
+      assert.equal(serialized.includes(leaked), false, `${leaked} must not reach the eligibility port`);
+    }
+    await assertNoForbiddenStates(fixture);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("governed enqueue replays exactly, refuses mismatched reuse, and denied tuples create no item", async () => {
+  const fixture = await createD1Fixture("dispatch-enqueue-tuples");
+  try {
+    const context = await prepareApprovedPair(fixture);
+    const outboxModule = await fixture.vite.ssrLoadModule(MODULES.outbox);
+    const ready = syntheticFinalSendPort(context.seeded);
+    const governed = (now = OUTREACH_NOW) => outboxModule.createGovernedOutboxEnqueue(fixture.database, scope(context.seeded, now), { eligibility: ready.port });
+    const blocked = { kind: "blocked", reason: "current_authority_unavailable", providerCalls: 0 };
+
+    const first = await governed().enqueueApprovedMessage({ messageApprovalId: context.approvals.origin.id, senderConnectionId: context.senderConnectionId });
+    assert.equal(first.kind, "queued");
+    const replay = await governed().enqueueApprovedMessage({ messageApprovalId: context.approvals.origin.id, senderConnectionId: context.senderConnectionId });
+    assert.deepEqual(replay, { ...first, replayed: true });
+
+    const otherConnection = await insertSenderConnection(fixture, context.seeded, context.repository, { id: "dispatch-sender-connection-2", subjectDigest: "8".repeat(64), version: 1 });
+    assert.deepEqual(
+      await governed().enqueueApprovedMessage({ messageApprovalId: context.approvals.origin.id, senderConnectionId: otherConnection }),
+      blocked,
+      "reusing a consumed approval with a different sender conflicts",
+    );
+    const inactive = await insertSenderConnection(fixture, context.seeded, context.repository, { id: "dispatch-sender-inactive", subjectDigest: "9".repeat(64), version: 1, status: "revoked" });
+    const followUp = context.approvals.followUp.id;
+    for (const [label, input, now] of [
+      ["hostile input", { messageApprovalId: followUp, senderConnectionId: context.senderConnectionId, extra: true }, OUTREACH_NOW],
+      ["unknown sender connection", { messageApprovalId: followUp, senderConnectionId: "dispatch-sender-unknown" }, OUTREACH_NOW],
+      ["inactive sender connection", { messageApprovalId: followUp, senderConnectionId: inactive }, OUTREACH_NOW],
+      ["expired Message approval", { messageApprovalId: followUp, senderConnectionId: context.senderConnectionId }, OUTREACH_NOW + 60_000],
+      ["unknown approval", { messageApprovalId: "dispatch-approval-unknown", senderConnectionId: context.senderConnectionId }, OUTREACH_NOW],
+    ]) {
+      const result = await governed(now).enqueueApprovedMessage(input);
+      assert.equal(result.kind, "blocked", label);
+      assert.equal(result.providerCalls, 0, label);
+    }
+    await context.repository.recordSuppression({
+      subjectKind: "exact_email", subjectDigest: context.seeded.contactPointDigest, channel: "email", reason: "owner_request",
+      sourceEventDigest: digestOf("dispatch-exact-suppression"), aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: "dispatch-exact-suppression",
+    });
+    assert.deepEqual(
+      await governed().enqueueApprovedMessage({ messageApprovalId: followUp, senderConnectionId: context.senderConnectionId }),
+      blocked,
+      "a recipient suppressed after approval wins at enqueue",
+    );
+    assert.deepEqual(await rowCounts(fixture), { outreach_message_approval_consumptions: 1, outreach_outbox_items: 1, outreach_outbox_events: 1 });
+    await assertNoForbiddenStates(fixture);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a domain, organization or phone-only contact stop cancels every item the enqueue and lease rechecks would block", async () => {
+  // Lane B follow-up: enqueue, lease and the 0015-0017 pre-call triggers treat
+  // every Organization and confirmed-domain tombstone as workspace-wide and do
+  // not consult the channel. Cancellation must reach at least that set, or an
+  // item stays pending while no lease can ever claim it.
+  const cases = [
+    ["non-matching confirmed domain", { kind: "confirmed_email_domain", domain: "ample.invalid", ownerConfirmed: true }, "email", "owner_request"],
+    ["unrelated organization", { kind: "organization", identityDigest: "4".repeat(64) }, "email", "owner_request"],
+    ["phone-only contact do_not_call", { kind: "contact", identityDigest: null }, "phone", "do_not_call"],
+  ];
+  for (const [label, subjectTemplate, channel, reason] of cases) {
+    const fixture = await createD1Fixture(`dispatch-stop-agreement-${channel}-${subjectTemplate.kind}`);
+    try {
+      const context = await prepareApprovedPair(fixture);
+      const queued = await enqueuePair(fixture, context);
+      assert.equal((await claimLease(fixture, context, queued.origin.outboxItemId, "synthetic-worker-one")).kind, "claimed");
+      const subject = subjectTemplate.kind === "contact" ? { kind: "contact", identityDigest: "6".repeat(64) } : subjectTemplate;
+      const stopRules = (await fixture.vite.ssrLoadModule(MODULES.stopRules)).createOutreachStopRules(fixture.database, scope(context.seeded, OUTREACH_NOW + 1_100));
+      const result = await stopRules.recordSuppressionStop({
+        subject, channel, reason, sourceEventDigest: digestOf(label), aliasDigests: [], effectiveAt: OUTREACH_NOW + 1_100, idempotencyKey: `dispatch-agreement-${subjectTemplate.kind}`,
+      });
+      assert.equal(result.kind, "suppressed", label);
+      assert.deepEqual(result.cancelledOutboxItemIds, [queued.origin.outboxItemId, queued.followUp.outboxItemId].sort(), label);
+      assert.deepEqual(result.uncancelled, [], label);
+      for (const item of [queued.origin, queued.followUp]) {
+        assert.equal((await latestEvent(fixture, item.outboxItemId)).state, "cancelled", label);
+        const lease = await claimLease(fixture, context, item.outboxItemId, "synthetic-worker-two", OUTREACH_NOW + 20_000);
+        assert.equal(lease.kind, "blocked", label);
+        assert.equal(lease.providerCalls, 0, label);
+      }
+      await assertNoForbiddenStates(fixture);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("originated sync denies unauthenticated connections, origins and fields without persistence or stop action", async () => {
+  const fixture = await createD1Fixture("dispatch-sync-denials");
+  try {
+    const context = await originatedContext(fixture);
+    const syncModule = await fixture.vite.ssrLoadModule(MODULES.sync);
+    const gmail = await fixture.vite.ssrLoadModule(MODULES.gmail);
+    const origin = context.queued.origin.outboxItemId;
+    const followUp = context.queued.followUp.outboxItemId;
+    const watched = ["outreach_outbox_events", "outreach_stop_events", "outreach_suppression_tombstones"];
+    // Sender connections added below write their own capability audit rows.
+    const otherAudits = async () => Number((await fixture.database.prepare("SELECT count(*) count FROM outreach_audit_records WHERE action<>'sender_capability.recorded'").first()).count);
+    const before = { ...await rowCounts(fixture, watched), audits: await otherAudits() };
+    const unchanged = async (label) => {
+      assert.deepEqual({ ...await rowCounts(fixture, watched), audits: await otherAudits() }, before, label);
+      assert.equal((await latestEvent(fixture, origin)).state, "leased", label);
+      assert.equal((await latestEvent(fixture, followUp)).state, "pending", label);
+    };
+
+    assert.throws(() => syncModule.createOriginatedMailSync(fixture.database, scope(context.seeded), {}), /mail_port_required/);
+    assert.throws(() => syncModule.createOriginatedMailSync(fixture.database, scope(context.seeded), { mailPort: gmail.UNCONFIGURED_GMAIL_ADAPTER }), /origin_store_required/);
+
+    // Production composition: the reject-only adapter and no stored origins.
+    const production = await loadSync(fixture, context, { mailPort: gmail.UNCONFIGURED_GMAIL_ADAPTER, originStore: syncModule.NO_ORIGINATED_REFERENCES });
+    assert.deepEqual(await production.syncConnection(syncInput()), { kind: "synced", observedThrough: SYNC_NOW, accepted: [], denied: [], deniedOrigins: 0, providerCalls: 0 });
+    const unconfigured = await loadSync(fixture, context, { mailPort: gmail.UNCONFIGURED_GMAIL_ADAPTER, originStore: fakeOriginStore([originRecord(origin)]).store });
+    assert.deepEqual(await unconfigured.syncConnection(syncInput()), { kind: "refused", reason: "sync_unavailable", providerCalls: 0 });
+    await unchanged("reject-only adapter");
+
+    const echo = fakeMailPort((request) => ({ events: [reply(request.originated[0])], observedThrough: request.observedThrough }));
+    const store = fakeOriginStore([originRecord(origin)]);
+    const sync = await loadSync(fixture, context, { mailPort: echo.port, originStore: store.store });
+    for (const [label, input] of [
+      ["extra field", { ...syncInput(), mailbox: "INBOX" }],
+      ["bad connection id", syncInput({ connectionId: "" })],
+      ["inverted window", syncInput({ observedAfter: SYNC_NOW, observedThrough: OUTREACH_NOW })],
+      ["future window", syncInput({ observedThrough: SYNC_NOW + 1 })],
+    ]) {
+      assert.deepEqual(await sync.syncConnection(input), { kind: "refused", reason: "invalid_request", providerCalls: 0 }, label);
+    }
+    const inactive = await insertSenderConnection(fixture, context.seeded, context.repository, { id: "dispatch-sender-inactive", subjectDigest: "9".repeat(64), version: 1, status: "revoked" });
+    for (const connectionId of ["dispatch-sender-unknown", inactive]) {
+      assert.deepEqual(await sync.syncConnection(syncInput({ connectionId })), { kind: "refused", reason: "connection_unavailable", providerCalls: 0 }, connectionId);
+    }
+    assert.equal(echo.counts.sync, 0, "no sync read happens before the connection authenticates");
+
+    // Origins the domain cannot bind to this connection are never offered to the port.
+    const otherConnection = await insertSenderConnection(fixture, context.seeded, context.repository, { id: "dispatch-sender-connection-2", subjectDigest: "a".repeat(64), version: 1 });
+    const badOrigins = fakeOriginStore([
+      originRecord(origin, { connectionSubjectDigest: "b".repeat(64) }),
+      originRecord(origin, { leaseGeneration: 2 }),
+      originRecord("ooi-not-originated-here"),
+      originRecord(followUp),
+      originRecord(origin, { connectionId: otherConnection }),
+      originRecord(origin, { originatedMessageId: "bad id with spaces" }),
+      { ...originRecord(origin), raw: "From: someone" },
+    ]);
+    const unbound = await loadSync(fixture, context, { mailPort: echo.port, originStore: badOrigins.store });
+    assert.deepEqual(await unbound.syncConnection(syncInput()), { kind: "synced", observedThrough: SYNC_NOW, accepted: [], denied: [], deniedOrigins: 6, providerCalls: 0 });
+    assert.deepEqual(await unbound.syncConnection(syncInput({ connectionId: otherConnection })), { kind: "synced", observedThrough: SYNC_NOW, accepted: [], denied: [], deniedOrigins: 1, providerCalls: 0 }, "an origin of another connection is swapped, not trusted");
+    assert.equal(echo.counts.sync, 0);
+    await unchanged("unbound origins");
+
+    // Events that do not exactly reference an authenticated origin, or that
+    // carry raw or oversized content, are denied one by one.
+    const hostile = fakeMailPort((request) => {
+      const ref = request.originated[0];
+      return {
+        events: [
+          reply({ ...ref, originatedMessageId: "gmail-message-9999" }),
+          reply({ ...ref, marker: `${ref.marker.slice(0, -1)}${ref.marker.endsWith("0") ? "1" : "0"}` }),
+          reply({ ...ref, extra: true }),
+          { ...reply(ref), raw: "Received: from synthetic" },
+          reply(ref, { excerpt: "x".repeat(501) }),
+          reply(ref, { subject: "s".repeat(257) }),
+          reply(ref, { occurredAt: SYNC_NOW + 1 }),
+          reply(ref, { occurredAt: OUTREACH_NOW }),
+          reply(ref, { sender: "not an address" }),
+          bounce(ref, "permanent"),
+          { kind: "read_receipt", originated: ref, occurredAt: OUTREACH_NOW + 1_500 },
+          null,
+        ],
+        observedThrough: request.observedThrough,
+      };
+    });
+    const denied = await (await loadSync(fixture, context, { mailPort: hostile.port, originStore: store.store })).syncConnection(syncInput());
+    assert.equal(denied.kind, "synced");
+    assert.deepEqual(denied.accepted, []);
+    assert.deepEqual(denied.denied.map((entry) => entry.reason), [
+      "unrecognized_origin", "unrecognized_origin", "unrecognized_origin", "unexpected_fields", "oversized_field", "oversized_field",
+      "invalid_time", "invalid_time", "invalid_sender", "unexpected_fields", "unexpected_fields", "unexpected_fields",
+    ]);
+    assert.deepEqual(denied.denied.map((entry) => entry.index), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert.equal(hostile.requests.length, 1);
+    assert.deepEqual(Object.keys(hostile.requests[0]).sort(), ["connectionId", "observedAfter", "observedThrough", "originated", "workspaceId"]);
+    assert.equal(hostile.requests[0].originated.length, 1);
+    assert.ok(Object.isFrozen(hostile.requests[0]) && Object.isFrozen(hostile.requests[0].originated));
+    await unchanged("hostile events");
+
+    for (const [label, respond, reason] of [
+      ["port throws", () => { throw new Error("synthetic port failure"); }, "sync_unavailable"],
+      ["events not an array", (request) => ({ events: "none", observedThrough: request.observedThrough }), "sync_result_invalid"],
+      ["extra result field", (request) => ({ events: [], observedThrough: request.observedThrough, cursor: "x" }), "sync_result_invalid"],
+      ["observedThrough beyond the request", (request) => ({ events: [], observedThrough: request.observedThrough + 1 }), "sync_result_invalid"],
+      ["too many events", (request) => ({ events: Array.from({ length: 101 }, () => reply(request.originated[0])), observedThrough: request.observedThrough }), "sync_result_invalid"],
+    ]) {
+      const port = fakeMailPort(respond);
+      assert.deepEqual(await (await loadSync(fixture, context, { mailPort: port.port, originStore: store.store })).syncConnection(syncInput()), { kind: "refused", reason, providerCalls: 0 }, label);
+    }
+    await unchanged("malformed results");
+
+    // A rotated (re-authorized) connection is no longer the pinned connection.
+    await fixture.database.prepare(
+      "INSERT INTO outreach_sender_connections (id,workspace_id,provider,connection_subject_digest,sender_address_digest,protected_reference,protected_reference_version,status,verified_at,created_at) SELECT 'dispatch-sender-rotated',workspace_id,provider,connection_subject_digest,sender_address_digest,'vault-ref:synthetic-rotated',2,'active',verified_at,created_at FROM outreach_sender_connections WHERE id=?",
+    ).bind(SENDER_CONNECTION_ID).run();
+    assert.deepEqual(await sync.syncConnection(syncInput()), { kind: "refused", reason: "connection_unavailable", providerCalls: 0 });
+    assert.equal(echo.counts.sync, 0);
+    for (const port of [echo, hostile]) {
+      assert.equal(port.counts.dispatch, 0);
+      assert.equal(port.counts.reconcile, 0);
+    }
+    await unchanged("rotation");
+    await assertNoForbiddenStates(fixture);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("an authenticated reply is minimized, persisted once, and cancels matching follow-ups; duplicate sync has no new effect", async () => {
+  const fixture = await createD1Fixture("dispatch-sync-reply");
+  try {
+    const context = await originatedContext(fixture);
+    const origin = context.queued.origin.outboxItemId;
+    const followUp = context.queued.followUp.outboxItemId;
+    const port = fakeMailPort((request) => ({ events: [reply(request.originated[0])], observedThrough: request.observedThrough }));
+    const sync = await loadSync(fixture, context, { mailPort: port.port, originStore: fakeOriginStore([originRecord(origin)]).store });
+
+    const first = await sync.syncConnection(syncInput());
+    assert.equal(first.kind, "synced");
+    assert.deepEqual(first.denied, []);
+    assert.equal(first.accepted.length, 1);
+    const [accepted] = first.accepted;
+    assert.equal(accepted.outboxItemId, origin);
+    assert.equal(accepted.classification, "reply");
+    assert.equal(accepted.outcome, "stopped");
+    assert.equal(accepted.replayed, false);
+    assert.match(accepted.stopEventId, /^ose_/u);
+    assert.deepEqual(accepted.cancelledOutboxItemIds, [origin, followUp].sort());
+    assert.equal(first.providerCalls, 0);
+    const serialized = JSON.stringify(first);
+    for (const leaked of [RECIPIENT, "Thanks, happy to talk", "Re: Synthetic", ORIGIN_MESSAGE_ID, ORIGIN_THREAD_ID]) {
+      assert.equal(serialized.includes(leaked), false, `${leaked} must not be exposed`);
+    }
+
+    const stop = await fixture.database.prepare("SELECT stop_kind,subject_kind,subject_digest,source_event_digest,reason_code FROM outreach_stop_events").all();
+    assert.equal(stop.results.length, 1);
+    assert.equal(stop.results[0].stop_kind, "reply");
+    assert.equal(stop.results[0].subject_kind, "exact_email");
+    assert.equal(stop.results[0].subject_digest, context.seeded.contactPointDigest);
+    assert.match(stop.results[0].source_event_digest, /^[a-f0-9]{64}$/u);
+    assert.equal((await latestEvent(fixture, followUp)).reason_code, "reply_received");
+    assert.equal(await countRows(fixture.database, "outreach_suppression_tombstones"), 0);
+
+    const events = await countRows(fixture.database, "outreach_outbox_events");
+    const second = await sync.syncConnection(syncInput());
+    assert.equal(second.accepted.length, 1);
+    assert.equal(second.accepted[0].replayed, true);
+    assert.equal(second.accepted[0].stopEventId, accepted.stopEventId);
+    assert.deepEqual(second.accepted[0].cancelledOutboxItemIds, []);
+    assert.equal(await countRows(fixture.database, "outreach_stop_events"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_events"), events, "duplicate sync appends no cancellation");
+    assert.equal(port.counts.dispatch, 0);
+    assert.equal(port.counts.reconcile, 0);
+    await assertNoForbiddenStates(fixture);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("hard bounces stop, soft bounces and third-party replies pause for review, and an opt-out reply suppresses", async () => {
+  const fixture = await createD1Fixture("dispatch-sync-classification");
+  try {
+    const context = await originatedContext(fixture);
+    const origin = context.queued.origin.outboxItemId;
+    const followUp = context.queued.followUp.outboxItemId;
+    const port = fakeMailPort((request) => {
+      const ref = request.originated[0];
+      return {
+        events: [
+          bounce(ref, "soft"),
+          bounce(ref, "hard", { occurredAt: OUTREACH_NOW + 1_600 }),
+          reply(ref, { sender: "colleague@example.invalid", excerpt: "Forwarding to the right person.", occurredAt: OUTREACH_NOW + 1_700 }),
+          reply(ref, { subject: "Please unsubscribe me", excerpt: "Remove me from this list.", occurredAt: OUTREACH_NOW + 1_800 }),
+        ],
+        observedThrough: request.observedThrough,
+      };
+    });
+    const sync = await loadSync(fixture, context, { mailPort: port.port, originStore: fakeOriginStore([originRecord(origin)]).store });
+    const result = await sync.syncConnection(syncInput());
+    assert.equal(result.kind, "synced");
+    assert.deepEqual(result.denied, []);
+    assert.deepEqual(result.accepted.map((entry) => [entry.classification, entry.outcome]), [
+      ["ambiguous", "paused_for_review"],
+      ["bounce", "stopped"],
+      ["ambiguous", "paused_for_review"],
+      ["opt_out", "stopped"],
+    ]);
+    assert.deepEqual(result.accepted[0].cancelledOutboxItemIds, [origin, followUp].sort(), "a soft bounce pauses matching work");
+    assert.equal((await latestEvent(fixture, followUp)).reason_code, "ambiguous_reply_paused");
+    assert.match(result.accepted[3].tombstoneId, /^ost_/u);
+    const stops = await fixture.database.prepare("SELECT stop_kind,count(*) count FROM outreach_stop_events GROUP BY stop_kind ORDER BY stop_kind").all();
+    assert.equal(stops.results.find((row) => row.stop_kind === "bounce")?.count, 1);
+    assert.equal(stops.results.find((row) => row.stop_kind === "reply"), undefined, "ambiguous replies write no permanent reply stop");
+    const tombstones = await fixture.database.prepare("SELECT subject_kind,subject_digest,reason FROM outreach_suppression_tombstones").all();
+    assert.deepEqual(tombstones.results, [{ subject_kind: "exact_email", subject_digest: context.seeded.contactPointDigest, reason: "explicit_opt_out" }]);
+    assert.equal(port.counts.dispatch, 0);
+    await assertNoForbiddenStates(fixture);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a reply that reaches the pre-call decision point first leaves the leased follow-up with zero MailPort calls", async () => {
+  for (const order of ["before_receipt", "after_preparation"]) {
+    const fixture = await createD1Fixture(`dispatch-sync-race-${order}`);
+    try {
+      const context = await originatedContext(fixture);
+      const origin = context.queued.origin.outboxItemId;
+      const followUp = context.queued.followUp.outboxItemId;
+      const lease = await claimLease(fixture, context, followUp, "synthetic-worker-two");
+      assert.equal(lease.kind, "claimed");
+      const port = fakeMailPort((request) => ({ events: [reply(request.originated[0])], observedThrough: request.observedThrough }));
+      const outbox = (await fixture.vite.ssrLoadModule(MODULES.outbox)).createD1OutboxRepository(fixture.database, scope(context.seeded, SYNC_NOW + 10));
+      // A deterministic synthetic worker: it may only reach the MailPort after a
+      // current receipt and a prepared attempt, both re-read at the decision point.
+      const worker = async () => {
+        const receipt = await outbox.recordPreCallRecheckReceipt({ outboxItemId: followUp, holderId: "synthetic-worker-two", leaseGeneration: lease.leaseGeneration });
+        if (receipt.kind !== "recorded") return { receipt };
+        const attempt = await outbox.prepareDispatchAttempt({ outboxItemId: followUp, preCallReceiptId: receipt.receiptId, holderId: "synthetic-worker-two", leaseGeneration: lease.leaseGeneration });
+        return { receipt, attempt };
+      };
+      if (order === "after_preparation") {
+        const early = await worker();
+        assert.equal(early.receipt.kind, "recorded");
+        assert.equal(early.attempt.kind, "prepared_no_invocation");
+        assert.equal(early.attempt.providerCalls, 0);
+      }
+      const sync = await loadSync(fixture, context, { mailPort: port.port, originStore: fakeOriginStore([originRecord(origin)]).store });
+      const result = await sync.syncConnection(syncInput());
+      assert.deepEqual(result.accepted[0].cancelledOutboxItemIds, [origin, followUp].sort(), order);
+      assert.equal((await latestEvent(fixture, followUp)).state, "cancelled", order);
+      const late = await worker();
+      assert.equal(late.receipt.kind, "blocked", order);
+      assert.equal(late.receipt.providerCalls, 0, order);
+      assert.equal(late.attempt, undefined, order);
+      assert.equal(port.counts.dispatch, 0, order);
+      assert.equal(port.counts.reconcile, 0, order);
+      await assertNoForbiddenStates(fixture);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("originated sync source never fetches a mailbox, dispatches, reconciles, or persists content", async () => {
+  const source = await readFile(new URL("../domain/originated-mail-sync.ts", import.meta.url), "utf8");
+  assert.match(source, /applyInboundStop/u, "sync feeds the existing stop rules");
+  assert.doesNotMatch(source, /\.dispatch\(|\.reconcile\(/u);
+  assert.doesNotMatch(source, /\bfetch\(/u);
+  assert.doesNotMatch(source, /INSERT\s+INTO/iu, "sync persists only through the stop-rule service");
+  assert.doesNotMatch(source, /from\s+["'][^"']*preparation\//u);
+});

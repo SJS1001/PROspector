@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { handleCapabilitiesGet } from "../domain/capability-handler";
+import { readCapabilityProjection } from "../domain/capability-handler";
 import {
   capabilityDependencies,
   type CapabilityBindings,
@@ -21,17 +21,17 @@ export default async function Home({ searchParams }: HomeProps = {}) {
   const initialView = shellTaskFromParam(requestedView);
   const session = await admitOperatorSession(bindings);
   let initialCapabilityState: CapabilityApiState | null = null;
+  let blankWorkspace = false;
   if (session.admitted) {
-    try {
-      const response = await handleCapabilitiesGet(capabilityDependencies(bindings));
-      if (response.ok) initialCapabilityState = (await response.json()) as CapabilityApiState;
-    } catch {
-      initialCapabilityState = null;
-    }
+    // Read-only: the render cannot deliver a Set-Cookie, so it must not issue a
+    // CSRF token. The browser primes its own token through GET /api/capabilities.
+    const projection = await readCapabilityProjection(capabilityDependencies(bindings));
+    if (projection.kind === "ready") initialCapabilityState = projection.state as CapabilityApiState;
+    // Only a confirmed absent workspace is blank, so setup is the only task the
+    // operator can act on. A failed read keeps the requested view; Pilot Status
+    // then shows its existing loading and retry state.
+    blankWorkspace = projection.kind === "workspace_absent";
   }
-  // A blank workspace has no accepted capability evidence yet, so setup is the
-  // only task the operator can act on.
-  const blankWorkspace = session.admitted && initialCapabilityState === null;
   return (
     <ProspectorApp
       initialAccess={session.admitted ? "authorized" : "unauthorized"}

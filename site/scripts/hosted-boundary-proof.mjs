@@ -15,15 +15,20 @@ const DENIAL_MARKERS = new Set([
 ]);
 const PROOF_STEPS = ["put", "read", "digest", "delete", "absence"];
 const OBJECT_STORAGE_CAPABILITY_ID = "r2_object_lifecycle";
-const PRODUCTION_HOST = "prospector-steven-pilot.djstif.chatgpt.site";
 const MAXIMUM_SESSION_TRANSPORT_BYTES = 32 * 1024;
 
 const HELP = `PROspector hosted boundary proof
 
 Usage:
-  node scripts/hosted-boundary-proof.mjs --base-url <https-url>
-  node scripts/hosted-boundary-proof.mjs --base-url <https-url> --mode owner-read --session-headers-file <path>
-  node scripts/hosted-boundary-proof.mjs --base-url <https-url> --mode owner-proof --session-headers-file <path>
+  node scripts/hosted-boundary-proof.mjs --base-url <loopback-url>
+  node scripts/hosted-boundary-proof.mjs --base-url <loopback-url> --mode owner-read --session-headers-file <path>
+  node scripts/hosted-boundary-proof.mjs --base-url <loopback-url> --mode owner-proof --session-headers-file <path>
+
+Localhost only:
+  --base-url must be localhost, 127.0.0.1, or [::1]. Any other host is refused
+  with non_loopback_host_refused before a file is read or a request is sent, so
+  the session cookie can never leave this machine. A future hosted target needs
+  an explicit provisioning record for the new environment first; none exists.
 
 Modes:
   denied       Verify an unauthenticated request is denied without private metadata (default).
@@ -54,8 +59,8 @@ if (
   });
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
+async function main(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv);
   if (options.help) {
     process.stdout.write(HELP);
     return;
@@ -135,11 +140,8 @@ function requiredValue(args, index, argument) {
 
 function normalizedBaseUrl(raw) {
   const url = new URL(raw);
-  if (url.protocol !== "https:" && !isLocalhost(url.hostname)) {
-    throw new Error("https_base_url_required");
-  }
-  if (url.hostname !== PRODUCTION_HOST && !isLocalhost(url.hostname)) {
-    throw new Error("untrusted_base_url");
+  if (!isLocalhost(url.hostname)) {
+    throw new Error("non_loopback_host_refused");
   }
   url.pathname = "/";
   url.search = "";
@@ -148,7 +150,7 @@ function normalizedBaseUrl(raw) {
 }
 
 function isLocalhost(hostname) {
-  return hostname === "localhost" || hostname === "127.0.0.1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 async function loadSessionHeaders(path) {
@@ -473,6 +475,7 @@ function safeError(error) {
 export {
   assertProofShape,
   loadSessionHeaders,
+  main,
   normalizedBaseUrl,
   readOwnerState,
   runOwnerProof,
