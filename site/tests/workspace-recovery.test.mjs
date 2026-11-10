@@ -12,8 +12,8 @@ import { applyMigrationsThrough, createD1Fixture } from "./helpers/d1.mjs";
 // (domain/restore-verifier.ts) and the fenced restore (domain/restore-apply.ts)
 // on owner-delegated decision D-4. They run against synthetic in-memory ports
 // and the local 0023 repository only: nothing installs a package or reaches a
-// host. The 07-09 handler case stays `todo`; its body states a proposed call
-// shape, and the invariants are the part that binds.
+// host. The 07-09 handler case runs through the closed owner handler
+// (domain/handoff-recovery-handler.ts) on a local D1 fixture.
 
 const DIGEST = "a".repeat(64);
 const OTHER_DIGEST = "b".repeat(64);
@@ -985,14 +985,195 @@ test("the archive and restore modules reach no network, storage, scheduler, prov
   assert.doesNotMatch(archiveText, /PBKDF2/u);
 });
 
-test("archive creation needs recent owner reauthentication and a server-derived workspace; client scope is ignored", { todo: "07-09 not implemented" }, async () => {
-  const { vite, module } = await loadModule("../domain/handoff-recovery-handler.ts");
-  try {
-    const target = fakeTarget();
-    const stale = await module.handleCreateArchive({ session: { workspaceId: "workspace-a", reauthAt: "2020-01-01T00:00:00.000Z" }, body: { workspaceId: "workspace-b" }, ports: target.ports });
-    assert.equal(stale.status, 403);
-    const fresh = await module.handleCreateArchive({ session: { workspaceId: "workspace-a", reauthAt: new Date().toISOString() }, body: { workspaceId: "workspace-b" }, ports: target.ports });
-    assert.equal(fresh.scope.workspaceId, "workspace-a");
-    assertZeroEffects(target.counters);
-  } finally { await vite.close(); }
+// 07-09: the owner handler on D1. The original todo named a proposed
+// handleCreateArchive({ session, body, ports }) shape; the closed handler
+// (domain/handoff-recovery-handler.ts) takes the owner from the identity, the
+// workspace from the owner's `workspaces` row, and reauthentication from the
+// server authority port, so the same intent is proven through its real POST.
+// A refused archive is a 409 refused command (the handler's definite refusal),
+// not the proposed 403. The refusal audit row is allowed, as in every 07-08
+// archive refusal case; no archive, object, or delivery record is.
+test("archive creation needs recent owner reauthentication and a server-derived workspace; client scope is ignored", async (t) => {
+  const { CANONICAL_MIGRATION_FILENAMES } = await import("../scripts/migration-chain.mjs");
+  const fixture = await createD1Fixture("workspace-recovery-0709-reauth");
+  t.after(() => fixture.dispose());
+  const { database } = fixture;
+  await applyMigrationsThrough(database, CANONICAL_MIGRATION_FILENAMES.at(-1));
+  const load = (path) => fixture.vite.ssrLoadModule(new URL(path, import.meta.url).pathname);
+  const [interview, handler, repositoryModule] = await Promise.all([
+    load("../domain/interview.ts"), load("../domain/handoff-recovery-handler.ts"), load("../domain/handoff-recovery-repository.ts"),
+  ]);
+  const OWNER_EMAIL = "owner@example.invalid";
+  const PEPPER = "workspace-recovery-0709-pepper-32-bytes";
+  const FOREIGN_WS = "workspace-foreign";
+  const FOREIGN_OWNER = "foreign-owner-subject";
+  const principal = await interview.principalFromIdentity(OWNER_EMAIL, "Owner", PEPPER);
+  for (const [id, owner] of [[SOURCE_WS, principal.subject], [FOREIGN_WS, FOREIGN_OWNER]]) {
+    await database.prepare("INSERT INTO workspaces (id,company_name,owner_subject,created_at,updated_at,revision) VALUES (?,?,?,?,?,1)")
+      .bind(id, "Synthetic recovery workspace", owner, NOW - 60 * MINUTE, NOW - 60 * MINUTE).run();
+  }
+
+  // Server-side composition. `authority` is what the server authority port reports for this session;
+  // nothing the browser sends reaches it. Every port call is counted.
+  const fake = fakeTarget();
+  const source = sourceWorkspace();
+  const stored = new Map();
+  const calls = { authority: 0, readSnapshot: 0, readObject: 0, put: 0 };
+  const factoryScopes = [];
+  const server = { authority: (scope) => freshAuthority(scope.workspaceId, { ownerSubject: scope.ownerSubject, reauthenticatedAt: NOW - 16 * MINUTE }) };
+  const services = (db, scope) => {
+    factoryScopes.push({ workspaceId: scope.workspaceId, ownerSubject: scope.ownerSubject });
+    const repository = repositoryModule.createD1HandoffRecoveryRepository(db, scope);
+    const authority = { current: async () => { calls.authority += 1; return server.authority(scope); } };
+    return {
+      mode: "synthetic",
+      crm: null,
+      recovery: {
+        archive: {
+          now: () => NOW,
+          authority,
+          source: {
+            readSnapshot: async () => { calls.readSnapshot += 1; return { ...source.snapshot, workspaceId: server.snapshotWorkspace ?? scope.workspaceId }; },
+            readObject: async (digest) => { calls.readObject += 1; return source.objects.get(digest) ?? null; },
+          },
+          archiveStore: {
+            putImmutable: async (key, bytes, metadata) => { calls.put += 1; await fake.ports.objects.put(key, bytes, metadata); stored.set(key, bytes); },
+          },
+          evidence: repository,
+        },
+        restore: { now: () => NOW, authority, archives: { readArchive: async () => null }, target: memoryRestoreTarget(fake), evidence: repository },
+        currentRestoreArchiveRef: async () => null,
+      },
+    };
+  };
+  const deps = {
+    database, subjectPepper: PEPPER, pilotOwnerEmail: OWNER_EMAIL,
+    getIdentity: async () => ({ email: OWNER_EMAIL, displayName: "Owner" }), services, now: () => NOW,
+  };
+  const cookie = async () => {
+    const response = await handler.handleHandoffRecoveryGet(new Request("https://prospector.test/api/handoff-recovery"), deps);
+    assert.equal(response.status, 200);
+    return response.headers.get("set-cookie").split(";")[0];
+  };
+  const post = async (body) => {
+    const headers = new Headers({
+      origin: "https://prospector.test", "sec-fetch-site": "same-origin", "x-prospector-intent": "handoff-recovery-mutation",
+      "content-type": "application/json", cookie: await cookie(),
+    });
+    const before = { ...calls };
+    const response = await handler.handleHandoffRecoveryPost(new Request("https://prospector.test/api/handoff-recovery", { method: "POST", headers, body: JSON.stringify(body) }), deps);
+    const text = await response.text();
+    assert.equal(text.includes(PASSPHRASE), false, "the passphrase is never echoed");
+    return { status: response.status, body: JSON.parse(text), delta: Object.fromEntries(Object.entries(calls).map(([name, value]) => [name, value - before[name]])) };
+  };
+  const durable = async () => {
+    const rows = {};
+    for (const table of ["recovery_archives", "handoff_delivery_events", "handoff_recovery_commands", "handoff_recovery_audit_events"]) {
+      rows[table] = Number((await database.prepare(`SELECT COUNT(*) count FROM ${table}`).first()).count);
+    }
+    return rows;
+  };
+  const refusals = async () => (await database.prepare(
+    "SELECT workspace_id,outcome,reason_code FROM handoff_recovery_audit_events ORDER BY created_at, reason_code",
+  ).all()).results.map((row) => [row.workspace_id, row.outcome, row.reason_code]);
+  const noArchiveEffects = async (name) => {
+    assert.equal(stored.size, 0, name);
+    assert.equal(fake.counters.objectWrites, 0, name);
+    assert.equal(fake.counters.d1Writes, 0, name);
+    const rows = await durable();
+    assert.deepEqual([rows.recovery_archives, rows.handoff_delivery_events, rows.handoff_recovery_commands], [0, 0, 0], name);
+    assertNoEffectCalls(fake.counters);
+  };
+  const create = { action: "create_archive", passphrase: PASSPHRASE };
+
+  // (1) Without recent owner reauthentication the archive is refused before the source is read:
+  // no durable archive, object, or delivery record, and zero effect calls.
+  const reauthCases = [
+    ["stale reauthentication", (scope) => freshAuthority(scope.workspaceId, { ownerSubject: scope.ownerSubject, reauthenticatedAt: NOW - 16 * MINUTE }), "reauthentication_required"],
+    ["future reauthentication", (scope) => freshAuthority(scope.workspaceId, { ownerSubject: scope.ownerSubject, reauthenticatedAt: NOW + MINUTE }), "reauthentication_required"],
+    ["no reauthenticated owner", () => null, "not_authorized"],
+    // A composed authority for any other workspace or owner is not the server-derived scope's authority.
+    ["authority for another workspace", () => freshAuthority(FOREIGN_WS, { ownerSubject: FOREIGN_OWNER }), "not_authorized"],
+    ["authority for another owner", (scope) => freshAuthority(scope.workspaceId, { ownerSubject: FOREIGN_OWNER }), "not_authorized"],
+  ];
+  for (const [name, authorityFor, reason] of reauthCases) {
+    server.authority = authorityFor;
+    server.snapshotWorkspace = name === "authority for another workspace" ? FOREIGN_WS : undefined;
+    const refused = await post(create);
+    assert.equal(refused.status, 409, name);
+    assert.equal(refused.body.command.action, "create_archive", name);
+    assert.equal(refused.body.command.status, "refused", name);
+    assert.deepEqual(refused.body.command.reasonCodes, [reason], name);
+    assert.equal(refused.body.command.targetWrites, 0, name);
+    for (const effect of ["schedulerCalls", "runnerCalls", "providerCalls", "sends", "crmSyncs"]) assert.equal(refused.body.command[effect], 0, `${name} ${effect}`);
+    assert.deepEqual([refused.delta.readSnapshot, refused.delta.readObject, refused.delta.put], [0, 0, 0], name);
+    assert.equal(refused.body.projection.context.workspaceId, SOURCE_WS, name);
+    assert.deepEqual(refused.body.projection.recovery.archives, [], name);
+    await noArchiveEffects(name);
+  }
+  server.snapshotWorkspace = undefined;
+  // Each refusal is audited under the server-derived workspace only. The repository keys a refusal by its
+  // material (action, reason, and time), so identical refusals at the same server instant are one row.
+  const audited = await refusals();
+  assert.deepEqual(audited.map(([workspace, outcome]) => [workspace, outcome]), audited.map(() => [SOURCE_WS, "refused"]));
+  assert.deepEqual(audited.map(([, , reason]) => reason).sort(), [...new Set(reauthCases.map(([, , reason]) => reason))].sort());
+
+  // (3) Any client-supplied workspace, scope, owner, target, or reauthentication claim is refused by the
+  // closed command shape before any service port runs, even while the server reauthentication is fresh.
+  server.authority = (scope) => freshAuthority(scope.workspaceId, { ownerSubject: scope.ownerSubject, reauthenticatedAt: NOW - MINUTE });
+  const auditBefore = await durable();
+  for (const forged of [
+    { ...create, workspaceId: FOREIGN_WS },
+    { ...create, workspaceId: SOURCE_WS },
+    { ...create, scope: { workspaceId: FOREIGN_WS } },
+    { ...create, ownerSubject: FOREIGN_OWNER },
+    { ...create, sourceWorkspaceId: FOREIGN_WS },
+    { ...create, targetWorkspaceId: FOREIGN_WS },
+    { ...create, reauthenticatedAt: NOW },
+    { ...create, reauthAt: new Date(NOW).toISOString() },
+    { ...create, session: { workspaceId: FOREIGN_WS, reauthAt: new Date(NOW).toISOString() } },
+    { ...create, authority: freshAuthority(FOREIGN_WS, { ownerSubject: FOREIGN_OWNER }) },
+  ]) {
+    const name = JSON.stringify(Object.keys(forged));
+    const response = await post(forged);
+    assert.equal(response.status, 400, name);
+    assert.deepEqual(response.body, { error: "invalid_command" }, name);
+    assert.deepEqual(response.delta, { authority: 0, readSnapshot: 0, readObject: 0, put: 0 }, name);
+    await noArchiveEffects(name);
+  }
+  assert.deepEqual(await durable(), auditBefore, "a forged command writes nothing, not even a refusal");
+
+  // (2) With fresh reauthentication the archive is created for the server-derived workspace only.
+  const created = await post(create);
+  assert.equal(created.status, 200, JSON.stringify(created.body.command));
+  assert.equal(created.body.command.status, "applied");
+  assert.equal(created.body.command.targetWrites, 0);
+  for (const effect of ["schedulerCalls", "runnerCalls", "providerCalls", "sends", "crmSyncs"]) assert.equal(created.body.command[effect], 0, effect);
+  assert.deepEqual([created.delta.readSnapshot, created.delta.put], [1, 1]);
+  assert.equal(stored.size, 1);
+  assert.equal(fake.counters.objectWrites, 1, "exactly the one sealed envelope");
+  const [[objectKey, bytes]] = stored;
+  const envelope = JSON.parse(new TextDecoder().decode(bytes));
+  assert.equal(objectKey, `recovery/archives/${sha256Hex(bytes)}.json`);
+  assert.equal(envelope.sourceWorkspaceId, SOURCE_WS);
+  assert.equal(referenceOpen(envelope, PASSPHRASE).manifest.workspaceId, SOURCE_WS);
+  const archiveRow = await database.prepare("SELECT * FROM recovery_archives WHERE id=?").bind(created.body.command.archiveId).first();
+  assert.equal(archiveRow.workspace_id, SOURCE_WS);
+  assert.equal(JSON.parse(archiveRow.manifest_json).workspaceId, SOURCE_WS);
+  assert.equal(archiveRow.manifest_digest, envelope.manifestDigest);
+  const delivery = (await database.prepare("SELECT workspace_id,subject_id,event_kind FROM handoff_delivery_events").all()).results;
+  assert.deepEqual(delivery.map((row) => [row.workspace_id, row.subject_id, row.event_kind]), [[SOURCE_WS, created.body.command.archiveId, "issued"]]);
+  const rows = await durable();
+  assert.deepEqual([rows.recovery_archives, rows.handoff_delivery_events], [1, 1]);
+  assert.equal(created.body.projection.context.workspaceId, SOURCE_WS);
+  assert.deepEqual(created.body.projection.recovery.archives.map((archive) => archive.archiveId), [created.body.command.archiveId]);
+  for (const table of ["recovery_archives", "handoff_delivery_events", "handoff_recovery_commands", "handoff_recovery_audit_events"]) {
+    const foreign = Number((await database.prepare(`SELECT COUNT(*) count FROM ${table} WHERE workspace_id=?`).bind(FOREIGN_WS).first()).count);
+    assert.equal(foreign, 0, `${table} holds nothing for the workspace the client named`);
+  }
+  // The server composition only ever saw the scope derived from the owner's own workspace row.
+  assert.ok(factoryScopes.length > 0);
+  for (const scope of factoryScopes) assert.deepEqual(scope, { workspaceId: SOURCE_WS, ownerSubject: principal.subject });
+  assertNoEffectCalls(fake.counters);
+  assertZeroEffects({ ...fake.counters, objectWrites: 0 });
 });
