@@ -159,6 +159,17 @@ export type UpstreamScheduleObservation = Readonly<{
 }>;
 
 /**
+ * Positive evidence that the upstream schedule table holds no active row at
+ * all for the Profile. It is distinct from `null`, which also covers an active
+ * row the read adapter rejected, so only this value can prove a restored
+ * target's schedule is disabled.
+ */
+export type UpstreamScheduleAbsence = Readonly<{
+  kind: "no_active_schedule_row";
+  profileId: string;
+}>;
+
+/**
  * A counts-only preview of current CRM handoff readiness. It carries no row,
  * contact value, CSV byte, artifact checksum, or delivery handle.
  */
@@ -179,6 +190,8 @@ export type HandoffReadinessPreview = Readonly<{
 
 export type WorkspaceOrigin =
   | Readonly<{ kind: "original" }>
+  /** A restore lock is open with no result: the target may be half-imported. */
+  | Readonly<{ kind: "restore_in_progress"; lockedAt: string }>
   | Readonly<{
     kind: "restored";
     restoreRef: SafeReference;
@@ -226,7 +239,7 @@ export type MorningBriefInput = Readonly<{
   scope: MorningBriefScope;
   asOf: string;
   weeklyHistory: unknown;
-  scheduleObservation: UpstreamScheduleObservation | null;
+  scheduleObservation: UpstreamScheduleObservation | UpstreamScheduleAbsence | null;
   handoffReadiness: HandoffReadinessPreview | null;
   reviewFunnel: ReviewFunnelObservation | null;
   workspaceOrigin: WorkspaceOrigin | null;
@@ -254,7 +267,9 @@ export type WeeklySectionUnavailableReason =
 
 export type FunnelSectionUnavailableReason = "funnel_review_history_absent";
 
-export type RestoreSectionUnavailableReason = "workspace_origin_not_persisted";
+export type RestoreSectionUnavailableReason =
+  | "workspace_origin_not_persisted"
+  | "workspace_restore_in_progress";
 
 export type ScheduleBlockReason =
   | "schedule_observation_absent"
@@ -264,7 +279,8 @@ export type ScheduleBlockReason =
   | "schedule_upstream_authority_invalid"
   | "schedule_observation_in_future"
   | "schedule_observation_stale"
-  | "workspace_restored_pending_fresh_upstream_activation";
+  | "workspace_restored_pending_fresh_upstream_activation"
+  | "workspace_restore_in_progress";
 
 export type HandoffBlockReason =
   | "handoff_preview_absent"
@@ -482,7 +498,7 @@ type NormalizedInput = Readonly<{
   scope: MorningBriefScope;
   asOf: string;
   weekly: WeeklySlot;
-  scheduleObservation: UpstreamScheduleObservation | null;
+  scheduleObservation: UpstreamScheduleObservation | UpstreamScheduleAbsence | null;
   handoffReadiness: HandoffReadinessPreview | null;
   reviewFunnel: ReviewFunnelObservation | null;
   workspaceOrigin: WorkspaceOrigin | null;
@@ -679,7 +695,17 @@ function reduceScopedWeeklyOutcome(
   return result;
 }
 
-function normalizeScheduleObservation(value: unknown): UpstreamScheduleObservation {
+function normalizeScheduleObservation(
+  value: unknown,
+): UpstreamScheduleObservation | UpstreamScheduleAbsence {
+  if (Object.keys(ownDescriptors(value)).includes("kind")) {
+    const absence = exactRecord(value, ["kind", "profileId"]);
+    if (absence.kind !== "no_active_schedule_row") malformed();
+    return deepFreeze({
+      kind: "no_active_schedule_row",
+      profileId: stableId(absence.profileId),
+    });
+  }
   const input = exactRecord(value, [
     "observationRef", "profileId", "configurationDigest", "cadence", "localTime",
     "timeZone", "upstreamAuthority", "readinessRef", "state", "observedAt",
@@ -735,6 +761,12 @@ function normalizeWorkspaceOrigin(value: unknown, asOf: string): WorkspaceOrigin
     exactRecord(value, ["kind"]);
     return deepFreeze({ kind: "original" });
   }
+  if (discriminant.kind === "restore_in_progress") {
+    const inProgress = exactRecord(value, ["kind", "lockedAt"]);
+    const lockedAt = instant(inProgress.lockedAt);
+    if (Date.parse(lockedAt) > Date.parse(asOf)) malformed();
+    return deepFreeze({ kind: "restore_in_progress", lockedAt });
+  }
   if (discriminant.kind !== "restored") malformed();
   const input = exactRecord(value, [
     "kind", "restoreRef", "restoredAt", "freshUpstreamActivation",
@@ -776,6 +808,7 @@ function project(input: NormalizedInput): MorningBriefAvailable {
   const origin = input.workspaceOrigin;
   const restorePending = origin !== null && origin.kind === "restored"
     && !hasFreshUpstreamActivation(origin, input.asOf);
+  const restoreInProgress = origin !== null && origin.kind === "restore_in_progress";
   return deepFreeze({
     status: "available",
     generatedAt: input.asOf,
@@ -786,7 +819,7 @@ function project(input: NormalizedInput): MorningBriefAvailable {
       ? projectLosses(input.weekly.value)
       : null,
     weeklyEvidenceGaps: input.weeklyEvidenceGaps,
-    schedule: projectSchedule(input, restorePending),
+    schedule: projectSchedule(input, restorePending, restoreInProgress),
     handoff: projectHandoff(input),
     funnel: projectFunnel(input.reviewFunnel),
     workspace: projectRestore(origin, restorePending),
@@ -834,22 +867,22 @@ function projectFunnel(observation: ReviewFunnelObservation | null): MorningBrie
 }
 
 /**
- * Workspace origin is not persisted anywhere in the checked schema. Absent
- * input reports unavailable and keeps the restored-effects fence closed rather
- * than assuming an original workspace.
+ * Absent origin input, or a restore still in progress, reports unavailable and
+ * keeps the restored-effects fence closed rather than assuming an original
+ * workspace.
  */
 function projectRestore(
   origin: WorkspaceOrigin | null,
   restorePending: boolean,
 ): MorningBriefRestorePanel {
-  if (origin === null) {
+  if (origin === null || origin.kind === "restore_in_progress") {
     return deepFreeze({
       status: "unavailable",
       origin: null,
       restoreRef: null,
       restoredEffectsFenced: true,
       freshUpstreamActivationRef: null,
-      reasonCodes: ["workspace_origin_not_persisted"],
+      reasonCodes: [origin === null ? "workspace_origin_not_persisted" : "workspace_restore_in_progress"],
     });
   }
   return deepFreeze({
@@ -934,22 +967,33 @@ function projectLosses(weekly: WeeklyOutcomeAvailable): MorningBriefLossPanel {
 function projectSchedule(
   input: NormalizedInput,
   restorePending: boolean,
+  restoreInProgress: boolean,
 ): MorningBriefSchedulePanel {
   const observation = input.scheduleObservation;
   const reasonCodes: ScheduleBlockReason[] = [];
   if (restorePending) reasonCodes.push("workspace_restored_pending_fresh_upstream_activation");
-  if (observation === null) {
+  // A target still being restored may be half-imported, so no schedule
+  // evidence read from it can be reported as a state.
+  if (restoreInProgress) reasonCodes.push("workspace_restore_in_progress");
+  if (observation === null || "kind" in observation) {
     reasonCodes.push("schedule_observation_absent");
-    // The 0023 restore fence admits an applied restore only while every
-    // upstream schedule is inactive, so a restored target with no active row
-    // is disabled pending Phase 4, not an unknown state.
-    if (restorePending) {
+    if (observation !== null && observation.profileId !== input.scope.profileId) {
+      reasonCodes.push("schedule_scope_mismatch");
+    }
+    const sorted = sortText(reasonCodes);
+    if (restoreInProgress || reasonCodes.includes("schedule_scope_mismatch")) {
+      return schedulePanel("blocked", null, null, null, null, sorted);
+    }
+    // Only positive evidence that no active row exists proves a restored
+    // target disabled pending Phase 4. `null` also covers an active row the
+    // read adapter rejected, so it stays unknown.
+    if (restorePending && observation !== null) {
       return schedulePanel(
         "disabled_pending_fresh_upstream_activation", "disabled",
-        null, null, null, sortText(reasonCodes),
+        null, null, null, sorted,
       );
     }
-    return schedulePanel("unknown", null, null, null, null, reasonCodes);
+    return schedulePanel("unknown", null, null, null, null, sorted);
   }
   if (observation.cadence !== MORNING_BRIEF_SCHEDULE_DEFINITION.cadence
     || observation.localTime !== MORNING_BRIEF_SCHEDULE_DEFINITION.localTime

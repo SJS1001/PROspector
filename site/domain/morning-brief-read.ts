@@ -24,10 +24,13 @@
  * - Handoff eligibility requires Phase 5 verification and Phase 6 package and
  *   suppression authority, none of which is composed. That section is
  *   reported unavailable rather than approximated.
- * - Workspace origin comes from the 0023 `recovery_restore_results` ledger. An
- *   applied restore keeps the schedule reported disabled until a Phase 4
- *   profile activation strictly after that restore exists. This module only
- *   reports that state; it never requests, records, or releases it.
+ * - Workspace origin comes from the 0023 `recovery_restore_locks` and
+ *   `recovery_restore_results` ledgers. A lock open at the evaluation instant
+ *   reports a restore in progress with the effects fence closed, never an
+ *   original workspace. An applied restore keeps the schedule reported
+ *   disabled until a Phase 4 profile activation strictly after that restore
+ *   exists. This module only reports that state; it never requests, records,
+ *   or releases it.
  * - The owner workspace is selected before its active hierarchy is read. Every
  *   Company/Product/Play/Profile join repeats the workspace boundary, and only
  *   active hierarchy rows with one valid active Profile configuration can
@@ -36,6 +39,7 @@
 
 import {
   createD1HandoffRecoveryReader,
+  type OpenRestoreLock,
   type ProfileTransitionHistory,
   type RestoreOrigin,
 } from "./handoff-recovery-repository";
@@ -47,6 +51,7 @@ import {
   type MorningBriefWeeklyEvidenceGap,
   type ReviewFunnelObservation,
   type SafeReference,
+  type UpstreamScheduleAbsence,
   type UpstreamScheduleObservation,
   type WorkspaceOrigin,
 } from "./morning-brief";
@@ -155,6 +160,7 @@ export async function readMorningBrief(
     ownerSubject: workspace.owner_subject,
   });
   const restore = await reader.readRestoreOrigin({ throughAt });
+  const openLock = await reader.readOpenRestoreLock({ throughAt });
 
   const projected = await Promise.all(scopes.map(async (scope) => {
     const [scheduleObservation, reviewFunnel, history, activation] = await Promise.all([
@@ -174,7 +180,7 @@ export async function readMorningBrief(
       scheduleObservation,
       handoffReadiness: null,
       reviewFunnel,
-      workspaceOrigin: workspaceOrigin(restore, activation),
+      workspaceOrigin: workspaceOrigin(openLock, restore, activation),
       greenfieldProfiles: [],
       weeklyEvidenceGaps: PERSISTED_WEEKLY_EVIDENCE_GAPS,
     });
@@ -312,9 +318,15 @@ function weeklyHistoryInput(
 }
 
 function workspaceOrigin(
+  openLock: OpenRestoreLock | null,
   restore: RestoreOrigin | null,
   activation: Readonly<{ activationId: string; operationDigest: string; createdAt: number }> | null,
 ): WorkspaceOrigin {
+  // An open lock means target data may be half-imported. It outranks any
+  // applied result, so contradictory evidence keeps the fence closed.
+  if (openLock !== null) {
+    return { kind: "restore_in_progress", lockedAt: instantOrInvalid(openLock.acquiredAt) };
+  }
   if (restore === null) return { kind: "original" };
   return {
     kind: "restored",
@@ -334,8 +346,11 @@ function instantOrInvalid(value: number) {
 
 /**
  * Project the Phase 4-owned recurring schedule as a read-only observation.
- * A missing, archived, or shape-invalid row yields `null`, which the brief
- * reports as an unknown schedule rather than an enabled or disabled one.
+ * A shape-invalid or cross-workspace active row yields `null`, which the brief
+ * reports as an unknown schedule rather than an enabled or disabled one. Only
+ * when the table holds no active row at all for the Profile does the read
+ * return positive absence evidence; the brief may then report a restored
+ * target disabled, and otherwise reports it unknown as well.
  *
  * The authority-command join carries its own workspace predicate. The schema's
  * foreign key references `authority_commands(id)` alone and no trigger fences
@@ -347,7 +362,7 @@ async function readScheduleObservation(
   database: D1Database,
   workspaceId: string,
   profileId: string,
-): Promise<UpstreamScheduleObservation | null> {
+): Promise<UpstreamScheduleObservation | UpstreamScheduleAbsence | null> {
   const row = await database.prepare(
     `SELECT ps.id AS schedule_id, ps.operation_digest AS operation_digest,
             ps.profile_id AS profile_id, ps.configuration_digest AS configuration_digest,
@@ -361,7 +376,7 @@ async function readScheduleObservation(
       WHERE ps.workspace_id = ? AND ps.profile_id = ? AND ps.active = 1
       LIMIT 1`,
   ).bind(workspaceId, profileId).first<ScheduleRow>();
-  if (!row) return null;
+  if (!row) return readScheduleAbsence(database, workspaceId, profileId);
   if (!DIGEST.test(row.operation_digest) || !DIGEST.test(row.configuration_digest)
     || !DIGEST.test(row.command_operation_digest)) return null;
   if (!Number.isSafeInteger(row.updated_at) || row.updated_at < 0) return null;
@@ -383,6 +398,23 @@ async function readScheduleObservation(
     state: row.execution_state === "active" ? "enabled" : "disabled",
     observedAt,
   });
+}
+
+/**
+ * Positive evidence that no active schedule row exists for the Profile. Any
+ * active row, even one the observation read rejected, withholds it.
+ */
+async function readScheduleAbsence(
+  database: D1Database,
+  workspaceId: string,
+  profileId: string,
+): Promise<UpstreamScheduleAbsence | null> {
+  const row = await database.prepare(
+    `SELECT COUNT(*) AS active_count FROM prospecting_schedules
+      WHERE workspace_id = ? AND profile_id = ? AND active = 1`,
+  ).bind(workspaceId, profileId).first<{ active_count: number }>();
+  if (!row || Number(row.active_count) !== 0) return null;
+  return Object.freeze({ kind: "no_active_schedule_row" as const, profileId });
 }
 
 /**

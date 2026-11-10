@@ -887,6 +887,176 @@ test("a restore completed after the evaluation instant is not yet the workspace 
   }
 });
 
+/** An accepted dry run and its restore lock, with no restore result yet. */
+async function seedOpenRestoreLock(database, ctx, acquiredAt) {
+  const { id } = ctx;
+  const ws = id("workspace");
+  const owner = (await database.prepare("SELECT owner_subject FROM workspaces WHERE id=?").bind(ws).first()).owner_subject;
+  const command = (key, kind) => database.prepare("INSERT INTO handoff_recovery_commands (id,workspace_id,owner_subject,command_kind,idempotency_key,operation_digest,expected_revision,result_kind,result_id,created_at) VALUES (?,?,?,?,?,?,0,'synthetic',?,?)")
+    .bind(`cmd-${key}`, ws, owner, kind, `key-${key}`, sha(`restore-command:${key}`), key, acquiredAt);
+  await database.batch([
+    command("dry", "dry_run.record"),
+    command("lock", "restore_lock.acquire"),
+    database.prepare("INSERT INTO recovery_dry_runs (id,workspace_id,command_id,source_workspace_id,archive_manifest_digest,archive_ciphertext_sha256,archive_schema_version,outcome,reason_code,nonce_digest,expires_at,target_state_digest,invariant_digest,dry_run_digest,created_at) VALUES ('dry-run',?,'cmd-dry','source-workspace',?,?,'prospector/portable-workspace-schema/v1','accepted','verified',?,?,?,?,?,?)")
+      .bind(ws, sha("m"), sha("c"), sha("n"), acquiredAt + 60_000, sha("t"), sha("i"), sha("d"), acquiredAt),
+    database.prepare("INSERT INTO recovery_restore_locks (id,workspace_id,dry_run_id,command_id,nonce_digest,acquired_at,created_at) VALUES ('restore-lock',?,'dry-run','cmd-lock',?,?,?)").bind(ws, sha("n"), acquiredAt, acquiredAt),
+  ]);
+}
+
+async function recordRestoreResult(database, ctx, outcome, completedAt) {
+  const { id } = ctx;
+  const ws = id("workspace");
+  const owner = (await database.prepare("SELECT owner_subject FROM workspaces WHERE id=?").bind(ws).first()).owner_subject;
+  const counts = outcome === "applied" ? 1 : 0;
+  await database.batch([
+    database.prepare("INSERT INTO handoff_recovery_commands (id,workspace_id,owner_subject,command_kind,idempotency_key,operation_digest,expected_revision,result_kind,result_id,created_at) VALUES ('cmd-result',?,?,'restore_result.record','key-result',?,0,'synthetic','result',?)")
+      .bind(ws, owner, sha("restore-command:result"), completedAt),
+    database.prepare("INSERT INTO recovery_restore_results (id,workspace_id,lock_id,command_id,outcome,reason_code,restored_record_count,restored_object_count,result_digest,schedules_enabled,effects_enabled,completed_at,created_at) VALUES ('restore-result',?,'restore-lock','cmd-result',?,?,?,?,?,0,0,?,?)")
+      .bind(ws, outcome, outcome === "applied" ? "restored" : "rolled_back", counts, counts, sha(`restore-result:${outcome}`), completedAt, completedAt),
+  ]);
+}
+
+const IN_PROGRESS_WORKSPACE = Object.freeze({
+  status: "unavailable", origin: null, restoreRef: null,
+  restoredEffectsFenced: true, freshUpstreamActivationRef: null,
+  reasonCodes: ["workspace_restore_in_progress"],
+});
+
+test("an open restore lock with no result reports a restore in progress with the effects fence closed, never an original workspace", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-restore-in-progress");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "main");
+    await seedSchedule(fixture.database, ctx);
+    await seedOpenRestoreLock(fixture.database, ctx, Date.UTC(2026, 2, 15, 12));
+    const options = { asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END };
+
+    const before = await evidenceCounts(fixture.database);
+    const statements = [];
+    const brief = (await read.readMorningBrief(recordingDatabase(fixture.database, statements), { subject: "owner-main" }, options)).profiles[0];
+    assert.equal(brief.status, "available");
+    assert.deepEqual(brief.workspace, IN_PROGRESS_WORKSPACE);
+    // The schedule row is active upstream, but a half-imported target cannot
+    // vouch for it: the projection is blocked, never a current enabled state.
+    assert.equal(brief.schedule.status, "blocked");
+    assert.equal(brief.schedule.reportedState, null);
+    assert.ok(brief.schedule.reasonCodes.includes("workspace_restore_in_progress"));
+    for (const sql of statements) assert.match(sql, /^\s*SELECT\b/iu, sql);
+    assert.deepEqual(await evidenceCounts(fixture.database), before, "the brief read wrote nothing");
+
+    // A lock acquired after the evaluation instant is not yet in progress then.
+    const earlier = (await read.readMorningBrief(fixture.database, { subject: "owner-main" }, {
+      asOf: "2026-03-15T11:59:59.999Z", reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END,
+    })).profiles[0];
+    assert.equal(earlier.workspace.origin, "original");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a restore whose result completes after the evaluation instant was still in progress at that instant", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-restore-result-after-as-of");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "main");
+    await seedOpenRestoreLock(fixture.database, ctx, Date.UTC(2026, 2, 15, 12));
+    await recordRestoreResult(fixture.database, ctx, "applied", Date.parse(AS_OF) + 60_000);
+    const brief = (await read.readMorningBrief(fixture.database, { subject: "owner-main" }, {
+      asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END,
+    })).profiles[0];
+    assert.deepEqual(brief.workspace, IN_PROGRESS_WORKSPACE);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a rolled-back restore closes its lock and leaves the workspace original", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-restore-rolled-back");
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const ctx = await seedWorkspace(fixture.database, "main");
+    await seedOpenRestoreLock(fixture.database, ctx, Date.UTC(2026, 2, 15, 12));
+    await recordRestoreResult(fixture.database, ctx, "rolled_back", Date.UTC(2026, 2, 15, 13));
+    const brief = (await read.readMorningBrief(fixture.database, { subject: "owner-main" }, {
+      asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END,
+    })).profiles[0];
+    assert.equal(brief.workspace.status, "current");
+    assert.equal(brief.workspace.origin, "original");
+    assert.equal(brief.workspace.restoredEffectsFenced, false);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a restored workspace whose active schedule row is rejected reports unknown, never a definite disabled state", async () => {
+  const fixture = await createD1Fixture("morning-brief-read-restored-rejected-schedule");
+  const FOREIGN_DIGEST = "f".repeat(64);
+  try {
+    await applyPhase4Migrations(fixture.database);
+    const read = await load(fixture);
+    const victim = await seedWorkspace(fixture.database, "victim");
+    await seedWorkspace(fixture.database, "attacker");
+    await seedAppliedRestore(fixture.database, victim, Date.UTC(2026, 2, 15, 12));
+    // The 0023 fence only holds when the result is inserted; an active row can
+    // be written afterwards. This one points at another workspace's command.
+    await run(fixture.database, "INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) VALUES ('command-foreign', 'workspace-attacker', ?, ?, 1, 'prospecting_schedule', 'key-foreign', ?, 1, 'profile', 'profile-attacker', 'accepted')", victim.now, victim.now, FOREIGN_DIGEST);
+    await run(
+      fixture.database,
+      `INSERT INTO prospecting_schedules
+        (id, workspace_id, created_at, updated_at, revision, profile_id, configuration_id,
+         configuration_digest, schedule_key, timezone, intended_local_time, utc_offset_minutes,
+         cadence, next_run_at, last_successful_watermark, active, execution_state,
+         authority_command_id, operation_digest, idempotency_key)
+       VALUES ('schedule-victim', 'workspace-victim', ?, ?, 1, 'profile-victim', 'config-victim',
+               ?, 'sk-victim', 'America/Toronto', '06:00', -240, 'weekdays', ?, NULL, 1, 'active',
+               'command-foreign', ?, 'idem-victim')`,
+      victim.now, Date.UTC(2026, 2, 16, 3, 0, 0), DIGEST_A,
+      Date.UTC(2026, 2, 17, 10, 0, 0), DIGEST_B,
+    );
+    // The same holds for a same-workspace active row with a malformed clock.
+    const malformedClock = await seedWorkspace(fixture.database, "clock");
+    await seedSchedule(fixture.database, malformedClock, { updatedAt: -1 });
+    // seedAppliedRestore uses fixed ids, so the second restore gets its own.
+    const owner = "owner-clock";
+    const completedAt = Date.UTC(2026, 2, 15, 12);
+    await run(fixture.database, "UPDATE prospecting_schedules SET active=0 WHERE id='schedule-clock'");
+    await fixture.database.batch([
+      ...["dry2:dry_run.record", "lock2:restore_lock.acquire", "result2:restore_result.record"].map((entry) => {
+        const [key, kind] = entry.split(":");
+        return fixture.database.prepare("INSERT INTO handoff_recovery_commands (id,workspace_id,owner_subject,command_kind,idempotency_key,operation_digest,expected_revision,result_kind,result_id,created_at) VALUES (?,?,?,?,?,?,0,'synthetic',?,?)")
+          .bind(`cmd-${key}`, "workspace-clock", owner, kind, `key-${key}`, sha(`restore-command:${key}`), key, completedAt);
+      }),
+      fixture.database.prepare("INSERT INTO recovery_dry_runs (id,workspace_id,command_id,source_workspace_id,archive_manifest_digest,archive_ciphertext_sha256,archive_schema_version,outcome,reason_code,nonce_digest,expires_at,target_state_digest,invariant_digest,dry_run_digest,created_at) VALUES ('dry-run-2','workspace-clock','cmd-dry2','source-workspace',?,?,'prospector/portable-workspace-schema/v1','accepted','verified',?,?,?,?,?,?)")
+        .bind(sha("m"), sha("c"), sha("n2"), completedAt + 60_000, sha("t"), sha("i"), sha("d"), completedAt),
+      fixture.database.prepare("INSERT INTO recovery_restore_locks (id,workspace_id,dry_run_id,command_id,nonce_digest,acquired_at,created_at) VALUES ('restore-lock-2','workspace-clock','dry-run-2','cmd-lock2',?,?,?)").bind(sha("n2"), completedAt, completedAt),
+      fixture.database.prepare("INSERT INTO recovery_restore_results (id,workspace_id,lock_id,command_id,outcome,reason_code,restored_record_count,restored_object_count,result_digest,schedules_enabled,effects_enabled,completed_at,created_at) VALUES ('restore-result-2','workspace-clock','restore-lock-2','cmd-result2','applied','restored',1,1,?,0,0,?,?)")
+        .bind(sha("restore-result-2"), completedAt, completedAt),
+    ]);
+    await run(fixture.database, "UPDATE prospecting_schedules SET active=1, revision=revision+1 WHERE id='schedule-clock'");
+
+    for (const subject of ["owner-victim", "owner-clock"]) {
+      const brief = (await read.readMorningBrief(fixture.database, { subject }, {
+        asOf: AS_OF, reviewWindowStart: WINDOW_START, reviewWindowEndExclusive: WINDOW_END,
+      })).profiles[0];
+      assert.equal(brief.workspace.origin, "restored", subject);
+      assert.equal(brief.workspace.restoredEffectsFenced, true, subject);
+      assert.equal(brief.schedule.status, "unknown", subject);
+      assert.equal(brief.schedule.reportedState, null, subject);
+      assert.equal(brief.schedule.readinessRef, null, subject);
+      assert.deepEqual(brief.schedule.reasonCodes, [
+        "schedule_observation_absent",
+        "workspace_restored_pending_fresh_upstream_activation",
+      ], subject);
+      assert.ok(!JSON.stringify(brief).includes(FOREIGN_DIGEST), subject);
+    }
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("the brief composes only the read-only handoff recovery reader", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(new URL("../domain/morning-brief-read.ts", import.meta.url), "utf8");

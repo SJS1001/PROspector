@@ -903,15 +903,17 @@ test("unknown, duplicate, or non-array evidence gaps fail the brief closed", asy
   }
 });
 
-test("a restored workspace with no active upstream schedule row reports disabled pending fresh activation, not unknown", async () => {
+const RESTORED_PENDING = Object.freeze({
+  kind: "restored",
+  restoreRef: reference("restore-1"),
+  restoredAt: "2026-03-15T12:00:00.000Z",
+  freshUpstreamActivation: null,
+});
+
+test("a restored workspace with positive evidence of no active upstream schedule row reports disabled pending fresh activation", async () => {
   const { result } = await compose({
-    scheduleObservation: null,
-    workspaceOrigin: {
-      kind: "restored",
-      restoreRef: reference("restore-1"),
-      restoredAt: "2026-03-15T12:00:00.000Z",
-      freshUpstreamActivation: null,
-    },
+    scheduleObservation: { kind: "no_active_schedule_row", profileId: "profile-operating" },
+    workspaceOrigin: RESTORED_PENDING,
   });
   assert.equal(result.status, "available");
   assert.equal(result.schedule.status, "disabled_pending_fresh_upstream_activation");
@@ -924,8 +926,90 @@ test("a restored workspace with no active upstream schedule row reports disabled
   assert.equal(result.schedule.changeableFromThisSurface, false);
   assert.equal(result.effects.schedulerCalls, 0);
 
-  // An original workspace with no schedule row stays a neutral unknown.
+  // An original workspace with no active schedule row stays a neutral unknown.
+  const original = await compose({
+    scheduleObservation: { kind: "no_active_schedule_row", profileId: "profile-operating" },
+  });
+  assert.equal(original.result.schedule.status, "unknown");
+  assert.equal(original.result.schedule.reportedState, null);
+  assert.deepEqual(original.result.schedule.reasonCodes, ["schedule_observation_absent"]);
+
+  // Absence evidence for another Profile is not evidence about this one.
+  const foreign = await compose({
+    scheduleObservation: { kind: "no_active_schedule_row", profileId: "profile-greenfield" },
+    workspaceOrigin: RESTORED_PENDING,
+  });
+  assert.equal(foreign.result.schedule.status, "blocked");
+  assert.equal(foreign.result.schedule.reportedState, null);
+  assert.ok(foreign.result.schedule.reasonCodes.includes("schedule_scope_mismatch"));
+
+  for (const malformedAbsence of [
+    { kind: "no_active_schedule_row" },
+    { kind: "no_active_schedule_row", profileId: "profile-operating", state: "disabled" },
+    { kind: "no_schedule", profileId: "profile-operating" },
+  ]) {
+    const bad = await compose({ scheduleObservation: malformedAbsence, workspaceOrigin: RESTORED_PENDING });
+    assert.equal(bad.result.status, "unavailable", JSON.stringify(malformedAbsence));
+    assert.deepEqual(bad.result.reasonCodes, ["morning_brief_input_malformed"]);
+  }
+});
+
+test("a restored workspace with no usable schedule observation stays unknown, never a definite disabled state", async () => {
+  // `null` is also what the read adapter yields for an active row it rejects
+  // (cross-workspace authority, malformed digest or clock), so it cannot prove
+  // the schedule is disabled.
+  const { result } = await compose({ scheduleObservation: null, workspaceOrigin: RESTORED_PENDING });
+  assert.equal(result.status, "available");
+  assert.equal(result.schedule.status, "unknown");
+  assert.equal(result.schedule.reportedState, null);
+  assert.equal(result.schedule.observationRef, null);
+  assert.deepEqual(result.schedule.reasonCodes, [
+    "schedule_observation_absent",
+    "workspace_restored_pending_fresh_upstream_activation",
+  ]);
+  assert.equal(result.workspace.restoredEffectsFenced, true);
+  assert.equal(result.effects.schedulerCalls, 0);
+
   const original = await compose({ scheduleObservation: null });
   assert.equal(original.result.schedule.status, "unknown");
   assert.equal(original.result.schedule.reportedState, null);
+});
+
+test("a restore still in progress keeps the effects fence closed and never reports an original workspace or a current schedule", async () => {
+  const inProgress = { kind: "restore_in_progress", lockedAt: "2026-03-15T12:00:00.000Z" };
+  for (const scheduleObservationValue of [
+    undefined,
+    null,
+    { kind: "no_active_schedule_row", profileId: "profile-operating" },
+  ]) {
+    const patch = { workspaceOrigin: inProgress };
+    if (scheduleObservationValue !== undefined) patch.scheduleObservation = scheduleObservationValue;
+    const { result } = await compose(patch);
+    const label = JSON.stringify(scheduleObservationValue ?? "enabled observation");
+    assert.equal(result.status, "available", label);
+    assert.deepEqual(result.workspace, {
+      status: "unavailable",
+      origin: null,
+      restoreRef: null,
+      restoredEffectsFenced: true,
+      freshUpstreamActivationRef: null,
+      reasonCodes: ["workspace_restore_in_progress"],
+    }, label);
+    assert.equal(result.schedule.status, "blocked", label);
+    assert.equal(result.schedule.reportedState, null, label);
+    assert.ok(result.schedule.reasonCodes.includes("workspace_restore_in_progress"), label);
+    assert.equal(result.schedule.changeableFromThisSurface, false, label);
+    assert.equal(result.effects.schedulerCalls, 0, label);
+  }
+
+  for (const malformedOrigin of [
+    { kind: "restore_in_progress" },
+    { kind: "restore_in_progress", lockedAt: "2026-03-15T12:00:00Z" },
+    { kind: "restore_in_progress", lockedAt: "2026-03-16T04:00:00.000Z" },
+    { kind: "restore_in_progress", lockedAt: "2026-03-15T12:00:00.000Z", restoreRef: reference("restore-1") },
+  ]) {
+    const bad = await compose({ workspaceOrigin: malformedOrigin });
+    assert.equal(bad.result.status, "unavailable", JSON.stringify(malformedOrigin));
+    assert.deepEqual(bad.result.reasonCodes, ["morning_brief_input_malformed"]);
+  }
 });

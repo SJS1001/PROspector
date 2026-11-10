@@ -76,6 +76,9 @@ export type ProfileTransitionHistory = Readonly<{
 
 export type RestoreOrigin = Readonly<{ restoreResultId: string; resultDigest: string; completedAt: number }>;
 
+/** A restore lock acquired by an instant whose result had not completed by then. */
+export type OpenRestoreLock = Readonly<{ lockId: string; acquiredAt: number }>;
+
 export type ProfileActivationReference = Readonly<{ activationId: string; operationDigest: string; createdAt: number }>;
 
 export type SuppressionFence = Readonly<{
@@ -313,6 +316,24 @@ export function createD1HandoffRecoveryReader(database: D1Database, scopeValue: 
          WHERE workspace_id=? AND outcome='applied' AND completed_at<=? ORDER BY completed_at DESC,id DESC LIMIT 1`,
       ).bind(scope.workspaceId, input.throughAt).first<{ id: string; result_digest: string; completed_at: number }>();
       return row ? Object.freeze({ restoreResultId: row.id, resultDigest: row.result_digest, completedAt: Number(row.completed_at) }) : null;
+    },
+
+    /**
+     * The restore lock open at `throughAt`: acquired by then, with no result
+     * completed by then. 0023 admits at most one open lock per workspace.
+     */
+    readOpenRestoreLock: async (value: Readonly<{ throughAt: number }>): Promise<OpenRestoreLock | null> => {
+      const input = snapshotCommand(value, ["throughAt"]);
+      if (!positive(input.throughAt)) throw conflict("invalid_history_window");
+      await admitted();
+      const row = await database.prepare(
+        `SELECT lock.id,lock.acquired_at FROM recovery_restore_locks lock
+         WHERE lock.workspace_id=? AND lock.acquired_at<=?
+           AND NOT EXISTS (SELECT 1 FROM recovery_restore_results result
+             WHERE result.lock_id=lock.id AND result.workspace_id=lock.workspace_id AND result.completed_at<=?)
+         ORDER BY lock.acquired_at DESC,lock.id DESC LIMIT 1`,
+      ).bind(scope.workspaceId, input.throughAt, input.throughAt).first<{ id: string; acquired_at: number }>();
+      return row ? Object.freeze({ lockId: row.id, acquiredAt: Number(row.acquired_at) }) : null;
     },
 
     /** The latest Phase 4 profile activation strictly after `afterAt` and by `throughAt`. */
