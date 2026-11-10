@@ -9,8 +9,9 @@
  *                `recheckForCrmExport` (see `createCrmExportEligibilityPort`),
  *                which refuses every candidate today. Only tests inject a
  *                synthetic ContactReady.
- *   suppression  Lane B's `createSuppressionResolver(...).isBlocked`, which
- *                fails closed on any input or lookup error
+ *   suppression  Lane B's `createSuppressionResolver(...).blockingScopes`,
+ *                which fails closed on any input or lookup error and reports
+ *                every scope that blocks, so exclusions carry an accurate label
  *   store        immutable versioned artifact record (fake in tests)
  *
  * A row is emitted only for a candidate that is in the supplied workspace, not
@@ -42,7 +43,7 @@ import {
   digestCrmHandoffSelection,
   type CrmHandoffExportArtifact,
 } from "./crm-handoff-export-artifact";
-import type { IdentityLineage, ResolutionInput } from "./suppression";
+import type { BlockingScopes, IdentityLineage, ResolutionInput } from "./suppression";
 
 export const CRM_HANDOFF_SELECTION_TTL_MS = 10 * 60 * 1000;
 export const CRM_HANDOFF_DELIVERY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -96,9 +97,9 @@ export type CrmHandoffEligibilityPort = Readonly<{
   }>): Promise<CrmHandoffEligibilityResult>;
 }>;
 
-/** Structurally the `isBlocked` method of the Lane B suppression resolver. */
+/** Structurally the `blockingScopes` method of the Lane B suppression resolver. */
 export type CrmHandoffSuppressionPort = Readonly<{
-  isBlocked(input: ResolutionInput): Promise<Readonly<{ blocked: boolean }>>;
+  blockingScopes(input: ResolutionInput): Promise<Pick<BlockingScopes, "blocked" | "scopes" | "complete">>;
 }>;
 
 export type CrmHandoffStoreRecord = Readonly<{
@@ -485,7 +486,7 @@ function validateInput(value: { workspaceId: string; ports: CrmHandoffPorts }) {
     typeof value?.workspaceId !== "string" || !ID.test(value.workspaceId)
     || !ports || typeof ports.source?.read !== "function"
     || typeof ports.eligibility?.recheck !== "function"
-    || typeof ports.suppression?.isBlocked !== "function"
+    || typeof ports.suppression?.blockingScopes !== "function"
     || typeof ports.store?.lookup !== "function" || typeof ports.store?.putImmutable !== "function"
   ) throw new CrmHandoffServiceError("crm_handoff_service_invalid");
   return { workspaceId: value.workspaceId, ports };
@@ -540,50 +541,58 @@ function eligibilityReason(code: unknown): CrmHandoffExclusionReason {
   return (ELIGIBILITY_REASONS as readonly unknown[]).includes(code) ? code as CrmHandoffExclusionReason : "not_contact_ready";
 }
 
+type SuppressionLabel = "company" | "organization" | "contact" | "domain" | "exact";
+
+const SUPPRESSION_LABELS: ReadonlyMap<string, SuppressionLabel> = new Map([
+  ["company", "company"],
+  ["organization", "organization"],
+  ["contact", "contact"],
+  ["confirmed_email_domain", "domain"],
+  ["exact_email", "exact"],
+  ["e164_phone", "exact"],
+]);
+const LABEL_ORDER: readonly SuppressionLabel[] = ["company", "organization", "contact", "domain", "exact"];
+
 /**
- * Every suppression scope that blocks this contact. The full-subject check
- * decides; it fails closed (the resolver reports blocked on any error). The
- * narrower probes only label which scope applied. Once a company-wide
- * tombstone exists the narrower scopes cannot be told apart through
- * `isBlocked`, so only "company" is reported.
+ * Every suppression scope that blocks this contact, from one scope-aware
+ * resolver read; there is no probing. Only a strict `blocked: false`,
+ * `complete: true`, empty-scope answer counts as unsuppressed. Any other
+ * answer is blocked. When the scope cannot be fully resolved (the port threw,
+ * reported an incomplete or unknown answer, or named no known scope),
+ * "company" is added as the fail-closed label for the unresolved scope,
+ * next to any scope that was positively found.
  */
 async function suppressionScopes(
   port: CrmHandoffSuppressionPort,
   candidate: CrmHandoffCandidate,
-): Promise<Array<"exact" | "domain" | "contact" | "organization" | "company">> {
+): Promise<SuppressionLabel[]> {
   const kind = candidate.cells.contact_kind as "email" | "phone";
   const value = candidate.cells.contact_value as string;
-  const full: ResolutionInput = {
+  const input: ResolutionInput = {
     channel: kind,
     ...(kind === "email" ? { email: value } : { phone: value }),
     ...(candidate.contactLineage ? { contact: candidate.contactLineage } : {}),
     ...(candidate.organizationLineage ? { organization: candidate.organizationLineage } : {}),
   };
-  if (!(await check(port, full))) return [];
-
-  if (await check(port, { channel: kind })) return ["company"];
-  const scopes: Array<"exact" | "domain" | "contact" | "organization"> = [];
-  if (candidate.organizationLineage && await check(port, { channel: kind, organization: candidate.organizationLineage })) scopes.push("organization");
-  if (candidate.contactLineage && await check(port, { channel: kind, contact: candidate.contactLineage })) scopes.push("contact");
-  if (kind === "email") {
-    const at = value.lastIndexOf("@");
-    // A probe address on the same domain shares every domain subject with the
-    // real one but not its exact-address subject.
-    if (at > 0 && await check(port, { channel: "email", email: `suppression-probe${value.slice(at)}` })) scopes.push("domain");
-  }
-  // Blocked by the full check yet none of the wider scopes: the exact address or phone.
-  if (scopes.length === 0) scopes.push("exact");
-  return scopes;
-}
-
-/** true means blocked; any failure counts as blocked. */
-async function check(port: CrmHandoffSuppressionPort, input: ResolutionInput): Promise<boolean> {
+  let result: unknown;
   try {
-    const result = await port.isBlocked(input);
-    return result?.blocked !== false;
+    result = await port.blockingScopes(input);
   } catch {
-    return true;
+    return ["company"];
   }
+  const answer = result && typeof result === "object" ? result as Record<string, unknown> : null;
+  const scopes = answer && Array.isArray(answer.scopes) ? answer.scopes as unknown[] : null;
+  if (answer?.blocked === false && answer.complete === true && scopes?.length === 0) return [];
+
+  const labels = new Set<SuppressionLabel>();
+  let resolved = answer?.blocked === true && answer.complete === true && scopes !== null && scopes.length > 0;
+  for (const scope of scopes ?? []) {
+    const label = typeof scope === "string" ? SUPPRESSION_LABELS.get(scope) : undefined;
+    if (label) labels.add(label);
+    else resolved = false;
+  }
+  if (!resolved) labels.add("company");
+  return LABEL_ORDER.filter((label) => labels.has(label));
 }
 
 function compareIdentity(a: Identity, b: Identity) {

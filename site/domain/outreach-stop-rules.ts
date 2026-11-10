@@ -8,6 +8,7 @@ import {
 } from "./outreach-repository";
 import {
   emailDigest,
+  mailboxSpellingDigests,
   normalizeExactEmail,
   subjectDigest,
   unsubscribeTokenDigest,
@@ -57,15 +58,23 @@ export function createOutreachStopRules(database: D1Database, scopeValue: Scope)
       const input = exactRecord(inputValue, ["subject", "channel", "reason", "sourceEventDigest", "aliasDigests", "effectiveAt", "idempotencyKey"]);
       if (!input || !Array.isArray(input.aliasDigests) || !validId(input.idempotencyKey)) return refused("invalid_request");
       let subject;
+      let aliasDigests = input.aliasDigests as string[];
       try {
-        subject = await subjectDigest(input.subject as SuppressionSubject);
+        const resolved = await subjectDigest(input.subject as SuppressionSubject);
+        subject = resolved;
+        if (resolved.kind === "exact_email") {
+          // The SQL rechecks follow aliases, not the resolver: store every
+          // root-dot spelling of the mailbox so neither spelling escapes.
+          const spellings = await mailboxSpellingDigests((input.subject as { email?: unknown }).email);
+          aliasDigests = [...new Set([...aliasDigests, ...spellings.filter((digest) => digest !== resolved.digest)])];
+        }
       } catch {
         return refused("invalid_request");
       }
       const now = clock();
       if (!positive(now)) return refused("current_authority_unavailable");
       if (!await admitted(database, scope)) return refused("current_authority_unavailable");
-      const durable: DurableSubject = { kind: subject.kind, digest: subject.digest, aliasDigests: input.aliasDigests as string[], channel: input.channel as DurableSubject["channel"] };
+      const durable: DurableSubject = { kind: subject.kind, digest: subject.digest, aliasDigests, channel: input.channel as DurableSubject["channel"] };
       return commitSuppression(database, scope, now, {
         subjects: [durable],
         reason: input.reason as RecordSuppressionInput["reason"],
