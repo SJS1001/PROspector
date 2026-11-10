@@ -212,6 +212,33 @@ export type RecordRefusalInput = Readonly<{
   reasonCode: string;
 }>;
 
+export type ReadExportArtifactSelector =
+  | Readonly<{ by: "idempotencyKey"; idempotencyKey: string }>
+  | Readonly<{ by: "objectKey"; objectKey: string }>
+  | Readonly<{ by: "contentSha256"; contentSha256: string }>
+  | Readonly<{ by: "latest" }>;
+
+export type ExportArtifactView = Readonly<{
+  id: string;
+  snapshotId: string;
+  schemaVersion: string;
+  mediaType: "text/csv";
+  objectKey: string;
+  contentSha256: string;
+  byteLength: number;
+  manifest: Readonly<Record<string, unknown>>;
+  manifestDigest: string;
+  rowCount: number;
+  prospectCount: number;
+  createdAt: number;
+  /** The idempotency key of the command that recorded this artifact. */
+  idempotencyKey: string;
+  delivery: Readonly<{
+    issued: Readonly<{ occurredAt: number; expiresAt: number }> | null;
+    terminal: Readonly<{ eventKind: "expired" | "failed"; reasonCode: string; occurredAt: number }> | null;
+  }>;
+}>;
+
 export class HandoffRecoveryConflictError extends Error {
   constructor(reason = "conflict") {
     super(`handoff_recovery_conflict:${reason}`);
@@ -631,6 +658,63 @@ export function createD1HandoffRecoveryRepository(database: D1Database, scopeVal
           id, scope.workspaceId, input.snapshotId, commandId, input.schemaVersion, input.mediaType, input.objectKey, input.contentSha256,
           input.byteLength, manifestJson, manifestDigest, Number(snapshot.contact_row_count), Number(snapshot.prospect_count), now(),
         )],
+      });
+    },
+
+    /**
+     * Zero-write read of one recorded export artifact with its delivery
+     * events. The stored manifest is re-digested on read, so a manifest that no
+     * longer matches its recorded digest is refused rather than returned.
+     */
+    readExportArtifact: async (value: ReadExportArtifactSelector): Promise<ExportArtifactView | null> => {
+      const input = snapshotData(value) as ReadExportArtifactSelector;
+      if (!plainObject(input)) throw conflict("invalid_artifact_selector");
+      let filter: string;
+      let bindings: unknown[];
+      if (input.by === "idempotencyKey" && exactKeys(input, ["by", "idempotencyKey"]) && validId(input.idempotencyKey)) {
+        filter = "AND command.idempotency_key=? AND command.command_kind='export_artifact.record'";
+        bindings = [input.idempotencyKey];
+      } else if (input.by === "objectKey" && exactKeys(input, ["by", "objectKey"]) && OBJECT_KEY.test(String(input.objectKey))) {
+        filter = "AND artifact.object_key=?";
+        bindings = [input.objectKey];
+      } else if (input.by === "contentSha256" && exactKeys(input, ["by", "contentSha256"]) && validDigest(input.contentSha256)) {
+        filter = "AND artifact.content_sha256=?";
+        bindings = [input.contentSha256];
+      } else if (input.by === "latest" && exactKeys(input, ["by"])) {
+        filter = "";
+        bindings = [];
+      } else throw conflict("invalid_artifact_selector");
+      await admitted();
+      const row = await database.prepare(
+        `SELECT artifact.id,artifact.snapshot_id,artifact.schema_version,artifact.media_type,artifact.object_key,artifact.content_sha256,
+                artifact.byte_length,artifact.manifest_json,artifact.manifest_digest,artifact.row_count,artifact.prospect_count,artifact.created_at,
+                command.idempotency_key
+         FROM handoff_export_artifacts artifact
+         JOIN handoff_recovery_commands command ON command.id=artifact.command_id AND command.workspace_id=artifact.workspace_id
+         WHERE artifact.workspace_id=? ${filter}
+         ORDER BY artifact.created_at DESC,artifact.rowid DESC LIMIT 1`,
+      ).bind(scope.workspaceId, ...bindings).first<{
+        id: string; snapshot_id: string; schema_version: string; media_type: string; object_key: string; content_sha256: string;
+        byte_length: number; manifest_json: string; manifest_digest: string; row_count: number; prospect_count: number; created_at: number;
+        idempotency_key: string;
+      }>();
+      if (!row) return null;
+      if (row.media_type !== "text/csv" || (await digest(row.manifest_json)) !== row.manifest_digest) throw conflict("artifact_integrity");
+      const events = await all<{ event_kind: string; expires_at: number | null; reason_code: string; occurred_at: number }>(database.prepare(
+        "SELECT event_kind,expires_at,reason_code,occurred_at FROM handoff_delivery_events WHERE workspace_id=? AND subject_kind='export_artifact' AND subject_id=?",
+      ).bind(scope.workspaceId, row.id));
+      const issued = events.find((event) => event.event_kind === "issued");
+      const terminal = events.find((event) => event.event_kind === "expired" || event.event_kind === "failed");
+      return Object.freeze({
+        id: row.id, snapshotId: row.snapshot_id, schemaVersion: row.schema_version, mediaType: "text/csv" as const,
+        objectKey: row.object_key, contentSha256: row.content_sha256, byteLength: Number(row.byte_length),
+        manifest: snapshotData(JSON.parse(row.manifest_json)) as Readonly<Record<string, unknown>>, manifestDigest: row.manifest_digest,
+        rowCount: Number(row.row_count), prospectCount: Number(row.prospect_count), createdAt: Number(row.created_at),
+        idempotencyKey: row.idempotency_key,
+        delivery: Object.freeze({
+          issued: issued ? Object.freeze({ occurredAt: Number(issued.occurred_at), expiresAt: Number(issued.expires_at) }) : null,
+          terminal: terminal ? Object.freeze({ eventKind: terminal.event_kind as "expired" | "failed", reasonCode: terminal.reason_code, occurredAt: Number(terminal.occurred_at) }) : null,
+        }),
       });
     },
 

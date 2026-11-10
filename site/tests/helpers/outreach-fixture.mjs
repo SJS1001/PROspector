@@ -63,9 +63,16 @@ async function applyCandidateMigrations(database, migrations) {
   }
 }
 
+const DEFAULT_IDENTITY = Object.freeze({ prospectId: "outreach-prospect", contactId: "outreach-contact", contactEmail: "verified@example.invalid" });
+
+/**
+ * `options.identity` may rename the seeded Prospect and Contact and the
+ * verified email; omitted fields keep the defaults every other suite uses.
+ */
 export async function seedOutreachAuthority(fixture, options = {}) {
+  const identity = Object.freeze({ ...DEFAULT_IDENTITY, ...(options.identity ?? {}) });
   if (options.applyMigrations !== false) await applyOutreachMigrations(fixture.database);
-  const seeded = await seedApprovedProspect(fixture);
+  const seeded = await seedApprovedProspect(fixture, identity);
   const repositoryModule = await fixture.vite.ssrLoadModule(
     new URL("../../domain/enrichment-repository.ts", import.meta.url).pathname,
   );
@@ -101,7 +108,7 @@ export async function seedOutreachAuthority(fixture, options = {}) {
     now: OUTREACH_NOW + 1,
   });
   assert.equal(issued.kind, "issued");
-  await seedReservationInputs(fixture.database, seeded, issued.grant);
+  await seedReservationInputs(fixture.database, seeded, issued.grant, identity);
   const reserved = await authority.reserveEnrichmentOperation(repository, {
     grantId: issued.grant.id,
     principalSubject: OUTREACH_OWNER.subject,
@@ -110,7 +117,7 @@ export async function seedOutreachAuthority(fixture, options = {}) {
   });
   assert.equal(reserved.kind, "reserved");
   assert.equal((await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, OUTREACH_NOW + 3)).kind, "claimed");
-  const observation = await makeObservation(fixture, reserved, issued.grant);
+  const observation = await makeObservation(fixture, reserved, issued.grant, identity);
   const settlementIdentity = await authority.deriveEnrichmentSettlementIdentity({
     reservationId: reserved.reservation.id,
     terminalState: "settled",
@@ -129,18 +136,18 @@ export async function seedOutreachAuthority(fixture, options = {}) {
   });
   const lineage = await fixture.database.prepare(
     `SELECT p.revision prospect_revision,c.revision contact_revision,cfg.revision configuration_revision,cfg.digest configuration_digest
-     FROM profile_prospects p JOIN contacts c ON c.id='outreach-contact' AND c.workspace_id=p.workspace_id
+     FROM profile_prospects p JOIN contacts c ON c.id=? AND c.workspace_id=p.workspace_id
      JOIN typed_configurations cfg ON cfg.id=? AND cfg.workspace_id=p.workspace_id
      WHERE p.id=? AND p.workspace_id=?`,
-  ).bind(seeded.configurationId, seeded.prospectId, seeded.workspaceId).first();
+  ).bind(identity.contactId, seeded.configurationId, seeded.prospectId, seeded.workspaceId).first();
   const eligibilityDigest = "2".repeat(64);
   await fixture.database.prepare(
     `INSERT INTO contact_eligibility_snapshots (
       id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
       prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,snapshot_digest,projected_at
-    ) VALUES ('outreach-eligibility',?,'outreach-contact',?,?,?, ?,?,'ContactReady',1,?,'[]','[]',?,?)`,
+    ) VALUES ('outreach-eligibility',?,?,?,?,?, ?,?,'ContactReady',1,?,'[]','[]',?,?)`,
   ).bind(
-    seeded.workspaceId, seeded.prospectId, seeded.configurationId, lineage.configuration_digest,
+    seeded.workspaceId, identity.contactId, seeded.prospectId, seeded.configurationId, lineage.configuration_digest,
     lineage.configuration_revision, lineage.prospect_revision, JSON.stringify([observation.id]),
     eligibilityDigest, OUTREACH_NOW,
   ).run();
@@ -166,7 +173,7 @@ export async function seedOutreachAuthority(fixture, options = {}) {
   ).bind(seeded.workspaceId, OUTREACH_NOW, OUTREACH_NOW, seeded.profileId, guardrailDigest, sourceDigest).run();
   return Object.freeze({
     ...seeded,
-    contactId: "outreach-contact",
+    contactId: identity.contactId,
     contactRevision: Number(lineage.contact_revision),
     prospectRevision: Number(lineage.prospect_revision),
     configurationRevision: Number(lineage.configuration_revision),
@@ -181,7 +188,7 @@ export async function seedOutreachAuthority(fixture, options = {}) {
   });
 }
 
-async function seedApprovedProspect(fixture) {
+async function seedApprovedProspect(fixture, identity) {
   const seeded = await seedProfileAuthority(fixture, OUTREACH_OWNER, OUTREACH_NOW);
   const readiness = await fixture.vite.ssrLoadModule(
     new URL("../../domain/profile-readiness.ts", import.meta.url).pathname,
@@ -209,24 +216,24 @@ async function seedApprovedProspect(fixture) {
     fixture.database.prepare("INSERT INTO runner_submissions (id,workspace_id,run_id,assignment_id,configuration_id,submission_json,submission_digest,provenance_json,provenance_digest,status,operation_digest,idempotency_key,created_at) VALUES ('outreach-submission',?,?,'outreach-assignment',?,'{}',?,'{}',?,'accepted',?,'outreach-submission-key',?)").bind(workspaceId, activation.initialRun.id, activation.configuration.id, "b".repeat(64), "c".repeat(64), "d".repeat(64), OUTREACH_NOW),
     fixture.database.prepare("INSERT INTO prospecting_candidates (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,run_id,submission_id,configuration_id,fingerprint,candidate_json,candidate_digest,status) VALUES ('outreach-candidate',?,?,?,1,?,'phase4-offer',?,'outreach-submission',?,?,'{}',?,'qualified')").bind(workspaceId, OUTREACH_NOW, OUTREACH_NOW, seeded.profileId, activation.initialRun.id, activation.configuration.id, "e".repeat(64), "f".repeat(64)),
     fixture.database.prepare("INSERT INTO qualification_assessments (id,workspace_id,candidate_id,configuration_id,configuration_digest,input_json,input_digest,anchor_json,evidence_json,gate_json,score_json,score,outcome,tie_order,assessment_digest,predecessor_assessment_id,created_at) VALUES ('outreach-assessment',?,'outreach-candidate',?,?,'{}',?,'{}','{}','{}','{}',8,'Passed','[]',?,NULL,?)").bind(workspaceId, activation.configuration.id, activation.configuration.digest, "1".repeat(64), "2".repeat(64), OUTREACH_NOW),
-    fixture.database.prepare("INSERT INTO profile_prospects (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,candidate_id,assessment_id,fingerprint,state,active) VALUES ('outreach-prospect',?,?,?,1,?,'phase4-offer','outreach-candidate','outreach-assessment',?,'approved',1)").bind(workspaceId, OUTREACH_NOW, OUTREACH_NOW, seeded.profileId, "3".repeat(64)),
-    fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES ('outreach-review-command',?,?,?,1,'prospect.review','outreach-review-key',?,1,'profile_prospect','outreach-prospect','accepted')").bind(workspaceId, OUTREACH_NOW, OUTREACH_NOW, "4".repeat(64)),
-    fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES ('outreach-review-audit',?,'owner',?,'prospect.reviewed','profile_prospect','outreach-prospect','{}',?)").bind(workspaceId, OUTREACH_OWNER.subject, OUTREACH_NOW),
-    fixture.database.prepare("INSERT INTO prospect_review_decisions (id,workspace_id,prospect_id,assessment_id,decision,reason,review_at,expected_prospect_revision,authority_command_id,audit_event_id,decision_digest,operation_digest,idempotency_key,created_at) VALUES ('outreach-review',?,'outreach-prospect','outreach-assessment','approve','synthetic_approved',NULL,1,'outreach-review-command','outreach-review-audit',?,?,'outreach-review-key',?)").bind(workspaceId, "5".repeat(64), "4".repeat(64), OUTREACH_NOW),
+    fixture.database.prepare("INSERT INTO profile_prospects (id,workspace_id,created_at,updated_at,revision,profile_id,offer_id,candidate_id,assessment_id,fingerprint,state,active) VALUES (?,?,?,?,1,?,'phase4-offer','outreach-candidate','outreach-assessment',?,'approved',1)").bind(identity.prospectId, workspaceId, OUTREACH_NOW, OUTREACH_NOW, seeded.profileId, "3".repeat(64)),
+    fixture.database.prepare("INSERT INTO authority_commands (id,workspace_id,created_at,updated_at,revision,command_type,idempotency_key,operation_digest,expected_revision,subject_type,subject_id,status) VALUES ('outreach-review-command',?,?,?,1,'prospect.review','outreach-review-key',?,1,'profile_prospect',?,'accepted')").bind(workspaceId, OUTREACH_NOW, OUTREACH_NOW, "4".repeat(64), identity.prospectId),
+    fixture.database.prepare("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_type,subject_id,detail_json,created_at) VALUES ('outreach-review-audit',?,'owner',?,'prospect.reviewed','profile_prospect',?,'{}',?)").bind(workspaceId, OUTREACH_OWNER.subject, identity.prospectId, OUTREACH_NOW),
+    fixture.database.prepare("INSERT INTO prospect_review_decisions (id,workspace_id,prospect_id,assessment_id,decision,reason,review_at,expected_prospect_revision,authority_command_id,audit_event_id,decision_digest,operation_digest,idempotency_key,created_at) VALUES ('outreach-review',?,?,'outreach-assessment','approve','synthetic_approved',NULL,1,'outreach-review-command','outreach-review-audit',?,?,'outreach-review-key',?)").bind(workspaceId, identity.prospectId, "5".repeat(64), "4".repeat(64), OUTREACH_NOW),
   ]);
-  return { ...seeded, workspaceId, profileId: seeded.profileId, configurationId: activation.configuration.id, configurationDigest: activation.configuration.digest, prospectId: "outreach-prospect", runId: activation.initialRun.id };
+  return { ...seeded, workspaceId, profileId: seeded.profileId, configurationId: activation.configuration.id, configurationDigest: activation.configuration.digest, prospectId: identity.prospectId, runId: activation.initialRun.id };
 }
 
-async function seedReservationInputs(database, seeded, grant) {
+async function seedReservationInputs(database, seeded, grant, identity) {
   const company = await database.prepare("SELECT id FROM companies WHERE workspace_id=? LIMIT 1").bind(seeded.workspaceId).first();
   await database.prepare(
-    "INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) VALUES ('outreach-contact',?,?,?,1,?,?,'Synthetic Contact')",
-  ).bind(seeded.workspaceId, OUTREACH_NOW, OUTREACH_NOW, company.id, "6".repeat(64)).run();
+    "INSERT INTO contacts (id,workspace_id,created_at,updated_at,revision,company_id,identity_digest,display_name) VALUES (?,?,?,?,1,?,?,'Synthetic Contact')",
+  ).bind(identity.contactId, seeded.workspaceId, OUTREACH_NOW, OUTREACH_NOW, company.id, "6".repeat(64)).run();
   await database.prepare(
     `INSERT INTO contact_evidence_assignments
       (id,workspace_id,reservation_id,grant_id,prospect_id,contact_id,role,configuration_id,configuration_digest,provider_id,provider_version,catalog_ref,quote_revision,assignment_digest,created_at)
-     VALUES ('outreach-contact-assignment',?,NULL,?,'outreach-prospect','outreach-contact','champion',?,?,?,?,?,1,?,?)`,
-  ).bind(seeded.workspaceId, grant.id, grant.tuple.configurationId, grant.tuple.configurationDigest, grant.tuple.providerId, grant.tuple.providerVersion, grant.tuple.catalogRef, "7".repeat(64), OUTREACH_NOW).run();
+     VALUES ('outreach-contact-assignment',?,NULL,?,?,?,'champion',?,?,?,?,?,1,?,?)`,
+  ).bind(seeded.workspaceId, grant.id, identity.prospectId, identity.contactId, grant.tuple.configurationId, grant.tuple.configurationDigest, grant.tuple.providerId, grant.tuple.providerVersion, grant.tuple.catalogRef, "7".repeat(64), OUTREACH_NOW).run();
   for (const [scope, entityId] of Object.entries({ grant: grant.id, profile: grant.tuple.configurationId, workspace: seeded.workspaceId, provider: grant.tuple.providerId })) {
     const accountId = `enrichment:${seeded.workspaceId.length}:${seeded.workspaceId}:${scope}:${entityId.length}:${entityId}`;
     await database.prepare(
@@ -237,14 +244,14 @@ async function seedReservationInputs(database, seeded, grant) {
   }
 }
 
-async function makeObservation(fixture, reserved, grant) {
+async function makeObservation(fixture, reserved, grant, identity) {
   const contactEvidence = await fixture.vite.ssrLoadModule(new URL("../../domain/contact-evidence.ts", import.meta.url).pathname);
   const binding = reserved.reservation.assignment.evidenceAssignments[0];
   const providerAuthority = { providerId: grant.tuple.providerId, providerVersion: grant.tuple.providerVersion, catalogRef: grant.tuple.catalogRef };
   const envelope = {
     id: "outreach-observation", assignmentId: binding.assignmentId, prospectId: binding.prospectId,
     workspaceId: binding.workspaceId, contactId: binding.contactId, profileConfigurationId: binding.profileConfigurationId,
-    profileConfigurationDigest: binding.profileConfigurationDigest, kind: "email", value: "verified@example.invalid", confidence: 1,
+    profileConfigurationDigest: binding.profileConfigurationDigest, kind: "email", value: identity.contactEmail, confidence: 1,
     provenance: { sourceReference: "source:synthetic", excerpt: "synthetic verification", objectReference: "object:synthetic", contentHash: "8".repeat(64), retrievedAt: OUTREACH_NOW - 4 },
     observedAt: OUTREACH_NOW - 2,
   };
