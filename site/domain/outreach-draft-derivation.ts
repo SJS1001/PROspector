@@ -1,6 +1,6 @@
 import { hasCurrentDrift, matchingSuppressionRefs, readLatestContactEligibilitySnapshot } from "./contact-eligibility-persistence";
 import { canonicalDigest } from "./enrichment-grant-issuance";
-import { composeMessageVersionService } from "./message-version";
+import { canonicalMessageVersion, composeMessageVersionService } from "./message-version";
 import { composeOutreachPackageService, createD1OutreachArtifactReader, type OutreachPackageDraft } from "./outreach-package";
 import type { OutreachBinding, OutreachMessageSnapshot, OutreachRepositoryScope } from "./outreach-repository";
 import { emailDigest, normalizeExactEmail, unsubscribeTokenDigest } from "./suppression";
@@ -26,7 +26,21 @@ import { emailDigest, normalizeExactEmail, unsubscribeTokenDigest } from "./supp
  * - Drafts are created through the existing Package and Message Version
  *   services and repository only. Nothing is approved, authorized, queued or
  *   sent; approval stays a separate owner command with its own readiness gate.
- * - Stale or ineligible evidence refuses with a reason and writes nothing.
+ * - Stale or ineligible evidence refuses with a reason and writes nothing. A
+ *   suppression of any one selected contact point refuses too, even when the
+ *   contact stays ready on its other channel (the D-7 whole-contact rule alone
+ *   would not stop it).
+ * - The templates assert no fact: no reason for contact, relevance or review
+ *   is stated beyond what the cited evidence and Claim Guardrails establish.
+ * - Every email draft is checked against the Message Version rules before the
+ *   Package is created, so invalid message input never leaves a Package
+ *   without its draft. The two writes are still separate: a repository
+ *   failure between them is resumed only by a retry with the same key.
+ * - Known gap (not closed here): the draft binds only the digest of a fresh
+ *   opaque unsubscribe token and its body carries no unsubscribe link. How a
+ *   raw token reaches a delivered message is the dispatch composition's job
+ *   (06-12, blocked); storing it in the immutable body would break the
+ *   digest-only rule.
  */
 
 export const DRAFT_TEMPLATE_VERSION = "outreach-draft-template/v1";
@@ -39,6 +53,9 @@ const MAX_EVIDENCE = 64;
 const MAX_GUARDRAILS = 32;
 const MAX_POINTS = 8;
 const MAX_CANDIDATES = 10;
+/** Placeholders for the pre-creation message check only; never stored. */
+const PRECHECK_ID = "draft-precheck-package-version";
+const PRECHECK_DIGEST = "0".repeat(64);
 const PACKAGE_ROLES = Object.freeze(["champion", "economic_buyer", "general"] as const);
 const ROLE_LABELS: Readonly<Record<typeof PACKAGE_ROLES[number], string>> = Object.freeze({
   champion: "champion", economic_buyer: "economic buyer", general: "general contact",
@@ -122,7 +139,7 @@ export async function deriveOutreachDraft(evidence: unknown, options: unknown): 
   const callScript = [
     `Call script derived from this Outreach Package (${DRAFT_TEMPLATE_VERSION}). PROspector does not place or record calls.`,
     "1. Opening: say who you are and ask whether now is a good time for a two-minute conversation.",
-    "2. Reason for calling: public information your team reviewed suggests your work may be relevant to their role. Do not quote figures, outcomes or facts that are not in the cited evidence.",
+    `2. Reason for calling: say only what the cited evidence shows and what Claim Guardrail ${guardrailLabels} permits. PROspector supplies no reason of its own. Do not quote figures, outcomes or facts that are not in the cited evidence.`,
     `3. Claim limits: make only claims permitted by Claim Guardrail ${guardrailLabels}.`,
     "4. Close: ask whether a short follow-up would be welcome. If they ask not to be called again, record Do not call.",
     `Evidence references: ${evidenceRefs.join("; ")}.`,
@@ -143,9 +160,9 @@ export async function deriveOutreachDraft(evidence: unknown, options: unknown): 
       textBody: [
         "Hello,",
         "",
-        "I am reaching out because public information my team reviewed suggests our work may be relevant to your role.",
+        "I would like to introduce myself and ask whether a short conversation would be welcome.",
         "",
-        "If a short conversation would be useful, reply to this email and I will follow up. If you would prefer not to hear from me, reply to say so.",
+        "If it would, reply to this email and I will follow up. If you would prefer not to hear from me, reply to say so.",
       ].join("\n"),
       htmlBody: null,
       links: Object.freeze([]),
@@ -156,6 +173,19 @@ export async function deriveOutreachDraft(evidence: unknown, options: unknown): 
     intendedSendAt: null,
     timezone: DRAFT_TIMEZONE,
   })] : [];
+
+  // The Package is created before its messages, so every message must already
+  // pass the Message Version rules (for example the stricter mailbox rule).
+  for (const message of messages) {
+    try {
+      canonicalMessageVersion({
+        messageId: message.messageId, packageId: options.packageId, packageVersionId: PRECHECK_ID, version: 1, snapshot: message.snapshot,
+        intendedSendAt: message.intendedSendAt, timezone: message.timezone, unsubscribeTokenDigest: PRECHECK_DIGEST,
+      }, PRECHECK_DIGEST);
+    } catch {
+      return refused("draft_message_invalid");
+    }
+  }
 
   const bindings: OutreachBinding[] = [
     { kind: "configuration", id: evidence.configuration.id, digest: evidence.configuration.digest },
@@ -283,6 +313,11 @@ export async function loadDraftEvidence(database: D1Database, scope: OutreachRep
     return refused("contact_point_changed");
   }
   if ((await matchingSuppressionRefs(database, workspaceId, contact.id, ids)).length > 0) return refused("suppressed");
+  // The whole-contact check above preserves a suppression only when it reaches
+  // every channel, so each selected point is also checked on its own.
+  for (const id of ids) {
+    if ((await matchingSuppressionRefs(database, workspaceId, contact.id, [id])).length > 0) return refused("contact_point_suppressed");
+  }
 
   return Object.freeze({
     kind: "ready" as const,

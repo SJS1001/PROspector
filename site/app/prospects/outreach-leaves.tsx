@@ -176,6 +176,8 @@ const REASONS: Readonly<Record<string, string>> = Object.freeze({
   recipient_confirmation_mismatch: "The address you typed does not match the contact's verified email. Nothing was drafted.",
   sender_address_unavailable: "The owner's sending address is not known.",
   package_already_drafted: "This prospect and contact already has an Outreach Package.",
+  contact_point_suppressed: "A suppression blocks one of this contact's email addresses or phone numbers, so nothing is drafted.",
+  draft_message_invalid: "The email draft did not pass the message checks, so nothing was drafted.",
   invalid_draft_target: "The prospect or contact reference is not valid.",
 });
 

@@ -191,3 +191,29 @@ test("roles outside the package vocabulary become general, and the source file h
   assert.doesNotMatch(text, /recheckFor/, "drafting never calls or replaces a Phase 5 recheck");
   assert.doesNotMatch(text, /approvePackageVersion|approveMessageVersion|enqueue|recordRecipientDispatchAuthority/, "drafting creates no approval, authority or queue item");
 });
+
+test("an address the message validator would reject derives nothing, so a Package is never created without its email draft", async () => {
+  await withModules(async ({ derivation, suppression }) => {
+    const base = await evidence(suppression);
+    // normalizeExactEmail accepts this, but the Message Version mailbox rule does not.
+    const result = await derivation.deriveOutreachDraft(base, { ...OPTIONS, senderAddress: "own(er)@example.invalid" });
+    assert.equal(result.kind, "refused", JSON.stringify(result));
+    assert.deepEqual(result.reasonCodes, ["draft_message_invalid"]);
+    assert.equal(result.package, undefined, "no package is derived when its message would be refused");
+  });
+});
+
+test("the fixed templates state no reason, relevance or review the evidence and Claim Guardrails have not established", async () => {
+  await withModules(async ({ derivation, suppression }) => {
+    const result = await derivation.deriveOutreachDraft(await evidence(suppression), OPTIONS);
+    const { callScript } = result.package.snapshot;
+    const { subject, textBody } = result.messages[0].snapshot;
+    const UNBACKED = /public information|\bteam\b|relevan|suggest|reviewed|because|our work|your work/i;
+    assert.doesNotMatch(`${subject}\n${textBody}`, UNBACKED, "the email asserts no fact of its own");
+    const [reasonLine] = callScript.split("\n").filter((line) => line.startsWith("2. "));
+    assert.ok(reasonLine, "the call script keeps a reason-for-calling step");
+    assert.doesNotMatch(reasonLine, UNBACKED, "the call script supplies no reason of its own");
+    assert.match(reasonLine, /Claim Guardrail G1/, "the reason for calling is limited to what the guardrails permit");
+    assert.match(reasonLine, /cited evidence/);
+  });
+});

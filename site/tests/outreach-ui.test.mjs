@@ -1003,6 +1003,47 @@ test("drafting fails closed on stale or ineligible evidence, says why, and write
   } finally { await suppressed.fixture.dispose(); }
 });
 
+test("a suppression of one selected contact point blocks drafting even though the contact stays ready on its other channel", async () => {
+  const cases = [
+    ["exact-email", { subjectKind: "exact_email", value: "verified@example.invalid", channel: "email", reason: "owner_request" }],
+    ["e164-phone", { subjectKind: "e164_phone", value: "+14165550100", channel: "phone", reason: "owner_request" }],
+  ];
+  for (const [name, stop] of cases) {
+    const { fixture, handler, seeded, scope } = await draftableWorkspace(`outreach-ui-draft-point-suppressed-${name}`);
+    try {
+      const services = handler.composeProductionOutreachServices(fixture.database, scope);
+      const stopped = await handler.executeOutreachCommand(fixture.database, scope, services, {
+        action: "record_suppression", confirmed: true, idempotencyKey: `draft-point-stop-${name}`, ...stop,
+      });
+      assert.equal(stopped.status, 200, `${name}: ${JSON.stringify(stopped.body.command)}`);
+      const listed = await handler.readOutreachProjection(fixture.database, scope, services);
+      assert.deepEqual(listed.draftCandidates.map((row) => [row.ready, row.reasonCodes]), [[false, ["contact_point_suppressed"]]], `${name}: the candidate is not ready for a draft`);
+      const result = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded), DRAFT_CONTEXT);
+      assert.equal(result.status, 409, `${name}: ${JSON.stringify(result.body.command)}`);
+      assert.deepEqual(result.body.command.reasonCodes, ["contact_point_suppressed"], `${name}: a suppressed point is never drafted to`);
+      assert.equal(await count(fixture, "outreach_package_versions"), 0, `${name}: no package`);
+      assert.equal(await count(fixture, "outreach_message_versions"), 0, `${name}: no message`);
+    } finally { await fixture.dispose(); }
+  }
+});
+
+test("a draft whose email the message rules would refuse writes no Package, so a later valid draft still succeeds", async () => {
+  const { fixture, handler, seeded, scope } = await draftableWorkspace("outreach-ui-draft-atomic");
+  try {
+    const services = handler.composeProductionOutreachServices(fixture.database, scope);
+    const before = await draftRowCounts(fixture);
+    const invalid = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded, { idempotencyKey: "draft-atomic-invalid" }), { senderAddress: "own(er)@example.invalid" });
+    assert.equal(invalid.status, 409, JSON.stringify(invalid.body.command));
+    assert.deepEqual(invalid.body.command.reasonCodes, ["draft_message_invalid"]);
+    assert.deepEqual(await draftRowCounts(fixture), before, "no orphan Package Version names a missing message");
+    assert.deepEqual(invalid.body.projection.draftCandidates.map((row) => [row.ready, row.alreadyDrafted]), [[true, false]], "the candidate is still ready");
+    const valid = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded, { idempotencyKey: "draft-atomic-valid" }), DRAFT_CONTEXT);
+    assert.equal(valid.status, 200, JSON.stringify(valid.body.command));
+    assert.equal(valid.body.command.messageVersionIds.length, 1);
+    assert.equal(await count(fixture, "outreach_message_versions"), 1);
+  } finally { await fixture.dispose(); }
+});
+
 test("the draft command is a closed owner command: the browser cannot supply evidence, configuration, content or authority", async () => {
   const { fixture, handler } = await ownerWorkspace("outreach-ui-draft-closed-shape");
   try {
