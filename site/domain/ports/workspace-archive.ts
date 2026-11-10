@@ -167,7 +167,8 @@ export type RestoreTargetLocalState = Readonly<{
 
 export type RestoredReadback = Readonly<{
   rows: readonly RestoreRow[];
-  objectDigests: readonly string[];
+  /** The stored bytes, not just their keys, so readback can check each object against its digest. */
+  objects: readonly Readonly<{ digest: string; bytes: Uint8Array }>[];
   effects: Readonly<Record<string, string>> | null;
 }>;
 

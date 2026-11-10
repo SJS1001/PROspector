@@ -170,16 +170,22 @@ export async function restoreNonceDigest(nonce: string, candidate: VerifiedResto
   ])));
 }
 
-/** True only when the target holds exactly the verified rows and objects and every effect is fenced. */
-export function restoreReadbackMatches(readback: RestoredReadback | null, plan: RestorePlan): boolean {
-  if (!readback || !Array.isArray(readback.rows) || !Array.isArray(readback.objectDigests)) return false;
+/** True only when the target holds exactly the verified rows and object bytes and every effect is fenced. */
+export async function restoreReadbackMatches(readback: RestoredReadback | null, plan: RestorePlan): Promise<boolean> {
+  if (!readback || !Array.isArray(readback.rows) || !Array.isArray(readback.objects)) return false;
   const rows = (list: readonly RestoreRow[]) => list.map(canonicalJson).sort();
   const expectedRows = rows(plan.rows);
   const actualRows = rows(readback.rows);
   if (expectedRows.length !== actualRows.length || expectedRows.some((row, index) => row !== actualRows[index])) return false;
-  const expectedObjects = plan.objects.map((object) => object.digest).sort();
-  const actualObjects = [...readback.objectDigests].sort();
-  if (expectedObjects.length !== actualObjects.length || expectedObjects.some((digest, index) => digest !== actualObjects[index])) return false;
+  const byDigest = (left: { digest: string }, right: { digest: string }) => (left.digest < right.digest ? -1 : left.digest > right.digest ? 1 : 0);
+  const expectedObjects = [...plan.objects].sort(byDigest);
+  const actualObjects = [...readback.objects].sort(byDigest);
+  if (expectedObjects.length !== actualObjects.length) return false;
+  for (const [index, expected] of expectedObjects.entries()) {
+    const actual = actualObjects[index];
+    if (!plainObject(actual) || actual.digest !== expected.digest || !(actual.bytes instanceof Uint8Array)) return false;
+    if (actual.bytes.byteLength !== expected.bytes.byteLength || await sha256Hex(actual.bytes) !== expected.digest) return false;
+  }
   return canonicalJson(readback.effects) === canonicalJson(RESTORE_EFFECT_FENCE);
 }
 

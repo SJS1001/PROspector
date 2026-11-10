@@ -342,7 +342,11 @@ function memoryRestoreTarget(fake, { schemaVersion = SCHEMA_V1, effectsEnabled =
       effects = { ...plan.effects };
     },
     discard: async () => { rows = []; objects = new Map(); effects = null; },
-    readRestored: async () => ({ rows: structuredClone(rows), objectDigests: [...objects.keys()].sort(), effects }),
+    readRestored: async () => ({
+      rows: structuredClone(rows),
+      objects: [...objects].sort(([left], [right]) => left.localeCompare(right)).map(([digest, bytes]) => ({ digest, bytes: Uint8Array.from(bytes) })),
+      effects,
+    }),
   };
 }
 
@@ -621,19 +625,35 @@ test("archive creation refuses stale reauthentication, a foreign snapshot, secre
 });
 
 test("dry run refuses unauthorized, expired, tampered, missing-object, non-clean, version-skewed, and invariant-failed input with zero target writes and zero effect calls", async () => {
-  const { vite, archive, verifier } = await loadRecovery();
+  const { vite, archive, verifier, restore } = await loadRecovery();
   try {
     const { bytes, created } = await createArchive(archive);
     const tampered = Uint8Array.from(bytes);
     tampered[Math.floor(tampered.length / 2)] ^= 1;
     const missingObject = await reseal(archive, created.envelope, (sections) => { sections.objects = sections.objects.slice(1); });
     const duplicate = await reseal(archive, created.envelope, (sections) => { sections.records.splice(1, 0, sections.records[0]); });
+    // Content-addressed objects whose bytes no longer match their declared digest or length.
+    const alteredObject = await reseal(archive, created.envelope, (sections) => {
+      const altered = Buffer.from(sections.objects[0].bytes, "base64");
+      altered[0] ^= 1;
+      sections.objects[0].bytes = altered.toString("base64");
+    });
+    const shortObject = await reseal(archive, created.envelope, (sections) => {
+      sections.objects[0].bytes = Buffer.from(sections.objects[0].bytes, "base64").subarray(0, 1).toString("base64");
+    });
+    const swappedObjects = await reseal(archive, created.envelope, (sections) => {
+      const [first, second] = sections.objects;
+      [first.bytes, second.bytes] = [second.bytes, first.bytes];
+    });
     const cases = [
       ["unauthorized", bytes, { authority: null }, "not_authorized"],
       ["expired authorization", bytes, { authority: freshAuthority(TARGET_WS, { reauthenticatedAt: NOW - 16 * MINUTE }) }, "reauthentication_required"],
       ["expired archive", bytes, { archiveExpiresAt: NOW - 1 }, "archive_expired"],
       ["tampered archive", tampered, {}, "archive_untrusted"],
       ["missing object", missingObject, {}, "archive_object_missing"],
+      ["altered object bytes", alteredObject, {}, "archive_object_missing"],
+      ["object bytes shorter than declared", shortObject, {}, "archive_object_missing"],
+      ["object bytes swapped between digests", swappedObjects, {}, "archive_object_missing"],
       ["non-clean target", bytes, { preload: [{ section: "records", kind: "company", id: "existing", value: {} }] }, "target_not_clean"],
       ["effects not fenced", bytes, { effectsEnabled: true }, "target_effects_enabled"],
       ["version skew", bytes, { schemaVersion: "prospector/portable-workspace-schema/v0" }, "version_skew"],
@@ -649,6 +669,16 @@ test("dry run refuses unauthorized, expired, tampered, missing-object, non-clean
       assert.equal(target.fake.counters.objectWrites, 0, name);
       assert.equal(target.evidence.dryRuns.size, 0, name);
       assertZeroEffects(target.fake.counters);
+    }
+    // Opening an archive checks every object's bytes against its digest and length, and so does apply.
+    for (const [name, archiveBytes] of [["altered", alteredObject], ["short", shortObject], ["swapped", swappedObjects]]) {
+      const envelope = JSON.parse(new TextDecoder().decode(archiveBytes));
+      await assert.rejects(archive.openWorkspaceArchive(envelope, PASSPHRASE), (error) => error.message === "archive_object_missing", name);
+      const target = restoreHarness(archiveBytes);
+      const applied = await restore.applyRestore({ archiveRef: "archive-1", dryRunId: `rdr_${"9".repeat(32)}`, nonce: "f".repeat(32), passphrase: PASSPHRASE, ports: target.ports });
+      assert.deepEqual(applied, { status: "refused", reason: "archive_object_missing" }, name);
+      assertZeroEffects(target.fake.counters);
+      assert.equal(target.evidence.locks.size, 0, name);
     }
     // A wrong passphrase is the same untrusted refusal as tampering.
     const wrong = restoreHarness(bytes);
@@ -760,8 +790,11 @@ test("replay keeps stable IDs, append-only history, hashes, digests, and tombsto
       const historyAfter = restored.rows.filter((row) => row.section === "history").map(({ stream, sequence, id, value }) => ({ stream, sequence, id, value }));
       const historyBefore = [...before.history].sort((left, right) => left.sequence - right.sequence);
       assert.deepEqual(historyAfter.slice(0, historyBefore.length), historyBefore);
-      assert.deepEqual(restored.objectDigests, before.objects.map((object) => object.digest).sort());
-      for (const digest of restored.objectDigests) assert.equal(sha256Hex(source.objects.get(digest)), digest);
+      assert.deepEqual(restored.objects.map((object) => object.digest), before.objects.map((object) => object.digest).sort());
+      for (const object of restored.objects) {
+        assert.equal(sha256Hex(object.bytes), object.digest);
+        assert.deepEqual(Buffer.from(object.bytes), Buffer.from(source.objects.get(object.digest)));
+      }
       const tombstonesAfter = restored.rows.filter((row) => row.section === "tombstones").map(({ kind, id, value }) => ({ kind, id, value }));
       assert.deepEqual(tombstonesAfter, [...before.tombstones].sort((left, right) => left.kind.localeCompare(right.kind)));
       assert.equal(result.effects.scheduler, "disabled");
@@ -770,9 +803,15 @@ test("replay keeps stable IDs, append-only history, hashes, digests, and tombsto
       assert.equal(result.effects.provider, "disabled");
       assert.equal(result.effects.delivery, "disabled");
       assert.deepEqual(restored.effects, result.effects);
-      // Restoring writes target data, and never calls a scheduler, runner, mail, provider, or delivery port.
-      assert.ok(target.fake.counters.d1Writes > 0);
+      // The original todo ended with assertZeroEffects(target.counters), which also demands zero d1 and object
+      // writes. A restore must write its target, and this harness routes those writes through the same counting
+      // fake (the original apply todo already expected d1Writes to grow on apply). So the data counters are pinned
+      // to exactly the verified plan instead: one d1 write per restored row plus the effect fence, one object write
+      // per archived object, nothing more. Every effect counter must stay at zero, as before.
+      assert.equal(target.fake.counters.d1Writes, restored.rows.length + 1);
+      assert.equal(target.fake.counters.objectWrites, before.objects.length);
       assertNoEffectCalls(target.fake.counters);
+      assertZeroEffects({ ...target.fake.counters, d1Writes: 0, objectWrites: 0 });
       const [stored] = target.evidence.results.values();
       assert.equal(stored.outcome, "applied");
       assert.deepEqual([stored.restoredRecordCount, stored.restoredObjectCount], [12, 2]);
@@ -816,6 +855,11 @@ test("a lock or nonce race and a partial write roll back to the clean target wit
     // A readback that does not match the verified archive, or an unfenced effect, also rolls back.
     for (const [name, corrupt] of [
       ["readback mismatch", (restored) => ({ ...restored, rows: restored.rows.slice(1) })],
+      ["readback object bytes", (restored) => ({
+        ...restored,
+        objects: restored.objects.map((object, index) => (index === 0 ? { ...object, bytes: Uint8Array.from(object.bytes, (byte, at) => (at === 0 ? byte ^ 1 : byte)) } : object)),
+      })],
+      ["readback missing object", (restored) => ({ ...restored, objects: restored.objects.slice(1) })],
       ["effect fence", (restored) => ({ ...restored, effects: { ...restored.effects, scheduler: "enabled" } })],
     ]) {
       const corrupted = restoreHarness(bytes);

@@ -72,7 +72,7 @@ export async function applyRestore(input: Readonly<{
     } catch {
       return refuse("target_not_clean");
     }
-    if (replay.replayed && restoreReadbackMatches(await ports.target.readRestored(), candidate.plan)) {
+    if (replay.replayed && await restoreReadbackMatches(await ports.target.readRestored(), candidate.plan)) {
       return Object.freeze({ status: "already_restored" as const, archiveDigest, auditRef: replay.id });
     }
     return refuse("target_not_clean");
@@ -102,7 +102,7 @@ export async function applyRestore(input: Readonly<{
     } catch {
       readback = null;
     }
-    if (!restoreReadbackMatches(readback, candidate.plan)) failure = "restore_verification_failed";
+    if (!(await restoreReadbackMatches(readback, candidate.plan))) failure = "restore_verification_failed";
   }
   if (failure === null) {
     try {

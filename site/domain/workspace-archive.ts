@@ -277,7 +277,8 @@ export async function openWorkspaceArchive(envelope: unknown, passphrase: unknow
     throw new WorkspaceArchiveUntrustedError();
   }
   const { canonical, objects, manifest, createdAt, header } = opened;
-  if (objectReferenceProblem(canonical, objects)) throw new Error("archive_object_missing");
+  // Content addressing is checked here, not only at creation: a resealed payload may carry altered bytes.
+  if (!(await objectBytesMatch(objects)) || objectReferenceProblem(canonical, objects)) throw new Error("archive_object_missing");
   if (!invariantsHold(canonical)) throw new Error("archive_invariant_failed");
   const compatibility = header.compatibility as { min: string; max: string };
   return deepFreeze({
@@ -427,6 +428,14 @@ async function manifestFor(canonical: CanonicalSections): Promise<ArchiveManifes
   }
   const body = { format: MANIFEST_FORMAT, schemaVersion: canonical.schemaVersion, workspaceId: canonical.workspaceId, sections };
   return deepFreeze({ ...body, digest: await sha256Hex(encoder.encode(canonicalJson(body))) });
+}
+
+/** True only when every object's bytes have exactly its declared length and SHA-256 digest. */
+async function objectBytesMatch(objects: readonly OpenedArchiveObject[]): Promise<boolean> {
+  for (const object of objects) {
+    if (!(object.bytes instanceof Uint8Array) || object.bytes.byteLength !== object.byteLength || await sha256Hex(object.bytes) !== object.digest) return false;
+  }
+  return true;
 }
 
 /** True when an object is declared twice, or a value references an object the archive does not hold. */
