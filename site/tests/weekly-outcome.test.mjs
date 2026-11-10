@@ -448,3 +448,229 @@ test("cross-scope, extra-field, sparse, and accessor-backed inputs fail closed",
     await vite.close();
   }
 });
+
+// -- 07-01 Task 1 additions: target arithmetic, cohort evidence, reversal, scope --
+
+const LOGISTICS_HIERARCHY = {
+  companyId: "company-logistics",
+  productId: "product-routing",
+  marketPlayId: "play-port-operators",
+  profileId: "profile-terminal-operators",
+};
+
+function logisticsScope(patch = {}) {
+  return { workspaceId: "workspace-main", ...LOGISTICS_HIERARCHY, profileLifecycle: "Operating", ...patch };
+}
+
+test("seven Prospects with more than seven contact rows count seven, leave zero remaining, and never count contacts toward the target", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const histories = Array.from({ length: 7 }, (_, index) => history(`prospect-seven-${index}`, [
+      ...exportPath(`2026-03-${String(9 + (index % 5)).padStart(2, "0")}T15:00:00.000Z`),
+      contact("2026-03-14T12:00:00.000Z", `contact-${index}-a`),
+      contact("2026-03-14T12:01:00.000Z", `contact-${index}-b`),
+    ]));
+    const result = weekly.reduceWeeklyOutcome(input(histories));
+    assert.equal(result.status, "available");
+    assert.equal(result.counts.newlyExportReadyProspectCount, 7);
+    assert.equal(result.counts.remainingProspectsToTarget, 0);
+    assert.equal(result.counts.distinctStableContactCount, 14);
+    assert.ok(result.counts.distinctStableContactCount > result.target);
+
+    // One Prospect with seven contacts is still one toward the target.
+    const lone = history("prospect-lone", [
+      ...exportPath("2026-03-10T15:00:00.000Z"),
+      ...Array.from({ length: 7 }, (_, i) => contact(`2026-03-10T16:0${i}:00.000Z`, `lone-contact-${i}`)),
+    ]);
+    const loneResult = weekly.reduceWeeklyOutcome(input([lone]));
+    assert.equal(loneResult.counts.newlyExportReadyProspectCount, 1);
+    assert.equal(loneResult.counts.remainingProspectsToTarget, 6);
+    assert.equal(loneResult.counts.distinctStableContactCount, 7);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("the remaining count never goes negative when the week exceeds seven", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const histories = Array.from({ length: 9 }, (_, index) => history(`prospect-over-${index}`, exportPath(`2026-03-10T1${index}:00:00.000Z`)));
+    const result = weekly.reduceWeeklyOutcome(input(histories));
+    assert.equal(result.counts.newlyExportReadyProspectCount, 9);
+    assert.equal(result.counts.remainingProspectsToTarget, 0);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("a first Export-ready in an earlier week is never recounted by a later reversal and re-export", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const earlier = history("prospect-earlier", [
+      ...exportPath("2026-03-03T15:00:00.000Z"),
+      transition("2026-03-10T12:00:00.000Z", "ExportReady", "NeedsReview"),
+      loss("2026-03-10T12:00:00.000Z", "reversal"),
+      transition("2026-03-11T12:00:00.000Z", "NeedsReview", "ExportReady"),
+    ]);
+    const result = weekly.reduceWeeklyOutcome(input([earlier]));
+    assert.equal(result.counts.newlyExportReadyProspectCount, 0);
+    assert.deepEqual(result.cohort, []);
+    assert.equal(result.losses.reversal.eventCount, 1, "the reversal stays visible");
+    assert.equal(result.losses.reversal.distinctProspectCount, 1);
+    assert.equal(result.counts.distinctStableProspectCount, 1);
+
+    // Reversal in the same week keeps the Prospect counted once and the loss visible.
+    const sameWeek = history("prospect-same-week", [
+      ...exportPath("2026-03-09T15:00:00.000Z"),
+      transition("2026-03-10T12:00:00.000Z", "ExportReady", "NeedsReview"),
+      loss("2026-03-10T12:00:00.000Z", "reversal"),
+      transition("2026-03-11T12:00:00.000Z", "NeedsReview", "ExportReady"),
+    ]);
+    const sameResult = weekly.reduceWeeklyOutcome(input([sameWeek]));
+    assert.equal(sameResult.counts.newlyExportReadyProspectCount, 1);
+    assert.equal(sameResult.cohort[0].occurredAt, "2026-03-09T15:00:00.000Z");
+    assert.equal(sameResult.losses.reversal.eventCount, 1);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("each cohort entry stores its first-transition audit reference and the Toronto offset in force", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const result = weekly.reduceWeeklyOutcome(input([
+      history("prospect-audit", exportPath("2026-03-12T14:30:00.000Z")),
+    ]));
+    const [entry] = result.cohort;
+    assert.equal(entry.prospectId, "prospect-audit");
+    assert.equal(entry.firstExportReadyEventId, "event-prospect-audit-6");
+    assert.deepEqual(entry.auditRef, { id: "audit-prospect-audit-6", digest: DIGEST });
+    assert.equal(entry.occurredAt, "2026-03-12T14:30:00.000Z");
+    assert.equal(entry.localDate, "2026-03-12");
+    assert.equal(entry.utcOffsetMinutes, -240);
+
+    const winterAsOf = "2026-02-02T04:59:59.999Z";
+    const winter = weekly.reduceWeeklyOutcome(input([
+      history("prospect-winter", [
+        { ...created(), occurredAt: "2025-12-01T05:00:00.000Z" },
+        transition("2026-01-05T05:00:00.000Z", "Candidate", "Qualified"),
+        transition("2026-01-06T05:00:00.000Z", "Qualified", "Approved"),
+        transition("2026-01-07T05:00:00.000Z", "Approved", "ContactReady"),
+        transition("2026-01-08T05:00:00.000Z", "ContactReady", "PackageReady"),
+        transition("2026-01-28T14:30:00.000Z", "PackageReady", "ExportReady"),
+      ]),
+    ], {
+      asOf: winterAsOf,
+      coverage: { from: "prospect_origin", through: winterAsOf, prospectIds: ["prospect-winter"] },
+    }));
+    assert.equal(winter.status, "available");
+    assert.equal(winter.cohort[0].utcOffsetMinutes, -300);
+    assert.equal(winter.cohort[0].localDate, "2026-01-28");
+  } finally {
+    await vite.close();
+  }
+});
+
+test("a UTC-Monday instant that is still the previous Toronto Sunday belongs to the earlier week", async () => {
+  const { vite, weekly } = await load();
+  try {
+    // 2026-03-16T01:00Z is Sunday 21:00 in Toronto (EDT), so it is in the week ending 2026-03-15.
+    const asOf = "2026-03-16T03:59:59.999Z";
+    const lateSunday = history("prospect-late-sunday", exportPath("2026-03-16T01:00:00.000Z"));
+    const result = weekly.reduceWeeklyOutcome(input([lateSunday], { asOf, coverage: { from: "prospect_origin", through: asOf, prospectIds: ["prospect-late-sunday"] } }));
+    assert.equal(result.cohort.length, 1);
+    assert.equal(result.cohort[0].localDate, "2026-03-15");
+
+    // One millisecond later is Toronto Monday: next week, so the earlier week no longer holds it.
+    const nextAsOf = "2026-03-16T04:00:00.000Z";
+    const monday = weekly.reduceWeeklyOutcome(input([lateSunday], { asOf: nextAsOf, coverage: { from: "prospect_origin", through: nextAsOf, prospectIds: ["prospect-late-sunday"] } }));
+    assert.equal(monday.week.start.localDate, "2026-03-16");
+    assert.deepEqual(monday.cohort, []);
+    assert.equal(monday.counts.newlyExportReadyProspectCount, 0);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("a second non-Mining hierarchy projects independently and a mixed-hierarchy snapshot is refused rather than summed", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const logisticsHistory = (id, at) => history(id, exportPath(at), LOGISTICS_HIERARCHY);
+    const logistics = weekly.reduceWeeklyOutcome(input([
+      logisticsHistory("prospect-port-1", "2026-03-10T15:00:00.000Z"),
+      logisticsHistory("prospect-port-2", "2026-03-11T15:00:00.000Z"),
+    ], { scope: logisticsScope() }));
+    const main = weekly.reduceWeeklyOutcome(input([
+      history("prospect-main-1", exportPath("2026-03-10T15:00:00.000Z")),
+    ]));
+    assert.equal(logistics.counts.newlyExportReadyProspectCount, 2);
+    assert.equal(main.counts.newlyExportReadyProspectCount, 1);
+    assert.deepEqual(logistics.cohort.map((entry) => entry.prospectId), ["prospect-port-1", "prospect-port-2"]);
+    assert.equal(logistics.scope.companyId, "company-logistics");
+
+    const mixed = weekly.reduceWeeklyOutcome(input([
+      history("prospect-main-1", exportPath("2026-03-10T15:00:00.000Z")),
+      logisticsHistory("prospect-port-1", "2026-03-10T15:00:00.000Z"),
+    ]));
+    assert.equal(mixed.status, "unavailable");
+    assert.deepEqual(mixed.reasonCodes, ["history_scope_mismatch"]);
+    assert.equal(mixed.counts, null);
+
+    // The hierarchy is data: the same histories under a Draft logistics profile contribute nothing.
+    const draft = weekly.reduceWeeklyOutcome(input([
+      logisticsHistory("prospect-port-1", "2026-03-10T15:00:00.000Z"),
+    ], { scope: logisticsScope({ profileLifecycle: "Draft" }) }));
+    assert.equal(draft.profileIncluded, false);
+    assert.equal(draft.counts.newlyExportReadyProspectCount, 0);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("the reducer derives success from history only: CSV rows, export counts, or current state fields are rejected", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const base = history("prospect-csv", exportPath("2026-03-10T15:00:00.000Z"));
+    for (const extra of [
+      { csvRows: 7 },
+      { exportedContactRows: 14 },
+      { currentState: "ExportReady" },
+      { newlyExportReadyProspectCount: 7 },
+    ]) {
+      const result = weekly.reduceWeeklyOutcome(input([{ ...base, ...extra }]));
+      assert.equal(result.status, "unavailable", JSON.stringify(extra));
+      assert.equal(result.counts, null, JSON.stringify(extra));
+    }
+    const topLevel = weekly.reduceWeeklyOutcome(input([base], { csvRowCount: 14 }));
+    assert.equal(topLevel.status, "unavailable");
+    assert.equal(topLevel.counts, null);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("the reducer is pure: frozen input is not mutated, repeat calls match, and input order does not change the result", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const histories = [
+      history("prospect-b", [...exportPath("2026-03-11T15:00:00.000Z"), contact("2026-03-11T16:00:00.000Z", "contact-b")]),
+      history("prospect-a", [...exportPath("2026-03-10T15:00:00.000Z"), contact("2026-03-10T16:00:00.000Z", "contact-a")]),
+    ];
+    const deepFreeze = (value) => {
+      if (value && typeof value === "object") { Object.freeze(value); Object.values(value).forEach(deepFreeze); }
+      return value;
+    };
+    const frozen = deepFreeze(input(histories));
+    const snapshot = JSON.stringify(frozen);
+    const first = weekly.reduceWeeklyOutcome(frozen);
+    const second = weekly.reduceWeeklyOutcome(frozen);
+    assert.deepEqual(first, second);
+    assert.equal(JSON.stringify(frozen), snapshot);
+    const reversed = weekly.reduceWeeklyOutcome(input([...histories].reverse()));
+    assert.deepEqual(reversed.cohort, first.cohort);
+    assert.deepEqual(reversed.counts, first.counts);
+    assert.deepEqual(first.cohort.map((entry) => entry.prospectId), ["prospect-a", "prospect-b"]);
+  } finally {
+    await vite.close();
+  }
+});
