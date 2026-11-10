@@ -105,7 +105,11 @@ const PREDICATE_TEXT: Readonly<Record<string, string>> = Object.freeze({
   target_not_clean: "the target not being clean",
   target_already_restored: "the target already holding a restore",
   dry_run_required: "no current verified dry run",
+  dry_run_not_current: "the current dry run belonging to a different archive",
 });
+
+/** Mirrors the archive service's minimum; the server refuses a shorter passphrase before any service runs. */
+export const ARCHIVE_PASSPHRASE_MIN_LENGTH = 16;
 
 export function predicateText(code: string | null): string {
   if (!code) return "an unknown predicate";
@@ -123,7 +127,13 @@ const VERIFICATION_FAILURES = new Set([
 const RESTORE_BLOCKED_REASONS = new Set([
   "target_not_clean", "target_effects_enabled", "archive_object_missing", "archive_invariant_failed", "archive_incompatible",
   "schema_incompatible", "restore_rolled_back", "restore_lock_unavailable", "dry_run_not_accepted", "stale_projection",
+  "dry_run_not_current",
 ]);
+
+/** Archive creation verifies nothing, so its refusals use the archive-unavailable state, never the verification-failed copy. */
+export function archiveCreationRefusalCopy(reason: string): string {
+  return reason === "reauthentication_required" ? REAUTH_REQUIRED_COPY : ARCHIVE_UNAVAILABLE_COPY;
+}
 
 /** Wrong passphrase, tampering, expiry, and authorization stay indistinguishable to the reader. */
 export function recoveryRefusalCopy(reason: string): string {

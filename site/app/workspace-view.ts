@@ -12,6 +12,7 @@ export const OPERATOR_TASKS = [
   { id: "prospects", label: "Prospects", param: "prospects", href: "/?view=prospects" },
   { id: "contacts", label: "Contacts", param: null, href: "/contacts" },
   { id: "outreach", label: "Outreach", param: "outreach", href: "/?view=outreach" },
+  { id: "exports", label: "Handoff & Recovery", param: "exports", href: "/?view=exports" },
 ] as const;
 
 export type OperatorTask = (typeof OPERATOR_TASKS)[number];

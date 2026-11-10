@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArchiveBoundaryLeaf, DRY_RUN_PENDING_COPY, DRY_RUN_VERIFIED_COPY, DryRunEvidenceLeaf, formatTime, HANDOFF_EMPTY_COPY,
+  ARCHIVE_PASSPHRASE_MIN_LENGTH, archiveCreationRefusalCopy, ArchiveBoundaryLeaf, DRY_RUN_PENDING_COPY, DRY_RUN_VERIFIED_COPY, DryRunEvidenceLeaf, formatTime, HANDOFF_EMPTY_COPY,
   HANDOFF_ERROR_COPY, HANDOFF_LOADING_COPY, HANDOFF_RECHECK_COPY, handoffBlockedCopy, HandoffHistoryLeaf, HandoffMetricsLeaf,
   HandoffSelectionLeaf, normalizeHandoffRecoveryProjection, PilotBanner, predicateText, RECOVERY_ERROR_COPY, RECOVERY_LOADING_COPY,
   RECOVERY_UNKNOWN_COPY, recoveryRefusalCopy, RecoveryLedgerLeaf, RecoveryReadinessLeaf, RESTORE_APPLYING_COPY,
@@ -136,8 +136,9 @@ export function HandoffRecoveryView({ projection, interaction, passphraseRef, pa
         <fieldset className="exports-passphrase" disabled={pending}>
           <legend>Archive passphrase</legend>
           <p>Used for this one request only. It is never stored, shown, or sent anywhere except this request.</p>
-          <label>Passphrase <input type="password" ref={passphraseRef} autoComplete="off" spellCheck={false} /></label>
-          <label>Confirm passphrase (archive creation only) <input type="password" ref={passphraseConfirmRef} autoComplete="off" spellCheck={false} /></label>
+          <p id="passphrase-rule">At least {ARCHIVE_PASSPHRASE_MIN_LENGTH} characters.</p>
+          <label>Passphrase <input type="password" ref={passphraseRef} autoComplete="off" spellCheck={false} minLength={ARCHIVE_PASSPHRASE_MIN_LENGTH} aria-describedby="passphrase-rule" /></label>
+          <label>Confirm passphrase (archive creation only) <input type="password" ref={passphraseConfirmRef} autoComplete="off" spellCheck={false} minLength={ARCHIVE_PASSPHRASE_MIN_LENGTH} aria-describedby="passphrase-rule" /></label>
         </fieldset>
 
         <p className="exports-action">
@@ -242,7 +243,7 @@ function answeredNotice(action: string, command: Record<string, unknown>): Notic
         ? `Existing deterministic handoff — checksum ${textOf(command.csvSha256)}. No fresh artifact was made.`
         : `CSV handoff created as a governed CSV artifact — checksum ${textOf(command.csvSha256)}. No contacts were sent to any external system.` };
     case "create_archive":
-      return refused ? { kind: "refused", area: "recovery", text: recoveryRefusalCopy(reason) }
+      return refused ? { kind: "refused", area: "recovery", text: archiveCreationRefusalCopy(reason) }
         : { kind: "applied", area: "recovery", text: `${ARCHIVE_CREATED_COPY} Manifest ${textOf(command.manifestDigest)}, delivery expiry ${formatTime(Number(command.deliveryExpiresAt))}.` };
     case "run_dry_run":
       return refused ? { kind: "refused", area: "recovery", text: recoveryRefusalCopy(reason) }
@@ -384,12 +385,17 @@ export function HandoffRecoveryWorkspace({ onUnauthorized }: { onUnauthorized: (
         setNotice({ kind: "invalid", area: "recovery", text: value ? "The passphrases do not match. No archive was created." : "Enter and confirm the archive passphrase. No archive was created." });
         return;
       }
+      if (value.length < ARCHIVE_PASSPHRASE_MIN_LENGTH) {
+        setNotice({ kind: "invalid", area: "recovery", text: `The archive passphrase must be at least ${ARCHIVE_PASSPHRASE_MIN_LENGTH} characters. No archive was created.` });
+        return;
+      }
       void run("recovery", { action: "create_archive", passphrase: value }, "Creating the encrypted workspace archive…");
     },
     onRunDryRun: () => {
       const { value } = takePassphrase();
       const archiveRef = projection?.recovery.candidate?.archiveRef;
       if (!value || !archiveRef) { setNotice({ kind: "invalid", area: "recovery", text: "Enter the archive passphrase. No dry run was started." }); return; }
+      if (value.length < ARCHIVE_PASSPHRASE_MIN_LENGTH) { setNotice({ kind: "invalid", area: "recovery", text: `The archive passphrase is at least ${ARCHIVE_PASSPHRASE_MIN_LENGTH} characters. No dry run was started.` }); return; }
       setHeld(null);
       setConfirmingRestore(false);
       void run("recovery", { action: "run_dry_run", archiveRef, passphrase: value }, DRY_RUN_PENDING_COPY, (command) => {
@@ -402,6 +408,7 @@ export function HandoffRecoveryWorkspace({ onUnauthorized }: { onUnauthorized: (
       const { value } = takePassphrase();
       const archiveRef = projection?.recovery.candidate?.archiveRef;
       if (!value || !archiveRef || !held) { setNotice({ kind: "invalid", area: "recovery", text: "Enter the archive passphrase. Nothing was restored." }); return; }
+      if (value.length < ARCHIVE_PASSPHRASE_MIN_LENGTH) { setNotice({ kind: "invalid", area: "recovery", text: `The archive passphrase is at least ${ARCHIVE_PASSPHRASE_MIN_LENGTH} characters. Nothing was restored.` }); return; }
       const body = { action: "restore_verified_archive", archiveRef, dryRunId: held.dryRunId, nonce: held.nonce, passphrase: value, confirmed: true };
       // The nonce is single use whatever the answer: a new restore needs a new dry run.
       setHeld(null);

@@ -831,6 +831,182 @@ test("dry run and restore need the server-derived archive and dry run, a matchin
   } finally { await fixture.dispose(); }
 });
 
+test("an archive failure after the envelope is stored is an unknown outcome, never a refusal, and the recorded archive stays visible", async () => {
+  const { fixture, handler } = await ownerWorkspace("handoff-recovery-archive-unknown", "workspace-recovery-unknown");
+  try {
+    const repositoryModule = await fixture.vite.ssrLoadModule(domainPath("handoff-recovery-repository.ts"));
+    const stored = new Map();
+    const failure = { mode: "delivery" };
+    const services = (database, scope) => {
+      const repository = repositoryModule.createD1HandoffRecoveryRepository(database, scope);
+      return {
+        mode: "synthetic",
+        crm: null,
+        recovery: {
+          archive: {
+            now: () => Date.now(),
+            authority: { current: async () => freshAuthority(scope.workspaceId, scope.ownerSubject) },
+            source: { readSnapshot: async () => sourceSnapshot(scope.workspaceId), readObject: async () => null },
+            archiveStore: {
+              putImmutable: async (key, bytes) => {
+                stored.set(key, bytes);
+                // A refusal-shaped message after the write is still an unknown outcome.
+                if (failure.mode === "store") throw new Error("not_authorized");
+              },
+            },
+            evidence: {
+              ...repository,
+              recordDeliveryEvent: async (value) => {
+                if (failure.mode === "delivery") throw new Error("D1_ERROR: network connection lost");
+                return repository.recordDeliveryEvent(value);
+              },
+            },
+          },
+          restore: {
+            now: () => Date.now(),
+            authority: { current: async () => freshAuthority(scope.workspaceId, scope.ownerSubject) },
+            archives: { readArchive: async () => null },
+            target: memoryTarget(),
+            evidence: repository,
+          },
+          currentRestoreArchiveRef: async () => null,
+        },
+      };
+    };
+    const deps = ownerDependencies(fixture.database, { services });
+    const post = async (body) => handler.handleHandoffRecoveryPost(mutation(body, { cookie: await csrfCookie(handler, fixture.database, { services }) }), deps);
+
+    const lost = await post({ action: "create_archive", passphrase: PASSPHRASE });
+    assert.equal(lost.status, 503, "a failure after the envelope was stored is not a definite refusal");
+    const lostText = await lost.text();
+    assert.deepEqual(JSON.parse(lostText), { error: "handoff_recovery_unavailable" });
+    assert.doesNotMatch(lostText, new RegExp(PASSPHRASE, "u"));
+    assert.equal(stored.size, 1);
+    assert.equal((await tableCounts(fixture.database)).recovery_archives, 1);
+    const reloaded = await (await handler.handleHandoffRecoveryGet(new Request("https://prospector.test/api/handoff-recovery"), deps)).json();
+    assert.equal(reloaded.recovery.archives.length, 1, "the reload shows the archive the unknown outcome created");
+
+    failure.mode = "store";
+    const storeLost = await post({ action: "create_archive", passphrase: `${PASSPHRASE}-second` });
+    assert.equal(storeLost.status, 503, "a refusal-shaped error after a write began is still unknown");
+    assert.equal(stored.size, 2);
+  } finally { await fixture.dispose(); }
+});
+
+test("archive and recovery passphrases follow the service's 16-character minimum before any service runs", async () => {
+  const { fixture, handler } = await ownerWorkspace("handoff-recovery-passphrase", "workspace-recovery-passphrase");
+  try {
+    assert.equal(handler.ARCHIVE_PASSPHRASE_MIN_LENGTH, 16);
+    const short = "a".repeat(15);
+    const exact = "a".repeat(16);
+    for (const body of [
+      { action: "create_archive", passphrase: short },
+      { action: "run_dry_run", archiveRef: "archive-upload-1", passphrase: short },
+      { action: "restore_verified_archive", archiveRef: "archive-upload-1", dryRunId: "rdr_current", nonce: "a".repeat(32), passphrase: short, confirmed: true },
+    ]) assert.throws(() => handler.parseHandoffRecoveryCommand(body), undefined, body.action);
+    assert.equal(handler.parseHandoffRecoveryCommand({ action: "create_archive", passphrase: exact }).passphrase, exact);
+
+    const archiveModule = await fixture.vite.ssrLoadModule(domainPath("workspace-archive.ts"));
+    const ports = {
+      now: () => Date.now(),
+      authority: { current: async () => freshAuthority("workspace-recovery-passphrase", "owner-source") },
+      source: { readSnapshot: async () => sourceSnapshot("workspace-recovery-passphrase"), readObject: async () => null },
+      archiveStore: { putImmutable: async () => undefined },
+      evidence: {
+        recordArchive: async () => ({ id: `rar_${"1".repeat(32)}`, digest: "1".repeat(64), replayed: false }),
+        recordDeliveryEvent: async () => ({ id: `hde_${"2".repeat(32)}`, digest: "2".repeat(64), replayed: false }),
+        recordRefusal: async () => ({ id: `hra_${"3".repeat(32)}`, digest: "3".repeat(64), replayed: false }),
+      },
+    };
+    await assert.rejects(archiveModule.createWorkspaceArchive({ passphrase: short, ports }), /archive_request_invalid/u, "the service refuses below the minimum");
+    assert.ok((await archiveModule.createWorkspaceArchive({ passphrase: exact, ports })).archiveId, "the service accepts the minimum");
+
+    let called = 0;
+    const services = () => ({ mode: "synthetic", crm: null, recovery: new Proxy({}, { get() { called += 1; throw new Error("no service runs"); } }) });
+    const deps = ownerDependencies(fixture.database, { services });
+    const response = await handler.handleHandoffRecoveryPost(mutation({ action: "create_archive", passphrase: short }, { cookie: await csrfCookie(handler, fixture.database) }), deps);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "invalid_command" });
+    assert.equal(called, 0);
+    assert.deepEqual(await tableCounts(fixture.database), Object.fromEntries(HANDOFF_TABLES.map((table) => [table, 0])));
+  } finally { await fixture.dispose(); }
+});
+
+test("the restore gate requires a clean target and a dry run of the current candidate archive", async () => {
+  const { fixture, handler } = await ownerWorkspace("handoff-recovery-restore-gate");
+  try {
+    const archiveModule = await fixture.vite.ssrLoadModule(domainPath("workspace-archive.ts"));
+    const repositoryModule = await fixture.vite.ssrLoadModule(domainPath("handoff-recovery-repository.ts"));
+    const seal = async () => (await archiveModule.createWorkspaceArchive({
+      passphrase: PASSPHRASE,
+      ports: {
+        now: () => Date.now(),
+        authority: { current: async () => freshAuthority("workspace-recovery-source", "owner-source") },
+        source: { readSnapshot: async () => sourceSnapshot("workspace-recovery-source"), readObject: async () => null },
+        archiveStore: { putImmutable: async () => undefined },
+        evidence: {
+          recordArchive: async () => ({ id: `rar_${"1".repeat(32)}`, digest: "1".repeat(64), replayed: false }),
+          recordDeliveryEvent: async () => ({ id: `hde_${"2".repeat(32)}`, digest: "2".repeat(64), replayed: false }),
+          recordRefusal: async () => ({ id: `hra_${"3".repeat(32)}`, digest: "3".repeat(64), replayed: false }),
+        },
+      },
+    })).envelope;
+    const encode = (envelope) => ({ bytes: new TextEncoder().encode(JSON.stringify(envelope)), expiresAt: Date.now() + 60 * 60_000 });
+    const uploads = new Map([["archive-upload-1", encode(await seal())], ["archive-upload-2", encode(await seal())]]);
+    const current = { ref: "archive-upload-1", target: null };
+    const services = (database, scope) => {
+      const repository = repositoryModule.createD1HandoffRecoveryRepository(database, scope);
+      const evidence = { ...repository, readRestoreTargetState: async () => current.target ?? repository.readRestoreTargetState() };
+      return {
+        mode: "synthetic",
+        crm: null,
+        recovery: {
+          archive: {
+            now: () => Date.now(),
+            authority: { current: async () => freshAuthority(scope.workspaceId, scope.ownerSubject) },
+            source: { readSnapshot: async () => sourceSnapshot(scope.workspaceId), readObject: async () => null },
+            archiveStore: { putImmutable: async () => { throw new Error("not in this test"); } },
+            evidence: repository,
+          },
+          restore: {
+            now: () => Date.now(),
+            authority: { current: async () => freshAuthority(scope.workspaceId, scope.ownerSubject) },
+            archives: { readArchive: async (ref) => uploads.get(ref) ?? null },
+            target: memoryTarget(),
+            evidence,
+          },
+          currentRestoreArchiveRef: async () => current.ref,
+        },
+      };
+    };
+    const deps = ownerDependencies(fixture.database, { services });
+    const post = async (body) => handler.handleHandoffRecoveryPost(mutation(body, { cookie: await csrfCookie(handler, fixture.database, { services }) }), deps);
+    const read = async () => (await handler.handleHandoffRecoveryGet(new Request("https://prospector.test/api/handoff-recovery"), deps)).json();
+
+    const dryRun = await post({ action: "run_dry_run", archiveRef: "archive-upload-1", passphrase: PASSPHRASE });
+    assert.equal(dryRun.status, 200);
+    const { command } = await dryRun.json();
+    assert.deepEqual((await read()).recovery.gates.restore, { available: true, firstUnmetPredicate: null });
+    const restoreBody = (archiveRef) => ({ action: "restore_verified_archive", archiveRef, dryRunId: command.dryRunId, nonce: command.nonce, passphrase: PASSPHRASE, confirmed: true });
+
+    current.target = Object.freeze({ clean: false, nonEmptyTables: Object.freeze(["prospects"]), restoreApplied: false, digest: "e".repeat(64) });
+    const dirty = await read();
+    assert.deepEqual(dirty.recovery.gates.restore, { available: false, firstUnmetPredicate: "target_not_clean" });
+    assert.deepEqual(dirty.recovery.gates.dryRun, { available: false, firstUnmetPredicate: "target_not_clean" });
+    current.target = null;
+
+    current.ref = "archive-upload-2";
+    const moved = await read();
+    assert.deepEqual(moved.recovery.gates.restore, { available: false, firstUnmetPredicate: "dry_run_not_current" });
+    assert.deepEqual(moved.recovery.gates.dryRun, { available: true, firstUnmetPredicate: null }, "a new dry run of the current archive stays available");
+    const mismatched = await post(restoreBody("archive-upload-2"));
+    assert.equal(mismatched.status, 409);
+    assert.deepEqual((await mismatched.json()).command.reasonCodes, ["stale_projection"]);
+    assert.equal((await tableCounts(fixture.database)).recovery_restore_locks, 0, "no service ran for a dry run of another archive");
+    assert.equal((await read()).recovery.restores.length, 0);
+  } finally { await fixture.dispose(); }
+});
+
 // -- 07-09: Exports & History leaves and workspace ----------------------------
 
 function blockedProjection(patch = {}) {
@@ -951,4 +1127,44 @@ test("the Exports & History sources keep one transport owner, escape content, an
   assert.doesNotMatch(routeSource, /services\s*:/u, "the route never injects services");
   assert.doesNotMatch(handlerSource, /preparation\//u);
   assert.match(handlerSource, /composeProductionHandoffRecoveryServices/u);
+});
+
+test("archive creation refusals use the archive-unavailable copy and the passphrase field states the 16-character minimum", async () => {
+  await withVite(async (vite) => {
+    const leaves = await vite.ssrLoadModule(new URL("../app/exports/handoff-recovery-leaves.tsx", import.meta.url).pathname);
+    const workspace = await vite.ssrLoadModule(new URL("../app/exports/handoff-recovery-workspace.tsx", import.meta.url).pathname);
+    assert.equal(leaves.ARCHIVE_PASSPHRASE_MIN_LENGTH, 16);
+    for (const reason of ["archive_request_invalid", "archive_source_invalid", "archive_object_missing", "archive_invariant_failed", "archive_too_large", "not_authorized", "refused"]) {
+      assert.equal(leaves.archiveCreationRefusalCopy(reason), leaves.ARCHIVE_UNAVAILABLE_COPY, reason);
+      assert.doesNotMatch(leaves.archiveCreationRefusalCopy(reason), /Archive verification failed/u, reason);
+    }
+    assert.equal(leaves.archiveCreationRefusalCopy("reauthentication_required"), leaves.REAUTH_REQUIRED_COPY);
+    assert.equal(leaves.predicateText("dry_run_not_current"), "the current dry run belonging to a different archive");
+    const html = renderToStaticMarkup(React.createElement(workspace.HandoffRecoveryView, {
+      projection: leaves.normalizeHandoffRecoveryProjection(blockedProjection()), interaction: workspace.READ_ONLY_RECOVERY_INTERACTION,
+    }));
+    assert.match(textOf(html), /At least 16 characters\./u);
+    assert.equal((html.match(/<input[^>]*type="password"[^>]*minLength="16"|<input[^>]*minLength="16"[^>]*type="password"/giu) ?? []).length, 2);
+  }, [react()]);
+  const workspaceSource = await readFile(new URL("../app/exports/handoff-recovery-workspace.tsx", import.meta.url), "utf8");
+  assert.match(workspaceSource, /case "create_archive":\s*return refused \? \{[^}]*archiveCreationRefusalCopy\(reason\)/u);
+  assert.match(workspaceSource, /value\.length < ARCHIVE_PASSPHRASE_MIN_LENGTH/u, "the browser checks the minimum before any request");
+});
+
+test("the operator shell mounts the Exports & History workspace as its own task, reachable by navigation and ?view=exports", async () => {
+  await withVite(async (vite) => {
+    const routing = await vite.ssrLoadModule(new URL("../app/workspace-view.ts", import.meta.url).pathname);
+    const app = await vite.ssrLoadModule(new URL("../app/prospector-app.tsx", import.meta.url).pathname);
+    assert.equal(routing.shellTaskFromParam("exports"), "exports");
+    assert.equal(routing.operatorTaskHref("exports"), "/?view=exports");
+    // The navigation label names the two views; fixture-safety forbids an enabled
+    // control whose label contains "Export" or "CSV".
+    assert.equal(routing.operatorTaskLabel("exports"), "Handoff & Recovery");
+    const html = renderToStaticMarkup(React.createElement(app.ProspectorApp, { initialView: "exports" }));
+    assert.match(html, /<h1 id="exports-title">Exports &amp; History<\/h1>/u, "the workspace renders in the shell");
+    assert.match(html, /<button[^>]*aria-current="page"[^>]*>Handoff &amp; Recovery<\/button>/u, "its navigation entry is current");
+    const status = renderToStaticMarkup(React.createElement(app.ProspectorApp, { initialView: "status" }));
+    assert.doesNotMatch(status, /id="exports-title"/u, "the workspace renders only for its task");
+    assert.match(status, /<button[^>]*>Handoff &amp; Recovery<\/button>/u, "every task can navigate to it");
+  }, [react()]);
 });

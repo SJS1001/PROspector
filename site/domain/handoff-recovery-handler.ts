@@ -43,6 +43,17 @@ const NONCE = /^[a-f0-9]{32}$/u;
 const REASON = /^[a-z0-9](?:[a-z0-9._:-]{0,78}[a-z0-9])?$/u;
 const VERSION = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u;
 const MAX_PASSPHRASE = 1024;
+/** Mirrors `createWorkspaceArchive` and `openWorkspaceArchive`; a shorter passphrase is refused before any service runs. */
+export const ARCHIVE_PASSPHRASE_MIN_LENGTH = 16;
+/**
+ * Refusals `createWorkspaceArchive` raises before its first write (the
+ * immutable envelope put). Only these, raised before that write, are definite
+ * refusals; every other failure is an unknown outcome.
+ */
+const ARCHIVE_PRE_WRITE_REFUSALS = new Set([
+  "archive_request_invalid", "not_authorized", "reauthentication_required", "archive_source_invalid",
+  "archive_object_missing", "archive_invariant_failed", "archive_too_large",
+]);
 const MAX_HISTORY = 20;
 const MAX_LEDGER = 50;
 /** Mirrors the 07-08 services; they recheck it themselves. */
@@ -224,7 +235,7 @@ export function parseHandoffRecoveryCommand(value: unknown): HandoffRecoveryComm
   const id = (key: string) => { if (!validId(value[key])) throw new CommandShapeError(); return value[key] as string; };
   const passphrase = () => {
     const raw = value.passphrase;
-    if (typeof raw !== "string" || raw.length < 1 || raw.length > MAX_PASSPHRASE) throw new CommandShapeError();
+    if (typeof raw !== "string" || raw.length < ARCHIVE_PASSPHRASE_MIN_LENGTH || raw.length > MAX_PASSPHRASE) throw new CommandShapeError();
     return raw;
   };
   switch (action) {
@@ -308,14 +319,28 @@ async function runCommand(
     }
     case "create_archive": {
       if (!services.recovery) return refusedResult(command.action, ["recovery_capability_unavailable"]);
+      const ports = services.recovery.archive;
+      // The envelope put is the service's first write. Once it has begun, the
+      // envelope, the archive row, or its delivery event may exist, so any later
+      // failure is an unknown outcome: it reaches the outer handler (503), and the
+      // browser reloads the projection and audit instead of resubmitting.
+      let writeBegan = false;
+      const store = ports.archiveStore;
+      const observed: WorkspaceArchivePorts = {
+        ...ports,
+        archiveStore: Object.freeze({
+          putImmutable: (...args: Parameters<typeof store.putImmutable>) => { writeBegan = true; return store.putImmutable(...args); },
+        }),
+      };
       try {
-        const created = await createWorkspaceArchive({ passphrase: command.passphrase, ports: services.recovery.archive });
+        const created = await createWorkspaceArchive({ passphrase: command.passphrase, ports: observed });
         return completed(command.action, false, {
           archiveId: created.archiveId, manifestDigest: created.manifestDigest,
           ciphertextSha256: created.ciphertextSha256, deliveryExpiresAt: created.deliveryExpiresAt,
         });
       } catch (error) {
-        return refusedResult(command.action, [error instanceof Error ? error.message : "archive_unavailable"]);
+        if (!writeBegan && error instanceof Error && ARCHIVE_PRE_WRITE_REFUSALS.has(error.message)) return refusedResult(command.action, [error.message]);
+        throw error;
       }
     }
     case "run_dry_run": {
@@ -336,6 +361,10 @@ async function runCommand(
         readCurrentDryRun(database, scope, now),
       ]);
       if (archiveRef !== command.archiveRef || !dryRun || dryRun.dryRunId !== command.dryRunId) return refusedResult(command.action, ["stale_projection"]);
+      // The current dry run must have verified the current candidate's exact bytes.
+      if (await candidateCiphertextSha256(services.recovery.restore, archiveRef).catch(() => null) !== dryRun.archiveCiphertextSha256) {
+        return refusedResult(command.action, ["stale_projection"]);
+      }
       const result = await applyRestore({
         archiveRef: command.archiveRef, dryRunId: command.dryRunId, nonce: command.nonce, passphrase: command.passphrase, ports: services.recovery.restore,
       });
@@ -551,14 +580,18 @@ async function readRecovery(database: D1Database, scope: HandoffRecoveryScope, s
     : !targetState ? blockedGate("target_state_unavailable")
       : targetState.restoreApplied ? blockedGate("target_already_restored")
         : !targetState.clean ? blockedGate("target_not_clean") : OPEN);
+  const dryRunMatchesCandidate = currentDryRun !== null && candidate !== null
+    && await candidateCiphertextSha256(recovery.restore, candidate.archiveRef).catch(() => null) === currentDryRun.archiveCiphertextSha256;
   const restoreGate = authorityGate ?? (!candidate ? blockedGate("no_uploaded_archive")
     : !targetState ? blockedGate("target_state_unavailable")
       : targetState.restoreApplied ? blockedGate("target_already_restored")
-        : !currentDryRun ? blockedGate("dry_run_required") : OPEN);
+        : !targetState.clean ? blockedGate("target_not_clean")
+          : !currentDryRun ? blockedGate("dry_run_required")
+            : !dryRunMatchesCandidate ? blockedGate("dry_run_not_current") : OPEN);
   return Object.freeze({
     ...base, reauthentication,
     gates: Object.freeze({ archive: authorityGate ?? OPEN, dryRun: dryRunGate, restore: restoreGate }),
-    candidate, currentDryRun: targetState?.restoreApplied ? null : currentDryRun, target: targetState,
+    candidate, currentDryRun: targetState?.restoreApplied || !currentDryRun ? null : projectedDryRun(currentDryRun), target: targetState,
   });
 }
 
@@ -570,18 +603,38 @@ function reauthState(authority: RecoveryAuthority | null, scope: HandoffRecovery
   return Object.freeze({ state: fresh ? "fresh" as const : "stale" as const, reauthenticatedAt: authority.reauthenticatedAt });
 }
 
+/** The SHA-256 of the candidate upload's exact bytes, which a dry run records as `archive_ciphertext_sha256`; null when unavailable. */
+async function candidateCiphertextSha256(restore: RestorePorts, archiveRef: string | null): Promise<string | null> {
+  if (!validId(archiveRef)) return null;
+  const upload = await restore.archives.readArchive(archiveRef);
+  if (!upload || !(upload.bytes instanceof Uint8Array)) return null;
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", upload.bytes as BufferSource));
+  return [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+type CurrentDryRun = NonNullable<Awaited<ReturnType<typeof readCurrentDryRun>>>;
+
+/** The browser sees the dry run's references, not the internal ciphertext binding. */
+function projectedDryRun(run: CurrentDryRun) {
+  return Object.freeze({
+    dryRunId: run.dryRunId, archiveManifestDigest: run.archiveManifestDigest, archiveSchemaVersion: run.archiveSchemaVersion,
+    expiresAt: run.expiresAt, createdAt: run.createdAt,
+  });
+}
+
 /** The latest accepted, unexpired, unlocked dry run in this workspace. The browser never names it. */
 async function readCurrentDryRun(database: D1Database, scope: HandoffRecoveryScope, now: number) {
   const row = await database.prepare(
-    `SELECT run.id,run.archive_manifest_digest,run.archive_schema_version,run.expires_at,run.created_at FROM recovery_dry_runs run
+    `SELECT run.id,run.archive_manifest_digest,run.archive_ciphertext_sha256,run.archive_schema_version,run.expires_at,run.created_at FROM recovery_dry_runs run
      JOIN workspaces w ON w.id=run.workspace_id AND w.owner_subject=?
      WHERE run.workspace_id=? AND run.outcome='accepted' AND run.expires_at>?
        AND NOT EXISTS (SELECT 1 FROM recovery_restore_locks lock WHERE lock.workspace_id=run.workspace_id AND lock.dry_run_id=run.id)
      ORDER BY run.created_at DESC,run.id DESC LIMIT 1`,
-  ).bind(scope.ownerSubject, scope.workspaceId, now).first<{ id: string; archive_manifest_digest: string; archive_schema_version: string; expires_at: number; created_at: number }>();
+  ).bind(scope.ownerSubject, scope.workspaceId, now).first<{ id: string; archive_manifest_digest: string; archive_ciphertext_sha256: string; archive_schema_version: string; expires_at: number; created_at: number }>();
   if (!row || !validId(row.id)) return null;
   return Object.freeze({
     dryRunId: row.id, archiveManifestDigest: digestOrEmpty(row.archive_manifest_digest), archiveSchemaVersion: boundedVersion(row.archive_schema_version),
+    archiveCiphertextSha256: digestOrEmpty(row.archive_ciphertext_sha256),
     expiresAt: Number(row.expires_at), createdAt: Number(row.created_at),
   });
 }
