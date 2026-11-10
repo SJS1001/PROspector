@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createD1Fixture } from "./helpers/d1.mjs";
-import { OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuthority } from "./helpers/outreach-fixture.mjs";
+import { OUTREACH_FIXTURE_FORWARD_MIGRATIONS, OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuthority } from "./helpers/outreach-fixture.mjs";
 
 // This suite resolves the *effective live* outreach_outbox_event_scope_guard
 // trigger by applying the entire current site/drizzle migration chain (the
@@ -61,7 +61,8 @@ async function applyMigrationsAfterOutreachPreparationRecovery(database) {
   const migrations = await listAllMigrationFilenames();
   const cutoffIndex = migrations.findIndex((name) => name.startsWith("0017_"));
   assert.ok(cutoffIndex >= 0, "expected migration 0017 (outreach preparation recovery) to exist on disk");
-  const remaining = migrations.slice(cutoffIndex + 1);
+  const remaining = migrations.slice(cutoffIndex + 1)
+    .filter((name) => !OUTREACH_FIXTURE_FORWARD_MIGRATIONS.includes(name));
   assert.ok(remaining.length >= 1, "expected at least one migration after 0017 to exercise forward-compatibility with");
   await applyMigrationFilesInOrder(database, remaining);
   return migrations;

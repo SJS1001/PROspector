@@ -1,5 +1,6 @@
 import { normalizeBusinessEmail, normalizeBusinessPhone } from "./contact-evidence";
 import { canonicalDigest } from "./enrichment-grant-issuance";
+import { domainDigest, normalizeConfirmedDomain, wholeLabelDomainSuffixes } from "./email-domain-scope";
 import {
   createD1OutreachRepository,
   prepareSuppressionTombstone,
@@ -38,6 +39,22 @@ export type ResolutionInput = Readonly<{
 
 export type ResolvedSubject = Readonly<{ kind: SuppressionSubjectKind; digest: string; channel: SuppressionChannel }>;
 
+/**
+ * Which scopes block a subject. `complete: false` means the input could not be
+ * resolved or at least one scope lookup failed; the result is then blocked and
+ * `scopes` lists only the scopes that were positively found.
+ */
+export type BlockingScopes = Readonly<{
+  blocked: boolean;
+  scopes: readonly SuppressionSubjectKind[];
+  complete: boolean;
+  providerCalls: 0;
+}>;
+
+// One normalization library: the confirmed-domain helpers live in a leaf
+// module the outreach repository can import without a cycle.
+export { domainDigest, normalizeConfirmedDomain };
+
 export class SuppressionInputError extends Error {
   constructor(reason: string) {
     super(`suppression_input:${reason}`);
@@ -47,40 +64,59 @@ export class SuppressionInputError extends Error {
 
 const DIGEST = /^[a-f0-9]{64}$/u;
 const ID = /^[a-z0-9][a-z0-9_.:-]{2,127}$/iu;
-const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 const TOKEN = /^[A-Za-z0-9_-]{32,256}$/u;
-const MAX_DOMAIN_LABELS = 8;
 const MAX_ALIASES = 64;
 const LOOKUP_CHUNK = 32;
 const REASONS: readonly SuppressionReason[] = ["owner_request", "unsubscribe", "explicit_opt_out", "do_not_call", "identity_retention", "import_retention"];
 const CHANNELS: readonly SuppressionChannel[] = ["email", "phone", "all"];
+/** Report order for `blockingScopes`: widest scope first. */
+const SCOPE_ORDER: readonly SuppressionSubjectKind[] = ["company", "organization", "contact", "exact_email", "confirmed_email_domain", "e164_phone"];
 
 /** Exact email: NFC, trim, lowercase. No dot, plus-tag or provider folding. */
 export function normalizeExactEmail(value: unknown): string | null {
   return normalizeBusinessEmail(value);
 }
 
+/**
+ * The exact email with one DNS root dot removed from its domain, so that
+ * `x@example.com.` and `x@example.com` are the same mailbox. Null when the
+ * value is not an email or stripping the dot leaves no valid address.
+ */
+export function canonicalMailbox(value: unknown): string | null {
+  const email = normalizeExactEmail(value);
+  if (!email) return null;
+  return email.endsWith(".") ? normalizeExactEmail(email.slice(0, -1)) : email;
+}
+
+/**
+ * Every exact-email spelling one mailbox can be stored under: the address as
+ * normalized, and its canonical form with and without the root dot. Writers keep
+ * the business normalization (it matches the Phase 5 contact-point digest), so
+ * the resolver checks all spellings and a root dot can never escape an exact block.
+ */
+function mailboxSpellings(normalizedEmail: string): string[] {
+  const canonical = canonicalMailbox(normalizedEmail);
+  return [...new Set(canonical ? [normalizedEmail, canonical, `${canonical}.`] : [normalizedEmail])];
+}
+
+/**
+ * Digests of every spelling of one mailbox. An exact-email tombstone stores
+ * the ones other than its subject digest as aliases, because the D1 SQL
+ * rechecks (outbox enqueue/lease, the 0010 and 0015-0017 triggers, the
+ * eligibility snapshot) match one contact-point digest against the subject
+ * digest or the alias snapshot and never call the resolver.
+ */
+export async function mailboxSpellingDigests(value: unknown): Promise<string[]> {
+  const email = normalizeExactEmail(value);
+  if (!email) throw new SuppressionInputError("invalid_email");
+  const digests: string[] = [];
+  for (const spelling of mailboxSpellings(email)) digests.push(await emailDigest(spelling));
+  return digests;
+}
+
 /** E.164 only. A number without an explicit country code is never guessed. */
 export function normalizeE164Phone(value: unknown): string | null {
   return normalizeBusinessPhone(value);
-}
-
-/** Owner-confirmed domain: lowercase ASCII/punycode labels, at least two labels. */
-export function normalizeConfirmedDomain(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  let candidate = value.normalize("NFC").trim().toLowerCase();
-  if (candidate.endsWith(".")) candidate = candidate.slice(0, -1);
-  if (candidate.length < 3 || candidate.length > 253 || /[^a-z0-9.\-\u0080-￿]/u.test(candidate)) return null;
-  let ascii: string;
-  try {
-    ascii = new URL(`https://${candidate}/`).hostname;
-  } catch {
-    return null;
-  }
-  const labels = ascii.split(".");
-  if (labels.length < 2 || labels.length > MAX_DOMAIN_LABELS || !labels.every((label) => LABEL.test(label))) return null;
-  if (/^[0-9.]+$/u.test(ascii)) return null;
-  return ascii;
 }
 
 /** Every whole-label suffix with two or more labels, most specific first. */
@@ -89,8 +125,7 @@ export function emailDomainSuffixes(email: unknown): string[] {
   if (!normalized) throw new SuppressionInputError("invalid_email");
   const domain = normalizeConfirmedDomain(normalized.slice(normalized.lastIndexOf("@") + 1));
   if (!domain) throw new SuppressionInputError("invalid_email_domain");
-  const labels = domain.split(".");
-  return labels.slice(0, -1).map((_, index) => labels.slice(index).join("."));
+  return wholeLabelDomainSuffixes(domain);
 }
 
 /** True when a confirmed domain entry covers the address by whole labels. */
@@ -152,10 +187,6 @@ export function phoneDigest(normalizedPhone: string): Promise<string> {
   return canonicalDigest({ schema: "contact-point/v1", kind: "phone", normalizedValue: normalizedPhone });
 }
 
-export function domainDigest(normalizedDomain: string): Promise<string> {
-  return canonicalDigest({ schema: "outreach-suppression-domain/v1", domain: normalizedDomain });
-}
-
 export function companyDigest(workspaceId: string): Promise<string> {
   return canonicalDigest({ schema: "outreach-suppression-company/v1", workspaceId });
 }
@@ -184,7 +215,9 @@ export async function resolveSubjects(workspaceId: string, input: ResolutionInpu
   if (value.email !== undefined && channel !== "phone") {
     const email = normalizeExactEmail(value.email);
     if (!email) throw new SuppressionInputError("invalid_email");
-    subjects.push({ kind: "exact_email", digest: await emailDigest(email), channel: "email" });
+    for (const spelling of mailboxSpellings(email)) {
+      subjects.push({ kind: "exact_email", digest: await emailDigest(spelling), channel: "email" });
+    }
     for (const domain of emailDomainSuffixes(email)) {
       subjects.push({ kind: "confirmed_email_domain", digest: await domainDigest(domain), channel: "email" });
     }
@@ -266,8 +299,40 @@ export function createSuppressionResolver(database: D1Database, scope: OutreachR
     return Object.freeze({ blocked: false, providerCalls: 0 });
   };
 
+  /**
+   * Same subjects and same fail-closed rule as `isBlocked`, checked one scope
+   * at a time so the caller learns every scope that blocks. The tombstone SQL
+   * only follows aliases within one subject kind, so the union of per-kind
+   * answers equals the `isBlocked` answer.
+   */
+  const blockingScopes = async (input: ResolutionInput): Promise<BlockingScopes> => {
+    let subjects: ResolvedSubject[];
+    try {
+      subjects = await resolveSubjects(scope.workspaceId, input);
+    } catch {
+      return Object.freeze({ blocked: true, scopes: Object.freeze([]), complete: false, providerCalls: 0 });
+    }
+    const scopes: SuppressionSubjectKind[] = [];
+    let complete = true;
+    for (const kind of SCOPE_ORDER) {
+      const group = subjects.filter((subject) => subject.kind === kind).map((subject) => ({ kind: subject.kind, digest: subject.digest, channel: subject.channel }));
+      try {
+        for (let index = 0; index < group.length; index += LOOKUP_CHUNK) {
+          if (await repository.isSuppressed(group.slice(index, index + LOOKUP_CHUNK))) {
+            scopes.push(kind);
+            break;
+          }
+        }
+      } catch {
+        complete = false;
+      }
+    }
+    return Object.freeze({ blocked: !complete || scopes.length > 0, scopes: Object.freeze(scopes), complete, providerCalls: 0 });
+  };
+
   return Object.freeze({
     isBlocked,
+    blockingScopes,
 
     /** Import never clears a tombstone; it only reports which rows are blocked. */
     async screenImport(rows: readonly Readonly<{ email?: string; phone?: string; contact?: IdentityLineage }>[]) {

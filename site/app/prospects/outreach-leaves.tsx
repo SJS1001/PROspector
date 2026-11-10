@@ -89,14 +89,17 @@ const SUBJECT_LABELS: Readonly<Record<string, string>> = Object.freeze({
 const CHANNEL_OPTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   exact_email: ["email", "all"], confirmed_email_domain: ["email", "all"], e164_phone: ["phone", "all"], contact: ["email", "phone", "all"], company: ["email", "phone", "all"],
 });
+const VALUE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  exact_email: "Email address", confirmed_email_domain: "Email domain", e164_phone: "Phone number", contact: "Contact reference",
+});
 const CHANNEL_LABELS: Readonly<Record<string, string>> = Object.freeze({ email: "Email", phone: "Phone", all: "Email and phone" });
 const SUPPRESSION_REASON_LABELS: Readonly<Record<string, string>> = Object.freeze({
   owner_request: "Owner decision", explicit_opt_out: "Recipient opted out", unsubscribe: "Unsubscribe link", do_not_call: "Do not call", identity_retention: "Kept through a contact merge", import_retention: "Kept through an import",
 });
 const DELIVERY_COPY: Readonly<Record<string, string>> = Object.freeze({
   pending: "Queued for controlled delivery",
-  leased: "Dispatch lease held; current safety checks are running.",
-  dispatching: "Dispatch lease held; current safety checks are running.",
+  leased: "Getting ready to send; current safety checks are running.",
+  dispatching: "Getting ready to send; current safety checks are running.",
   sent: "Gmail accepted this message.",
   cancelled: "Cancelled before dispatch. Nothing was sent.",
   failed_before_dispatch: "Failed before dispatch. Nothing was sent.",
@@ -104,12 +107,12 @@ const DELIVERY_COPY: Readonly<Record<string, string>> = Object.freeze({
 });
 
 const REASONS: Readonly<Record<string, string>> = Object.freeze({
-  contact_recheck_blocked: "Contact readiness checks (Phase 5) are not accepted yet, so this is refused.",
+  contact_recheck_blocked: "Contact readiness checks are not accepted yet, so this is not available.",
   contact_recheck_unavailable: "Contact readiness could not be checked.",
   contact_not_ready: "The contact is not ready for outreach.",
   contact_point_missing: "A selected contact point has no current verification.",
   current_dependencies_invalid: "The current evidence could not be read.",
-  reviewed_digest_mismatch: "The version changed after you reviewed it. Review the current digest.",
+  reviewed_digest_mismatch: "The version changed after you reviewed it. Review the current version.",
   superseded_by_newer_version: "A newer version exists. Review that version instead.",
   approval_missing: "There is no approval yet.",
   approval_expired: "The approval has expired.",
@@ -128,7 +131,7 @@ const REASONS: Readonly<Record<string, string>> = Object.freeze({
   invalid_idempotency_key: "The request could not be matched to a single intent. Reload and try again.",
   gmail_unavailable: "Gmail delivery is unavailable. No email will be sent.",
   sender_ambiguous: "More than one Gmail sender is connected, so nothing was queued. No email will be sent.",
-  current_authority_unavailable: "Current safety checks refused this. Nothing was queued or sent.",
+  current_authority_unavailable: "Current safety checks did not allow this. Nothing was queued or sent.",
   invalid_request: "The request was not valid.",
   write_failed: "The record could not be saved. Nothing else changed.",
   unknown_contact: "That contact is not in this workspace.",
@@ -158,7 +161,7 @@ export function reasonText(code: string): string {
   if (prefix === "dependency_added") return `A new ${label} exists that this version does not include.`;
   if (prefix === "contact") return `Contact check: ${label}.`;
   if (code.startsWith("contact_point_")) return `A selected contact point is ${code.slice("contact_point_".length).replaceAll("_", " ")}.`;
-  return `Refused: ${code.replaceAll(/[_:]/gu, " ")}.`;
+  return `Not available: ${code.replaceAll(/[_:]/gu, " ")}.`;
 }
 function reasonList(codes: readonly string[]) { return codes.length === 0 ? "" : codes.map(reasonText).join(" "); }
 
@@ -174,7 +177,27 @@ function list<T>(value: unknown, map: (item: Record<string, unknown>) => T | nul
   return Object.freeze(value.slice(0, max).map((item) => { const r = rec(item); return r ? map(r) : null; }).filter((item): item is T => item !== null));
 }
 function strs(value: unknown, max = 64, length = 2_048) { return Object.freeze(Array.isArray(value) ? value.filter((item) => typeof item === "string").slice(0, max).map((item) => item.slice(0, length)) : []); }
-function gate(value: unknown): OutreachGate { const r = rec(value); return Object.freeze({ available: r?.available === true, reason: str(r?.reason, 400) || "Unavailable." }); }
+/**
+ * The server's gate copy is shared with other callers and stays unchanged, so
+ * the owner screen maps it here: known sentences get plain wording, and any
+ * other sentence loses phase numbers and refusal wording. Availability is
+ * never derived from the text.
+ */
+const GATE_REASONS: Readonly<Record<string, string>> = Object.freeze({
+  "Approvals, queueing and calls are refused until contact readiness checks (Phase 5) are accepted. Nothing is sent and no call is placed.":
+    "Approving, queueing and calling stay off until contact readiness checks are accepted. Nothing is sent and no call is placed.",
+  "Queueing is refused until contact readiness checks are accepted and Gmail is authorized. No email will be sent.":
+    "Queueing stays off until contact readiness checks are accepted and Gmail is authorized. No email will be sent.",
+});
+export function plainGateReason(reason: string): string {
+  if (Object.hasOwn(GATE_REASONS, reason)) return GATE_REASONS[reason];
+  return reason
+    .replaceAll(/\s*\(Phase \d+\)/gu, "")
+    .replaceAll(/\b(is|are) refused\b/giu, "$1 not available")
+    .replaceAll(/\brefus(?:ed|al|es)?\b/giu, "not available")
+    .replace(/^not available/u, "Not available");
+}
+function gate(value: unknown): OutreachGate { const r = rec(value); return Object.freeze({ available: r?.available === true, reason: plainGateReason(str(r?.reason, 400)) || "Unavailable." }); }
 
 export function normalizeOutreachProjection(value: unknown): OutreachProjection | null {
   const body = rec(value);
@@ -246,6 +269,20 @@ export function OutreachAction({ label, enabled, explanation, explanationId, onC
   return <p className="outreach-action"><button type="button" disabled={!enabled} aria-describedby={explanationId} onClick={enabled ? onClick : undefined}>{label}</button> <span id={explanationId} tabIndex={0}>{explanation}</span></p>;
 }
 
+/** The first 8 characters of a SHA-256 fingerprint: enough for the owner to match a version by eye. */
+export function checkCode(digest: string) { return digest.slice(0, 8); }
+
+function CheckCode({ digest }: { digest: string }) {
+  return <p className="outreach-check-code">Check code <code>{checkCode(digest)}</code> identifies this exact version.</p>;
+}
+
+/** Exact references and full fingerprints, closed by default, in the same place on every card. */
+function TechnicalDetails({ label, rows }: { label: string; rows: readonly (readonly [string, string])[] }) {
+  return <details className="outreach-technical"><summary>{`Technical details for ${label}`}</summary>
+    <dl>{rows.map(([key, value]) => <div key={key}><dt>{key}</dt><dd><code>{value}</code></dd></div>)}</dl>
+  </details>;
+}
+
 function KeyValues({ rows, label }: { rows: readonly (readonly [string, React.ReactNode])[]; label: string }) {
   return <dl className="outreach-kv" aria-label={label}>{rows.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>;
 }
@@ -268,22 +305,22 @@ export function OutreachSections({ projection, interaction }: { projection: Outr
 function EligibilitySection({ projection }: { projection: OutreachProjection }) {
   const { gates } = projection;
   return <section className="panel outreach-section" aria-labelledby="outreach-eligibility">
-    <h2 id="outreach-eligibility">Current outreach eligibility</h2>
-    <p role="note"><strong>{gates.approval.available ? "Synthetic test readiness." : "Outreach is blocked."}</strong> {gates.approval.reason}</p>
-    <KeyValues label="Outreach gates" rows={[
-      ["Package and message approval", gates.approval.available ? "Available" : "Refused"],
-      ["Queue for Gmail delivery", gates.queue.available ? "Available" : `Refused. ${gates.queue.reason}`],
+    <h2 id="outreach-eligibility">Outreach readiness</h2>
+    <p role="note"><strong>{gates.approval.available ? "Synthetic test readiness." : "Outreach is not available yet."}</strong> {gates.approval.reason}</p>
+    <KeyValues label="What outreach can do right now" rows={[
+      ["Approve packages and messages", gates.approval.available ? "Available" : "Not available"],
+      ["Queue email for delivery", gates.queue.available ? "Available" : `Not available. ${gates.queue.reason}`],
       ["Phone calls", reasonText(gates.phone.reason)],
-      ["Status loaded", when(projection.generatedAt || null)],
-      ["Provider calls", "0"],
+      ["Status checked", when(projection.generatedAt || null)],
+      ["Outside services contacted", "None (0 provider calls)"],
     ]} />
   </section>;
 }
 
 function PackageSection({ projection, interaction }: { projection: OutreachProjection; interaction: OutreachInteraction }) {
   return <section className="panel outreach-section" aria-labelledby="outreach-packages">
-    <h2 id="outreach-packages">Outreach Package review</h2>
-    <p>Package approval permits CRM eligibility only. Each email still needs its own approval.</p>
+    <h2 id="outreach-packages">Outreach Packages to review</h2>
+    <p>An Outreach Package is the plan for one prospect: the angle, the contact points and the drafts. Approving it allows CRM eligibility only. Each email still needs its own approval.</p>
     {projection.packages.length === 0
       ? <p>Create a complete Outreach Package from current evidence before review. Drafting packages here is not available yet.</p>
       : <ul className="outreach-cards" aria-label="Package versions">{projection.packages.map((card) => <PackageCard key={card.packageVersionId} card={card} gate={projection.gates.approval} interaction={interaction} />)}</ul>}
@@ -297,33 +334,39 @@ function PackageCard({ card, gate: approvalGate, interaction }: { card: Outreach
   const reason = !approvalGate.available ? approvalGate.reason
     : card.approval ? "This version already has a package approval."
       : !card.latest ? "A newer version exists. Review that version instead."
-        : !reviewed ? "Tick the box above to confirm you reviewed this exact digest."
+        : !reviewed ? "Tick the box above to confirm you reviewed this exact version."
           : "Approves this exact version for CRM eligibility.";
   const approval = card.approval;
+  const kinds = [...new Set(card.bindings.map((binding) => binding.kind.replaceAll("_", " ")))];
   return <li className="outreach-card">
-    <h3>Package version {card.version}{card.latest ? "" : " (superseded)"}</h3>
+    <h3>Package version {card.version}{card.latest ? "" : " (replaced by a newer version)"}</h3>
+    <CheckCode digest={card.artifactDigest} />
     <KeyValues label={`Package version ${card.version} details`} rows={[
-      ["Digest (SHA-256)", <code key="d">{card.artifactDigest}</code>],
       ["Recommended angle", card.recommendedAngle],
       ["Selected role", card.selectedRole],
       ["Evidence and guardrails", `${card.evidenceCount} evidence references, ${card.claimGuardrailCount} claim guardrails`],
       ["Selected contact points", String(card.selectedContactPointCount)],
       ["Draft messages", String(card.draftMessageCount)],
-      ["Dependencies", `${card.bindings.length} bound (${[...new Set(card.bindings.map((binding) => binding.kind))].join(", ")})`],
+      ["Based on", `${card.bindings.length} linked record${card.bindings.length === 1 ? "" : "s"}${kinds.length ? ` (${kinds.join(", ")})` : ""}`],
       ["Created", when(card.createdAt)],
     ]} />
     <details><summary>Call script</summary><p className="outreach-preformatted">{card.callScript}</p></details>
     {approval
       ? <div role="note">
-        <p>Package approval {approval.state === "recorded" ? "recorded" : approval.state}. Authority: CRM eligibility only. Expires {when(approval.expiresAt)}.</p>
-        <p>Approval digest: <code>{approval.approvalDigest}</code></p>
+        <p>Package approval {approval.state === "recorded" ? "recorded" : approval.state}. It covers CRM eligibility only, not email. Expires {when(approval.expiresAt)}.</p>
         {approval.current.crmEligible
           ? <p>The approval is current for CRM eligibility.</p>
-          : <p>Package approval is no longer current because: {reasonList(approval.current.reasonCodes) || "its checks did not pass."} Review a new immutable version.</p>}
+          : <p>This package approval no longer counts because: {reasonList(approval.current.reasonCodes) || "its checks did not pass."} A new version will need its own review.</p>}
       </div>
       : <p>No package approval yet.</p>}
+    <TechnicalDetails label={`package version ${card.version}`} rows={[
+      ["Package version reference", card.packageVersionId],
+      ["Package fingerprint (SHA-256)", card.artifactDigest],
+      ...(approval ? [["Package approval reference", approval.id] as const, ["Approval fingerprint (SHA-256)", approval.approvalDigest] as const] : []),
+      ...card.bindings.map((binding, index) => [`Linked record ${index + 1} (${binding.kind})`, `${binding.id} · ${binding.digest}`] as const),
+    ]} />
     <ReviewBox id={`review-${safeId(reviewKey)}`} checked={reviewed} disabled={!approvalGate.available || !!approval || !card.latest || interaction.pending}
-      label={`I reviewed package digest ${card.artifactDigest.slice(0, 12)}… and its dependencies.`} onChange={(value) => interaction.onReview(reviewKey, value)} />
+      label={`I reviewed this package (check code ${checkCode(card.artifactDigest)}) and what it is based on.`} onChange={(value) => interaction.onReview(reviewKey, value)} />
     <OutreachAction label="Approve package for CRM eligibility" enabled={enabled} explanationId={`approve-package-${safeId(card.packageVersionId)}`}
       explanation={`This does not approve or send email. ${reason}`} onClick={() => interaction.onApprovePackage(card)} />
   </li>;
@@ -331,8 +374,8 @@ function PackageCard({ card, gate: approvalGate, interaction }: { card: Outreach
 
 function MessageSection({ projection, interaction }: { projection: OutreachProjection; interaction: OutreachInteraction }) {
   return <section className="panel outreach-section" aria-labelledby="outreach-messages">
-    <h2 id="outreach-messages">Gmail drafts and approvals</h2>
-    <p>Each message is approved on its own. A queued or delivered message never makes the package reusable for another message.</p>
+    <h2 id="outreach-messages">Email drafts</h2>
+    <p>Each email is approved on its own, then queued as a separate step. A queued or delivered message never makes the package reusable for another message.</p>
     {projection.messages.length === 0
       ? <p>No message versions yet.</p>
       : <ul className="outreach-cards" aria-label="Message versions">{projection.messages.map((card) => <MessageCard key={card.messageVersionId} card={card} projection={projection} interaction={interaction} />)}</ul>}
@@ -363,12 +406,12 @@ function MessageCard({ card, projection, interaction }: { card: OutreachMessageC
             : "Queues controlled delivery. It does not promise delivery.";
   const deliveryText = card.outbox ? DELIVERY_COPY[card.outbox.state] ?? "Unknown delivery state." : null;
   return <li className="outreach-card">
-    <h3>Message version {card.version}{card.latest ? "" : " (superseded)"}</h3>
-    <p role="note">{card.approval ? `Message approval ${card.approval.state}. Authority: this exact message only. Expires ${when(card.approval.expiresAt)}.` : "Draft only — no Gmail delivery is authorized."}</p>
+    <h3>Message version {card.version}{card.latest ? "" : " (replaced by a newer version)"}</h3>
+    <CheckCode digest={card.artifactDigest} />
+    <p role="note">{card.approval ? `Message approval ${card.approval.state}. It covers this exact message only. Expires ${when(card.approval.expiresAt)}.` : "Draft only — no Gmail delivery is authorized."}</p>
     {!card.latest && <p role="note">This message changed. Previous approval cannot be used.</p>}
     {deliveryText && <p role="status">{deliveryText}</p>}
     <KeyValues label={`Message version ${card.version} details`} rows={[
-      ["Digest (SHA-256)", <code key="d">{card.artifactDigest}</code>],
       ["From", card.from],
       ["Reply-To", card.replyTo ?? "Same as From"],
       ["To", card.to.join(", ")],
@@ -377,14 +420,23 @@ function MessageCard({ card, projection, interaction }: { card: OutreachMessageC
       ["Subject", card.subject],
       ["Scheduled", card.intendedSendAt ? `${when(card.intendedSendAt)} (${card.timezone})` : "Not scheduled"],
       ["Links", card.links.length ? card.links.join("  ") : "None"],
-      ["Attachments", card.attachments.length ? card.attachments.map((item) => `${item.name} (${item.mediaType}, ${item.digest.slice(0, 12)}…)`).join("; ") : "None"],
+      ["Attachments", card.attachments.length ? card.attachments.map((item) => `${item.name} (${item.mediaType})`).join("; ") : "None"],
     ]} />
     <details><summary>Body preview (plain text)</summary><p className="outreach-preformatted">{card.textPreview}</p>{card.htmlPartPresent && <p>An HTML part exists. It is never rendered here.</p>}</details>
     {authority
-      ? <p>Compliance guidance is advisory. Recorded basis: {authority.claimedBasisCode.replaceAll("_", " ")} ({authority.jurisdictionCode}), unsubscribe path {authority.unsubscribeStatus}, acknowledgement <code>{authority.acknowledgementDigest.slice(0, 12)}…</code> until {when(authority.validUntil)}. This is a record, not legal approval.</p>
+      ? <p>Compliance guidance is advisory. Recorded basis: {authority.claimedBasisCode.replaceAll("_", " ")} ({authority.jurisdictionCode}), unsubscribe link {authority.unsubscribeStatus.replaceAll("_", " ")}, acknowledgement recorded until {when(authority.validUntil)}. This is a record, not legal approval.</p>
       : <p>Compliance guidance is advisory; required send safeguards are incomplete. No email will be sent.</p>}
+    <TechnicalDetails label={`message version ${card.version}`} rows={[
+      ["Message version reference", card.messageVersionId],
+      ["Message fingerprint (SHA-256)", card.artifactDigest],
+      ["Package version reference", card.packageVersionId],
+      ...(card.approval ? [["Message approval reference", card.approval.id] as const, ["Approval fingerprint (SHA-256)", card.approval.approvalDigest] as const] : []),
+      ...(authority ? [["Package approval reference", authority.packageApprovalId] as const, ["Acknowledgement fingerprint (SHA-256)", authority.acknowledgementDigest] as const] : []),
+      ...card.attachments.map((item, index) => [`Attachment ${index + 1} fingerprint (SHA-256)`, `${item.name} · ${item.digest}`] as const),
+      ...(card.outbox ? [["Delivery queue reference", `${card.outbox.outboxItemId} (update ${card.outbox.revision})`] as const] : []),
+    ]} />
     <ReviewBox id={`review-${safeId(reviewKey)}`} checked={reviewed} disabled={!approvalGate.available || !!card.approval || !card.latest || interaction.pending}
-      label={`I reviewed message digest ${card.artifactDigest.slice(0, 12)}…, its recipients and its safeguards.`} onChange={(value) => interaction.onReview(reviewKey, value)} />
+      label={`I reviewed this message (check code ${checkCode(card.artifactDigest)}), its recipients and its safeguards.`} onChange={(value) => interaction.onReview(reviewKey, value)} />
     <OutreachAction label="Approve this message for queued Gmail delivery" enabled={approveEnabled} explanationId={`approve-message-${safeId(card.messageVersionId)}`}
       explanation={approveReason} onClick={() => interaction.onApproveMessage(card)} />
     <ReviewBox id={`review-${safeId(queueKey)}`} checked={queueReviewed} disabled={!queueGate.available || !card.approval || !!card.outbox || interaction.pending}
@@ -396,8 +448,8 @@ function MessageCard({ card, projection, interaction }: { card: OutreachMessageC
 
 function PhoneSection({ projection, interaction }: { projection: OutreachProjection; interaction: OutreachInteraction }) {
   return <section className="panel outreach-section" aria-labelledby="outreach-phone">
-    <h2 id="outreach-phone">Manual verified phone</h2>
-    <p>The phone number is not shown here. Opening a phone stays off in this build; you can still record an outcome after you call.</p>
+    <h2 id="outreach-phone">Phone calls</h2>
+    <p>You make calls yourself. The phone number is not shown here, and the call button stays off for now. You can still record what happened after a call.</p>
     {projection.calls.length === 0
       ? <p>No approved package includes a phone yet.</p>
       : <ul className="outreach-cards" aria-label="Phones">{projection.calls.map((card) => <CallCard key={callKey(card)} card={card} interaction={interaction} />)}</ul>}
@@ -411,7 +463,7 @@ function CallCard({ card, interaction }: { card: OutreachCallCard; interaction: 
   const doNotCall = form.outcome === "do_not_call";
   const confirming = interaction.confirming?.kind === "do_not_call" && interaction.confirming.callKey === key;
   const phoneReason = card.phoneAction.reason === "owner_uat_pending"
-    ? "Phone calling stays off until the owner acceptance test is done (06-13). Opens your device's calling app; PROspector does not place or record calls."
+    ? "Phone calling stays off until the owner acceptance test is done (06-13). When it is on, it will open your device's calling app. PROspector does not place or record calls."
     : `Phone is not eligible for calling: ${reasonList(card.decision.reasonCodes) || "its checks did not pass."} PROspector does not place or record calls.`;
   const notesReady = form.notes.trim().length > 0 && form.notes.length <= 512;
   const recordEnabled = !interaction.pending && notesReady && !doNotCall && card.decision.eligible;
@@ -420,10 +472,16 @@ function CallCard({ card, interaction }: { card: OutreachCallCard; interaction: 
       : !card.decision.eligible ? "Only Do not call can be recorded while this phone is not eligible."
         : "Records the outcome you chose. It authorizes no follow-up.";
   return <li className="outreach-card">
-    <h3>Phone for package <code>{card.packageArtifactDigest.slice(0, 12)}…</code></h3>
+    <h3>Phone from package check code <code>{checkCode(card.packageArtifactDigest)}</code></h3>
     <p role="note">{card.decision.eligible ? "Verified business phone — eligible for manual calling while current." : `Phone is not eligible for calling: ${reasonList(card.decision.reasonCodes) || "its checks did not pass."}`}</p>
     <OutreachAction label="Open verified business phone" enabled={false} explanationId={`phone-${id}`} explanation={phoneReason} />
-    <p>Derived from approved Outreach Package <code>{card.packageArtifactDigest}</code>. The script is in the package card and cannot be edited here.</p>
+    <p>Derived from approved Outreach Package with check code <code>{checkCode(card.packageArtifactDigest)}</code>. The call script is in that package&apos;s card and cannot be edited here.</p>
+    <TechnicalDetails label={`this phone (package ${checkCode(card.packageArtifactDigest)})`} rows={[
+      ["Package approval reference", card.packageApprovalId],
+      ["Phone record reference", card.phoneObservationId],
+      ["Package fingerprint (SHA-256)", card.packageArtifactDigest],
+      ["Call check fingerprint (SHA-256)", card.decision.decisionDigest],
+    ]} />
     <fieldset>
       <legend>Record call outcome</legend>
       <p><label htmlFor={`outcome-${id}`}>Outcome</label> <select id={`outcome-${id}`} value={form.outcome} disabled={interaction.pending} onChange={(event) => interaction.onCallChange(key, { outcome: event.currentTarget.value })}>
@@ -450,38 +508,38 @@ function SuppressionSection({ projection, interaction }: { projection: OutreachP
   const needsValue = form.subjectKind !== "company";
   const ready = !needsValue || form.value.trim().length > 0;
   return <section className="panel outreach-section" aria-labelledby="outreach-suppression">
-    <h2 id="outreach-suppression">Suppression and stop history</h2>
-    <p>Suppressions are permanent and apply across the company. Addresses and numbers are stored only as digests, so they are not shown.</p>
-    {projection.suppressions.length === 0 ? <p>No suppressions recorded.</p> : <table className="outreach-table"><caption>Suppressions</caption><thead><tr><th scope="col">Scope</th><th scope="col">Channel</th><th scope="col">Reason</th><th scope="col">Effective</th><th scope="col">Aliases</th></tr></thead>
+    <h2 id="outreach-suppression">Do not contact list</h2>
+    <p>Entries on this list (suppressions) are permanent and apply across the company. Addresses and numbers are stored only in a one-way scrambled form, so they are not shown.</p>
+    {projection.suppressions.length === 0 ? <p>Nobody is on the do not contact list yet.</p> : <table className="outreach-table"><caption>Do not contact entries</caption><thead><tr><th scope="col">Who</th><th scope="col">Channel</th><th scope="col">Reason</th><th scope="col">Since</th><th scope="col">Linked aliases</th></tr></thead>
       <tbody>{projection.suppressions.map((row) => <tr key={row.id}><td>{SUBJECT_LABELS[row.subjectKind] ?? row.subjectKind}</td><td>{CHANNEL_LABELS[row.channel] ?? row.channel}</td><td>{SUPPRESSION_REASON_LABELS[row.reason] ?? row.reason}</td><td>{when(row.effectiveAt)}</td><td>{row.aliasCount}</td></tr>)}</tbody></table>}
     {projection.suppressions.some((row) => row.reason === "do_not_call" || row.reason === "unsubscribe" || row.reason === "explicit_opt_out")
       && <p role="note">Suppression recorded before this outcome was completed. Matching outreach is blocked.</p>}
-    {projection.stops.length === 0 ? <p>No stop events recorded.</p> : <table className="outreach-table"><caption>Stop events</caption><thead><tr><th scope="col">Event</th><th scope="col">Scope</th><th scope="col">Reason</th><th scope="col">Effective</th></tr></thead>
+    {projection.stops.length === 0 ? <p>No outreach has been stopped.</p> : <table className="outreach-table"><caption>Stopped outreach</caption><thead><tr><th scope="col">What happened</th><th scope="col">Who</th><th scope="col">Reason</th><th scope="col">Since</th></tr></thead>
       <tbody>{projection.stops.map((row) => <tr key={row.id}><td>{row.stopKind.replaceAll("_", " ")}</td><td>{SUBJECT_LABELS[row.subjectKind] ?? row.subjectKind}</td><td>{row.reasonCode.replaceAll("_", " ")}</td><td>{when(row.effectiveAt)}</td></tr>)}</tbody></table>}
     <fieldset>
-      <legend>Add suppression</legend>
-      <p><label htmlFor="suppression-kind">Scope</label> <select id="suppression-kind" value={form.subjectKind} disabled={interaction.pending || confirming} onChange={(event) => interaction.onSuppressionChange({ subjectKind: event.currentTarget.value, channel: CHANNEL_OPTIONS[event.currentTarget.value]?.[0] ?? "all", value: "" })}>
+      <legend>Add to the do not contact list</legend>
+      <p><label htmlFor="suppression-kind">Who to block</label> <select id="suppression-kind" value={form.subjectKind} disabled={interaction.pending || confirming} onChange={(event) => interaction.onSuppressionChange({ subjectKind: event.currentTarget.value, channel: CHANNEL_OPTIONS[event.currentTarget.value]?.[0] ?? "all", value: "" })}>
         {Object.keys(CHANNEL_OPTIONS).map((kind) => <option key={kind} value={kind}>{SUBJECT_LABELS[kind]}</option>)}
       </select></p>
-      {needsValue && <p><label htmlFor="suppression-value">{form.subjectKind === "contact" ? "Contact ID" : "Value"}</label> <input id="suppression-value" type="text" autoComplete="off" maxLength={320} value={form.value} disabled={interaction.pending || confirming} onChange={(event) => interaction.onSuppressionChange({ value: event.currentTarget.value })} /></p>}
+      {needsValue && <p><label htmlFor="suppression-value">{VALUE_LABELS[form.subjectKind] ?? "Value"}</label> <input id="suppression-value" type="text" autoComplete="off" maxLength={320} value={form.value} disabled={interaction.pending || confirming} onChange={(event) => interaction.onSuppressionChange({ value: event.currentTarget.value })} /></p>}
       <p><label htmlFor="suppression-channel">Channel</label> <select id="suppression-channel" value={form.channel} disabled={interaction.pending || confirming} onChange={(event) => interaction.onSuppressionChange({ channel: event.currentTarget.value })}>
         {(CHANNEL_OPTIONS[form.subjectKind] ?? ["all"]).map((channel) => <option key={channel} value={channel}>{CHANNEL_LABELS[channel]}</option>)}
       </select></p>
       <p><label htmlFor="suppression-reason">Reason</label> <select id="suppression-reason" value={form.reason} disabled={interaction.pending || confirming} onChange={(event) => interaction.onSuppressionChange({ reason: event.currentTarget.value })}>
         <option value="owner_request">Owner decision</option><option value="explicit_opt_out">Recipient opted out</option>
       </select></p>
-      {!confirming && <OutreachAction label="Review suppression" enabled={!interaction.pending && ready} explanationId="suppression-review"
-        explanation={ready ? "Opens a summary to confirm. There is no temporary or per-message exception." : "Enter the value to suppress first."} onClick={() => interaction.onConfirm({ kind: "suppression" })} />}
+      {!confirming && <OutreachAction label="Review before adding" enabled={!interaction.pending && ready} explanationId="suppression-review"
+        explanation={ready ? "Opens a summary to confirm. There is no temporary or per-message exception." : "Enter who to block first."} onClick={() => interaction.onConfirm({ kind: "suppression" })} />}
       {confirming && <div className="outreach-confirm" role="group" aria-labelledby="suppression-confirm">
-        <h3 id="suppression-confirm" tabIndex={-1} ref={(element) => element?.focus()}>Confirm suppression</h3>
-        <KeyValues label="Suppression summary" rows={[
-          ["Scope", SUBJECT_LABELS[form.subjectKind] ?? form.subjectKind],
+        <h3 id="suppression-confirm" tabIndex={-1} ref={(element) => element?.focus()}>Confirm do not contact entry</h3>
+        <KeyValues label="Do not contact entry summary" rows={[
+          ["Who", SUBJECT_LABELS[form.subjectKind] ?? form.subjectKind],
           ...(needsValue ? [["Value", form.value.trim()] as const] : []),
           ["Channel", CHANNEL_LABELS[form.channel] ?? form.channel],
           ["Reason", SUPPRESSION_REASON_LABELS[form.reason] ?? form.reason],
           ["Effect", "Matching queued work is cancelled before this is reported. It cannot be undone here."],
         ]} />
-        <p><button type="button" disabled={interaction.pending} onClick={interaction.onConfirmSuppression}>Add suppression</button> <button type="button" onClick={() => interaction.onConfirm(null)}>Cancel</button></p>
+        <p><button type="button" disabled={interaction.pending} onClick={interaction.onConfirmSuppression}>Add to do not contact list</button> <button type="button" onClick={() => interaction.onConfirm(null)}>Cancel</button></p>
       </div>}
     </fieldset>
   </section>;
@@ -489,9 +547,9 @@ function SuppressionSection({ projection, interaction }: { projection: OutreachP
 
 function DeliverySection({ projection }: { projection: OutreachProjection }) {
   return <section className="panel outreach-section" aria-labelledby="outreach-delivery">
-    <h2 id="outreach-delivery">Delivery and reconciliation history</h2>
+    <h2 id="outreach-delivery">Email delivery history</h2>
     <p>PROspector never resends automatically. There is no resend button.</p>
-    {projection.delivery.length === 0 ? <p>Nothing has been queued.</p> : <table className="outreach-table"><caption>Queued messages</caption><thead><tr><th scope="col">Status</th><th scope="col">Revision</th><th scope="col">Reason</th><th scope="col">Updated</th></tr></thead>
+    {projection.delivery.length === 0 ? <p>Nothing has been queued.</p> : <table className="outreach-table"><caption>Queued emails</caption><thead><tr><th scope="col">Status</th><th scope="col">Update</th><th scope="col">Reason</th><th scope="col">When</th></tr></thead>
       <tbody>{projection.delivery.map((row) => <tr key={row.outboxItemId}><td>{DELIVERY_COPY[row.state] ?? "Unknown delivery state."}</td><td>{row.revision}</td><td>{row.reasonCode.replaceAll("_", " ")}</td><td>{when(row.at)}</td></tr>)}</tbody></table>}
   </section>;
 }

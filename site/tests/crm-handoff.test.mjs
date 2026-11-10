@@ -539,9 +539,10 @@ function defaultCandidates() {
 
 /**
  * Fake ports for the 07-06 shell. The suppression fake mirrors the real
- * resolver's `isBlocked`: it only reports blocked / not blocked, always counts
- * the company subject, and treats an email's domain (and subdomains) as a
- * domain subject. `companySuppressed` models a company-wide tombstone.
+ * resolver's `blockingScopes`: it reports every subject kind that blocks
+ * (company, organization, contact, exact email, owner-confirmed domain and
+ * its subdomains), with `complete: true`. `companySuppressed` models an
+ * all-channel company-wide tombstone, reported alongside the narrower scopes.
  */
 function fakePorts({ companySuppressed = false, candidates = defaultCandidates() } = {}) {
   const calls = { eligibility: 0, store: 0, delivery: 0, provider: 0, suppression: 0 };
@@ -564,16 +565,17 @@ function fakePorts({ companySuppressed = false, candidates = defaultCandidates()
       },
     },
     suppression: {
-      async isBlocked(input) {
+      async blockingScopes(input) {
         calls.suppression += 1;
-        if (companySuppressed) return { blocked: true, providerCalls: 0 };
         const email = input.email?.toLowerCase();
         const domain = email?.split("@")[1];
-        const domainHit = domain && [...blocked.domains].some((entry) => domain === entry || domain.endsWith(`.${entry}`));
-        const hit = (email && blocked.emails.has(email)) || domainHit
-          || (input.contact && blocked.contacts.has(input.contact.identityDigest))
-          || (input.organization && blocked.organizations.has(input.organization.identityDigest));
-        return { blocked: Boolean(hit), providerCalls: 0 };
+        const scopes = [];
+        if (companySuppressed) scopes.push("company");
+        if (input.organization && blocked.organizations.has(input.organization.identityDigest)) scopes.push("organization");
+        if (input.contact && blocked.contacts.has(input.contact.identityDigest)) scopes.push("contact");
+        if (email && blocked.emails.has(email)) scopes.push("exact_email");
+        if (domain && [...blocked.domains].some((entry) => domain === entry || domain.endsWith(`.${entry}`))) scopes.push("confirmed_email_domain");
+        return { blocked: scopes.length > 0, scopes, complete: true, providerCalls: 0 };
       },
     },
     store: {
@@ -603,15 +605,35 @@ test("only a current Export-ready Prospect with an approved package and fresh ve
   }
 });
 
-test("exact, domain, contact, organization, and company suppression each exclude separately and yield only a labelled non-contactable manifest entry", { todo: "07-06 shell: the resolver's isBlocked reports only blocked/not blocked, so per-scope labels are not derivable once a company-wide tombstone is present; needs a scope-aware resolver (see the live scope tests below)" }, async () => {
+test("exact, domain, contact, organization, and company suppression each exclude separately and yield only a labelled non-contactable manifest entry", async () => {
   const { vite, service } = await loadHandoffService();
   try {
-    const plan = await service.planCrmHandoff({ workspaceId: "workspace-one", ports: fakePorts() });
+    // A company-wide tombstone alongside every narrower one: the scope-aware
+    // resolver still reports each narrower scope, so every label is derivable.
+    const plan = await service.planCrmHandoff({ workspaceId: "workspace-one", ports: fakePorts({ companySuppressed: true }) });
     for (const scope of ["exact", "domain", "contact", "organization", "company"]) {
       assert.ok(plan.exclusions.some((entry) => entry.reason === `suppressed_${scope}`), scope);
     }
     assert.ok(plan.nonContactable.every((entry) => entry.contactable === false));
     assert.ok(plan.rows.every((entry) => entry.contactValue !== undefined));
+
+    // Each scope excludes separately, on the contact it actually blocks.
+    const reasonsFor = (n) => plan.exclusions.filter((e) => e.contactId === `synthetic-contact-${String(n).padStart(4, "0")}`).map((e) => e.reason);
+    assert.deepEqual(reasonsFor(1), ["suppressed_company"]);
+    assert.deepEqual(reasonsFor(2), ["suppressed_company"]);
+    assert.deepEqual(reasonsFor(10), ["suppressed_company", "suppressed_exact"]);
+    assert.deepEqual(reasonsFor(11), ["suppressed_company", "suppressed_domain"]);
+    assert.deepEqual(reasonsFor(12), ["suppressed_company", "suppressed_contact"]);
+    assert.deepEqual(reasonsFor(13), ["suppressed_company", "suppressed_organization"]);
+    assert.equal(plan.rows.length, 0);
+
+    // Only labelled entries: exactly one non-contactable entry per suppression exclusion, and no contact value.
+    const suppressed = plan.exclusions.filter((e) => e.reason.startsWith("suppressed_"));
+    assert.deepEqual(plan.nonContactable.map((entry) => Object.fromEntries(Object.entries(entry).filter(([key]) => key !== "contactable"))), suppressed);
+    for (const entry of plan.nonContactable) {
+      assert.deepEqual(Object.keys(entry).sort(), ["contactId", "contactPointId", "contactable", "prospectId", "reason"]);
+    }
+    assert.equal(JSON.stringify(plan.nonContactable).includes("example.test"), false, "no raw contact value in the manifest entries");
   } finally {
     await vite.close();
   }
@@ -681,12 +703,33 @@ test("a company-wide tombstone excludes every candidate and nothing can be mater
 
 test("a suppression port that throws or reports an unknown shape fails closed", async () => {
   await withService(async (service) => {
-    for (const isBlocked of [async () => { throw new Error("d1 down"); }, async () => ({}), async () => null]) {
-      const ports = { ...fakePorts(), suppression: { isBlocked } };
+    for (const blockingScopes of [
+      async () => { throw new Error("d1 down"); },
+      async () => ({}),
+      async () => null,
+      // Incomplete, inconsistent, or unknown-scope answers are never read as unsuppressed.
+      async () => ({ blocked: false, scopes: [], complete: false }),
+      async () => ({ blocked: false, scopes: ["exact_email"], complete: true }),
+      async () => ({ blocked: "no", scopes: [], complete: true }),
+      async () => ({ blocked: false, scopes: "none", complete: true }),
+      async () => ({ blocked: true, scopes: [], complete: true }),
+      async () => ({ blocked: true, scopes: ["bogus"], complete: true }),
+      async () => ({ blocked: true, scopes: ["constructor"], complete: true }),
+    ]) {
+      const ports = { ...fakePorts(), suppression: { blockingScopes } };
       const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
       assert.equal(plan.rows.length, 0);
       assert.ok(plan.exclusions.some((e) => e.reason === "suppressed_company"));
     }
+    // An incomplete answer keeps the scopes it did resolve and adds the fail-closed company label.
+    const partial = { ...fakePorts(), suppression: { async blockingScopes() { return { blocked: true, scopes: ["contact"], complete: false }; } } };
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: partial });
+    assert.deepEqual(plan.exclusions.filter((e) => e.contactId === "synthetic-contact-0001").map((e) => e.reason), ["suppressed_company", "suppressed_contact"]);
+    // A port with only the old isBlocked shape is refused, never treated as unsuppressed.
+    const legacy = { ...fakePorts(), suppression: { async isBlocked() { return { blocked: false }; } } };
+    await assert.rejects(service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: legacy }), /crm_handoff_service_invalid/);
+    assert.equal((await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: legacy })).reason, "invalid_request");
+    assert.equal(legacy.calls.store, 0);
   });
 });
 
@@ -796,4 +839,71 @@ test("the service performs no provider, delivery, or network call and the source
   const source = readFileSync(new URL("../domain/crm-handoff.ts", import.meta.url), "utf8");
   assert.equal(/\b(?:tel|mailto):/iu.test(source), false);
   assert.equal(/\bfetch\s*\(|process\.env|env\./u.test(source), false);
+});
+
+// 07-10: the owner download path on fake ports. After a version is stored, a
+// later suppression or eligibility reversal, an expiry, or altered bytes each
+// block the download; the stored bytes are never rebuilt and nothing is stored.
+function accessStore(ports) {
+  const ends = [];
+  const refusals = [];
+  const find = ({ workspaceId, artifactId }) => ports.stored.find((entry) => entry.stored.workspaceId === workspaceId && entry.stored.artifactId === artifactId);
+  return {
+    ends, refusals,
+    store: {
+      ...ports.store,
+      async readArtifact(request) { return find(request)?.stored ?? null; },
+      async readBytes(request) { const entry = find(request); return entry ? Uint8Array.from(entry.bytes) : null; },
+      async recordDeliveryEnd(request) { ends.push({ ...request }); },
+      async recordAccessRefusal(request) { refusals.push({ ...request }); },
+    },
+  };
+}
+
+test("the download path blocks a later suppression or eligibility reversal, an expiry, and altered bytes, and never rebuilds the stored version", async () => {
+  await withService(async (service) => {
+    const candidates = [candidate(1), candidate(2), candidate(3, {}, { contact_value: "person0003@late-block.example.test" })];
+    const ports = fakePorts({ candidates });
+    const access = accessStore(ports);
+    const live = { ...ports, store: access.store };
+    const created = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: live });
+    assert.equal(created.status, "materialized");
+    const download = (patch = {}) => service.accessCrmHandoffArtifact({ workspaceId: SERVICE_WORKSPACE, artifactId: created.artifactId, ports: { ...live, ...patch } });
+    const authorized = await download();
+    assert.equal(authorized.status, "authorized");
+    assert.equal(sha256(authorized.bytes), created.csvSha256);
+    const storedBytes = Buffer.from(ports.stored[0].bytes).toString("base64");
+
+    // A domain tombstone added after materialization covers contact 3.
+    const lateSuppression = {
+      async blockingScopes(input) {
+        const blocked = input.email?.toLowerCase().endsWith("@late-block.example.test") ?? false;
+        return { blocked, scopes: blocked ? ["confirmed_email_domain"] : [], complete: true, providerCalls: 0 };
+      },
+    };
+    const suppressed = await download({ suppression: lateSuppression });
+    assert.deepEqual({ status: suppressed.status, reason: suppressed.reason }, { status: "blocked", reason: "eligibility_changed" });
+    // Contact 2 is no longer ContactReady.
+    const reversed = await download({ eligibility: { async recheck(request) { return request.contactId === "synthetic-contact-0002" ? { contactReady: false, reasonCode: "stale_verification" } : { contactReady: true }; } } });
+    assert.equal(reversed.reason, "eligibility_changed");
+    // A day later the version has expired; the expiry is recorded and nothing is returned.
+    const expired = await download({ clock: { nowIso: () => "2026-11-10T12:00:00.001Z" } });
+    assert.equal(expired.reason, "delivery_expired");
+    assert.deepEqual(access.ends.map((entry) => entry.eventKind), ["expired"]);
+    assert.equal(ports.stored.length, 1);
+    assert.equal(Buffer.from(ports.stored[0].bytes).toString("base64"), storedBytes, "no refusal rebuilt or edited the stored bytes");
+    // Altered stored bytes are an integrity failure, not a silent rebuild.
+    ports.stored[0] = { ...ports.stored[0], bytes: Uint8Array.from(ports.stored[0].bytes, (byte, index) => (index === 0 ? byte ^ 1 : byte)) };
+    const altered = await download();
+    assert.equal(altered.reason, "artifact_integrity");
+    for (const result of [suppressed, reversed, expired, altered]) {
+      assert.equal(result.status, "blocked");
+      assert.equal("bytes" in result, false);
+      assert.equal(result.providerCalls, 0);
+    }
+    assert.deepEqual(access.refusals.map((entry) => entry.reasonCode), ["eligibility_changed", "eligibility_changed"]);
+    assert.equal(ports.calls.store, 1, "no refused download stored anything");
+    assert.equal(ports.calls.delivery, 0);
+    assert.equal(ports.calls.provider, 0);
+  });
 });

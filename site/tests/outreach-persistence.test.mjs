@@ -7,6 +7,7 @@ import {
   applyOutreachAttemptPreparationMigration,
   applyOutreachAuthorityMigration,
   applyOutreachMigrations,
+  applyOutreachDomainScopeTable,
   applyOutreachMigrationsThroughLease,
   applyOutreachPreCallMigration,
   applyOutreachPreparationRecoveryMigration,
@@ -184,6 +185,7 @@ test("0016 upgrades populated 0015 state without inferring an attempt and can pr
     await applyOutreachMigrationsThroughLease(fixture.database);
     await applyOutreachAuthorityMigration(fixture.database);
     await applyOutreachPreCallMigration(fixture.database);
+    await applyOutreachDomainScopeTable(fixture.database);
     const seeded = await seedOutreachAuthority(fixture, { applyMigrations: false });
     const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
       packageExpiresAt: OUTREACH_NOW + 70_000,
@@ -222,6 +224,7 @@ test("0017 upgrades a populated 0016 attempt without inferring recovery and requ
     await applyOutreachAuthorityMigration(fixture.database);
     await applyOutreachPreCallMigration(fixture.database);
     await applyOutreachAttemptPreparationMigration(fixture.database);
+    await applyOutreachDomainScopeTable(fixture.database);
     const seeded = await seedOutreachAuthority(fixture, { applyMigrations: false });
     const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
       packageExpiresAt: OUTREACH_NOW + 70_000,
@@ -260,6 +263,7 @@ test("0015 fences a legacy dispatching history from retry and receipt authority"
   try {
     await applyOutreachMigrationsThroughLease(fixture.database);
     await applyOutreachAuthorityMigration(fixture.database);
+    await applyOutreachDomainScopeTable(fixture.database);
     const seeded = await seedOutreachAuthority(fixture, { applyMigrations: false });
     const prepared = await prepareApprovedMessageFromSeeded(fixture, seeded, {
       packageExpiresAt: OUTREACH_NOW + 70_000,

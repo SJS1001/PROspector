@@ -14,11 +14,15 @@ const PUBLIC_ROUTES = Object.freeze({
   "contacts/person-discovery/route.ts": ["GET", "POST"],
   "contacts/route.ts": ["GET", "POST"],
   "discovery/route.ts": ["GET", "POST"],
+  "handoff-recovery/route.ts": ["GET", "POST"],
   "interview/route.ts": ["GET", "POST"],
   "knowledge/route.ts": ["GET", "POST"],
   "morning-brief/route.ts": ["GET"],
+  "outreach/route.ts": ["GET", "POST"],
   "prospecting/route.ts": ["GET", "POST"],
   "prospecting/runner/route.ts": ["POST"],
+  // Public by design (06-04/06-08): anonymous, POST-only, rate limited, one generic answer.
+  "unsubscribe/route.ts": ["POST"],
 });
 
 test("the production API inventory stays explicit and separate from local-demo routes", async () => {
@@ -105,9 +109,11 @@ test("protected dependency failures return only bounded public errors", async ()
     ["contacts", [503, "contacts_unavailable"]],
     ["person discovery", [503, "person_discovery_unavailable"]],
     ["discovery", [500, "server_error"]],
+    ["handoff recovery", [503, "handoff_recovery_unavailable"]],
     ["interview", [500, "server_error"]],
     ["knowledge", [500, "server_error"]],
     ["morning brief", [503, "morning_brief_unavailable"]],
+    ["outreach", [503, "outreach_unavailable"]],
     ["prospecting", [500, "server_error"]],
   ]);
   try {
@@ -132,12 +138,12 @@ test("protected dependency failures return only bounded public errors", async ()
 
 async function loadHandlers(vite) {
   const load = (name) => vite.ssrLoadModule(new URL(`../domain/${name}.ts`, import.meta.url).pathname);
-  const [capability, contacts, discovery, interview, knowledge, morningBrief, personDiscovery, prospecting, runner] = await Promise.all([
-    load("capability-handler"), load("contacts-handler"), load("discovery-handler"),
-    load("interview-handler"), load("knowledge-handler"), load("morning-brief-handler"),
+  const [capability, contacts, discovery, handoffRecovery, interview, knowledge, morningBrief, outreach, personDiscovery, prospecting, runner] = await Promise.all([
+    load("capability-handler"), load("contacts-handler"), load("discovery-handler"), load("handoff-recovery-handler"),
+    load("interview-handler"), load("knowledge-handler"), load("morning-brief-handler"), load("outreach-handler"),
     load("person-discovery-handler"), load("prospecting-handler"), load("runner-runtime"),
   ]);
-  return { capability, contacts, discovery, interview, knowledge, morningBrief, personDiscovery, prospecting, runner };
+  return { capability, contacts, discovery, handoffRecovery, interview, knowledge, morningBrief, outreach, personDiscovery, prospecting, runner };
 }
 
 function ownerEntryPoints(handlers) {
@@ -167,6 +173,12 @@ function ownerEntryPoints(handlers) {
       spoof: (dependencies) => handlers.discovery.handleDiscoveryPost(spoofRequest("/api/discovery", "discovery-mutation"), dependencies),
     },
     {
+      name: "handoff recovery",
+      read: (dependencies) => handlers.handoffRecovery.handleHandoffRecoveryGet(readRequest("/api/handoff-recovery"), dependencies),
+      mutate: (dependencies) => handlers.handoffRecovery.handleHandoffRecoveryPost(mutationRequest("/api/handoff-recovery", "handoff-recovery-mutation", { action: "create_archive", passphrase: "tenant-isolation-passphrase" }), dependencies),
+      spoof: (dependencies) => handlers.handoffRecovery.handleHandoffRecoveryPost(spoofRequest("/api/handoff-recovery", "handoff-recovery-mutation"), dependencies),
+    },
+    {
       name: "interview",
       read: (dependencies) => handlers.interview.handleInterviewGet(dependencies),
       mutate: (dependencies) => handlers.interview.handleInterviewPost(mutationRequest("/api/interview", "interview-mutation", { action: "bootstrap" }), dependencies),
@@ -182,6 +194,12 @@ function ownerEntryPoints(handlers) {
       name: "morning brief",
       read: (dependencies) => handlers.morningBrief.handleMorningBriefGet(readRequest("/api/morning-brief"), dependencies),
       spoof: (dependencies) => handlers.morningBrief.handleMorningBriefGet(readRequest(`/api/morning-brief?workspaceId=${TENANT_MARKER}&ownerEmail=${OWNER_EMAIL}`), dependencies),
+    },
+    {
+      name: "outreach",
+      read: (dependencies) => handlers.outreach.handleOutreachGet(readRequest("/api/outreach"), dependencies),
+      mutate: (dependencies) => handlers.outreach.handleOutreachPost(mutationRequest("/api/outreach", "outreach-mutation", { action: "queue_message", messageApprovalId: "tenant-isolation-approval" }), dependencies),
+      spoof: (dependencies) => handlers.outreach.handleOutreachPost(spoofRequest("/api/outreach", "outreach-mutation"), dependencies),
     },
     {
       name: "prospecting",

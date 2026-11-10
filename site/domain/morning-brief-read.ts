@@ -10,10 +10,13 @@
  * Honesty rules this module exists to enforce:
  *
  * - The weekly cohort counts each Prospect's first transition to
- *   `ExportReady`. No such state exists in `db/schema.ts`, and no prospect
- *   state-transition history is persisted anywhere, so this module never
- *   supplies a weekly history. It reports the section unavailable instead of
- *   fabricating events or reporting a zero cohort.
+ *   `ExportReady`, read from the immutable 0022 `prospect_transition_events`
+ *   ledger through the admitted, read-only handoff recovery reader. The
+ *   history covers every Prospect of the Profile from its origin through the
+ *   evaluation instant; a Prospect without a persisted stream makes the whole
+ *   section unavailable rather than a smaller cohort. Contact linkage and loss
+ *   facts are not persisted, so they are declared evidence gaps and reported
+ *   unknown, never zero.
  * - `prospect_review_decisions` is a Phase 4 qualification record, not an
  *   outcome ledger. Its counts are surfaced as their own funnel section and
  *   are never converted into, compared with, or substituted for Export-ready
@@ -21,8 +24,13 @@
  * - Handoff eligibility requires Phase 5 verification and Phase 6 package and
  *   suppression authority, none of which is composed. That section is
  *   reported unavailable rather than approximated.
- * - Workspace origin (original versus restored) is not persisted. That
- *   section is reported unavailable with the restored-effects fence closed.
+ * - Workspace origin comes from the 0023 `recovery_restore_locks` and
+ *   `recovery_restore_results` ledgers. A lock open at the evaluation instant
+ *   reports a restore in progress with the effects fence closed, never an
+ *   original workspace. An applied restore keeps the schedule reported
+ *   disabled until a Phase 4 profile activation strictly after that restore
+ *   exists. This module only reports that state; it never requests, records,
+ *   or releases it.
  * - The owner workspace is selected before its active hierarchy is read. Every
  *   Company/Product/Play/Profile join repeats the workspace boundary, and only
  *   active hierarchy rows with one valid active Profile configuration can
@@ -30,14 +38,24 @@
  */
 
 import {
+  createD1HandoffRecoveryReader,
+  type OpenRestoreLock,
+  type ProfileTransitionHistory,
+  type RestoreOrigin,
+} from "./handoff-recovery-repository";
+import {
   composeMorningBrief,
   type MorningBriefAvailable,
   type MorningBriefProfileLifecycle,
   type MorningBriefScope,
+  type MorningBriefWeeklyEvidenceGap,
   type ReviewFunnelObservation,
   type SafeReference,
+  type UpstreamScheduleAbsence,
   type UpstreamScheduleObservation,
+  type WorkspaceOrigin,
 } from "./morning-brief";
+import { WEEKLY_OUTCOME_TIME_ZONE } from "./weekly-outcome";
 
 /** Read-only owner identity. This module never derives authority from it. */
 export type MorningBriefPrincipal = Readonly<{
@@ -85,7 +103,12 @@ type ScopeRow = {
   profile_lifecycle: string; configuration_digest: string;
 };
 
-type WorkspaceRow = { workspace_id: string };
+type WorkspaceRow = { workspace_id: string; owner_subject: string };
+
+/** Weekly evidence kinds the persisted schema does not record yet. */
+const PERSISTED_WEEKLY_EVIDENCE_GAPS: readonly MorningBriefWeeklyEvidenceGap[] = Object.freeze([
+  "contact_links_not_persisted", "loss_events_not_persisted",
+]);
 
 type ScheduleRow = {
   schedule_id: string; operation_digest: string; profile_id: string;
@@ -131,20 +154,35 @@ export async function readMorningBrief(
   }
   scopes.sort((left, right) => hierarchyKey(left).localeCompare(hierarchyKey(right), "en"));
 
+  const throughAt = Date.parse(asOf);
+  const reader = createD1HandoffRecoveryReader(database, {
+    workspaceId: workspace.workspace_id,
+    ownerSubject: workspace.owner_subject,
+  });
+  const restore = await reader.readRestoreOrigin({ throughAt });
+  const openLock = await reader.readOpenRestoreLock({ throughAt });
+
   const projected = await Promise.all(scopes.map(async (scope) => {
-    const [scheduleObservation, reviewFunnel] = await Promise.all([
+    const [scheduleObservation, reviewFunnel, history, activation] = await Promise.all([
       readScheduleObservation(database, scope.workspaceId, scope.profileId),
       readReviewFunnel(database, scope.workspaceId, scope.profileId, windowStart, windowEnd),
+      reader.readProfileTransitionHistory({ profileId: scope.profileId, throughAt }),
+      restore !== null && restore.completedAt < throughAt
+        ? reader.readLatestProfileActivation({
+          profileId: scope.profileId, afterAt: restore.completedAt, throughAt,
+        })
+        : Promise.resolve(null),
     ]);
     return composeMorningBrief({
       scope,
       asOf,
-      weeklyHistory: null,
+      weeklyHistory: weeklyHistoryInput(scope, asOf, history),
       scheduleObservation,
       handoffReadiness: null,
       reviewFunnel,
-      workspaceOrigin: null,
+      workspaceOrigin: workspaceOrigin(openLock, restore, activation),
       greenfieldProfiles: [],
+      weeklyEvidenceGaps: PERSISTED_WEEKLY_EVIDENCE_GAPS,
     });
   }));
   const profiles = projected.filter(
@@ -166,7 +204,7 @@ async function readWorkspaceRow(
 ): Promise<WorkspaceRow | null> {
   const legacy = principal.legacySubject ?? principal.subject;
   return database.prepare(
-    `SELECT w.id AS workspace_id
+    `SELECT w.id AS workspace_id, w.owner_subject AS owner_subject
        FROM workspaces w
       WHERE w.owner_subject IN (?, ?)
       ORDER BY CASE w.owner_subject WHEN ? THEN 0 ELSE 1 END, w.created_at, w.id
@@ -223,9 +261,96 @@ function toScope(row: ScopeRow): MorningBriefScope | null {
 }
 
 /**
+ * Shape the persisted transition ledger as the reducer's origin-to-asOf input.
+ * Rows are copied verbatim; the reducer, not this adapter, validates origin,
+ * sequence, chronology, state continuity, and bounds. Returns `null` (absent
+ * history) when any in-scope Prospect has no persisted stream, so a partial
+ * ledger is never reported as a smaller cohort.
+ */
+function weeklyHistoryInput(
+  scope: MorningBriefScope,
+  asOf: string,
+  history: ProfileTransitionHistory,
+) {
+  const streams = new Map<string, ProfileTransitionHistory["events"][number][]>();
+  for (const event of history.events) {
+    const stream = streams.get(event.prospectId) ?? [];
+    stream.push(event);
+    streams.set(event.prospectId, stream);
+  }
+  if (!history.prospectLimitExceeded
+    && history.prospectIds.some((prospectId) => !streams.has(prospectId))) return null;
+  return {
+    scope: {
+      workspaceId: scope.workspaceId,
+      companyId: scope.companyId,
+      productId: scope.productId,
+      marketPlayId: scope.marketPlayId,
+      profileId: scope.profileId,
+      // Only `ready` Profiles reach this read; the persisted lifecycle, never
+      // the Profile's name, decides whether it contributes.
+      profileLifecycle: scope.profileLifecycle === "ready" ? "Operating" : "Draft",
+    },
+    timeZone: WEEKLY_OUTCOME_TIME_ZONE,
+    asOf,
+    coverage: { from: "prospect_origin", through: asOf, prospectIds: [...history.prospectIds] },
+    histories: history.prospectIds.map((prospectId) => ({
+      prospectId,
+      workspaceId: scope.workspaceId,
+      companyId: scope.companyId,
+      productId: scope.productId,
+      marketPlayId: scope.marketPlayId,
+      profileId: scope.profileId,
+      events: (streams.get(prospectId) ?? []).map((event) => {
+        const base = {
+          eventId: event.eventId,
+          sequence: event.sequence,
+          occurredAt: instantOrInvalid(event.occurredAt),
+          // The immutable transition row is its own audit record.
+          auditRef: { id: event.eventId, digest: event.operationDigest },
+        };
+        return event.eventKind === "prospect_created"
+          ? { ...base, kind: event.eventKind, initialState: event.newState }
+          : { ...base, kind: event.eventKind, fromState: event.priorState, toState: event.newState };
+      }),
+    })),
+  };
+}
+
+function workspaceOrigin(
+  openLock: OpenRestoreLock | null,
+  restore: RestoreOrigin | null,
+  activation: Readonly<{ activationId: string; operationDigest: string; createdAt: number }> | null,
+): WorkspaceOrigin {
+  // An open lock means target data may be half-imported. It outranks any
+  // applied result, so contradictory evidence keeps the fence closed.
+  if (openLock !== null) {
+    return { kind: "restore_in_progress", lockedAt: instantOrInvalid(openLock.acquiredAt) };
+  }
+  if (restore === null) return { kind: "original" };
+  return {
+    kind: "restored",
+    restoreRef: { id: restore.restoreResultId, digest: restore.resultDigest },
+    restoredAt: instantOrInvalid(restore.completedAt),
+    freshUpstreamActivation: activation === null ? null : {
+      activationRef: { id: activation.activationId, digest: activation.operationDigest },
+      activatedAt: instantOrInvalid(activation.createdAt),
+    },
+  };
+}
+
+/** A non-representable stored instant becomes a value every validator refuses. */
+function instantOrInvalid(value: number) {
+  return Number.isSafeInteger(value) && value >= 0 ? new Date(value).toISOString() : "invalid";
+}
+
+/**
  * Project the Phase 4-owned recurring schedule as a read-only observation.
- * A missing, archived, or shape-invalid row yields `null`, which the brief
- * reports as an unknown schedule rather than an enabled or disabled one.
+ * A shape-invalid or cross-workspace active row yields `null`, which the brief
+ * reports as an unknown schedule rather than an enabled or disabled one. Only
+ * when the table holds no active row at all for the Profile does the read
+ * return positive absence evidence; the brief may then report a restored
+ * target disabled, and otherwise reports it unknown as well.
  *
  * The authority-command join carries its own workspace predicate. The schema's
  * foreign key references `authority_commands(id)` alone and no trigger fences
@@ -237,7 +362,7 @@ async function readScheduleObservation(
   database: D1Database,
   workspaceId: string,
   profileId: string,
-): Promise<UpstreamScheduleObservation | null> {
+): Promise<UpstreamScheduleObservation | UpstreamScheduleAbsence | null> {
   const row = await database.prepare(
     `SELECT ps.id AS schedule_id, ps.operation_digest AS operation_digest,
             ps.profile_id AS profile_id, ps.configuration_digest AS configuration_digest,
@@ -251,7 +376,7 @@ async function readScheduleObservation(
       WHERE ps.workspace_id = ? AND ps.profile_id = ? AND ps.active = 1
       LIMIT 1`,
   ).bind(workspaceId, profileId).first<ScheduleRow>();
-  if (!row) return null;
+  if (!row) return readScheduleAbsence(database, workspaceId, profileId);
   if (!DIGEST.test(row.operation_digest) || !DIGEST.test(row.configuration_digest)
     || !DIGEST.test(row.command_operation_digest)) return null;
   if (!Number.isSafeInteger(row.updated_at) || row.updated_at < 0) return null;
@@ -273,6 +398,23 @@ async function readScheduleObservation(
     state: row.execution_state === "active" ? "enabled" : "disabled",
     observedAt,
   });
+}
+
+/**
+ * Positive evidence that no active schedule row exists for the Profile. Any
+ * active row, even one the observation read rejected, withholds it.
+ */
+async function readScheduleAbsence(
+  database: D1Database,
+  workspaceId: string,
+  profileId: string,
+): Promise<UpstreamScheduleAbsence | null> {
+  const row = await database.prepare(
+    `SELECT COUNT(*) AS active_count FROM prospecting_schedules
+      WHERE workspace_id = ? AND profile_id = ? AND active = 1`,
+  ).bind(workspaceId, profileId).first<{ active_count: number }>();
+  if (!row || Number(row.active_count) !== 0) return null;
+  return Object.freeze({ kind: "no_active_schedule_row" as const, profileId });
 }
 
 /**

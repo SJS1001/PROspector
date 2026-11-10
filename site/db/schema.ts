@@ -1342,6 +1342,21 @@ export const outreachStopEvents = sqliteTable("outreach_stop_events", {
   check("outreach_stop_digest_check", sql`length(${t.subjectDigest}) = 64 and ${t.subjectDigest} not glob '*[^0-9a-f]*' and length(${t.sourceEventDigest}) = 64 and ${t.sourceEventDigest} not glob '*[^0-9a-f]*'`),
 ]);
 
+/**
+ * D-7 (migration 0024): the whole-label confirmed-domain scope of one verified
+ * email contact point, as `outreach-suppression-domain/v1` digests. The SQL
+ * rechecks cannot hash, so they read this row; a point without one is treated
+ * as covered by every confirmed-domain tombstone (fail closed). Append-only.
+ */
+export const outreachContactPointDomains = sqliteTable("outreach_contact_point_domains", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  contactPointDigest: text("contact_point_digest").notNull(), domainDigestsJson: text("domain_digests_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_contact_point_domain_point_unique").on(t.workspaceId, t.contactPointDigest),
+  check("outreach_contact_point_domain_digest_check", sql`length(${t.contactPointDigest}) = 64 and ${t.contactPointDigest} not glob '*[^0-9a-f]*' and ${t.createdAt} > 0`),
+]);
+
 export const outreachAuditRecords = sqliteTable("outreach_audit_records", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   actorSubject: text("actor_subject").notNull(), action: text("action", { enum: ["package.version.created", "message.version.created", "package.approved", "message.approved", "suppression.recorded", "recipient_dispatch_authority.recorded", "unsubscribe_authority_event.recorded", "sender_capability.recorded", "approval.revoked"] }).notNull(),
@@ -1353,4 +1368,328 @@ export const outreachAuditRecords = sqliteTable("outreach_audit_records", {
   uniqueIndex("outreach_audit_command_unique").on(t.commandId), uniqueIndex("outreach_audit_material_unique").on(t.workspaceId, t.materialDigest),
   index("outreach_audit_time_idx").on(t.workspaceId, t.createdAt),
   check("outreach_audit_digest_check", sql`length(${t.materialDigest}) = 64 and ${t.materialDigest} not glob '*[^0-9a-f]*'`),
+]);
+
+// Plan 07-04 (migration 0023): immutable Phase 7 handoff and recovery evidence.
+// These tables consume Phase 4-6 projections by reference; none of them holds
+// schedule, suppression, eligibility, package, provider, or restore-release
+// authority, and none stores a passphrase, credential, token, raw archive, or
+// raw contact value. Cross-workspace and lineage rules live in 0023 triggers.
+const handoffHex64 = (column: AnySQLiteColumn) => sql`length(${column}) = 64 and ${column} not glob '*[^0-9a-f]*'`;
+const handoffIdentifier = (column: AnySQLiteColumn) => sql`length(${column}) between 1 and 128 and ${column} not glob '*[^A-Za-z0-9._:-]*'`;
+const handoffReason = (column: AnySQLiteColumn) => sql`length(${column}) between 1 and 80 and ${column} not glob '*[^a-z0-9._:-]*'`;
+const handoffVersion = (column: AnySQLiteColumn) => sql`length(${column}) between 1 and 128 and ${column} not glob '*[^A-Za-z0-9._:/-]*'`;
+const handoffObjectKey = (column: AnySQLiteColumn) => sql`length(${column}) between 1 and 512 and ${column} not glob '*[^A-Za-z0-9._/-]*' and ${column} not like '%..%' and ${column} not like '/%'`;
+const handoffSecretFree = (column: AnySQLiteColumn) => sql`json_valid(${column}) and length(${column}) <= 65536 and lower(${column}) not like '%passphrase%' and lower(${column}) not like '%password%' and lower(${column}) not like '%secret%' and lower(${column}) not like '%credential%' and lower(${column}) not like '%bearer%' and lower(${column}) not like '%oauth%' and lower(${column}) not like '%token%' and lower(${column}) not like '%cookie%' and lower(${column}) not like '%authorization%' and lower(${column}) not like '%private_key%' and lower(${column}) not like '%privatekey%' and lower(${column}) not like '%api_key%' and lower(${column}) not like '%apikey%'`;
+const HANDOFF_COMMAND_KINDS = ["schedule_observation.record", "weekly_report.record", "export_snapshot.record", "export_artifact.record", "delivery_event.record", "archive.record", "dry_run.record", "restore_lock.acquire", "restore_result.record"] as const;
+const HANDOFF_AUDIT_ACTIONS = [
+  "schedule.observed", "weekly_report.recorded", "export.snapshot_recorded", "export.artifact_recorded", "delivery.event_recorded",
+  "archive.recorded", "restore.dry_run_recorded", "restore.lock_acquired", "restore.result_recorded",
+  "schedule.observe", "weekly_report.record", "export.snapshot", "export.artifact", "delivery.event",
+  "archive.create", "restore.dry_run", "restore.lock_acquire", "restore.apply",
+] as const;
+const HANDOFF_SUBJECT_KINDS = ["workspace", "schedule_observation", "weekly_report", "export_snapshot", "export_artifact", "delivery_event", "recovery_archive", "recovery_dry_run", "recovery_restore_lock", "recovery_restore_result"] as const;
+const handoffList = (values: readonly string[]) => sql.raw(values.map((value) => `'${value}'`).join(","));
+
+export const handoffRecoveryCommands = sqliteTable("handoff_recovery_commands", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  ownerSubject: text("owner_subject").notNull(),
+  commandKind: text("command_kind", { enum: HANDOFF_COMMAND_KINDS }).notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  operationDigest: text("operation_digest").notNull(),
+  expectedRevision: integer("expected_revision").notNull(),
+  resultKind: text("result_kind").notNull(),
+  resultId: text("result_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_recovery_command_key_unique").on(t.workspaceId, t.idempotencyKey),
+  uniqueIndex("handoff_recovery_command_operation_unique").on(t.workspaceId, t.operationDigest),
+  check("handoff_recovery_command_kind_check", sql`${t.commandKind} in (${handoffList(HANDOFF_COMMAND_KINDS)})`),
+  check("handoff_recovery_command_shape_check", sql`${handoffHex64(t.operationDigest)} and ${handoffIdentifier(t.idempotencyKey)} and ${handoffIdentifier(t.resultId)} and ${handoffReason(t.resultKind)} and ${t.expectedRevision} >= 0`),
+]);
+
+export const handoffRecoveryAuditEvents = sqliteTable("handoff_recovery_audit_events", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  actorSubject: text("actor_subject").notNull(),
+  action: text("action", { enum: HANDOFF_AUDIT_ACTIONS }).notNull(),
+  subjectKind: text("subject_kind", { enum: HANDOFF_SUBJECT_KINDS }).notNull(),
+  subjectId: text("subject_id"),
+  outcome: text("outcome", { enum: ["recorded", "refused"] }).notNull(),
+  reasonCode: text("reason_code").notNull(),
+  materialDigest: text("material_digest").notNull(),
+  commandId: text("command_id").references(() => handoffRecoveryCommands.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_recovery_audit_material_unique").on(t.workspaceId, t.materialDigest),
+  uniqueIndex("handoff_recovery_audit_command_unique").on(t.commandId),
+  index("handoff_recovery_audit_time_idx").on(t.workspaceId, t.createdAt),
+  check("handoff_recovery_audit_vocabulary_check", sql`${t.action} in (${handoffList(HANDOFF_AUDIT_ACTIONS)}) and ${t.subjectKind} in (${handoffList(HANDOFF_SUBJECT_KINDS)})`),
+  check("handoff_recovery_audit_outcome_check", sql`(${t.outcome} = 'recorded' and ${t.commandId} is not null and ${t.subjectId} is not null) or (${t.outcome} = 'refused' and ${t.commandId} is null)`),
+  check("handoff_recovery_audit_shape_check", sql`${handoffHex64(t.materialDigest)} and ${handoffReason(t.reasonCode)} and (${t.subjectId} is null or ${handoffIdentifier(t.subjectId)})`),
+]);
+
+export const handoffScheduleObservations = sqliteTable("handoff_schedule_observations", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  profileId: text("profile_id").notNull().references(() => profiles.id),
+  scheduleId: text("schedule_id").notNull().references(() => prospectingSchedules.id),
+  scheduleRevision: integer("schedule_revision").notNull(),
+  configurationId: text("configuration_id").notNull().references(() => configurations.id),
+  configurationDigest: text("configuration_digest").notNull(),
+  cadence: text("cadence").notNull(),
+  intendedLocalTime: text("intended_local_time").notNull(),
+  timezone: text("timezone").notNull(),
+  utcOffsetMinutes: integer("utc_offset_minutes").notNull(),
+  scheduleActive: integer("schedule_active", { mode: "boolean" }).notNull(),
+  executionState: text("execution_state").notNull(),
+  activationId: text("activation_id").notNull().references(() => profileConfigurationActivations.id),
+  activationAuditEventId: text("activation_audit_event_id").notNull().references(() => auditEvents.id),
+  sourceDigest: text("source_digest").notNull(),
+  observationDigest: text("observation_digest").notNull(),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  observedAt: integer("observed_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_schedule_observation_digest_unique").on(t.workspaceId, t.observationDigest),
+  uniqueIndex("handoff_schedule_observation_command_unique").on(t.commandId),
+  index("handoff_schedule_observation_profile_idx").on(t.workspaceId, t.profileId, t.observedAt),
+  check("handoff_schedule_observation_digest_check", sql`${handoffHex64(t.configurationDigest)} and ${handoffHex64(t.sourceDigest)} and ${handoffHex64(t.observationDigest)}`),
+  check("handoff_schedule_observation_shape_check", sql`${t.scheduleRevision} > 0 and ${t.intendedLocalTime} glob '[0-2][0-9]:[0-5][0-9]' and length(${t.timezone}) between 1 and 64 and ${t.timezone} not glob '*[^A-Za-z0-9_+/-]*' and length(${t.cadence}) between 1 and 32 and ${t.cadence} not glob '*[^a-z0-9_]*' and length(${t.executionState}) between 1 and 64 and ${t.executionState} not glob '*[^a-z0-9_]*' and ${t.utcOffsetMinutes} between -840 and 840 and ${t.scheduleActive} in (0,1) and ${t.observedAt} <= ${t.createdAt}`),
+]);
+
+export const handoffWeeklyReports = sqliteTable("handoff_weekly_reports", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  definitionVersion: text("definition_version").notNull(),
+  timeZone: text("time_zone").notNull(),
+  weekStartLocal: text("week_start_local").notNull(),
+  weekEndLocal: text("week_end_local").notNull(),
+  windowStartAt: integer("window_start_at", { mode: "timestamp_ms" }).notNull(),
+  windowEndAt: integer("window_end_at", { mode: "timestamp_ms" }).notNull(),
+  asOf: integer("as_of", { mode: "timestamp_ms" }).notNull(),
+  targetCount: integer("target_count").notNull(),
+  cohortCount: integer("cohort_count").notNull(),
+  historyDigest: text("history_digest").notNull(),
+  projectionDigest: text("projection_digest").notNull(),
+  reportDigest: text("report_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_weekly_report_digest_unique").on(t.workspaceId, t.reportDigest),
+  uniqueIndex("handoff_weekly_report_command_unique").on(t.commandId),
+  index("handoff_weekly_report_window_idx").on(t.workspaceId, t.windowStartAt),
+  check("handoff_weekly_report_digest_check", sql`${handoffHex64(t.historyDigest)} and ${handoffHex64(t.projectionDigest)} and ${handoffHex64(t.reportDigest)}`),
+  check("handoff_weekly_report_window_check", sql`${t.windowEndAt} - ${t.windowStartAt} between 601200000 and 608400000 and ${t.asOf} >= ${t.windowStartAt} and ${t.weekStartLocal} glob '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]' and ${t.weekEndLocal} glob '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]' and ${t.weekStartLocal} < ${t.weekEndLocal}`),
+  check("handoff_weekly_report_shape_check", sql`${t.targetCount} > 0 and ${t.cohortCount} >= 0 and ${handoffVersion(t.definitionVersion)} and length(${t.timeZone}) between 1 and 64 and ${t.timeZone} not glob '*[^A-Za-z0-9_+/-]*'`),
+]);
+
+export const handoffWeeklyReportEntries = sqliteTable("handoff_weekly_report_entries", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  reportId: text("report_id").notNull().references(() => handoffWeeklyReports.id),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  transitionEventId: text("transition_event_id").notNull().references(() => prospectTransitionEvents.id),
+  ordinal: integer("ordinal").notNull(),
+  occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_weekly_entry_prospect_unique").on(t.reportId, t.prospectId),
+  uniqueIndex("handoff_weekly_entry_ordinal_unique").on(t.reportId, t.ordinal),
+  uniqueIndex("handoff_weekly_entry_transition_unique").on(t.reportId, t.transitionEventId),
+  check("handoff_weekly_entry_ordinal_check", sql`${t.ordinal} >= 0`),
+]);
+
+export const handoffExportSnapshots = sqliteTable("handoff_export_snapshots", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  exportDefinitionDigest: text("export_definition_digest").notNull(),
+  policyDigest: text("policy_digest").notNull(),
+  configurationDigest: text("configuration_digest").notNull(),
+  packageSetDigest: text("package_set_digest").notNull(),
+  suppressionFenceCount: integer("suppression_fence_count").notNull(),
+  snapshotDigest: text("snapshot_digest").notNull(),
+  selectedAt: integer("selected_at", { mode: "timestamp_ms" }).notNull(),
+  prospectCount: integer("prospect_count").notNull(),
+  contactRowCount: integer("contact_row_count").notNull(),
+  exclusionCount: integer("exclusion_count").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_export_snapshot_digest_unique").on(t.workspaceId, t.snapshotDigest),
+  uniqueIndex("handoff_export_snapshot_command_unique").on(t.commandId),
+  check("handoff_export_snapshot_digest_check", sql`${handoffHex64(t.exportDefinitionDigest)} and ${handoffHex64(t.policyDigest)} and ${handoffHex64(t.configurationDigest)} and ${handoffHex64(t.packageSetDigest)} and ${handoffHex64(t.snapshotDigest)}`),
+  check("handoff_export_snapshot_count_check", sql`${t.suppressionFenceCount} >= 0 and ${t.prospectCount} >= 0 and ${t.contactRowCount} >= ${t.prospectCount} and ${t.exclusionCount} >= 0 and ${t.selectedAt} <= ${t.createdAt}`),
+]);
+
+export const handoffExportSnapshotRows = sqliteTable("handoff_export_snapshot_rows", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  snapshotId: text("snapshot_id").notNull().references(() => handoffExportSnapshots.id),
+  ordinal: integer("ordinal").notNull(),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  contactId: text("contact_id").notNull().references(() => contacts.id),
+  contactPointDigest: text("contact_point_digest").notNull(),
+  packageVersionId: text("package_version_id").notNull().references(() => outreachPackageVersions.id),
+  packageApprovalId: text("package_approval_id").notNull().references(() => outreachPackageApprovals.id),
+  rowIdentityDigest: text("row_identity_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_export_row_ordinal_unique").on(t.snapshotId, t.ordinal),
+  uniqueIndex("handoff_export_row_identity_unique").on(t.snapshotId, t.prospectId, t.contactPointDigest),
+  uniqueIndex("handoff_export_row_digest_unique").on(t.snapshotId, t.rowIdentityDigest),
+  check("handoff_export_row_shape_check", sql`${t.ordinal} >= 0 and ${handoffHex64(t.contactPointDigest)} and ${handoffHex64(t.rowIdentityDigest)}`),
+]);
+
+export const handoffSuppressionExclusions = sqliteTable("handoff_suppression_exclusions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  snapshotId: text("snapshot_id").notNull().references(() => handoffExportSnapshots.id),
+  ordinal: integer("ordinal").notNull(),
+  prospectId: text("prospect_id").notNull().references(() => profileProspects.id),
+  contactId: text("contact_id").references(() => contacts.id),
+  tombstoneId: text("tombstone_id").notNull().references(() => outreachSuppressionTombstones.id),
+  scopeKind: text("scope_kind", { enum: ["exact_email", "confirmed_email_domain", "e164_phone", "contact", "organization", "company"] }).notNull(),
+  exclusionDigest: text("exclusion_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_exclusion_ordinal_unique").on(t.snapshotId, t.ordinal),
+  uniqueIndex("handoff_exclusion_digest_unique").on(t.snapshotId, t.exclusionDigest),
+  check("handoff_exclusion_shape_check", sql`${t.ordinal} >= 0 and ${handoffHex64(t.exclusionDigest)} and ${t.scopeKind} in ('exact_email','confirmed_email_domain','e164_phone','contact','organization','company')`),
+]);
+
+export const handoffExportArtifacts = sqliteTable("handoff_export_artifacts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  snapshotId: text("snapshot_id").notNull().references(() => handoffExportSnapshots.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  schemaVersion: text("schema_version").notNull(),
+  mediaType: text("media_type").notNull(),
+  objectKey: text("object_key").notNull(),
+  contentSha256: text("content_sha256").notNull(),
+  byteLength: integer("byte_length").notNull(),
+  manifestJson: text("manifest_json").notNull(),
+  manifestDigest: text("manifest_digest").notNull(),
+  rowCount: integer("row_count").notNull(),
+  prospectCount: integer("prospect_count").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_export_artifact_snapshot_unique").on(t.snapshotId),
+  uniqueIndex("handoff_export_artifact_content_unique").on(t.workspaceId, t.contentSha256),
+  uniqueIndex("handoff_export_artifact_object_unique").on(t.workspaceId, t.objectKey),
+  uniqueIndex("handoff_export_artifact_command_unique").on(t.commandId),
+  check("handoff_export_artifact_digest_check", sql`${handoffHex64(t.contentSha256)} and ${handoffHex64(t.manifestDigest)}`),
+  check("handoff_export_artifact_shape_check", sql`${t.byteLength} > 0 and ${t.rowCount} >= ${t.prospectCount} and ${t.prospectCount} >= 0 and ${t.mediaType} = 'text/csv' and ${handoffVersion(t.schemaVersion)} and ${handoffObjectKey(t.objectKey)} and ${handoffSecretFree(t.manifestJson)}`),
+]);
+
+export const handoffDeliveryEvents = sqliteTable("handoff_delivery_events", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  subjectKind: text("subject_kind", { enum: ["export_artifact", "recovery_archive"] }).notNull(),
+  subjectId: text("subject_id").notNull(),
+  eventKind: text("event_kind", { enum: ["issued", "expired", "failed"] }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  reasonCode: text("reason_code").notNull(),
+  eventDigest: text("event_digest").notNull(),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("handoff_delivery_event_digest_unique").on(t.workspaceId, t.eventDigest),
+  uniqueIndex("handoff_delivery_event_command_unique").on(t.commandId),
+  uniqueIndex("handoff_delivery_issued_unique").on(t.subjectKind, t.subjectId).where(sql`${t.eventKind} = 'issued'`),
+  uniqueIndex("handoff_delivery_terminal_unique").on(t.subjectKind, t.subjectId).where(sql`${t.eventKind} <> 'issued'`),
+  check("handoff_delivery_event_shape_check", sql`${t.subjectKind} in ('export_artifact','recovery_archive') and ${t.eventKind} in ('issued','expired','failed') and ((${t.eventKind} = 'issued' and ${t.expiresAt} > ${t.occurredAt}) or (${t.eventKind} <> 'issued' and ${t.expiresAt} is null)) and ${t.occurredAt} <= ${t.createdAt} and ${handoffIdentifier(t.subjectId)} and ${handoffReason(t.reasonCode)} and ${handoffHex64(t.eventDigest)}`),
+]);
+
+export const recoveryArchives = sqliteTable("recovery_archives", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  formatVersion: text("format_version").notNull(),
+  schemaVersion: text("schema_version").notNull(),
+  compatibilityMin: text("compatibility_min").notNull(),
+  compatibilityMax: text("compatibility_max").notNull(),
+  manifestJson: text("manifest_json").notNull(),
+  manifestDigest: text("manifest_digest").notNull(),
+  ciphertextSha256: text("ciphertext_sha256").notNull(),
+  byteLength: integer("byte_length").notNull(),
+  objectKey: text("object_key").notNull(),
+  cipher: text("cipher").notNull(),
+  kdf: text("kdf").notNull(),
+  kdfParametersJson: text("kdf_parameters_json").notNull(),
+  recordCount: integer("record_count").notNull(),
+  objectCount: integer("object_count").notNull(),
+  tombstoneCount: integer("tombstone_count").notNull(),
+  reauthReferenceDigest: text("reauth_reference_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("recovery_archive_manifest_unique").on(t.workspaceId, t.manifestDigest),
+  uniqueIndex("recovery_archive_ciphertext_unique").on(t.ciphertextSha256),
+  uniqueIndex("recovery_archive_object_unique").on(t.workspaceId, t.objectKey),
+  uniqueIndex("recovery_archive_command_unique").on(t.commandId),
+  check("recovery_archive_digest_check", sql`${handoffHex64(t.manifestDigest)} and ${handoffHex64(t.ciphertextSha256)} and ${handoffHex64(t.reauthReferenceDigest)}`),
+  check("recovery_archive_envelope_check", sql`${handoffVersion(t.formatVersion)} and ${handoffVersion(t.schemaVersion)} and ${handoffVersion(t.compatibilityMin)} and ${handoffVersion(t.compatibilityMax)} and length(${t.cipher}) between 1 and 32 and ${t.cipher} not glob '*[^a-z0-9-]*' and length(${t.kdf}) between 1 and 32 and ${t.kdf} not glob '*[^a-z0-9-]*' and ${handoffObjectKey(t.objectKey)}`),
+  check("recovery_archive_metadata_check", sql`${handoffSecretFree(t.manifestJson)} and ${handoffSecretFree(t.kdfParametersJson)} and ${t.byteLength} > 0 and ${t.recordCount} >= 0 and ${t.objectCount} >= 0 and ${t.tombstoneCount} >= 0`),
+]);
+
+export const recoveryDryRuns = sqliteTable("recovery_dry_runs", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  sourceWorkspaceId: text("source_workspace_id").notNull(),
+  archiveManifestDigest: text("archive_manifest_digest").notNull(),
+  archiveCiphertextSha256: text("archive_ciphertext_sha256").notNull(),
+  archiveSchemaVersion: text("archive_schema_version").notNull(),
+  outcome: text("outcome", { enum: ["accepted", "refused"] }).notNull(),
+  reasonCode: text("reason_code").notNull(),
+  nonceDigest: text("nonce_digest"),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  targetStateDigest: text("target_state_digest").notNull(),
+  invariantDigest: text("invariant_digest"),
+  dryRunDigest: text("dry_run_digest").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("recovery_dry_run_digest_unique").on(t.workspaceId, t.dryRunDigest),
+  uniqueIndex("recovery_dry_run_nonce_unique").on(t.nonceDigest),
+  uniqueIndex("recovery_dry_run_command_unique").on(t.commandId),
+  check("recovery_dry_run_digest_check", sql`${handoffHex64(t.archiveManifestDigest)} and ${handoffHex64(t.archiveCiphertextSha256)} and ${handoffHex64(t.targetStateDigest)} and ${handoffHex64(t.dryRunDigest)} and ${handoffIdentifier(t.sourceWorkspaceId)} and ${handoffVersion(t.archiveSchemaVersion)} and ${handoffReason(t.reasonCode)}`),
+  check("recovery_dry_run_outcome_check", sql`(${t.outcome} = 'accepted' and ${t.reasonCode} = 'verified' and ${t.nonceDigest} is not null and ${handoffHex64(t.nonceDigest)} and ${t.invariantDigest} is not null and ${handoffHex64(t.invariantDigest)} and ${t.expiresAt} > ${t.createdAt}) or (${t.outcome} = 'refused' and ${t.reasonCode} <> 'verified' and ${t.nonceDigest} is null and ${t.expiresAt} is null and (${t.invariantDigest} is null or ${handoffHex64(t.invariantDigest)}))`),
+]);
+
+export const recoveryRestoreLocks = sqliteTable("recovery_restore_locks", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  dryRunId: text("dry_run_id").notNull().references(() => recoveryDryRuns.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  nonceDigest: text("nonce_digest").notNull(),
+  acquiredAt: integer("acquired_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("recovery_restore_lock_dry_run_unique").on(t.dryRunId),
+  uniqueIndex("recovery_restore_lock_command_unique").on(t.commandId),
+  check("recovery_restore_lock_shape_check", sql`${handoffHex64(t.nonceDigest)} and ${t.acquiredAt} <= ${t.createdAt}`),
+]);
+
+export const recoveryRestoreResults = sqliteTable("recovery_restore_results", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  lockId: text("lock_id").notNull().references(() => recoveryRestoreLocks.id),
+  commandId: text("command_id").notNull().references(() => handoffRecoveryCommands.id),
+  outcome: text("outcome", { enum: ["applied", "rolled_back"] }).notNull(),
+  reasonCode: text("reason_code").notNull(),
+  restoredRecordCount: integer("restored_record_count").notNull(),
+  restoredObjectCount: integer("restored_object_count").notNull(),
+  resultDigest: text("result_digest").notNull(),
+  schedulesEnabled: integer("schedules_enabled", { mode: "boolean" }).notNull().default(false),
+  effectsEnabled: integer("effects_enabled", { mode: "boolean" }).notNull().default(false),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("recovery_restore_result_lock_unique").on(t.lockId),
+  uniqueIndex("recovery_restore_result_command_unique").on(t.commandId),
+  uniqueIndex("recovery_restore_result_applied_unique").on(t.workspaceId).where(sql`${t.outcome} = 'applied'`),
+  check("recovery_restore_result_disabled_check", sql`${t.schedulesEnabled} = 0 and ${t.effectsEnabled} = 0`),
+  check("recovery_restore_result_shape_check", sql`${t.outcome} in ('applied','rolled_back') and ${handoffReason(t.reasonCode)} and ${handoffHex64(t.resultDigest)} and ${t.restoredRecordCount} >= 0 and ${t.restoredObjectCount} >= 0 and (${t.outcome} = 'applied' or (${t.restoredRecordCount} = 0 and ${t.restoredObjectCount} = 0)) and ${t.completedAt} <= ${t.createdAt}`),
 ]);

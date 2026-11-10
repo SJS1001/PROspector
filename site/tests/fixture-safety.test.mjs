@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import react from "@vitejs/plugin-react";
 import { createServer } from "vite";
 
-const SHELL_TASKS = ["status", "knowledge", "market-discovery", "review-queue", "prospects", "outreach"];
+const SHELL_TASKS = ["status", "knowledge", "market-discovery", "review-queue", "prospects", "outreach", "exports"];
 
 /** Words that name a consequential act. A control whose label contains one of
  * these may never render enabled while its service is unproven. */

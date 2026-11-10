@@ -162,6 +162,20 @@
       "when": 1791000000000,
       "tag": "0022_prospect-transition-history",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1794290639875,
+      "tag": "0023_handoff_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794294920057,
+      "tag": "0024_domain-tombstone-scope",
+      "breakpoints": true
     }
   ]
 }

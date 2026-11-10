@@ -10,6 +10,7 @@ import {
 import { ContactsWorkspace } from "./prospects/contacts-workspace";
 import { OutreachWorkspace } from "./prospects/outreach-workspace";
 import { MorningBriefWorkspace } from "./morning-brief/morning-brief-workspace";
+import { HandoffRecoveryWorkspace } from "./exports/handoff-recovery-workspace";
 import {
   emptyOperatorContext,
   isOperatorContextEmpty,
@@ -197,6 +198,7 @@ export function ProspectorApp({
           )}
           {task === CONTACTS_TASK_ID && <ContactsWorkspace onAuthUnavailable={handleUnauthorized} />}
           {task === "outreach" && <OutreachWorkspace onAuthUnavailable={handleUnauthorized} />}
+          {task === "exports" && <HandoffRecoveryWorkspace onUnauthorized={handleUnauthorized} />}
         </div>
       </section>
     </main>

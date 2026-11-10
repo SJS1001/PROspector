@@ -81,6 +81,19 @@ The build is local and synthetic only. The lane map is in `docs/implementation-l
 - **Records.** Lanes do not edit `COMPLETION.md` or `COMPLETION_LEDGER.md`; the coordinator records receipts. Lanes create no summary files and claim no credit.
 - **Still blocked:** 06-10, 06-11, 06-12, 06-13 Tasks 1–2, 07-04, 07-07 (crypto choice and hosted target), 07-08, 07-10 Task 2.
 
+## Owner-delegated decisions, 2026-11-10
+
+The owner (SJS1001) instructed in a Claude Code session on 2026-11-10: "If it's something that needs my decision, I want you to provide the recommendation and implement it. I want you to run this autonomously so nothing gets in the way." The coordinator applied its written recommendations below. They are owner-delegated decisions, binding on later sessions, and the owner may reverse any of them. None grants plan credit or authorizes hosted action, live providers, sending or spend.
+
+1. **03-11 (local proof only).** The bounded no-effect lifecycle proof in `docs/implementation-lanes/2026-11-09-03-11-owner-review-summary.md` is accepted as local proof. Transport disposition: `remain-blocked`. 03-11 is not formally credited, because 03-09 and 03-10 hosted evidence does not exist.
+2. **D-1, 07-04 migration index.** 07-04 uses migration `0023`. It is local only; no hosted database applies it.
+3. **D-7, domain tombstone scope.** A follow-up migration `0024` narrows the enqueue/lease SQL and the 0010 and 0015–0017 trigger checks so a confirmed-domain tombstone blocks only that domain and its whole-label subdomains, and a Contact tombstone blocks only its own channel. Company and Organization tombstones stay workspace-wide.
+4. **D-4, archive crypto.** Archive keys are derived with scrypt (N = 2^17, r = 8, p = 1, 32-byte key, 16-byte random salt) from the runtime's built-in crypto, with no new package. Encryption is AES-256-GCM. If the runtime has no built-in scrypt, the lane stops and reports instead of installing a package. The hosted restore-target acceptance in 07-07 stays blocked.
+5. **D-3, D1 send states.** Deferred. `dispatching`, `sent` and `delivery_unknown` stay unreachable in D1.
+6. **Main integration.** After the local work is reviewed and the full gates pass, the working branches are merged into `main`. This is a branch merge only, not a deployment.
+
+These replace the matching lines in "Phase 6–7 local build rules": migrations `0023` (07-04) and `0024` (D-7) are now allowed, in that order; 07-07's crypto choice is made; 07-08 local work is allowed. Still blocked: 06-10, 06-11, 06-12, 06-13 Tasks 1–2, 07-07 hosted restore target, and 07-10 Task 2.
+
 ## Flags
 
 | Flag | Value | Meaning |

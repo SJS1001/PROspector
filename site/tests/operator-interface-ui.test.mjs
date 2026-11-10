@@ -13,7 +13,7 @@ const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
 const IDENTITY = "aaaaaaaabbbbbbbbccccccccdddddddd";
 const OTHER_IDENTITY = "1111111122222222333333334444444";
-const TASK_LABELS = ["Status", "Company & products", "Market discovery", "Morning Brief", "Review prospects", "Prospects", "Contacts", "Outreach"];
+const TASK_LABELS = ["Status", "Company & products", "Market discovery", "Morning Brief", "Review prospects", "Prospects", "Contacts", "Outreach", "Handoff & Recovery"];
 
 async function shell() {
   const vite = await createServer({ configFile: false, logLevel: "silent", plugins: [react()], server: { middlewareMode: true } });
@@ -39,7 +39,7 @@ function memoryStorage(initial = null) {
   };
 }
 
-test("D shows exactly the eight real operator tasks and no unsupported affordance", async () => {
+test("D shows exactly the nine real operator tasks and no unsupported affordance", async () => {
   const { vite, app } = await shell();
   try {
     const html = renderToStaticMarkup(React.createElement(app.ProspectorApp, { initialView: "status" }));
@@ -70,7 +70,7 @@ test("D separates stable route IDs from labels and rejects removed or Contacts r
   const { vite, module } = await routing();
   try {
     assert.deepEqual(module.OPERATOR_TASKS.map((task) => task.id), [
-      "status", "knowledge", "market-discovery", "morning-brief", "review-queue", "prospects", "contacts", "outreach",
+      "status", "knowledge", "market-discovery", "morning-brief", "review-queue", "prospects", "contacts", "outreach", "exports",
     ]);
     assert.deepEqual(module.OPERATOR_TASKS.map((task) => task.label), TASK_LABELS);
     for (const [parameter, id] of [
@@ -81,6 +81,7 @@ test("D separates stable route IDs from labels and rejects removed or Contacts r
       ["review-queue", "review-queue"],
       ["prospects", "prospects"],
       ["outreach", "outreach"],
+      ["exports", "exports"],
     ]) {
       assert.equal(module.shellTaskFromParam(parameter), id);
       assert.equal(module.shellTaskParam(id), parameter);
