@@ -1181,6 +1181,120 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
   });
 }
 
+/** The shape of a final-send contact recheck the governed enqueue accepts. */
+export type FinalSendRecheck = Readonly<{
+  boundary: string;
+  blocked: boolean;
+  eligibility: Readonly<{
+    state: string;
+    eligible: boolean;
+    reasonCodes: readonly string[];
+    points: readonly Readonly<{ observationId: string; state: string }>[];
+  }>;
+}>;
+
+/**
+ * The only contact-readiness authority the governed enqueue consults.
+ * Production composition passes `{ recheckForFinalSend }` from
+ * `contact-eligibility.ts` (always refusing, never edited or bypassed). This
+ * module keeps its single import so the outbox stays dependency-free; only
+ * tests inject a synthetic ContactReady port.
+ */
+export type FinalSendEligibilityPort = Readonly<{
+  recheckForFinalSend: (input: unknown) => FinalSendRecheck;
+}>;
+
+type FinalSendTargetRow = {
+  prospect_id: string;
+  contact_id: string;
+  configuration_id: string;
+  configuration_digest: string;
+  email_observation_id: string;
+};
+
+/**
+ * 06-06 Task 1: the governed enqueue. It asks the injected eligibility port for
+ * a current `final_send` recheck of the exact Contact and bound email point,
+ * then runs the single atomic D1 enqueue (approval consumption, outbox item and
+ * Pending event in one batch). The port sees identifiers only. A refusal, a
+ * malformed answer or a thrown error creates nothing. It never leases,
+ * dispatches or reaches a MailPort.
+ */
+export function createGovernedOutboxEnqueue(
+  database: D1Database,
+  scopeValue: Scope,
+  portsValue: Readonly<{ eligibility: FinalSendEligibilityPort }>,
+) {
+  const ports = exactDataRecord(portsValue, ["eligibility"]);
+  const eligibility = ports?.eligibility as FinalSendEligibilityPort | undefined;
+  if (!eligibility || typeof eligibility !== "object" || typeof eligibility.recheckForFinalSend !== "function") {
+    throw new TypeError("eligibility_port_required");
+  }
+  const recheck = eligibility.recheckForFinalSend.bind(eligibility);
+  const outbox = createD1OutboxRepository(database, scopeValue);
+  const scope = exactDataRecord(scopeValue, ["workspaceId", "ownerSubject"], ["now"]) as Scope;
+  const workspaceId = scope.workspaceId;
+  const ownerSubject = scope.ownerSubject;
+  const clock = scope.now ?? Date.now;
+
+  return Object.freeze({
+    async enqueueApprovedMessage(inputValue: unknown): Promise<EnqueueResult> {
+      const input = exactDataRecord(inputValue, ["messageApprovalId", "senderConnectionId"]);
+      if (!input || !id(input.messageApprovalId) || !id(input.senderConnectionId)) return blocked("invalid_request");
+      const now = clock();
+      if (!Number.isSafeInteger(now) || now <= 0) return blocked("current_authority_unavailable");
+      const target = await database.prepare(
+        `SELECT op.prospect_id,op.contact_id,pv.configuration_id,pv.configuration_digest,rda.email_observation_id
+         FROM outreach_message_approvals ma
+         JOIN outreach_message_versions mv ON mv.id=ma.message_version_id AND mv.workspace_id=ma.workspace_id
+         JOIN outreach_package_versions pv ON pv.id=mv.package_version_id AND pv.workspace_id=mv.workspace_id
+         JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
+         JOIN outreach_recipient_dispatch_authorities rda ON rda.message_version_id=mv.id AND rda.workspace_id=mv.workspace_id
+           AND rda.acknowledgement_digest=ma.acknowledgement_digest AND rda.contact_id=op.contact_id
+         JOIN workspaces workspace ON workspace.id=ma.workspace_id AND workspace.owner_subject=ma.owner_subject
+         WHERE ma.id=? AND ma.workspace_id=? AND ma.owner_subject=? LIMIT 1`,
+      ).bind(input.messageApprovalId, workspaceId, ownerSubject).first<FinalSendTargetRow>();
+      if (
+        !target || !id(target.prospect_id) || !id(target.contact_id) || !id(target.configuration_id)
+        || !digest(target.configuration_digest) || !id(target.email_observation_id)
+      ) return blocked("current_authority_unavailable");
+      const recheckInput = Object.freeze({
+        boundary: "final_send" as const,
+        target: Object.freeze({ workspaceId, prospectId: target.prospect_id, contactId: target.contact_id }),
+        configuration: Object.freeze({ id: target.configuration_id, digest: target.configuration_digest }),
+        observationId: target.email_observation_id,
+        now,
+      });
+      let answer: unknown;
+      try {
+        answer = await recheck(recheckInput);
+      } catch {
+        return blocked("current_authority_unavailable");
+      }
+      if (!finalSendReady(answer, target.email_observation_id)) return blocked("current_authority_unavailable");
+      return outbox.enqueueApprovedMessage({ messageApprovalId: input.messageApprovalId, senderConnectionId: input.senderConnectionId });
+    },
+  });
+}
+
+/** Fail-closed reading of a final-send recheck: every field must say ready. */
+function finalSendReady(value: unknown, observationId: string) {
+  const recheck = exactDataRecord(value, ["boundary", "blocked", "eligibility"], ["effectsBefore", "effectsAfter"]);
+  if (!recheck || recheck.boundary !== "final_send" || recheck.blocked !== false) return false;
+  const eligibility = exactDataRecord(recheck.eligibility, ["state", "eligible", "reasonCodes", "points"]);
+  if (!eligibility || eligibility.state !== "ContactReady" || eligibility.eligible !== true) return false;
+  if (!Array.isArray(eligibility.reasonCodes) || eligibility.reasonCodes.length !== 0) return false;
+  const points = eligibility.points;
+  if (!Array.isArray(points) || points.length === 0 || points.length > 100) return false;
+  let bound = false;
+  for (const value of points) {
+    const point = exactDataRecord(value, ["observationId", "state"], ["freshnessExpiresAt", "verificationClass"]);
+    if (!point || typeof point.observationId !== "string" || point.state !== "eligible") return false;
+    if (point.observationId === observationId) bound = true;
+  }
+  return bound;
+}
+
 const MAX_CANCELLATION_TARGETS = 64;
 
 type CancellationTarget = Readonly<{

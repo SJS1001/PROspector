@@ -7,9 +7,7 @@ import {
   type RecordSuppressionInput,
 } from "./outreach-repository";
 import {
-  domainDigest,
   emailDigest,
-  emailDomainSuffixes,
   normalizeExactEmail,
   subjectDigest,
   unsubscribeTokenDigest,
@@ -35,7 +33,6 @@ type LiveItem = Readonly<{
   profileId: string;
   contactIdentityDigest: string;
   recipientDigests: readonly string[];
-  recipientDomainDigests: readonly string[];
   unparseableRecipient: boolean;
 }>;
 
@@ -398,12 +395,10 @@ async function liveItems(database: D1Database, scope: OutreachRepositoryScope): 
   for (const row of rows.results ?? []) {
     const addresses = recipientAddresses(row.snapshot_json, ["to", "cc", "bcc"]);
     const recipientDigests = new Set<string>(validDigest(row.recipient_address_digest) ? [row.recipient_address_digest] : []);
-    const recipientDomainDigests = new Set<string>();
     let unparseableRecipient = addresses === null;
     for (const address of addresses ?? []) {
       try {
         recipientDigests.add(await emailDigest(address));
-        for (const domain of emailDomainSuffixes(address)) recipientDomainDigests.add(await domainDigest(domain));
       } catch {
         unparseableRecipient = true;
       }
@@ -413,7 +408,6 @@ async function liveItems(database: D1Database, scope: OutreachRepositoryScope): 
       profileId: row.profile_id,
       contactIdentityDigest: row.contact_identity_digest,
       recipientDigests: Object.freeze([...recipientDigests]),
-      recipientDomainDigests: Object.freeze([...recipientDomainDigests]),
       unparseableRecipient,
     }));
   }
@@ -421,23 +415,28 @@ async function liveItems(database: D1Database, scope: OutreachRepositoryScope): 
 }
 
 /**
- * Which live email work a suppression subject reaches. Company and
- * Organization subjects reach every item, matching the existing enqueue and
- * lease rechecks, which treat them as workspace-wide.
+ * Which live email work a suppression subject reaches. The rule is: never less
+ * than what the outbox can no longer lease. Enqueue, lease and the 0015-0017
+ * pre-call/attempt triggers treat every Company, Organization and
+ * confirmed-domain tombstone (and its stop event) as workspace-wide, and do not
+ * consult the channel for those kinds or for Contact. A narrower cancellation
+ * would leave items `pending` that no lease can ever claim, because tombstones
+ * are append-only. The whole-label subdomain reach of a confirmed domain
+ * (owner decision D-6) is enforced by the resolver; the D1 rechecks cannot
+ * resolve a domain digest, and narrowing them needs a migration (deferred).
+ * Only an E.164 phone subject never reaches email work.
  */
 async function suppressionMatcher(subject: DurableSubject): Promise<Matcher> {
-  if (subject.channel === "phone") return () => false;
   const reach = new Set([subject.digest, ...subject.aliasDigests]);
   switch (subject.kind) {
     case "company":
     case "organization":
+    case "confirmed_email_domain":
       return () => true;
     case "contact":
       return (item) => reach.has(item.contactIdentityDigest);
     case "exact_email":
       return (item) => item.unparseableRecipient || item.recipientDigests.some((digest) => reach.has(digest));
-    case "confirmed_email_domain":
-      return (item) => item.unparseableRecipient || item.recipientDomainDigests.some((digest) => reach.has(digest));
     default:
       return () => false;
   }
