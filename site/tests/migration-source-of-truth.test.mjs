@@ -60,10 +60,10 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   CANONICAL_MIGRATION_FILENAMES.forEach((filename, index) => {
     assert.equal(filename.slice(0, 4), String(index).padStart(4, "0"), `${filename} must sit at journal index ${index}`);
   });
-  // Regression: the chain reaches the transition-history migration rather
-  // than stopping at the runner-ingestion lease.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 23);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0022_prospect-transition-history.sql");
+  // Regression: the chain reaches the Phase 7 handoff and recovery evidence
+  // migration rather than stopping at the transition-history ledger.
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 24);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0023_handoff_recovery.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {
@@ -72,6 +72,19 @@ test("the canonical chain is exactly the set of checked SQL files", async () => 
     .map((entry) => entry.name)
     .sort();
   assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].sort(), onDisk, "no orphan SQL file and no journal entry without a file");
+});
+
+test("0023 snapshot advances 0022 and records the handoff and recovery evidence tables", async () => {
+  const predecessor = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0022_snapshot.json"), "utf8"));
+  const current = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0023_snapshot.json"), "utf8"));
+  assert.notEqual(current.id, predecessor.id, "a migration snapshot must not duplicate its predecessor identity");
+  assert.equal(current.prevId, predecessor.id, "0023 must chain directly from 0022");
+  assert.deepEqual(
+    current.tables.recovery_restore_results.indexes.recovery_restore_result_applied_unique,
+    { name: "recovery_restore_result_applied_unique", columns: ["workspace_id"], isUnique: true, where: '"recovery_restore_results"."outcome" = \'applied\'' },
+  );
+  assert.deepEqual(current.tables.handoff_weekly_report_entries.indexes.handoff_weekly_entry_prospect_unique.columns, ["report_id", "prospect_id"]);
+  assert.equal(current.tables.prospect_transition_events.name, "prospect_transition_events");
 });
 
 test("0022 snapshot advances 0021 and records the prospect transition ledger", async () => {

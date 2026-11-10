@@ -51,6 +51,15 @@ test("the inventory classifies exactly the objects the checked migration chain c
     "prospect_transition_immutable_update",
     "prospect_transition_immutable_delete",
   ]) assert.ok(CANONICAL_TRIGGERS.includes(name), `${name} must be classified`);
+  for (const name of [
+    "handoff_recovery_commands", "handoff_schedule_observations", "handoff_export_snapshots",
+    "handoff_export_artifacts", "recovery_archives", "recovery_dry_runs", "recovery_restore_results",
+  ]) assert.equal(classifyTable(name), "effect", `${name} is 0023 evidence and must stay empty in a zero-effect run`);
+  for (const name of [
+    "handoff_export_snapshot_fence_insert",
+    "recovery_restore_lock_exclusive_insert",
+    "recovery_restore_result_schedule_fence",
+  ]) assert.ok(CANONICAL_TRIGGERS.includes(name), `${name} must be classified`);
 });
 
 test("every effect table introduced by migrations 0010-0019 is verified, not ignored", async () => {
