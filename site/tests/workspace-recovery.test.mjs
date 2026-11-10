@@ -819,6 +819,36 @@ test("replay keeps stable IDs, append-only history, hashes, digests, and tombsto
   } finally { await vite.close(); }
 });
 
+// 07-10: restore replay is deterministic. The same archive restored into two
+// separate clean compatible targets yields identical rows, objects, and effect
+// fence; each target restores once, and every restored effect stays off.
+test("the same archive restored into two clean targets yields identical rows, objects, and effect fence", async () => {
+  const { vite, archive, verifier, restore } = await loadRecovery();
+  try {
+    const { bytes } = await createArchive(archive);
+    const restoreInto = async () => {
+      const target = restoreHarness(bytes);
+      const dry = await verifier.dryRunRestore({ archiveRef: "archive-1", passphrase: PASSPHRASE, ports: target.ports });
+      assert.equal(dry.status, "verified");
+      const result = await restore.applyRestore({ archiveRef: "archive-1", dryRunId: dry.dryRunId, nonce: dry.nonce, passphrase: PASSPHRASE, ports: target.ports });
+      assert.equal(result.status, "restored");
+      const replay = await restore.applyRestore({ archiveRef: "archive-1", dryRunId: dry.dryRunId, nonce: dry.nonce, passphrase: PASSPHRASE, ports: target.ports });
+      assert.equal(replay.status, "already_restored");
+      assertNoEffectCalls(target.fake.counters);
+      return { result, restored: await target.target.readRestored(), counters: { ...target.fake.counters } };
+    };
+    const left = await restoreInto();
+    const right = await restoreInto();
+    assert.deepEqual(right.restored.rows, left.restored.rows);
+    assert.deepEqual(right.restored.objects.map(({ digest, bytes: data }) => [digest, Buffer.from(data).toString("base64")]), left.restored.objects.map(({ digest, bytes: data }) => [digest, Buffer.from(data).toString("base64")]));
+    assert.deepEqual(right.restored.effects, left.restored.effects);
+    assert.deepEqual(left.restored.effects, { scheduler: "disabled", runner: "disabled", outbox: "paused", provider: "disabled", delivery: "disabled" });
+    assert.equal(right.result.archiveDigest, left.result.archiveDigest);
+    assert.deepEqual([right.result.recordCount, right.result.objectCount], [left.result.recordCount, left.result.objectCount]);
+    assert.deepEqual(right.counters, left.counters, "each target took the same writes exactly once");
+  } finally { await vite.close(); }
+});
+
 test("a lock or nonce race and a partial write roll back to the clean target with a minimized outcome", async () => {
   const { vite, archive, verifier, restore } = await loadRecovery();
   try {

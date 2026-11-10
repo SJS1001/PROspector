@@ -840,3 +840,70 @@ test("the service performs no provider, delivery, or network call and the source
   assert.equal(/\b(?:tel|mailto):/iu.test(source), false);
   assert.equal(/\bfetch\s*\(|process\.env|env\./u.test(source), false);
 });
+
+// 07-10: the owner download path on fake ports. After a version is stored, a
+// later suppression or eligibility reversal, an expiry, or altered bytes each
+// block the download; the stored bytes are never rebuilt and nothing is stored.
+function accessStore(ports) {
+  const ends = [];
+  const refusals = [];
+  const find = ({ workspaceId, artifactId }) => ports.stored.find((entry) => entry.stored.workspaceId === workspaceId && entry.stored.artifactId === artifactId);
+  return {
+    ends, refusals,
+    store: {
+      ...ports.store,
+      async readArtifact(request) { return find(request)?.stored ?? null; },
+      async readBytes(request) { const entry = find(request); return entry ? Uint8Array.from(entry.bytes) : null; },
+      async recordDeliveryEnd(request) { ends.push({ ...request }); },
+      async recordAccessRefusal(request) { refusals.push({ ...request }); },
+    },
+  };
+}
+
+test("the download path blocks a later suppression or eligibility reversal, an expiry, and altered bytes, and never rebuilds the stored version", async () => {
+  await withService(async (service) => {
+    const candidates = [candidate(1), candidate(2), candidate(3, {}, { contact_value: "person0003@late-block.example.test" })];
+    const ports = fakePorts({ candidates });
+    const access = accessStore(ports);
+    const live = { ...ports, store: access.store };
+    const created = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: live });
+    assert.equal(created.status, "materialized");
+    const download = (patch = {}) => service.accessCrmHandoffArtifact({ workspaceId: SERVICE_WORKSPACE, artifactId: created.artifactId, ports: { ...live, ...patch } });
+    const authorized = await download();
+    assert.equal(authorized.status, "authorized");
+    assert.equal(sha256(authorized.bytes), created.csvSha256);
+    const storedBytes = Buffer.from(ports.stored[0].bytes).toString("base64");
+
+    // A domain tombstone added after materialization covers contact 3.
+    const lateSuppression = {
+      async blockingScopes(input) {
+        const blocked = input.email?.toLowerCase().endsWith("@late-block.example.test") ?? false;
+        return { blocked, scopes: blocked ? ["confirmed_email_domain"] : [], complete: true, providerCalls: 0 };
+      },
+    };
+    const suppressed = await download({ suppression: lateSuppression });
+    assert.deepEqual({ status: suppressed.status, reason: suppressed.reason }, { status: "blocked", reason: "eligibility_changed" });
+    // Contact 2 is no longer ContactReady.
+    const reversed = await download({ eligibility: { async recheck(request) { return request.contactId === "synthetic-contact-0002" ? { contactReady: false, reasonCode: "stale_verification" } : { contactReady: true }; } } });
+    assert.equal(reversed.reason, "eligibility_changed");
+    // A day later the version has expired; the expiry is recorded and nothing is returned.
+    const expired = await download({ clock: { nowIso: () => "2026-11-10T12:00:00.001Z" } });
+    assert.equal(expired.reason, "delivery_expired");
+    assert.deepEqual(access.ends.map((entry) => entry.eventKind), ["expired"]);
+    assert.equal(ports.stored.length, 1);
+    assert.equal(Buffer.from(ports.stored[0].bytes).toString("base64"), storedBytes, "no refusal rebuilt or edited the stored bytes");
+    // Altered stored bytes are an integrity failure, not a silent rebuild.
+    ports.stored[0] = { ...ports.stored[0], bytes: Uint8Array.from(ports.stored[0].bytes, (byte, index) => (index === 0 ? byte ^ 1 : byte)) };
+    const altered = await download();
+    assert.equal(altered.reason, "artifact_integrity");
+    for (const result of [suppressed, reversed, expired, altered]) {
+      assert.equal(result.status, "blocked");
+      assert.equal("bytes" in result, false);
+      assert.equal(result.providerCalls, 0);
+    }
+    assert.deepEqual(access.refusals.map((entry) => entry.reasonCode), ["eligibility_changed", "eligibility_changed"]);
+    assert.equal(ports.calls.store, 1, "no refused download stored anything");
+    assert.equal(ports.calls.delivery, 0);
+    assert.equal(ports.calls.provider, 0);
+  });
+});

@@ -457,6 +457,19 @@ const LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9 .,'–—/()-]{0,126}[A-Za-z0-9.)])?$/u
 // Fail-closed identity fence: an accepted identifier or label may never carry
 // an address separator or a phone-length digit run.
 const RAW_IDENTITY = /@|\d{7}/u;
+// The 0023 repository names a restore result `rrr_` plus the first 32 hex
+// characters of a SHA-256 operation digest. That exact server-derived shape is
+// a digest slice, never a contact value, so a decimal run inside it is not a
+// phone number. Only the restore reference accepts it; every other identifier
+// keeps the fence.
+const DERIVED_RESTORE_RESULT_ID = /^rrr_[a-f0-9]{32}$/u;
+// Every row id the brief reads from Phase 4 and the hierarchy (workspaces,
+// companies, products, plays, profiles, schedules, authority commands,
+// activations, transitions) is written by uuid v7(), and about one real v7 id
+// in nine carries seven decimal digits in a row. That exact canonical,
+// lowercase, server-generated shape is a row key, never a contact value, so it
+// is exempt from the phone-length fence. Any other shape keeps the fence.
+const SERVER_UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 class WeeklySectionUnavailable extends Error {
   constructor(
@@ -788,7 +801,7 @@ function normalizeWorkspaceOrigin(value: unknown, asOf: string): WorkspaceOrigin
   }
   return deepFreeze({
     kind: "restored",
-    restoreRef: normalizeReference(input.restoreRef),
+    restoreRef: normalizeRestoreReference(input.restoreRef),
     restoredAt,
     freshUpstreamActivation,
   });
@@ -1191,8 +1204,17 @@ function normalizeReference(value: unknown): SafeReference {
   return deepFreeze({ id: stableId(input.id), digest: digest(input.digest) });
 }
 
+function normalizeRestoreReference(value: unknown): SafeReference {
+  const input = exactRecord(value, ["id", "digest"]);
+  if (typeof input.id === "string" && DERIVED_RESTORE_RESULT_ID.test(input.id)) {
+    return deepFreeze({ id: input.id, digest: digest(input.digest) });
+  }
+  return normalizeReference(input);
+}
+
 function stableId(value: unknown) {
   if (typeof value !== "string" || !ID.test(value)) malformed();
+  if (SERVER_UUID_V7.test(value)) return value;
   if (RAW_IDENTITY.test(value)) rawIdentity();
   return value;
 }

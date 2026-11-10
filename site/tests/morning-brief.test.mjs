@@ -815,6 +815,71 @@ test("identifier-shaped raw contact values are rejected rather than reported", a
   }
 });
 
+// Phase 4 and the hierarchy write every row id with uuid v7(); about one in
+// nine real v7 ids carries seven decimal digits in a row. A server-derived v7
+// id is never a contact value, so the phone-length fence must not make a real
+// brief unavailable. Every id below is v7-shaped and carries such a run.
+test("server-derived UUIDv7 row ids with a seven-digit run are accepted for every id the brief takes from real rows", async () => {
+  const uuid = (tail) => `019a6b2c-1c3d-7e4f-8a9b-${tail}`;
+  const ids = {
+    "workspace-main": uuid("100000000001"),
+    "company-main": uuid("100000000002"),
+    "product-main": uuid("100000000003"),
+    "play-main": uuid("100000000004"),
+    "profile-operating": uuid("100000000005"),
+    "profile-greenfield": uuid("100000000006"),
+    "schedule-observation-1": uuid("1234567abcde"),
+    "phase4-readiness-1": uuid("abcde1234567"),
+    "handoff-snapshot-1": uuid("4165551234ab"),
+    "suppression-fence-1": uuid("a4165551234b"),
+  };
+  const swap = (value) => JSON.parse(JSON.stringify(value), (_key, entry) => (
+    typeof entry === "string"
+      ? Object.entries(ids).reduce((text, [from, to]) => (text === from ? to : text), entry)
+      : entry
+  ));
+  const activationId = uuid("201911234567");
+
+  const original = await compose({}, { transform: swap });
+  assert.equal(original.result.status, "available", JSON.stringify(original.result.reasonCodes));
+  assert.equal(original.result.scope.workspaceId, ids["workspace-main"]);
+  assert.equal(original.result.scope.profileId, ids["profile-operating"]);
+  assert.equal(original.result.schedule.readinessRef.id, ids["phase4-readiness-1"]);
+
+  const activated = await compose({
+    workspaceOrigin: {
+      kind: "restored",
+      restoreRef: reference("restore-1"),
+      restoredAt: "2026-03-15T12:00:00.000Z",
+      freshUpstreamActivation: {
+        activationRef: reference(activationId),
+        activatedAt: "2026-03-15T18:00:00.000Z",
+      },
+    },
+  }, { transform: swap });
+  assert.equal(activated.result.status, "available", JSON.stringify(activated.result.reasonCodes));
+  assert.equal(activated.result.schedule.status, "current");
+  assert.equal(activated.result.schedule.reportedState, "enabled");
+  assert.equal(activated.result.workspace.freshUpstreamActivationRef.id, activationId);
+
+  // Only the exact canonical lowercase v7 shape is exempt; a near miss with
+  // the same digit run still meets the fence.
+  for (const id of [
+    "019A6B2C-1C3D-7E4F-8A9B-1234567ABCDE",
+    "019a6b2c-1c3d-4e4f-8a9b-1234567abcde",
+    "019a6b2c-1c3d-7e4f-ca9b-1234567abcde",
+    "019a6b2c1c3d7e4f8a9b1234567abcde",
+    "019a6b2c-1c3d-7e4f-8a9b-1234567abcde0",
+    "x019a6b2c-1c3d-7e4f-8a9b-1234567abcde",
+    "observation-4165551234",
+  ]) {
+    const near = await compose({
+      scheduleObservation: scheduleObservation({ observationRef: reference(id) }),
+    });
+    assert.equal(near.result.status, "unavailable", id);
+  }
+});
+
 test("the module composes no port, provider, effect, or preparation dependency", async () => {
   const source = await (await import("node:fs/promises"))
     .readFile(new URL("../domain/morning-brief.ts", import.meta.url), "utf8");
