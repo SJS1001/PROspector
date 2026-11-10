@@ -60,10 +60,10 @@ test("the canonical chain is the checked journal, in journal order, with no gaps
   CANONICAL_MIGRATION_FILENAMES.forEach((filename, index) => {
     assert.equal(filename.slice(0, 4), String(index).padStart(4, "0"), `${filename} must sit at journal index ${index}`);
   });
-  // Regression: the chain reaches the Phase 7 handoff and recovery evidence
-  // migration rather than stopping at the transition-history ledger.
-  assert.ok(CANONICAL_MIGRATION_COUNT >= 24);
-  assert.equal(CANONICAL_MIGRATION_HEAD, "0023_handoff_recovery.sql");
+  // Regression: the chain reaches the D-7 domain tombstone scope migration
+  // rather than stopping at the Phase 7 handoff and recovery evidence.
+  assert.ok(CANONICAL_MIGRATION_COUNT >= 25);
+  assert.equal(CANONICAL_MIGRATION_HEAD, "0024_domain-tombstone-scope.sql");
 });
 
 test("the canonical chain is exactly the set of checked SQL files", async () => {
@@ -72,6 +72,40 @@ test("the canonical chain is exactly the set of checked SQL files", async () => 
     .map((entry) => entry.name)
     .sort();
   assert.deepEqual([...CANONICAL_MIGRATION_FILENAMES].sort(), onDisk, "no orphan SQL file and no journal entry without a file");
+});
+
+test("0024 snapshot advances 0023 and adds only the recorded contact point domain scope", async () => {
+  const predecessor = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0023_snapshot.json"), "utf8"));
+  const current = JSON.parse(await readFile(resolve(MIGRATION_DIRECTORY, "meta/0024_snapshot.json"), "utf8"));
+  assert.notEqual(current.id, predecessor.id, "a migration snapshot must not duplicate its predecessor identity");
+  assert.equal(current.prevId, predecessor.id, "0024 must chain directly from 0023");
+  const added = Object.keys(current.tables).filter((name) => !Object.hasOwn(predecessor.tables, name));
+  assert.deepEqual(added, ["outreach_contact_point_domains"]);
+  for (const name of Object.keys(predecessor.tables)) {
+    assert.deepEqual(current.tables[name], predecessor.tables[name], `${name} is unchanged by 0024`);
+  }
+  assert.deepEqual(current.tables.outreach_contact_point_domains.indexes.outreach_contact_point_domain_point_unique.columns, ["workspace_id", "contact_point_digest"]);
+});
+
+test("0024 recreates the five suppression-recheck triggers changing only the D-7 scope clauses", async () => {
+  const narrowing = await import("./helpers/d7-domain-scope-triggers.mjs");
+  const expected = await narrowing.expectedNarrowedTriggers();
+  const statements = await narrowing.migrationStatements("0024_domain-tombstone-scope.sql");
+  const names = Object.keys(narrowing.D7_NARROWED_TRIGGER_SOURCES);
+  assert.equal(names.length, 5);
+  for (const name of names) {
+    const drop = statements.indexOf(`DROP TRIGGER ${name};`);
+    assert.ok(drop >= 0, `${name} is dropped`);
+    assert.equal(statements[drop + 1], expected[name], `${name} is recreated with every other condition identical`);
+    assert.equal(narrowing.triggerStatement(statements, name), expected[name]);
+    assert.doesNotMatch(expected[name], /subject_kind IN \('company','organization','confirmed_email_domain'\)|subject_kind IN \('organization','confirmed_email_domain'\)/u);
+  }
+  // No later migration redefines a narrowed trigger.
+  for (const filename of CANONICAL_MIGRATION_FILENAMES.filter((file) => file.slice(0, 4) > "0024")) {
+    for (const name of names) assert.doesNotMatch(await readFile(resolve(MIGRATION_DIRECTORY, filename), "utf8"), new RegExp(`TRIGGER ${name}\\b`, "u"), `${filename} must not redefine ${name}`);
+  }
+  const dropped = statements.filter((statement) => statement.startsWith("DROP ")).map((statement) => statement.replace(/;$/u, ""));
+  assert.deepEqual(dropped, names.map((name) => `DROP TRIGGER ${name}`), "0024 drops nothing else");
 });
 
 test("0023 snapshot advances 0022 and records the handoff and recovery evidence tables", async () => {

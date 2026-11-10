@@ -15,6 +15,8 @@
  * passphrase, credential, token, raw archive, or raw contact value is stored.
  */
 
+import { WEEKLY_OUTCOME_MAX_PROSPECTS, WEEKLY_OUTCOME_MAX_TOTAL_EVENTS } from "./weekly-outcome";
+
 export type HandoffRecoveryScope = Readonly<{
   workspaceId: string;
   ownerSubject: string;
@@ -47,6 +49,37 @@ export type FirstExportReadyTransition = Readonly<{
 }>;
 
 export type CurrentProspectState = Readonly<{ prospectId: string; sequence: number; state: string; occurredAt: number }>;
+
+/** One immutable 0022 transition row, copied verbatim; the 07-05 reducer validates it. */
+export type ProfileTransitionEvent = Readonly<{
+  prospectId: string;
+  eventId: string;
+  sequence: number;
+  eventKind: string;
+  priorState: string | null;
+  newState: string;
+  occurredAt: number;
+  operationDigest: string;
+}>;
+
+/**
+ * Every Prospect of one Profile that exists by `throughAt`, and every
+ * transition of theirs that occurred by then, ordered by Prospect and sequence.
+ * A limit flag means the read stopped one row past its bound.
+ */
+export type ProfileTransitionHistory = Readonly<{
+  prospectIds: readonly string[];
+  events: readonly ProfileTransitionEvent[];
+  prospectLimitExceeded: boolean;
+  eventLimitExceeded: boolean;
+}>;
+
+export type RestoreOrigin = Readonly<{ restoreResultId: string; resultDigest: string; completedAt: number }>;
+
+/** A restore lock acquired by an instant whose result had not completed by then. */
+export type OpenRestoreLock = Readonly<{ lockId: string; acquiredAt: number }>;
+
+export type ProfileActivationReference = Readonly<{ activationId: string; operationDigest: string; createdAt: number }>;
 
 export type SuppressionFence = Readonly<{
   tombstoneCount: number;
@@ -179,6 +212,33 @@ export type RecordRefusalInput = Readonly<{
   reasonCode: string;
 }>;
 
+export type ReadExportArtifactSelector =
+  | Readonly<{ by: "idempotencyKey"; idempotencyKey: string }>
+  | Readonly<{ by: "objectKey"; objectKey: string }>
+  | Readonly<{ by: "contentSha256"; contentSha256: string }>
+  | Readonly<{ by: "latest" }>;
+
+export type ExportArtifactView = Readonly<{
+  id: string;
+  snapshotId: string;
+  schemaVersion: string;
+  mediaType: "text/csv";
+  objectKey: string;
+  contentSha256: string;
+  byteLength: number;
+  manifest: Readonly<Record<string, unknown>>;
+  manifestDigest: string;
+  rowCount: number;
+  prospectCount: number;
+  createdAt: number;
+  /** The idempotency key of the command that recorded this artifact. */
+  idempotencyKey: string;
+  delivery: Readonly<{
+    issued: Readonly<{ occurredAt: number; expiresAt: number }> | null;
+    terminal: Readonly<{ eventKind: "expired" | "failed"; reasonCode: string; occurredAt: number }> | null;
+  }>;
+}>;
+
 export class HandoffRecoveryConflictError extends Error {
   constructor(reason = "conflict") {
     super(`handoff_recovery_conflict:${reason}`);
@@ -236,6 +296,88 @@ type WritePlan = Readonly<{
 }>;
 
 /**
+ * The read-only half of the seam, for projections such as the 07-05 Morning
+ * Brief. Every method is admitted and issues only `SELECT`; the object carries
+ * no record, lock, or restore method, so a caller holding it cannot write.
+ */
+export function createD1HandoffRecoveryReader(database: D1Database, scopeValue: HandoffRecoveryScope) {
+  const scope = captureScope(scopeValue);
+  const admitted = () => requireAdmission(database, scope);
+  return Object.freeze({
+    readProfileTransitionHistory: async (value: Readonly<{ profileId: string; throughAt: number }>): Promise<ProfileTransitionHistory> => {
+      const input = snapshotCommand(value, ["profileId", "throughAt"]);
+      if (!validId(input.profileId) || !positive(input.throughAt)) throw conflict("invalid_history_window");
+      await admitted();
+      const prospects = await all<{ prospect_id: string }>(database.prepare(
+        `SELECT prospect.id prospect_id FROM profile_prospects prospect
+         WHERE prospect.workspace_id=? AND prospect.profile_id=?
+           AND (prospect.created_at<=? OR EXISTS (SELECT 1 FROM prospect_transition_events event
+             WHERE event.workspace_id=prospect.workspace_id AND event.prospect_id=prospect.id AND event.occurred_at<=?))
+         ORDER BY prospect.id LIMIT ?`,
+      ).bind(scope.workspaceId, input.profileId, input.throughAt, input.throughAt, WEEKLY_OUTCOME_MAX_PROSPECTS + 1));
+      const events = await all<{ prospect_id: string; id: string; sequence: number; event_kind: string; prior_state: string | null; new_state: string; occurred_at: number; operation_digest: string }>(database.prepare(
+        `SELECT event.prospect_id,event.id,event.sequence,event.event_kind,event.prior_state,event.new_state,event.occurred_at,event.operation_digest
+         FROM prospect_transition_events event
+         JOIN profile_prospects prospect ON prospect.id=event.prospect_id AND prospect.workspace_id=event.workspace_id
+         WHERE event.workspace_id=? AND prospect.profile_id=? AND event.occurred_at<=?
+         ORDER BY event.prospect_id,event.sequence LIMIT ?`,
+      ).bind(scope.workspaceId, input.profileId, input.throughAt, WEEKLY_OUTCOME_MAX_TOTAL_EVENTS + 1));
+      return Object.freeze({
+        prospectIds: Object.freeze(prospects.map((row) => row.prospect_id)),
+        events: Object.freeze(events.map((row) => Object.freeze({
+          prospectId: row.prospect_id, eventId: row.id, sequence: Number(row.sequence), eventKind: row.event_kind,
+          priorState: row.prior_state, newState: row.new_state, occurredAt: Number(row.occurred_at), operationDigest: row.operation_digest,
+        }))),
+        prospectLimitExceeded: prospects.length > WEEKLY_OUTCOME_MAX_PROSPECTS,
+        eventLimitExceeded: events.length > WEEKLY_OUTCOME_MAX_TOTAL_EVENTS,
+      });
+    },
+
+    /** The applied restore completed by `throughAt`, if any. 0023 admits at most one per workspace. */
+    readRestoreOrigin: async (value: Readonly<{ throughAt: number }>): Promise<RestoreOrigin | null> => {
+      const input = snapshotCommand(value, ["throughAt"]);
+      if (!positive(input.throughAt)) throw conflict("invalid_history_window");
+      await admitted();
+      const row = await database.prepare(
+        `SELECT id,result_digest,completed_at FROM recovery_restore_results
+         WHERE workspace_id=? AND outcome='applied' AND completed_at<=? ORDER BY completed_at DESC,id DESC LIMIT 1`,
+      ).bind(scope.workspaceId, input.throughAt).first<{ id: string; result_digest: string; completed_at: number }>();
+      return row ? Object.freeze({ restoreResultId: row.id, resultDigest: row.result_digest, completedAt: Number(row.completed_at) }) : null;
+    },
+
+    /**
+     * The restore lock open at `throughAt`: acquired by then, with no result
+     * completed by then. 0023 admits at most one open lock per workspace.
+     */
+    readOpenRestoreLock: async (value: Readonly<{ throughAt: number }>): Promise<OpenRestoreLock | null> => {
+      const input = snapshotCommand(value, ["throughAt"]);
+      if (!positive(input.throughAt)) throw conflict("invalid_history_window");
+      await admitted();
+      const row = await database.prepare(
+        `SELECT lock.id,lock.acquired_at FROM recovery_restore_locks lock
+         WHERE lock.workspace_id=? AND lock.acquired_at<=?
+           AND NOT EXISTS (SELECT 1 FROM recovery_restore_results result
+             WHERE result.lock_id=lock.id AND result.workspace_id=lock.workspace_id AND result.completed_at<=?)
+         ORDER BY lock.acquired_at DESC,lock.id DESC LIMIT 1`,
+      ).bind(scope.workspaceId, input.throughAt, input.throughAt).first<{ id: string; acquired_at: number }>();
+      return row ? Object.freeze({ lockId: row.id, acquiredAt: Number(row.acquired_at) }) : null;
+    },
+
+    /** The latest Phase 4 profile activation strictly after `afterAt` and by `throughAt`. */
+    readLatestProfileActivation: async (value: Readonly<{ profileId: string; afterAt: number; throughAt: number }>): Promise<ProfileActivationReference | null> => {
+      const input = snapshotCommand(value, ["profileId", "afterAt", "throughAt"]);
+      if (!validId(input.profileId) || !nonNegative(input.afterAt) || !positive(input.throughAt) || input.throughAt <= input.afterAt) throw conflict("invalid_history_window");
+      await admitted();
+      const row = await database.prepare(
+        `SELECT id,operation_digest,created_at FROM profile_configuration_activations
+         WHERE workspace_id=? AND profile_id=? AND created_at>? AND created_at<=? ORDER BY created_at DESC,id DESC LIMIT 1`,
+      ).bind(scope.workspaceId, input.profileId, input.afterAt, input.throughAt).first<{ id: string; operation_digest: string; created_at: number }>();
+      return row ? Object.freeze({ activationId: row.id, operationDigest: row.operation_digest, createdAt: Number(row.created_at) }) : null;
+    },
+  });
+}
+
+/**
  * Creates the uncomposed Phase 7 evidence seam. The scope must come from
  * trusted server admission; it is re-checked against `workspaces` on every
  * call, so a stale or forged owner/workspace pair is refused before any read.
@@ -252,6 +394,8 @@ export function createD1HandoffRecoveryRepository(database: D1Database, scopeVal
   const write = (plan: WritePlan) => execute(database, scope, plan, now());
 
   const repository = {
+    ...createD1HandoffRecoveryReader(database, scopeValue),
+
     readUpstreamScheduleState: async (profileId: string): Promise<UpstreamScheduleState | null> => {
       if (!validId(profileId)) throw conflict("invalid_profile");
       await admitted();
@@ -514,6 +658,63 @@ export function createD1HandoffRecoveryRepository(database: D1Database, scopeVal
           id, scope.workspaceId, input.snapshotId, commandId, input.schemaVersion, input.mediaType, input.objectKey, input.contentSha256,
           input.byteLength, manifestJson, manifestDigest, Number(snapshot.contact_row_count), Number(snapshot.prospect_count), now(),
         )],
+      });
+    },
+
+    /**
+     * Zero-write read of one recorded export artifact with its delivery
+     * events. The stored manifest is re-digested on read, so a manifest that no
+     * longer matches its recorded digest is refused rather than returned.
+     */
+    readExportArtifact: async (value: ReadExportArtifactSelector): Promise<ExportArtifactView | null> => {
+      const input = snapshotData(value) as ReadExportArtifactSelector;
+      if (!plainObject(input)) throw conflict("invalid_artifact_selector");
+      let filter: string;
+      let bindings: unknown[];
+      if (input.by === "idempotencyKey" && exactKeys(input, ["by", "idempotencyKey"]) && validId(input.idempotencyKey)) {
+        filter = "AND command.idempotency_key=? AND command.command_kind='export_artifact.record'";
+        bindings = [input.idempotencyKey];
+      } else if (input.by === "objectKey" && exactKeys(input, ["by", "objectKey"]) && OBJECT_KEY.test(String(input.objectKey))) {
+        filter = "AND artifact.object_key=?";
+        bindings = [input.objectKey];
+      } else if (input.by === "contentSha256" && exactKeys(input, ["by", "contentSha256"]) && validDigest(input.contentSha256)) {
+        filter = "AND artifact.content_sha256=?";
+        bindings = [input.contentSha256];
+      } else if (input.by === "latest" && exactKeys(input, ["by"])) {
+        filter = "";
+        bindings = [];
+      } else throw conflict("invalid_artifact_selector");
+      await admitted();
+      const row = await database.prepare(
+        `SELECT artifact.id,artifact.snapshot_id,artifact.schema_version,artifact.media_type,artifact.object_key,artifact.content_sha256,
+                artifact.byte_length,artifact.manifest_json,artifact.manifest_digest,artifact.row_count,artifact.prospect_count,artifact.created_at,
+                command.idempotency_key
+         FROM handoff_export_artifacts artifact
+         JOIN handoff_recovery_commands command ON command.id=artifact.command_id AND command.workspace_id=artifact.workspace_id
+         WHERE artifact.workspace_id=? ${filter}
+         ORDER BY artifact.created_at DESC,artifact.rowid DESC LIMIT 1`,
+      ).bind(scope.workspaceId, ...bindings).first<{
+        id: string; snapshot_id: string; schema_version: string; media_type: string; object_key: string; content_sha256: string;
+        byte_length: number; manifest_json: string; manifest_digest: string; row_count: number; prospect_count: number; created_at: number;
+        idempotency_key: string;
+      }>();
+      if (!row) return null;
+      if (row.media_type !== "text/csv" || (await digest(row.manifest_json)) !== row.manifest_digest) throw conflict("artifact_integrity");
+      const events = await all<{ event_kind: string; expires_at: number | null; reason_code: string; occurred_at: number }>(database.prepare(
+        "SELECT event_kind,expires_at,reason_code,occurred_at FROM handoff_delivery_events WHERE workspace_id=? AND subject_kind='export_artifact' AND subject_id=?",
+      ).bind(scope.workspaceId, row.id));
+      const issued = events.find((event) => event.event_kind === "issued");
+      const terminal = events.find((event) => event.event_kind === "expired" || event.event_kind === "failed");
+      return Object.freeze({
+        id: row.id, snapshotId: row.snapshot_id, schemaVersion: row.schema_version, mediaType: "text/csv" as const,
+        objectKey: row.object_key, contentSha256: row.content_sha256, byteLength: Number(row.byte_length),
+        manifest: snapshotData(JSON.parse(row.manifest_json)) as Readonly<Record<string, unknown>>, manifestDigest: row.manifest_digest,
+        rowCount: Number(row.row_count), prospectCount: Number(row.prospect_count), createdAt: Number(row.created_at),
+        idempotencyKey: row.idempotency_key,
+        delivery: Object.freeze({
+          issued: issued ? Object.freeze({ occurredAt: Number(issued.occurred_at), expiresAt: Number(issued.expires_at) }) : null,
+          terminal: terminal ? Object.freeze({ eventKind: terminal.event_kind as "expired" | "failed", reasonCode: terminal.reason_code, occurredAt: Number(terminal.occurred_at) }) : null,
+        }),
       });
     },
 

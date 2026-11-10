@@ -56,7 +56,10 @@ test("the durable discovery intent drives canonical enrichment settlement and Co
     assert.equal(await countRows(fixture.database, "phase_activation_gates"), 0);
     assert.equal(await triggerSql(fixture.database), fixture.gateTriggerSql, "the local seam must never mutate the immutable gate trigger");
     for (const table of ["outreach_messages", "outreach_outbox_items", "outreach_sender_connections", "prospecting_schedules"]) assert.equal(await countRows(fixture.database, table), 0);
-    assert.deepEqual((await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%export%' OR name LIKE '%archive%')").all()).results, []);
+    // 0023 adds the Phase 7 handoff and recovery tables; this seam must leave them empty.
+    const exportTables = (await fixture.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%export%' OR name LIKE '%archive%') ORDER BY name").all()).results.map((row) => row.name);
+    assert.deepEqual(exportTables, ["handoff_export_artifacts", "handoff_export_snapshot_rows", "handoff_export_snapshots", "recovery_archives"]);
+    for (const table of exportTables) assert.equal(await countRows(fixture.database, table), 0, `${table} must stay empty`);
   } finally { await fixture.dispose(); }
 });
 

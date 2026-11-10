@@ -60,6 +60,14 @@ test("the inventory classifies exactly the objects the checked migration chain c
     "recovery_restore_lock_exclusive_insert",
     "recovery_restore_result_schedule_fence",
   ]) assert.ok(CANONICAL_TRIGGERS.includes(name), `${name} must be classified`);
+  // D-7 (0024): a recorded domain scope is written only by a recipient
+  // dispatch authority, so it is an effect table that stays empty too.
+  assert.equal(classifyTable("outreach_contact_point_domains"), "effect");
+  for (const name of [
+    "outreach_contact_point_domain_scope_guard",
+    "immutable_outreach_contact_point_domains_update",
+    "immutable_outreach_contact_point_domains_delete",
+  ]) assert.ok(CANONICAL_TRIGGERS.includes(name), `${name} must be classified`);
 });
 
 test("every effect table introduced by migrations 0010-0019 is verified, not ignored", async () => {
