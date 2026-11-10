@@ -63,6 +63,10 @@ The merged tree is identical to the tested combined tree `817d5d1`. From `site/`
 
 Evidence is local and synthetic only. Production eligibility still refuses, and no provider call, migration or D1 send state was added. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
 
+Session `claude-ee67a286-2026-11-09`, Phase 6–7 Wave 3 Lane G (local build, owner-authorized). PR #194 (owner Outreach handler, Outreach workspace and public unsubscribe, 06-08 local; tested head `f83304e`) merged into `claude/owner-local-completion-20261109` as `47ae08a`. The merged tree differs from the tested head only by the ledger-only PR #186. From `site/`: `tests/outreach-ui.test.mjs` gave 23 tests, 20 pass, 0 fail, 3 todo; the outreach-dispatch, manual-call, suppression, outreach-artifacts, outreach-persistence, client-command-keys and contacts-ui suites gave 117 tests, 116 pass, 0 fail, 1 todo; the boundary, reachability, migration and production-bundle guards gave 30 pass after `npm run build`; `npm run lint` exited 0; `npm run test:browser:operator-journey` gave 2 pass. Open decision D-8 (manual-call number tombstone) is addressed by an owner-confirmed number checked against the stored digest. The full `npm test` was not run for this lane.
+
+Evidence is local and synthetic only. Production eligibility still refuses and the phone action stays disabled. No requirement status changed. Formal acceptance stays 0/17 and plan credit stays 26/74.
+
 The source SHA below is the code inspected before this ledger file existed. It is not a hash of this file.
 
 <!-- completion-ledger:v1 -->
