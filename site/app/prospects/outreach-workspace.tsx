@@ -122,7 +122,7 @@ export function OutreachWorkspace({ onAuthUnavailable }: { onAuthUnavailable?: (
       if (result.status === 404) { onAuthUnavailable?.(); return; }
       if (!result.projection) { setProjection(BLOCKED_OUTREACH_PROJECTION); setNotice({ kind: "error", text: "Outreach status could not be loaded. Everything stays blocked. Reload to try again." }); return; }
       setProjection(result.projection);
-      setNotice(after ?? { kind: "ready", text: "Outreach status loaded. Provider calls: 0." });
+      setNotice(after ?? { kind: "ready", text: "Outreach status loaded. No outside service was contacted (0 provider calls)." });
     } catch {
       setProjection(BLOCKED_OUTREACH_PROJECTION);
       setNotice({ kind: "error", text: "Outreach status could not be loaded. Everything stays blocked. Reload to try again." });
@@ -202,9 +202,9 @@ export function OutreachWorkspace({ onAuthUnavailable }: { onAuthUnavailable?: (
 
   return <div className="outreach-workspace">
     <header className="page-heading">
-      <p className="eyebrow">Outreach</p>
+      <p className="eyebrow">OUTREACH · OWNER-ONLY</p>
       <h1>Outreach</h1>
-      <p>Review packages and messages, record suppressions and call outcomes. PROspector does not send email or place calls from this screen. Provider calls: 0.</p>
+      <p>Review what would be sent, keep the do not contact list, and record the calls you make yourself. PROspector does not send email or place calls from this screen, and no outside service is contacted (0 provider calls).</p>
     </header>
     <p role="status" aria-live="polite" className={`outreach-notice outreach-notice-${notice.kind}`}>{notice.text}</p>
     {notice.kind === "csrf" && <p><button type="button" onClick={() => window.location.reload()}>Reload page</button></p>}
