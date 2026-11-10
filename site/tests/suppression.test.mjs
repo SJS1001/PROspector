@@ -118,6 +118,126 @@ test("every suppression scope persists and blocks only its matching channels", a
   }
 });
 
+test("blockingScopes reports every scope that blocks a subject and always agrees with isBlocked", async () => {
+  const fixture = await createLightFixture("suppression-blocking-scopes");
+  try {
+    const { suppression, stopRules } = await loadLight(fixture, LIGHT_WORKSPACE);
+    const resolver = suppression.createSuppressionResolver(fixture.database, lightScope(LIGHT_WORKSPACE));
+    const record = (subject, channel, key) => stopRules.recordSuppressionStop({
+      subject, channel, reason: channel === "phone" ? "do_not_call" : "owner_request", sourceEventDigest: digestOf(key), aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: key,
+    });
+    for (const [subject, channel, key] of [
+      [{ kind: "exact_email", email: "blocked.exact@scope.example" }, "email", "bs-exact"],
+      [{ kind: "confirmed_email_domain", domain: "blocked-domain.example", ownerConfirmed: true }, "email", "bs-domain"],
+      [{ kind: "e164_phone", phone: "+14165550100" }, "phone", "bs-phone"],
+      [{ kind: "contact", identityDigest: "1".repeat(64) }, "all", "bs-contact"],
+      [{ kind: "organization", identityDigest: "2".repeat(64) }, "email", "bs-organization"],
+    ]) assert.equal((await record(subject, channel, key)).kind, "suppressed", key);
+
+    const contact = { identityDigest: "1".repeat(64), aliasDigests: [] };
+    const organization = { identityDigest: "2".repeat(64), aliasDigests: [] };
+    const cases = [
+      [{ channel: "email", email: "fresh@scope.example" }, []],
+      [{ channel: "email", email: "blocked.exact@scope.example" }, ["exact_email"]],
+      [{ channel: "email", email: "anyone@blocked-domain.example" }, ["confirmed_email_domain"]],
+      [{ channel: "email", email: "anyone@mail.blocked-domain.example" }, ["confirmed_email_domain"]],
+      [{ channel: "email", email: "fresh@scope.example", contact }, ["contact"]],
+      [{ channel: "email", email: "fresh@scope.example", organization }, ["organization"]],
+      [{ channel: "phone", phone: "+14165550199", organization }, []],
+      [{ channel: "phone", phone: "+1 416 555 0100" }, ["e164_phone"]],
+      [{ channel: "phone", phone: "+14165550100", contact }, ["contact", "e164_phone"]],
+      [{ channel: "email", email: "blocked.exact@scope.example", contact, organization }, ["organization", "contact", "exact_email"]],
+    ];
+    for (const [input, scopes] of cases) {
+      const result = await resolver.blockingScopes(input);
+      assert.deepEqual(result, { blocked: scopes.length > 0, scopes, complete: true, providerCalls: 0 }, JSON.stringify(input));
+      assert.equal(Object.isFrozen(result) && Object.isFrozen(result.scopes), true);
+      assert.equal(result.blocked, (await resolver.isBlocked(input)).blocked, `agrees with isBlocked: ${JSON.stringify(input)}`);
+    }
+
+    // An unresolvable subject fails closed exactly like isBlocked, with no scope claimed.
+    for (const input of [{ channel: "email", email: "unparseable" }, { channel: "fax" }, { channel: "email", extra: 1 }, null]) {
+      assert.deepEqual(await resolver.blockingScopes(input), { blocked: true, scopes: [], complete: false, providerCalls: 0 });
+      assert.equal((await resolver.isBlocked(input)).blocked, true);
+    }
+
+    // A company tombstone is reported alongside every narrower scope, so the narrower labels stay derivable.
+    assert.equal((await stopRules.recordSuppressionStop({
+      subject: { kind: "company", workspaceId: LIGHT_WORKSPACE.id }, channel: "phone", reason: "do_not_call",
+      sourceEventDigest: digestOf("bs-company"), aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: "bs-company",
+    })).kind, "suppressed");
+    assert.deepEqual((await resolver.blockingScopes({ channel: "phone", phone: "+14165550100", contact })).scopes, ["company", "contact", "e164_phone"]);
+    assert.deepEqual((await resolver.blockingScopes({ channel: "phone", phone: "+14165550123" })).scopes, ["company"]);
+    assert.deepEqual((await resolver.blockingScopes({ channel: "email", email: "fresh@scope.example" })).scopes, [], "a phone-channel company tombstone does not block email");
+    assert.equal((await resolver.isBlocked({ channel: "email", email: "fresh@scope.example" })).blocked, false);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("blockingScopes fails closed on a lookup failure and keeps the scopes it did resolve", async () => {
+  const fixture = await createLightFixture("suppression-blocking-scopes-failure");
+  try {
+    const { suppression, stopRules } = await loadLight(fixture, LIGHT_WORKSPACE);
+    assert.equal((await stopRules.recordSuppressionStop({
+      subject: { kind: "contact", identityDigest: "1".repeat(64) }, channel: "all", reason: "owner_request",
+      sourceEventDigest: digestOf("bsf-contact"), aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: "bsf-contact",
+    })).kind, "suppressed");
+    const broken = suppression.createSuppressionResolver(failingDatabase(fixture.database, () => true), lightScope(LIGHT_WORKSPACE));
+    assert.deepEqual(await broken.blockingScopes({ channel: "email", email: "fresh@scope.example" }), { blocked: true, scopes: [], complete: false, providerCalls: 0 });
+    assert.equal((await broken.isBlocked({ channel: "email", email: "fresh@scope.example" })).blocked, true);
+    // Only the exact-email lookup fails: the contact scope is still reported, and the result is incomplete.
+    let lookups = 0;
+    const partial = suppression.createSuppressionResolver(failingDatabase(fixture.database, (sql) => sql.includes("WITH RECURSIVE") && ++lookups === 3), lightScope(LIGHT_WORKSPACE));
+    assert.deepEqual(
+      await partial.blockingScopes({ channel: "email", email: "fresh@scope.example", contact: { identityDigest: "1".repeat(64), aliasDigests: [] } }),
+      { blocked: true, scopes: ["contact"], complete: false, providerCalls: 0 },
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a trailing dot on a mailbox or confirmed domain never escapes an exact or domain block", async () => {
+  const fixture = await createLightFixture("suppression-trailing-dot");
+  try {
+    const { suppression, stopRules } = await loadLight(fixture, LIGHT_WORKSPACE);
+    assert.equal(suppression.normalizeConfirmedDomain("Example.COM."), "example.com");
+    assert.equal(suppression.normalizeConfirmedDomain("example.com.."), null, "only one root dot is accepted");
+    assert.deepEqual(suppression.emailDomainSuffixes("x@Mail.Example.com."), ["mail.example.com", "example.com"]);
+    assert.equal(suppression.domainBlocksEmail("example.com.", "x@mail.example.com"), true);
+    assert.equal(suppression.domainBlocksEmail("example.com", "x@mail.example.com."), true);
+    assert.equal(suppression.canonicalMailbox("X@Example.com."), "x@example.com");
+    assert.equal(suppression.canonicalMailbox("x@example.com"), "x@example.com");
+    assert.equal(suppression.canonicalMailbox("not-an-email"), null);
+
+    const resolver = suppression.createSuppressionResolver(fixture.database, lightScope(LIGHT_WORKSPACE));
+    const record = (subject, key) => stopRules.recordSuppressionStop({
+      subject, channel: "email", reason: "owner_request", sourceEventDigest: digestOf(key), aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: key,
+    });
+    assert.equal((await record({ kind: "confirmed_email_domain", domain: "dotted-domain.example.", ownerConfirmed: true }, "dot-domain")).kind, "suppressed");
+    assert.equal((await record({ kind: "exact_email", email: "plain@exact.example" }, "dot-exact-plain")).kind, "suppressed");
+    assert.equal((await record({ kind: "exact_email", email: "dotted@exact.example." }, "dot-exact-dotted")).kind, "suppressed");
+
+    const blocked = async (email) => {
+      const scoped = await resolver.blockingScopes({ channel: "email", email });
+      assert.equal(scoped.blocked, (await resolver.isBlocked({ channel: "email", email })).blocked, email);
+      return scoped;
+    };
+    for (const email of ["x@dotted-domain.example", "x@dotted-domain.example.", "x@sub.dotted-domain.example.", "X@DOTTED-DOMAIN.EXAMPLE."]) {
+      assert.deepEqual((await blocked(email)).scopes, ["confirmed_email_domain"], email);
+    }
+    for (const email of ["plain@exact.example.", "PLAIN@exact.example.", "dotted@exact.example", "dotted@exact.example."]) {
+      assert.deepEqual((await blocked(email)).scopes, ["exact_email"], email);
+    }
+    assert.equal((await blocked("other@exact.example.")).blocked, false, "a trailing dot never widens an exact block");
+    assert.equal((await blocked("x@dotted-domain.example..")).blocked, true, "a malformed root fails closed");
+    assert.equal((await blocked("x@dotted-domain.example..")).complete, false);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("lineage across merge, split, delete, import, export and restore keeps every suppression reach", async () => {
   const fixture = await createLightFixture("suppression-lineage");
   try {
@@ -204,7 +324,7 @@ test("suppression is append-only and has no temporary exception or deletion path
     const { suppression, stopRules } = await loadLight(fixture, LIGHT_WORKSPACE);
     const resolver = suppression.createSuppressionResolver(fixture.database, lightScope(LIGHT_WORKSPACE));
     assert.deepEqual(Object.keys(stopRules).sort(), ["applyInboundStop", "applyLifecycleStop", "recordSuppressionStop"]);
-    assert.deepEqual(Object.keys(resolver).sort(), ["exportLedger", "isBlocked", "restoreLedger", "screenImport"]);
+    assert.deepEqual(Object.keys(resolver).sort(), ["blockingScopes", "exportLedger", "isBlocked", "restoreLedger", "screenImport"]);
     for (const extra of [{ exceptionUntil: OUTREACH_NOW + 1 }, { temporary: true }, { expiresAt: OUTREACH_NOW + 1 }]) {
       const result = await stopRules.recordSuppressionStop({
         subject: { kind: "exact_email", email: "x@example.invalid" }, channel: "email", reason: "owner_request",
@@ -585,6 +705,22 @@ function digestOf(label) {
   let hex = "";
   for (const byte of new TextEncoder().encode(label)) hex += byte.toString(16).padStart(2, "0");
   return hex.padEnd(64, "0").slice(0, 64);
+}
+
+/** Throws on `first()` for every statement whose SQL the predicate selects (checked once, at prepare time). */
+function failingDatabase(database, shouldFail) {
+  const wrap = (statement, fail) => Object.freeze({
+    bind: (...values) => wrap(statement.bind(...values), fail),
+    first: (...args) => (fail ? Promise.reject(new Error("synthetic lookup failure")) : statement.first(...args)),
+    all: (...args) => (fail ? Promise.reject(new Error("synthetic lookup failure")) : statement.all(...args)),
+    run: (...args) => statement.run(...args),
+    raw: (...args) => statement.raw(...args),
+  });
+  return Object.freeze({
+    prepare: (sql) => wrap(database.prepare(sql), shouldFail(sql)),
+    batch: (statements) => database.batch(statements),
+    exec: () => { throw new Error("unexpected exec"); },
+  });
 }
 
 /** Records batch statement order and reads without changing D1 semantics. */
