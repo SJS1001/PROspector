@@ -14,6 +14,7 @@ const PUBLIC_ROUTES = Object.freeze({
   "contacts/person-discovery/route.ts": ["GET", "POST"],
   "contacts/route.ts": ["GET", "POST"],
   "discovery/route.ts": ["GET", "POST"],
+  "handoff-recovery/route.ts": ["GET", "POST"],
   "interview/route.ts": ["GET", "POST"],
   "knowledge/route.ts": ["GET", "POST"],
   "morning-brief/route.ts": ["GET"],
@@ -108,6 +109,7 @@ test("protected dependency failures return only bounded public errors", async ()
     ["contacts", [503, "contacts_unavailable"]],
     ["person discovery", [503, "person_discovery_unavailable"]],
     ["discovery", [500, "server_error"]],
+    ["handoff recovery", [503, "handoff_recovery_unavailable"]],
     ["interview", [500, "server_error"]],
     ["knowledge", [500, "server_error"]],
     ["morning brief", [503, "morning_brief_unavailable"]],
@@ -136,12 +138,12 @@ test("protected dependency failures return only bounded public errors", async ()
 
 async function loadHandlers(vite) {
   const load = (name) => vite.ssrLoadModule(new URL(`../domain/${name}.ts`, import.meta.url).pathname);
-  const [capability, contacts, discovery, interview, knowledge, morningBrief, outreach, personDiscovery, prospecting, runner] = await Promise.all([
-    load("capability-handler"), load("contacts-handler"), load("discovery-handler"),
+  const [capability, contacts, discovery, handoffRecovery, interview, knowledge, morningBrief, outreach, personDiscovery, prospecting, runner] = await Promise.all([
+    load("capability-handler"), load("contacts-handler"), load("discovery-handler"), load("handoff-recovery-handler"),
     load("interview-handler"), load("knowledge-handler"), load("morning-brief-handler"), load("outreach-handler"),
     load("person-discovery-handler"), load("prospecting-handler"), load("runner-runtime"),
   ]);
-  return { capability, contacts, discovery, interview, knowledge, morningBrief, outreach, personDiscovery, prospecting, runner };
+  return { capability, contacts, discovery, handoffRecovery, interview, knowledge, morningBrief, outreach, personDiscovery, prospecting, runner };
 }
 
 function ownerEntryPoints(handlers) {
@@ -169,6 +171,12 @@ function ownerEntryPoints(handlers) {
       read: (dependencies) => handlers.discovery.handleDiscoveryGet(readRequest("/api/discovery"), dependencies),
       mutate: (dependencies) => handlers.discovery.handleDiscoveryPost(mutationRequest("/api/discovery", "discovery-mutation", { action: "read_current_state" }), dependencies),
       spoof: (dependencies) => handlers.discovery.handleDiscoveryPost(spoofRequest("/api/discovery", "discovery-mutation"), dependencies),
+    },
+    {
+      name: "handoff recovery",
+      read: (dependencies) => handlers.handoffRecovery.handleHandoffRecoveryGet(readRequest("/api/handoff-recovery"), dependencies),
+      mutate: (dependencies) => handlers.handoffRecovery.handleHandoffRecoveryPost(mutationRequest("/api/handoff-recovery", "handoff-recovery-mutation", { action: "create_archive", passphrase: "tenant-isolation-passphrase" }), dependencies),
+      spoof: (dependencies) => handlers.handoffRecovery.handleHandoffRecoveryPost(spoofRequest("/api/handoff-recovery", "handoff-recovery-mutation"), dependencies),
     },
     {
       name: "interview",
