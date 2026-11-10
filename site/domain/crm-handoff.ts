@@ -1,5 +1,5 @@
 /**
- * CSV CRM handoff service shell (Plan 07-06, partial).
+ * CSV CRM handoff service (Plan 07-06, local only).
  *
  * Composes the existing pure pieces -- the CRM CSV codec, the export-artifact
  * boundary, and the delivery decision -- behind injected ports:
@@ -12,7 +12,9 @@
  *   suppression  Lane B's `createSuppressionResolver(...).blockingScopes`,
  *                which fails closed on any input or lookup error and reports
  *                every scope that blocks, so exclusions carry an accurate label
- *   store        immutable versioned artifact record (fake in tests)
+ *   store        immutable versioned artifact record. The D1 store in
+ *                `crm-handoff-d1-store.ts` persists it in the 0023 tables via
+ *                `handoff-recovery-repository.ts`; tests may use a fake.
  *
  * A row is emitted only for a candidate that is in the supplied workspace, not
  * deleted or alias-merged, in the Export-ready state, carrying an accepted
@@ -22,10 +24,21 @@
  * candidate additionally yields a non-contactable manifest entry that never
  * carries the contact value.
  *
- * Not implemented here: D1 persistence of the version (needs Plan 07-04), an
- * ExportDeliveryPort invocation, download authorization, routes, UI and any
- * provider. This shell has no network, provider, or environment access and
- * reports `providerCalls: 0` everywhere. It grants no plan credit.
+ * When the store exposes a suppression fence, the fence is read before the
+ * plan and handed to the store, so a tombstone committed after the plan read
+ * refuses the write (`snapshot_stale`) instead of persisting a stale row.
+ *
+ * `accessCrmHandoffArtifact` is the owner download path: it re-reads the
+ * stored artifact through the store (the D1 store re-admits the owner and
+ * workspace on every call), blocks an expired or failed delivery and records
+ * it, re-plans current eligibility and refuses (with an audit) when it has
+ * changed, and returns only the exact stored bytes after re-checking their
+ * checksum. It never regenerates bytes.
+ *
+ * Not implemented here: routes, UI, an ExportDeliveryPort invocation, any CRM
+ * sync, and any provider. This module has no network, provider, or
+ * environment access and reports `providerCalls: 0` everywhere. It grants no
+ * plan credit.
  */
 
 import {
@@ -55,6 +68,19 @@ const ELIGIBILITY_REASONS = ["stale_verification", "package_revoked", "high_risk
 
 export type CrmHandoffVerificationClass = typeof ACCEPTED_VERIFICATION[number];
 
+/**
+ * The authoritative D1 lineage a contactable row is persisted under: its
+ * Prospect, Contact, selected contact-point digest, and the approved Package
+ * version/approval. Supplied by the source; a D1 store refuses a row without it.
+ */
+export type CrmHandoffAuthorityRef = Readonly<{
+  prospectId: string;
+  contactId: string;
+  contactPointDigest: string;
+  packageVersionId: string;
+  packageApprovalId: string;
+}>;
+
 export type CrmHandoffCandidate = Readonly<{
   workspaceId: string;
   /** Current Prospect state; only "Export-ready" can yield a row. */
@@ -69,6 +95,8 @@ export type CrmHandoffCandidate = Readonly<{
   organizationLineage?: IdentityLineage;
   /** Opaque input handed to the eligibility port. */
   eligibilityInput: unknown;
+  /** Optional D1 lineage for persistence; malformed lineage excludes the row. */
+  authorityRef?: CrmHandoffAuthorityRef;
   cells: CrmCsvRow;
 }>;
 
@@ -106,6 +134,13 @@ export type CrmHandoffStoreRecord = Readonly<{
   stored: StoredCrmHandoffArtifact;
   bytes: Uint8Array;
   manifest: CrmHandoffExportArtifact["manifest"];
+  configurationDigest: string;
+  packageDigests: readonly string[];
+  /** Fence read before the plan, or null when the store exposes no fence. */
+  suppressionFenceCount: number | null;
+  rows: readonly Readonly<{ prospectId: string; contactId: string; contactPointId: string; authorityRef: CrmHandoffAuthorityRef | null }>[];
+  /** Safe identity references and reason codes only; never a contact value. */
+  exclusions: readonly CrmHandoffExclusion[];
 }>;
 
 export type CrmHandoffStorePort = Readonly<{
@@ -113,7 +148,29 @@ export type CrmHandoffStorePort = Readonly<{
   lookup(request: Readonly<{ workspaceId: string; idempotencyKey: string }>): Promise<StoredCrmHandoffArtifact | null>;
   /** Must refuse (throw) to overwrite an existing version. */
   putImmutable(record: CrmHandoffStoreRecord): Promise<void>;
+  /** Optional transactional fence: the current suppression tombstone count. */
+  readSuppressionFenceCount?(): Promise<number>;
 }>;
+
+type ArtifactRef = Readonly<{ workspaceId: string; artifactId: string }>;
+
+/** A store that also serves the owner download path. */
+export type CrmHandoffAccessStorePort = CrmHandoffStorePort & Readonly<{
+  readArtifact(request: ArtifactRef): Promise<StoredCrmHandoffArtifact | null>;
+  readBytes(request: ArtifactRef): Promise<Uint8Array | null>;
+  recordDeliveryEnd(request: ArtifactRef & Readonly<{ eventKind: "expired" | "failed"; reasonCode: string }>): Promise<void>;
+  recordAccessRefusal(request: ArtifactRef & Readonly<{ reasonCode: string }>): Promise<void>;
+}>;
+
+/** Thrown by a store whose fence no longer matches the one read before the plan. */
+export class CrmHandoffStoreError extends Error {
+  readonly code: "crm_handoff_store_fence_stale" | "crm_handoff_store_invalid" | "crm_handoff_store_unavailable";
+  constructor(code: CrmHandoffStoreError["code"]) {
+    super(code);
+    this.name = "CrmHandoffStoreError";
+    this.code = code;
+  }
+}
 
 export type CrmHandoffPorts = Readonly<{
   source: Readonly<{ read(workspaceId: string): Promise<CrmHandoffSourceRead> }>;
@@ -158,6 +215,7 @@ export type CrmHandoffPlanRow = Readonly<{
   verificationClass: CrmHandoffVerificationClass;
   contactValue: string;
   packageDigest: string;
+  authorityRef: CrmHandoffAuthorityRef | null;
   rowDigest: string;
   cells: CrmCsvRow;
 }>;
@@ -181,6 +239,29 @@ export type CrmHandoffBlockedReason =
   | "idempotency_conflict"
   | "artifact_rejected"
   | "store_failed";
+
+export type CrmHandoffAccessBlockedReason =
+  | "invalid_request"
+  | "artifact_unavailable"
+  | "delivery_expired"
+  | "delivery_failed"
+  | "authority_unavailable"
+  | "eligibility_changed"
+  | "artifact_integrity";
+
+export type CrmHandoffAccessResult =
+  | Readonly<{ status: "blocked"; reason: CrmHandoffAccessBlockedReason; providerCalls: 0 }>
+  | Readonly<{
+    status: "authorized";
+    artifactId: string;
+    version: number;
+    csvSha256: string;
+    manifestSha256: string;
+    mediaType: "text/csv";
+    byteLength: number;
+    bytes: Uint8Array;
+    providerCalls: 0;
+  }>;
 
 export type CrmHandoffResult =
   | Readonly<{ status: "blocked"; reason: CrmHandoffBlockedReason; detail?: string; providerCalls: 0 }>
@@ -298,6 +379,7 @@ export async function planCrmHandoff(value: {
       verificationClass: candidate.verificationClass as CrmHandoffVerificationClass,
       contactValue: candidate.cells.contact_value as string,
       packageDigest: candidate.packageDigest,
+      authorityRef: candidate.authorityRef ? Object.freeze({ ...candidate.authorityRef }) : null,
       rowDigest: await sha256(JSON.stringify(CRM_CSV_FIELD_IDS.map((field) => candidate.cells[field]))),
       cells: Object.freeze({ ...candidate.cells }),
     }));
@@ -310,7 +392,7 @@ export async function planCrmHandoff(value: {
   const snapshotDigest = await sha256(JSON.stringify({
     workspaceId,
     authority,
-    rows: rows.map((row) => row.rowDigest),
+    rows: rows.map((row) => [row.rowDigest, row.authorityRef]),
     exclusions: exclusions.map((entry) => [entry.prospectId, entry.contactId, entry.contactPointId, entry.reason]),
   }));
 
@@ -348,8 +430,16 @@ export async function materializeCrmHandoff(value: {
     return blocked("invalid_request");
   }
 
+  // The fence is read before the plan, so any tombstone the plan could have
+  // missed makes the store refuse the write.
+  let suppressionFenceCount: number | null = null;
   let plan: CrmHandoffPlan;
   try {
+    if (typeof ports.store.readSuppressionFenceCount === "function") {
+      const fence = await ports.store.readSuppressionFenceCount();
+      if (!Number.isSafeInteger(fence) || fence < 0) throw new Error("fence");
+      suppressionFenceCount = fence;
+    }
     plan = await planCrmHandoff({ workspaceId, ports });
   } catch {
     return blocked("authority_unavailable");
@@ -456,9 +546,20 @@ export async function materializeCrmHandoff(value: {
     deliveryExpiresAt: new Date(Date.parse(nowIso) + CRM_HANDOFF_DELIVERY_TTL_MS).toISOString(),
   });
   try {
-    await ports.store.putImmutable(Object.freeze({ stored, bytes: artifact.bytes, manifest: artifact.manifest }));
-  } catch {
-    return blocked("store_failed");
+    await ports.store.putImmutable(Object.freeze({
+      stored,
+      bytes: artifact.bytes,
+      manifest: artifact.manifest,
+      configurationDigest: plan.authority.configurationDigest,
+      packageDigests: Object.freeze([...new Set(plan.rows.map((row) => row.packageDigest))].sort()),
+      suppressionFenceCount,
+      rows: Object.freeze(plan.rows.map((row) => Object.freeze({
+        prospectId: row.prospectId, contactId: row.contactId, contactPointId: row.contactPointId, authorityRef: row.authorityRef,
+      }))),
+      exclusions: plan.exclusions,
+    }));
+  } catch (error) {
+    return blocked((error as { code?: unknown })?.code === "crm_handoff_store_fence_stale" ? "snapshot_stale" : "store_failed");
   }
   return Object.freeze({
     status: "materialized" as const,
@@ -471,7 +572,103 @@ export async function materializeCrmHandoff(value: {
   });
 }
 
+/**
+ * Owner download path. Order: read the stored artifact (the D1 store re-admits
+ * owner and workspace), block an expired or failed delivery (recording the
+ * expiry once), re-plan current eligibility and refuse with an audit if it
+ * changed, then return the exact stored bytes after re-checking the checksum.
+ * A mismatch marks the delivery failed. Bytes are never regenerated.
+ */
+export async function accessCrmHandoffArtifact(value: {
+  workspaceId: string;
+  artifactId: string;
+  ports: CrmHandoffPorts;
+}): Promise<CrmHandoffAccessResult> {
+  let workspaceId: string;
+  let ports: CrmHandoffPorts;
+  let store: CrmHandoffAccessStorePort;
+  try {
+    ({ workspaceId, ports } = validateInput(value));
+    store = ports.store as CrmHandoffAccessStorePort;
+    if (
+      typeof value.artifactId !== "string" || !ID.test(value.artifactId)
+      || typeof store.readArtifact !== "function" || typeof store.readBytes !== "function"
+      || typeof store.recordDeliveryEnd !== "function" || typeof store.recordAccessRefusal !== "function"
+    ) throw new Error("access");
+  } catch {
+    return accessBlocked("invalid_request");
+  }
+  const ref = Object.freeze({ workspaceId, artifactId: value.artifactId });
+
+  let stored: StoredCrmHandoffArtifact | null;
+  try {
+    stored = await store.readArtifact(ref);
+  } catch {
+    return accessBlocked("artifact_unavailable");
+  }
+  if (!stored || stored.workspaceId !== workspaceId || stored.artifactId !== value.artifactId) return accessBlocked("artifact_unavailable");
+
+  const nowIso = ports.clock?.nowIso() ?? new Date().toISOString();
+  const window = decideCrmHandoffDelivery({
+    now: nowIso,
+    workspaceId,
+    idempotencyKey: stored.idempotencyKey,
+    snapshotDigest: stored.snapshotDigest,
+    exportDefinitionDigest: stored.exportDefinitionDigest,
+    operation: "access",
+    existing: stored,
+  });
+  if (window.outcome !== "access_current") {
+    const reason = window.reason === "delivery_failed" ? "delivery_failed" : window.reason === "delivery_expired" ? "delivery_expired" : "artifact_unavailable";
+    // Audit is best effort: the access stays blocked whether or not it records.
+    if (reason === "delivery_expired" && stored.deliveryState === "available") {
+      await store.recordDeliveryEnd({ ...ref, eventKind: "expired", reasonCode: "delivery_expired" }).catch(() => undefined);
+    } else {
+      await store.recordAccessRefusal({ ...ref, reasonCode: reason }).catch(() => undefined);
+    }
+    return accessBlocked(reason);
+  }
+
+  let plan: CrmHandoffPlan;
+  try {
+    plan = await planCrmHandoff({ workspaceId, ports });
+  } catch {
+    return accessBlocked("authority_unavailable");
+  }
+  if (plan.snapshotDigest !== stored.snapshotDigest || plan.authority.exportDefinitionDigest !== stored.exportDefinitionDigest) {
+    await store.recordAccessRefusal({ ...ref, reasonCode: "eligibility_changed" }).catch(() => undefined);
+    return accessBlocked("eligibility_changed");
+  }
+
+  let bytes: Uint8Array | null;
+  try {
+    bytes = await store.readBytes(ref);
+  } catch {
+    bytes = null;
+  }
+  if (!(bytes instanceof Uint8Array) || (await sha256Bytes(bytes)) !== stored.csvSha256) {
+    await store.recordDeliveryEnd({ ...ref, eventKind: "failed", reasonCode: "artifact_integrity" }).catch(() => undefined);
+    return accessBlocked("artifact_integrity");
+  }
+  const copy = Uint8Array.from(bytes);
+  return Object.freeze({
+    status: "authorized" as const,
+    artifactId: stored.artifactId,
+    version: stored.version,
+    csvSha256: stored.csvSha256,
+    manifestSha256: stored.manifestSha256,
+    mediaType: "text/csv" as const,
+    byteLength: copy.byteLength,
+    get bytes() { return Uint8Array.from(copy); },
+    providerCalls: 0 as const,
+  });
+}
+
 // -- internals --------------------------------------------------------------
+
+function accessBlocked(reason: CrmHandoffAccessBlockedReason): CrmHandoffAccessResult {
+  return Object.freeze({ status: "blocked" as const, reason, providerCalls: 0 as const });
+}
 
 type Identity = { prospectId: string; contactId: string; contactPointId: string };
 const UNKNOWN_IDENTITY: Identity = { prospectId: "unknown", contactId: "unknown", contactPointId: "unknown" };
@@ -514,7 +711,7 @@ function identityOf(candidate: CrmHandoffCandidate): Identity | null {
 function signature(candidate: CrmHandoffCandidate) {
   return JSON.stringify([
     candidate.workspaceId, candidate.prospectState, candidate.deleted, candidate.aliasOf,
-    candidate.verificationClass, candidate.packageDigest,
+    candidate.verificationClass, candidate.packageDigest, candidate.authorityRef ?? null,
     CRM_CSV_FIELD_IDS.map((field) => candidate.cells[field]),
   ]);
 }
@@ -534,7 +731,17 @@ function structuralReason(candidate: CrmHandoffCandidate, workspaceId: string): 
     || typeof candidate.cells.contact_value !== "string" || candidate.cells.contact_value === ""
     || !DIGEST.test(candidate.packageDigest) || candidate.cells.package_ref === null
   ) return "row_cells_invalid";
+  if (candidate.authorityRef !== undefined && !validAuthorityRef(candidate.authorityRef)) return "row_cells_invalid";
   return null;
+}
+
+function validAuthorityRef(value: unknown): value is CrmHandoffAuthorityRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const ref = value as Record<string, unknown>;
+  const keys = ["contactId", "contactPointDigest", "packageApprovalId", "packageVersionId", "prospectId"];
+  if (Object.keys(ref).sort().join(",") !== keys.join(",")) return false;
+  return [ref.prospectId, ref.contactId, ref.packageVersionId, ref.packageApprovalId].every((id) => typeof id === "string" && ID.test(id))
+    && typeof ref.contactPointDigest === "string" && DIGEST.test(ref.contactPointDigest);
 }
 
 function eligibilityReason(code: unknown): CrmHandoffExclusionReason {
@@ -606,6 +813,9 @@ function compareText(left: string, right: string) {
 }
 
 async function sha256(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Bytes(new TextEncoder().encode(value));
+}
+
+async function sha256Bytes(bytes: Uint8Array) {
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes))), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
