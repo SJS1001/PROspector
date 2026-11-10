@@ -152,10 +152,21 @@ test("begin refuses malformed, low-entropy, over-long-lived, or duplicate attemp
       { issuedAt: 1.5 },
       { ttlMs: 0 },
       { ttlMs: auth.OWNER_MAIL_AUTHORIZATION_MAX_TTL_MS + 1 },
+      // NaN passes both range comparisons; without the integer guard the
+      // expiry would become NaN and the attempt would never expire.
+      { ttlMs: Number.NaN },
+      { ttlMs: 1.5 },
+      { ttlMs: Number.POSITIVE_INFINITY },
+      { ttlMs: "300000" },
       { pinnedSubject: "" },
       { redirectUri: "not a url" },
       { redirectUri: "http://prospector.invalid/owner/mail-connection/callback" },
       { redirectUri: `${REDIRECT_URI}#fragment` },
+      // An empty fragment parses to hash "" and href === value, so only the
+      // raw "#" check refuses it.
+      { redirectUri: `${REDIRECT_URI}#` },
+      // Over the 2048-character registration cap, otherwise canonical.
+      { redirectUri: `https://prospector.invalid/${"a".repeat(2048)}` },
       { redirectUri: "https://user:pass@prospector.invalid/callback" },
       { redirectUri: "HTTPS://Prospector.Invalid/owner/mail-connection/callback" },
       { redirectUri: "javascript:alert(1)" },
@@ -175,6 +186,16 @@ test("begin refuses malformed, low-entropy, over-long-lived, or duplicate attemp
       redirectUri: "http://127.0.0.1:8787/owner/mail-connection/callback",
     }));
     assert.equal(loopback.status, "pending");
+
+    // A canonical redirect URI of exactly 2048 characters is still registrable.
+    const atCapUri = `https://prospector.invalid/${"c".repeat(2048 - "https://prospector.invalid/".length)}`;
+    assert.equal(atCapUri.length, 2048);
+    const atCap = await ledger.begin(beginInput({
+      attemptId: "synthetic-attempt-at-cap",
+      state: `atcap_state_${"C".repeat(40)}`,
+      redirectUri: atCapUri,
+    }));
+    assert.equal(atCap.status, "pending");
 
     assert.equal((await ledger.begin(beginInput())).status, "pending");
     assertRefused(await ledger.begin(beginInput()), "attempt_duplicate");
