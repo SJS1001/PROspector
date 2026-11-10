@@ -463,6 +463,13 @@ const RAW_IDENTITY = /@|\d{7}/u;
 // phone number. Only the restore reference accepts it; every other identifier
 // keeps the fence.
 const DERIVED_RESTORE_RESULT_ID = /^rrr_[a-f0-9]{32}$/u;
+// Every row id the brief reads from Phase 4 and the hierarchy (workspaces,
+// companies, products, plays, profiles, schedules, authority commands,
+// activations, transitions) is written by uuid v7(), and about one real v7 id
+// in nine carries seven decimal digits in a row. That exact canonical,
+// lowercase, server-generated shape is a row key, never a contact value, so it
+// is exempt from the phone-length fence. Any other shape keeps the fence.
+const SERVER_UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 class WeeklySectionUnavailable extends Error {
   constructor(
@@ -1207,6 +1214,7 @@ function normalizeRestoreReference(value: unknown): SafeReference {
 
 function stableId(value: unknown) {
   if (typeof value !== "string" || !ID.test(value)) malformed();
+  if (SERVER_UUID_V7.test(value)) return value;
   if (RAW_IDENTITY.test(value)) rawIdentity();
   return value;
 }

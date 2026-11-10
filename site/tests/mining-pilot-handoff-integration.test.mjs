@@ -72,27 +72,29 @@ async function withModules(run, plugins = []) {
 }
 
 /**
- * Counting fakes for every external effect Phase 7 must never cause. Each one
- * records the call and then throws, so a wrongly wired call both fails the
- * operation and shows up in the counters.
+ * Counting traps for the two effect seams the code under test can actually
+ * reach at runtime: the global network (`trapNetwork` replaces `fetch`) and
+ * immutable archive delivery (wired as the restore handler's
+ * `archiveStore.putImmutable`). Each records the call and then throws, so a
+ * wrongly wired call both fails the operation and shows up in the counters.
+ *
+ * No Phase 7 module accepts a scheduler, runner, provider, Gmail, send, or CRM
+ * sync port, so a counting fake for one would never be handed to anything and
+ * would pass by construction. The evidence that no such path exists is the
+ * static source scan in "Phase 7 has no scheduler provisioning, callback, or
+ * schedule-command path", not these counters.
  */
 function effectPorts() {
-  const calls = { scheduler: 0, runner: 0, provider: 0, gmail: 0, send: 0, crmSync: 0, archiveDelivery: 0, network: 0 };
+  const calls = { archiveDelivery: 0, network: 0 };
   const hit = (name) => async () => { calls[name] += 1; throw new Error(`${name}_must_not_be_called`); };
   return {
     calls,
-    scheduler: Object.freeze({ provision: hit("scheduler"), enable: hit("scheduler"), callback: hit("scheduler"), runNow: hit("scheduler") }),
-    runner: Object.freeze({ start: hit("runner"), assign: hit("runner") }),
-    provider: Object.freeze({ call: hit("provider") }),
-    gmail: Object.freeze({ send: hit("gmail"), createDraft: hit("gmail") }),
-    mail: Object.freeze({ send: hit("send") }),
-    crm: Object.freeze({ sync: hit("crmSync") }),
     archiveDelivery: Object.freeze({ deliver: hit("archiveDelivery") }),
   };
 }
 
 function assertNoEffects(effects, label = "") {
-  assert.deepEqual(effects.calls, { scheduler: 0, runner: 0, provider: 0, gmail: 0, send: 0, crmSync: 0, archiveDelivery: 0, network: 0 }, label);
+  assert.deepEqual(effects.calls, { archiveDelivery: 0, network: 0 }, label);
 }
 
 /** Replaces the global network seam for one pure-domain case; any call is counted and refused. */
@@ -411,8 +413,8 @@ function archivePorts(hierarchy, source, { random, now = AS_OF_MS } = {}) {
   };
 }
 
-/** A clean compatible restore target. Data writes are counted; the effect methods are traps. */
-function memoryRestoreTarget(effects, { schemaVersion = SCHEMA_V1 } = {}) {
+/** A clean compatible restore target. Data writes are counted; the applied effect state is recorded for assertion. */
+function memoryRestoreTarget({ schemaVersion = SCHEMA_V1 } = {}) {
   const counter = { dataWrites: 0, objectWrites: 0 };
   let rows = [];
   let objects = new Map();
@@ -431,10 +433,6 @@ function memoryRestoreTarget(effects, { schemaVersion = SCHEMA_V1 } = {}) {
       objects: [...objects].sort(([left], [right]) => left.localeCompare(right)).map(([digest, bytes]) => ({ digest, bytes: Uint8Array.from(bytes) })),
       effects: effectState,
     }),
-    // A target that reached any of these would be activating a restored effect.
-    enableSchedules: effects.scheduler.enable,
-    startRunners: effects.runner.start,
-    releaseOutbox: effects.mail.send,
   };
 }
 
@@ -493,7 +491,7 @@ function memoryEvidence(target, clock) {
 
 function restorePorts(envelopeBytes, effects, { now = AS_OF_MS, archiveExpiresAt = AS_OF_MS + 60 * MINUTE, schemaVersion, targetWorkspaceId = "workspace-restore-target" } = {}) {
   const clock = { now };
-  const target = memoryRestoreTarget(effects, { schemaVersion });
+  const target = memoryRestoreTarget({ schemaVersion });
   const evidence = memoryEvidence(target, clock);
   const uploads = new Map([["archive-upload-1", { bytes: envelopeBytes, expiresAt: archiveExpiresAt }]]);
   return {
@@ -538,7 +536,7 @@ async function materializeCsv(crm, hierarchy, { tombstones = sourceTombstones(),
 // 1. The whole local lifecycle, for two hierarchies, with zero effect calls
 // ---------------------------------------------------------------------------
 
-test("two hierarchies compose schedule projection, weekly cohort and losses, CSV handoff, archive, dry run, restore, and replay with zero effect-port calls", async () => {
+test("two hierarchies compose schedule projection, weekly cohort and losses, CSV handoff, archive, dry run, restore, and replay with no network or archive-delivery call", async () => {
   await withModules(async ({ brief, weekly, crm, archive, verifier, restore }) => {
     const effects = effectPorts();
     const release = trapNetwork(effects);
@@ -656,7 +654,7 @@ test("two hierarchies compose schedule projection, weekly cohort and losses, CSV
         }
       }
       assert.notEqual(restoredDigests[0], restoredDigests[1], "each hierarchy restores its own archive");
-      assertNoEffects(effects, "no scheduler, runner, provider, Gmail, send, CRM sync, archive delivery, or network call");
+      assertNoEffects(effects, "no network or archive-delivery call");
     } finally {
       release();
     }
@@ -667,7 +665,7 @@ test("two hierarchies compose schedule projection, weekly cohort and losses, CSV
 // 2. Schedule evidence: read-only, never activated, never recorded as a command
 // ---------------------------------------------------------------------------
 
-test("missing, stale, future, foreign, mis-defined, drifted, Greenfield, and restored schedule evidence never reports a current enabled schedule and calls no scheduler or runner", async () => {
+test("missing, stale, future, foreign, mis-defined, drifted, Greenfield, and restored schedule evidence never reports a current enabled schedule and refuses an injected scheduler or runner", async () => {
   await withModules(async ({ brief }) => {
     const effects = effectPorts();
     const release = trapNetwork(effects);
@@ -707,10 +705,14 @@ test("missing, stale, future, foreign, mis-defined, drifted, Greenfield, and res
         }
       }
       // A scheduler or runner handed to the brief is an unknown input and fails closed without being touched.
+      const touched = [];
+      const trap = (name) => () => { touched.push(name); throw new Error(`${name}_must_not_be_called`); };
       for (const hierarchy of HIERARCHIES) {
-        const injected = brief.composeMorningBrief({ ...briefInput(hierarchy), scheduler: effects.scheduler, runner: effects.runner });
+        const injected = brief.composeMorningBrief({ ...briefInput(hierarchy), scheduler: { enable: trap("scheduler") }, runner: { start: trap("runner") } });
         assert.equal(injected.status, "unavailable");
+        assert.deepEqual(injected.reasonCodes, ["morning_brief_input_malformed"]);
       }
+      assert.deepEqual(touched, []);
       assertNoEffects(effects);
     } finally {
       release();
@@ -728,11 +730,28 @@ test("Phase 7 has no scheduler provisioning, callback, or schedule-command path"
     "../app/api/handoff-recovery/route.ts", "../app/exports/handoff-recovery-workspace.tsx", "../app/exports/handoff-recovery-leaves.tsx",
     "../app/morning-brief/morning-brief-workspace.tsx",
   ];
+  // This scan, not a runtime counter, is the evidence that Phase 7 has no
+  // scheduler, runner, provider, Gmail, send, or CRM sync path: no Phase 7
+  // module accepts such a port, so there is nothing for a counting fake to
+  // intercept. The effect-authority modules it must never import:
+  const forbiddenImport = /(?:from\s+|import\s*\(\s*)["'][^"']*(prospecting-schedule|runner-runtime|runner-assignment|runner-spend-authority|prospecting-run-admission|phase-activation|outbox|originated-mail-sync|contact-provider-port|enrichment-authority|enrichment-operation|enrichment-grant-issuance|enrichment-repository)(?:\.tsx?)?["']/u;
+  const forbiddenGmailOrProvider = /\bgmail\b|googleapis|\bnodemailer\b|\bsendgrid\b|\btwilio\b|\bhubspot\b|\bsalesforce\b|\bpipedrive\b/iu;
+  // Positive controls: the patterns match the seams they guard, so a clean scan is not vacuous.
+  for (const sample of [
+    'import { scheduleNext } from "./prospecting-schedule";', 'import { startRunner } from "../domain/runner-runtime.ts";',
+    'import { releaseOutbox } from "./outbox";', 'import { syncSent } from "./originated-mail-sync";',
+    'import { lookup } from "./contact-provider-port";', 'const enrichment = await import("./enrichment-operation");',
+  ]) assert.match(sample, forbiddenImport, sample);
+  for (const sample of ['const gmail = client.gmail("v1");', 'import { google } from "googleapis";', 'await hubspot.crm.contacts.create(row);']) {
+    assert.match(sample, forbiddenGmailOrProvider, sample);
+  }
   for (const path of phase7) {
     const text = await read(path);
-    // No Phase 7 module writes the Phase 4 schedule or runner tables, or imports their authority modules.
+    // No Phase 7 module writes the Phase 4 schedule or runner tables, or imports an effect-authority module.
     assert.doesNotMatch(text, /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|REPLACE\s+INTO)\s+"?(prospecting_schedules|prospecting_runs|runner_assignments|profile_configuration_activations)\b/iu, path);
-    assert.doesNotMatch(text, /from\s+["'][^"']*(prospecting-schedule|runner-runtime|runner-assignment|runner-spend-authority|prospecting-run-admission|phase-activation|outbox|originated-mail-sync)["']/u, path);
+    assert.doesNotMatch(text, forbiddenImport, path);
+    // No Gmail, mail-provider, or CRM-vendor client: the CRM handoff is a CSV download, never a sync.
+    assert.doesNotMatch(text, forbiddenGmailOrProvider, path);
     // No cron, scheduled-event, alarm, or webhook callback seam.
     assert.doesNotMatch(text, /\bscheduled\s*\(|ScheduledController|ScheduledEvent|setAlarm\(|\bcrons?\b|webhook/iu, path);
     // Server modules reach no network; the two client workspaces fetch only their own same-origin owner API.
@@ -948,6 +967,17 @@ function mutation(body, headers = {}) {
 
 const sqlRun = (database, sql, ...bind) => database.prepare(sql).bind(...bind).run();
 
+/**
+ * Phase 4 writes these row ids with uuid v7(), and about one real v7 id in nine
+ * carries seven decimal digits in a row. Every id the brief takes from a Phase 4
+ * row is seeded in that canonical v7 shape with such a run, so the identity
+ * fence is exercised against the ids production actually writes.
+ */
+function phase4RowId(label) {
+  const hex = sha256Hex(textEncoder.encode(`phase4-row:${label}`));
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7${hex.slice(13, 16)}-8${hex.slice(17, 20)}-1234567${hex.slice(20, 25)}`;
+}
+
 /** The restored Phase 4 hierarchy the target's Phase 4 read sees: both profiles carry the source's ACTIVE schedule row. */
 async function seedRestoredPhase4(database) {
   const at = Date.UTC(2026, 0, 5);
@@ -960,7 +990,7 @@ async function seedRestoredPhase4(database) {
     await sqlRun(database, "INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) VALUES (?, ?, ?, ?, 1, ?, ?, 'ready', 'America/Toronto', 7)", h.profileId, ws, at, at, h.marketPlayId, h.profileName);
     const configDigest = sha256Hex(textEncoder.encode(`restored-config:${h.key}`));
     await sqlRun(database, "INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES (?, ?, ?, ?, 1, ?, 'profile', ?, 'profile_effective', ?, '{}', 1)", `config-${h.key}`, ws, at, at, "company-restored", h.profileId, configDigest);
-    await sqlRun(database, "INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) VALUES (?, ?, ?, ?, 1, 'prospecting_schedule', ?, ?, 1, 'profile', ?, 'accepted')", `command-schedule-${h.key}`, ws, at, at, `key-schedule-${h.key}`, sha256Hex(textEncoder.encode(`schedule-command:${h.key}`)), h.profileId);
+    await sqlRun(database, "INSERT INTO authority_commands (id, workspace_id, created_at, updated_at, revision, command_type, idempotency_key, operation_digest, expected_revision, subject_type, subject_id, status) VALUES (?, ?, ?, ?, 1, 'prospecting_schedule', ?, ?, 1, 'profile', ?, 'accepted')", phase4RowId(`command-schedule-${h.key}`), ws, at, at, `key-schedule-${h.key}`, sha256Hex(textEncoder.encode(`schedule-command:${h.key}`)), h.profileId);
     await sqlRun(
       database,
       `INSERT INTO prospecting_schedules
@@ -969,8 +999,8 @@ async function seedRestoredPhase4(database) {
          cadence, next_run_at, last_successful_watermark, active, execution_state,
          authority_command_id, operation_digest, idempotency_key)
        VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, 'America/Toronto', '06:00', -240, 'weekdays', ?, NULL, 1, 'active', ?, ?, ?)`,
-      `schedule-${h.key}`, ws, at, Date.UTC(2026, 2, 16, 3, 0, 0), h.profileId, `config-${h.key}`, configDigest, `sk-schedule-${h.key}`,
-      Date.UTC(2026, 2, 16, 10, 0, 0), `command-schedule-${h.key}`, sha256Hex(textEncoder.encode(`schedule-op:${h.key}`)), `idem-schedule-${h.key}`,
+      phase4RowId(`schedule-${h.key}`), ws, at, Date.UTC(2026, 2, 16, 3, 0, 0), h.profileId, `config-${h.key}`, configDigest, `sk-schedule-${h.key}`,
+      Date.UTC(2026, 2, 16, 10, 0, 0), phase4RowId(`command-schedule-${h.key}`), sha256Hex(textEncoder.encode(`schedule-op:${h.key}`)), `idem-schedule-${h.key}`,
     );
   }
   await sqlRun(database, "INSERT INTO customer_profiles (id, workspace_id, created_at, updated_at, revision, play_id, name, lifecycle, timezone, weekly_target) VALUES (?, ?, ?, ?, 1, ?, 'Greenfield', 'draft', 'America/Toronto', 0)", "profile-greenfield", ws, at + 1, at + 1, "play-main");
@@ -987,8 +1017,9 @@ async function seedPhase4Activation(database, h, key, createdAt) {
   await sqlRun(database, "INSERT INTO typed_configurations (id, workspace_id, created_at, updated_at, revision, company_id, owner_type, owner_id, kind, digest, manifest_json, active) VALUES (?, ?, ?, ?, 1, ?, 'profile', ?, 'profile_effective', ?, '{}', 0)", `config-${key}`, ws, createdAt, createdAt, "company-restored", h.profileId, sha(`config:${key}`));
   await sqlRun(database, "INSERT INTO profile_configuration_candidates (id, workspace_id, created_at, updated_at, revision, profile_id, configuration_id, predecessor_configuration_id, authority_command_id, audit_event_id, candidate_digest, status) VALUES (?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?, 'candidate')", `candidate-${key}`, ws, createdAt, createdAt, h.profileId, `config-${key}`, `cmd-candidate-${key}`, `audit-${key}`, sha(`candidate-digest:${key}`));
   const operationDigest = sha(`activation-digest:${key}`);
-  await sqlRun(database, "INSERT INTO profile_configuration_activations (id, workspace_id, profile_id, candidate_id, previous_configuration_id, configuration_id, authority_command_id, audit_event_id, operation_digest, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)", `activation-${key}`, ws, h.profileId, `candidate-${key}`, `config-${key}`, `cmd-activation-${key}`, `audit-${key}`, operationDigest, createdAt);
-  return { id: `activation-${key}`, digest: operationDigest };
+  const activationId = phase4RowId(`activation-${key}`);
+  await sqlRun(database, "INSERT INTO profile_configuration_activations (id, workspace_id, profile_id, candidate_id, previous_configuration_id, configuration_id, authority_command_id, audit_event_id, operation_digest, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)", activationId, ws, h.profileId, `candidate-${key}`, `config-${key}`, `cmd-activation-${key}`, `audit-${key}`, operationDigest, createdAt);
+  return { id: activationId, digest: operationDigest };
 }
 
 async function counts(database, workspaceId) {
@@ -1047,7 +1078,7 @@ test("through the owner handler on D1: every invalid principal, scope, CSRF, rea
             archiveStore: { putImmutable: async (key, bytes) => { if (sourceStore.has(key)) throw new Error("object_conflict"); sourceStore.set(key, Uint8Array.from(bytes)); } },
             evidence: repository,
           },
-          restore: { now: () => clock.now, authority: { current: async () => authorityFor(scope) }, archives: { readArchive: async () => null }, target: memoryRestoreTarget(effects), evidence: repository },
+          restore: { now: () => clock.now, authority: { current: async () => authorityFor(scope) }, archives: { readArchive: async () => null }, target: memoryRestoreTarget(), evidence: repository },
           currentRestoreArchiveRef: async () => null,
         },
       };
@@ -1091,7 +1122,7 @@ test("through the owner handler on D1: every invalid principal, scope, CSRF, rea
       ["archive-upload-tampered", { bytes: textEncoder.encode(JSON.stringify({ ...envelope, ciphertext: `${envelope.ciphertext.slice(0, -8)}AAAAAAA=` })), expiresAt: T_RESTORE + 60 * MINUTE }],
       ["archive-upload-expired", { bytes: envelopeBytes, expiresAt: T_RESTORE - 1 }],
     ]);
-    const current = { ref: "archive-upload-1", target: memoryRestoreTarget(effects) };
+    const current = { ref: "archive-upload-1", target: memoryRestoreTarget() };
     const cleanTarget = current.target;
     const targetServices = (db, scope) => ({
       mode: "synthetic", crm: null,
@@ -1155,7 +1186,7 @@ test("through the owner handler on D1: every invalid principal, scope, CSRF, rea
     assert.equal(replayedToken.status, 403, "replayed CSRF");
     await assertNoDelta("replayed CSRF");
 
-    const versionSkewTarget = memoryRestoreTarget(effects, { schemaVersion: "prospector/portable-workspace-schema/v0" });
+    const versionSkewTarget = memoryRestoreTarget({ schemaVersion: "prospector/portable-workspace-schema/v0" });
     const serviceCases = [
       ["stale archive reference", () => {}, dryBody({ archiveRef: "archive-upload-2" }), ["stale_projection"]],
       ["stale reauthentication", () => { reauth.at = clock.now - 16 * MINUTE; }, dryBody(), ["reauthentication_required"]],
@@ -1268,7 +1299,7 @@ test("through the owner handler on D1: every invalid principal, scope, CSRF, rea
     assert.equal(byProfile["profile-operating"].reportedState, "enabled");
     assert.equal(byProfile["profile-terminal-operators"].status, "disabled_pending_fresh_upstream_activation", "another profile's activation releases nothing");
     assert.deepEqual(await scheduleState(database), schedulesBefore);
-    assertNoEffects(effects, "no scheduler, runner, provider, Gmail, send, CRM sync, or archive delivery call");
+    assertNoEffects(effects, "no network or archive-delivery call");
     restoredUiProjection = activated;
   } finally {
     await fixture.dispose();
