@@ -268,10 +268,20 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .outreach-action { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0; }
 .outreach-action span { flex:1 1 240px; }
 .outreach-confirm { border:2px solid var(--line); border-radius:8px; padding:14px; }
+.outreach-check-code { margin:0; color:var(--muted); font-size:12px; }.outreach-check-code code { color:var(--ink); font-family:var(--font-geist-mono); font-weight:700; }
+.outreach-technical { min-width:0; border-top:1px solid var(--line); padding-top:8px; }
+.outreach-technical summary { min-height:44px; display:flex; align-items:center; color:var(--green); font-weight:760; cursor:pointer; }
+.outreach-technical summary:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.outreach-technical summary::before { content:"\25B8"; content:"\25B8" / ""; margin-right:6px; font-size:12px; }
+.outreach-technical[open] summary::before { content:"\25BE"; content:"\25BE" / ""; }
+.outreach-technical dl { display:grid; gap:8px; margin:8px 0 0; font-size:12px; }
+.outreach-technical dl div { display:grid; grid-template-columns:minmax(120px,220px) minmax(0,1fr); gap:12px; }
+.outreach-technical dt { color:var(--muted); }
+.outreach-technical dd { margin:0; min-width:0; font-family:var(--font-geist-mono); overflow-wrap:anywhere; }
 .outreach-table { width:100%; border-collapse:collapse; }
 .outreach-table caption { text-align:left; font-weight:600; padding-bottom:6px; }
 .outreach-table th,.outreach-table td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
 .outreach-workspace fieldset { border:1px solid var(--line); border-radius:8px; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; min-width:0; margin:0; }.outreach-workspace .outreach-section,.outreach-cards { grid-template-columns:minmax(0,1fr); }
 .outreach-workspace textarea,.outreach-workspace input[type="text"],.outreach-workspace select { max-width:100%; box-sizing:border-box; }
 .unsubscribe-page { max-width:560px; margin:48px auto; padding:0 16px; display:grid; gap:14px; }.unsubscribe-page .panel { padding:24px; }
-@media (max-width:760px) { .outreach-workspace .panel,.outreach-card { padding:14px; }.outreach-kv div { grid-template-columns:1fr; gap:2px; }.outreach-table thead { display:none; }.outreach-table tr { display:grid; border-bottom:1px solid var(--line); padding:6px 0; }.outreach-table td { border:0; padding:2px 0; }.outreach-action button { width:100%; } }
+@media (max-width:760px) { .outreach-workspace .panel,.outreach-card { padding:14px; }.outreach-kv div { grid-template-columns:1fr; gap:2px; }.outreach-technical dl div { grid-template-columns:1fr; gap:2px; }.outreach-table thead { display:none; }.outreach-table tr { display:grid; border-bottom:1px solid var(--line); padding:6px 0; }.outreach-table td { border:0; padding:2px 0; }.outreach-action button { width:100%; } }

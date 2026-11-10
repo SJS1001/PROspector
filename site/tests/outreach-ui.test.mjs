@@ -606,9 +606,9 @@ test("the Outreach transport never retries after an expired CSRF token and keeps
 test("the Outreach leaves render sections in order, escape every body, keep the phone disabled with a visible reason, and contain no tel: or mailto:", async () => {
   await withApp(async ({ leaves }) => {
     const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection: leaves.normalizeOutreachProjection(sampleProjection()), interaction: leaves.READ_ONLY_INTERACTION }));
-    const order = ["Current outreach eligibility", "Outreach Package review", "Gmail drafts and approvals", "Manual verified phone", "Suppression and stop history", "Delivery and reconciliation history"];
+    const order = OUTREACH_SECTION_HEADINGS;
     let last = -1;
-    for (const heading of order) { const at = html.indexOf(heading); assert.ok(at > last, `${heading} follows the previous section`); last = at; }
+    for (const heading of order) { const at = html.indexOf(`>${heading}</h2>`); assert.ok(at > last, `${heading} follows the previous section`); last = at; }
     assert.doesNotMatch(html, /<script|<img|<b>angle/, "bodies, subjects and scripts are escaped data");
     assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.doesNotMatch(html, /tel:|mailto:/i);
@@ -633,6 +633,111 @@ test("the Outreach leaves render sections in order, escape every body, keep the 
     }
     assert.doesNotMatch(html, /legally approved|consent obtained/i);
   });
+});
+
+const TECHNICAL_BLOCK = /<details class="outreach-technical">[\s\S]*?<\/details>/g;
+const OUTREACH_SECTION_HEADINGS = ["Outreach readiness", "Outreach Packages to review", "Email drafts", "Phone calls", "Do not contact list", "Email delivery history"];
+
+test("the Outreach screen speaks plain language: full digests sit behind technical details and every disabled action says why beside it", async () => {
+  await withApp(async ({ leaves }) => {
+    const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection: leaves.normalizeOutreachProjection(sampleProjection()), interaction: leaves.READ_ONLY_INTERACTION }));
+    const technical = html.match(TECHNICAL_BLOCK) ?? [];
+    assert.ok(technical.length >= 3, "package, message and phone cards each keep a closed technical record");
+    for (const block of technical) {
+      assert.doesNotMatch(block, /<details[\s\S]*<details/, "technical records do not nest");
+      assert.doesNotMatch(block, /<details[^>]* open/, "technical records start closed");
+      assert.match(block, /<summary>Technical details[^<]*<\/summary>/);
+    }
+    const visible = html.replaceAll(TECHNICAL_BLOCK, "");
+    assert.doesNotMatch(visible, /[0-9a-f]{64}/, "no full SHA-256 digest is shown outside a technical record");
+    assert.doesNotMatch(visible, /SHA-256|digest/i, "the visible copy does not use digest jargon");
+    for (const char of ["a", "c", "d", "e", "f"]) assert.ok(technical.some((block) => block.includes(char.repeat(64))), `the full ${char}… digest stays available in a technical record`);
+    assert.match(visible, /Check code <code>aaaaaaaa<\/code>/, "the package version shows a short check code");
+    assert.match(visible, /Check code <code>dddddddd<\/code>/, "the message version shows a short check code");
+    assert.match(visible, /I reviewed this package \(check code aaaaaaaa\)/, "the review box still names the exact version");
+    assert.match(visible, /I reviewed this message \(check code dddddddd\)/);
+    assert.doesNotMatch(visible, />Refused</, "gate rows say Not available rather than a bare Refused");
+    for (const legacy of ["Current outreach eligibility", "Gmail drafts and approvals", "Manual verified phone", "reconciliation"]) assert.equal(visible.includes(legacy), false, `${legacy} is replaced by a plain heading`);
+
+    const buttons = html.match(/<button[^>]*>[^<]*<\/button>/g) ?? [];
+    const disabled = buttons.filter((button) => /disabled=""/.test(button));
+    assert.ok(disabled.length >= 4, `the refused gates disable approve, queue, record and phone actions (${disabled.length})`);
+    for (const button of disabled) {
+      const describedBy = button.match(/aria-describedby="([^"]+)"/)?.[1];
+      assert.ok(describedBy, `${button} points at its reason`);
+      const adjacent = new RegExp(`${button.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} <span id="${describedBy}" tabindex="0">([^<]+)</span>`);
+      const reason = html.match(adjacent)?.[1] ?? "";
+      assert.ok(reason.trim().length > 12, `${button} has a persistent reason right beside it`);
+    }
+    const phone = buttons.find((button) => button.includes(">Open verified business phone<")) ?? "";
+    assert.match(phone, /disabled=""/, "the phone action stays native-disabled");
+    assert.doesNotMatch(html, /tel:|mailto:/i);
+  });
+});
+
+const VISIBLE_JARGON = /\(Phase \d+\)|\brefus(?:ed|al|es)?\b/i;
+
+test("the screen the owner actually sees, built from the production projection, carries no phase number or refusal jargon", async () => {
+  const { fixture, handler, context } = await seededWorkspace("outreach-ui-production-plain-language");
+  try {
+    const services = handler.composeProductionOutreachServices(fixture.database, context.scope);
+    const projection = await handler.readOutreachProjection(fixture.database, context.scope, services);
+    assert.match(projection.gates.approval.reason, /\(Phase 5\)/, "precondition: the server gate reason still names the phase (server copy is unchanged)");
+    assert.match(projection.gates.queue.reason, /refused/, "precondition: the server queue reason still says refused");
+    const vite = await createServer({ configFile: false, logLevel: "silent" });
+    try {
+      const leaves = await vite.ssrLoadModule(new URL("app/prospects/outreach-leaves.tsx", root).pathname);
+      const normalized = leaves.normalizeOutreachProjection(JSON.parse(JSON.stringify(projection)));
+      assert.equal(normalized.gates.approval.available, false, "the gate stays closed after the copy is mapped");
+      assert.equal(normalized.gates.queue.available, false);
+      assert.match(normalized.gates.approval.reason, /contact readiness checks are accepted/i, "the mapped reason keeps its meaning");
+      assert.match(normalized.gates.approval.reason, /Nothing is sent and no call is placed\./);
+      assert.match(normalized.gates.queue.reason, /Gmail is authorized\. No email will be sent\./);
+      const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection: normalized, interaction: leaves.READ_ONLY_INTERACTION }));
+      const visible = html.replaceAll(TECHNICAL_BLOCK, "");
+      assert.doesNotMatch(visible, VISIBLE_JARGON, `visible copy has no phase number or refusal jargon: ${visible.match(VISIBLE_JARGON)?.[0]}`);
+      const note = visible.match(/<p role="note"><strong>Outreach is not available yet\.<\/strong> ([^<]+)<\/p>/)?.[1] ?? "";
+      assert.match(note, /contact readiness/i, "the readiness note still explains why");
+      for (const action of ["Approve package for CRM eligibility", "Approve this message for queued Gmail delivery", "Queue for controlled delivery"]) {
+        const button = html.match(new RegExp(`<button[^>]*>${action}</button>`))?.[0] ?? "";
+        assert.match(button, /disabled=""/, `${action} stays native-disabled`);
+        const describedBy = button.match(/aria-describedby="([^"]+)"/)?.[1];
+        const reason = html.match(new RegExp(`<span id="${describedBy}" tabindex="0">([^<]+)</span>`))?.[1] ?? "";
+        assert.ok(reason.length > 12, `${action} keeps its adjacent reason`);
+        assert.doesNotMatch(reason, VISIBLE_JARGON, `${action} reason is plain language: ${reason}`);
+      }
+    } finally { await vite.close(); }
+  } finally { await fixture.dispose(); }
+});
+
+test("gate reasons are mapped on the client: unknown server copy loses phase numbers and refusal wording, never availability", async () => {
+  await withApp(async ({ leaves }) => {
+    const odd = leaves.normalizeOutreachProjection(sampleProjection({ gates: {
+      approval: { available: false, reason: "Something new is refused until checks (Phase 7) pass." },
+      queue: { available: false, reason: "Queueing refused." },
+      phone: { enabled: false, reason: "owner_uat_pending" },
+    } }));
+    assert.equal(odd.gates.approval.available, false);
+    assert.doesNotMatch(odd.gates.approval.reason, VISIBLE_JARGON, odd.gates.approval.reason);
+    assert.match(odd.gates.approval.reason, /checks pass/);
+    assert.doesNotMatch(odd.gates.queue.reason, VISIBLE_JARGON, odd.gates.queue.reason);
+    assert.doesNotMatch(leaves.reasonText("contact_recheck_blocked"), VISIBLE_JARGON);
+    assert.doesNotMatch(leaves.reasonText("current_authority_unavailable"), VISIBLE_JARGON);
+    assert.doesNotMatch(leaves.reasonText("something_new"), VISIBLE_JARGON);
+  });
+});
+
+test("the technical details toggle shows the same open/closed cue as the other disclosures on the card", async () => {
+  const css = await source("app/globals.css");
+  assert.match(css, /\.outreach-technical summary::before\s*\{[^}]*content:\s*"\\25B8"/, "a closed technical record shows a disclosure triangle");
+  assert.match(css, /\.outreach-technical\[open\] summary::before\s*\{[^}]*content:\s*"\\25BE"/, "an open technical record turns the triangle down");
+});
+
+test("the Outreach styles keep technical records and cards inside a 390px viewport", async () => {
+  const css = await source("app/globals.css");
+  assert.match(css, /\.outreach-technical\s*\{[^}]*min-width:0/, "technical records can shrink");
+  assert.match(css, /\.outreach-technical dd\s*\{[^}]*overflow-wrap:anywhere/, "long digests wrap instead of scrolling sideways");
+  assert.match(css, /\.outreach-check-code/, "the short check code has its own style");
 });
 
 test("reason codes become plain language and unknown codes stay readable without leaking structure", async () => {
