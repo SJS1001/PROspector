@@ -674,3 +674,31 @@ test("the reducer is pure: frozen input is not mutated, repeat calls match, and 
     await vite.close();
   }
 });
+
+// 07-10: the weekday 06:00 America/Toronto schedule is a Phase 4 run time, not a
+// week boundary. The weekly cohort starts at local Monday midnight, so an
+// Export-ready transition before Monday's 06:00 run still belongs to that week,
+// and the reducer never reads a schedule, run, or runner field.
+test("the weekly window is local Monday midnight, not the weekday 06:00 schedule time, and schedule input is refused", async () => {
+  const { vite, weekly } = await load();
+  try {
+    const asOf = "2026-03-23T03:59:59.999Z"; // Sunday 23:59:59.999 EDT, end of the week of 2026-03-16
+    const coverage = (ids) => ({ from: "prospect_origin", through: asOf, prospectIds: ids });
+    const beforeRun = history("prospect-before-run", exportPath("2026-03-16T09:59:59.999Z")); // Monday 05:59:59.999 EDT
+    const atRun = history("prospect-at-run", exportPath("2026-03-16T10:00:00.000Z")); // Monday 06:00 EDT
+    const lastWeek = history("prospect-last-sunday", exportPath("2026-03-16T03:59:59.999Z")); // Sunday 23:59:59.999 EDT
+    const result = weekly.reduceWeeklyOutcome(input([beforeRun, atRun, lastWeek], { asOf, coverage: coverage(["prospect-before-run", "prospect-at-run", "prospect-last-sunday"]) }));
+    assert.equal(result.status, "available");
+    assert.equal(result.week.start.localDate, "2026-03-16");
+    assert.equal(result.week.start.instant, "2026-03-16T04:00:00.000Z");
+    assert.deepEqual(result.cohort.map((entry) => entry.prospectId).sort(), ["prospect-at-run", "prospect-before-run"]);
+    assert.equal(result.counts.newlyExportReadyProspectCount, 2);
+    // The reducer takes no schedule, run, or runner input: any such field fails closed.
+    for (const field of ["schedule", "scheduledAt", "runId", "runner", "nextRunAt"]) {
+      const refused = weekly.reduceWeeklyOutcome({ ...input([atRun], { asOf, coverage: coverage(["prospect-at-run"]) }), [field]: "2026-03-16T10:00:00.000Z" });
+      assert.equal(refused.status, "unavailable", field);
+    }
+  } finally {
+    await vite.close();
+  }
+});

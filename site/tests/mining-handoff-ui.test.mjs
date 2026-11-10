@@ -193,6 +193,30 @@ test("a restored workspace shows its schedule disabled until a fresh upstream ac
   });
 });
 
+// 07-10: the 0023 repository names a restore result `rrr_` plus 32 hex characters of a SHA-256
+// operation digest. A run of seven decimal hex digits in that slice is not a phone number, so a real
+// restore must never make the restored workspace's brief unavailable; a phone-shaped reference still is.
+test("a restored workspace whose 0023 restore-result id has a long digit run still reports disabled pending activation", async () => {
+  await withVite(async (vite) => {
+    const brief = await vite.ssrLoadModule(new URL("../domain/morning-brief.ts", import.meta.url).pathname);
+    const restored = (id) => brief.composeMorningBrief(briefInput(MINING, {
+      workspaceOrigin: { kind: "restored", restoreRef: { id, digest: DIGEST }, restoredAt: "2026-03-15T12:00:00.000Z", freshUpstreamActivation: null },
+    }));
+    for (const id of ["rrr_00000000000000000000000000000001", "rrr_1234567abcdef1234567abcdef012345", "rrr_abcdefabcdefabcdefabcdefabcdefab"]) {
+      const result = restored(id);
+      assert.equal(result.status, "available", id);
+      assert.equal(result.schedule.status, "disabled_pending_fresh_upstream_activation", id);
+      assert.equal(result.schedule.reportedState, "disabled", id);
+      assert.deepEqual(result.workspace.restoreRef, { id, digest: DIGEST }, id);
+    }
+    // Only that exact derived shape is exempt from the phone-length fence.
+    for (const id of ["restore-4165551234", "rrr_4165551234", "rar_00000000000000000000000000000001", "rrr_0000000000000000000000000000000Z", "rrr_000000000000000000000000000000001"]) {
+      const result = restored(id);
+      assert.equal(result.status, "unavailable", id);
+    }
+  });
+});
+
 test("a second, non-Mining hierarchy composes the same brief with no Mining-specific behavior", async () => {
   await withVite(async (vite) => {
     const brief = await vite.ssrLoadModule(new URL("../domain/morning-brief.ts", import.meta.url).pathname);
