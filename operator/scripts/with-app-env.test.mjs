@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFile, spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { after, test } from "node:test";
 import { promisify } from "node:util";
 import {
   APP_ENV_REL_PATH,
+  isMainModule,
   mergeAppEnv,
   parseAppEnv,
   projectRoot,
@@ -142,4 +152,51 @@ test("the CLI still runs when invoked through a symlinked path", async () => {
     { env: { ...process.env, VITE_AUTH_ENABLED: undefined } },
   );
   assert.equal(stdout, "false");
+});
+
+test("isMainModule compares real paths and refuses a same-named entry elsewhere", () => {
+  const real = mkdtempSync(join(tmpdir(), "main-module-"));
+  workspaces.push(real);
+  const script = join(real, "tool.mjs");
+  writeFileSync(script, "");
+  const linkRoot = mkdtempSync(join(tmpdir(), "main-module-link-"));
+  workspaces.push(linkRoot);
+  symlinkSync(real, join(linkRoot, "dir"));
+  const url = pathToFileURL(realpathSync(script)).href;
+  assert.equal(isMainModule(url, script), true);
+  assert.equal(isMainModule(url, join(linkRoot, "dir", "tool.mjs")), true);
+  assert.equal(isMainModule(url, join(real, "other.mjs")), false);
+  assert.equal(isMainModule(url, undefined), false);
+  // A launch that names this script but resolves to another copy is not
+  // skipped silently: the guard throws instead of turning the CLI into a no-op.
+  const elsewhere = mkdtempSync(join(tmpdir(), "main-module-copy-"));
+  workspaces.push(elsewhere);
+  writeFileSync(join(elsewhere, "tool.mjs"), "");
+  assert.throws(() => isMainModule(url, join(elsewhere, "tool.mjs")), /direct-run guard/);
+  assert.throws(
+    () => isMainModule(url, join(elsewhere, "missing", "tool.mjs")),
+    /direct-run guard/,
+  );
+});
+
+test("every CLI with a direct-run guard still runs through a symlinked path", () => {
+  // node realpaths import.meta.url but not process.argv[1]. A raw comparison
+  // made each of these exit 0 with no output instead of reporting the bad call.
+  const linkRoot = mkdtempSync(join(tmpdir(), "direct-run-link-"));
+  workspaces.push(linkRoot);
+  symlinkSync(join(projectRoot(), "scripts"), join(linkRoot, "scripts"));
+  symlinkSync(join(projectRoot(), "launcher"), join(linkRoot, "launcher"));
+  for (const [path, args, expected] of [
+    ["scripts/write-atomic.mjs", [], /\[write-atomic\]/],
+    ["scripts/brand-check.mjs", ["--bogus"], /unexpected argument: --bogus/],
+    ["scripts/preview.mjs", ["--bogus"], /\[preview\]/],
+    ["launcher/control.mjs", ["bogus"], /"state":"error"/],
+  ]) {
+    const result = spawnSync(process.execPath, [join(linkRoot, path), ...args], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    assert.equal(result.status, 1, `${path}: ${result.stderr}`);
+    assert.match(result.stdout + result.stderr, expected, path);
+  }
 });
