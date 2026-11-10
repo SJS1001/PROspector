@@ -606,9 +606,9 @@ test("the Outreach transport never retries after an expired CSRF token and keeps
 test("the Outreach leaves render sections in order, escape every body, keep the phone disabled with a visible reason, and contain no tel: or mailto:", async () => {
   await withApp(async ({ leaves }) => {
     const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection: leaves.normalizeOutreachProjection(sampleProjection()), interaction: leaves.READ_ONLY_INTERACTION }));
-    const order = ["Current outreach eligibility", "Outreach Package review", "Gmail drafts and approvals", "Manual verified phone", "Suppression and stop history", "Delivery and reconciliation history"];
+    const order = OUTREACH_SECTION_HEADINGS;
     let last = -1;
-    for (const heading of order) { const at = html.indexOf(heading); assert.ok(at > last, `${heading} follows the previous section`); last = at; }
+    for (const heading of order) { const at = html.indexOf(`>${heading}</h2>`); assert.ok(at > last, `${heading} follows the previous section`); last = at; }
     assert.doesNotMatch(html, /<script|<img|<b>angle/, "bodies, subjects and scripts are escaped data");
     assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.doesNotMatch(html, /tel:|mailto:/i);
@@ -633,6 +633,53 @@ test("the Outreach leaves render sections in order, escape every body, keep the 
     }
     assert.doesNotMatch(html, /legally approved|consent obtained/i);
   });
+});
+
+const TECHNICAL_BLOCK = /<details class="outreach-technical">[\s\S]*?<\/details>/g;
+const OUTREACH_SECTION_HEADINGS = ["Outreach readiness", "Outreach Packages to review", "Email drafts", "Phone calls", "Do not contact list", "Email delivery history"];
+
+test("the Outreach screen speaks plain language: full digests sit behind technical details and every disabled action says why beside it", async () => {
+  await withApp(async ({ leaves }) => {
+    const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection: leaves.normalizeOutreachProjection(sampleProjection()), interaction: leaves.READ_ONLY_INTERACTION }));
+    const technical = html.match(TECHNICAL_BLOCK) ?? [];
+    assert.ok(technical.length >= 3, "package, message and phone cards each keep a closed technical record");
+    for (const block of technical) {
+      assert.doesNotMatch(block, /<details[\s\S]*<details/, "technical records do not nest");
+      assert.doesNotMatch(block, /<details[^>]* open/, "technical records start closed");
+      assert.match(block, /<summary>Technical details[^<]*<\/summary>/);
+    }
+    const visible = html.replaceAll(TECHNICAL_BLOCK, "");
+    assert.doesNotMatch(visible, /[0-9a-f]{64}/, "no full SHA-256 digest is shown outside a technical record");
+    assert.doesNotMatch(visible, /SHA-256|digest/i, "the visible copy does not use digest jargon");
+    for (const char of ["a", "c", "d", "e", "f"]) assert.ok(technical.some((block) => block.includes(char.repeat(64))), `the full ${char}… digest stays available in a technical record`);
+    assert.match(visible, /Check code <code>aaaaaaaa<\/code>/, "the package version shows a short check code");
+    assert.match(visible, /Check code <code>dddddddd<\/code>/, "the message version shows a short check code");
+    assert.match(visible, /I reviewed this package \(check code aaaaaaaa\)/, "the review box still names the exact version");
+    assert.match(visible, /I reviewed this message \(check code dddddddd\)/);
+    assert.doesNotMatch(visible, />Refused</, "gate rows say Not available rather than a bare Refused");
+    for (const legacy of ["Current outreach eligibility", "Gmail drafts and approvals", "Manual verified phone", "reconciliation"]) assert.equal(visible.includes(legacy), false, `${legacy} is replaced by a plain heading`);
+
+    const buttons = html.match(/<button[^>]*>[^<]*<\/button>/g) ?? [];
+    const disabled = buttons.filter((button) => /disabled=""/.test(button));
+    assert.ok(disabled.length >= 4, `the refused gates disable approve, queue, record and phone actions (${disabled.length})`);
+    for (const button of disabled) {
+      const describedBy = button.match(/aria-describedby="([^"]+)"/)?.[1];
+      assert.ok(describedBy, `${button} points at its reason`);
+      const adjacent = new RegExp(`${button.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} <span id="${describedBy}" tabindex="0">([^<]+)</span>`);
+      const reason = html.match(adjacent)?.[1] ?? "";
+      assert.ok(reason.trim().length > 12, `${button} has a persistent reason right beside it`);
+    }
+    const phone = buttons.find((button) => button.includes(">Open verified business phone<")) ?? "";
+    assert.match(phone, /disabled=""/, "the phone action stays native-disabled");
+    assert.doesNotMatch(html, /tel:|mailto:/i);
+  });
+});
+
+test("the Outreach styles keep technical records and cards inside a 390px viewport", async () => {
+  const css = await source("app/globals.css");
+  assert.match(css, /\.outreach-technical\s*\{[^}]*min-width:0/, "technical records can shrink");
+  assert.match(css, /\.outreach-technical dd\s*\{[^}]*overflow-wrap:anywhere/, "long digests wrap instead of scrolling sideways");
+  assert.match(css, /\.outreach-check-code/, "the short check code has its own style");
 });
 
 test("reason codes become plain language and unknown codes stay readable without leaking structure", async () => {
