@@ -317,7 +317,10 @@ test("an expired lease is reported, not cancelled, and still cannot be reclaimed
   }
 });
 
-test("domain suppression cancels only whole-label matches of the recipient domain", async () => {
+test("domain suppression cancels every live email item, matching the workspace-wide D1 rechecks", async () => {
+  // Lane E follow-up: enqueue, lease and the 0015-0017 triggers block on any
+  // confirmed-domain tombstone, so a narrower cancellation would leave an item
+  // pending that no lease can claim. Whole-label reach stays in the resolver.
   const fixture = await createD1Fixture("suppression-domain-cancel");
   try {
     const context = await prepareQueued(fixture);
@@ -326,15 +329,15 @@ test("domain suppression cancels only whole-label matches of the recipient domai
       subject: { kind: "confirmed_email_domain", domain: value, ownerConfirmed: true }, channel: "email", reason: "owner_request",
       sourceEventDigest: digestOf(key), aliasDigests: [], effectiveAt: OUTREACH_NOW + 10, idempotencyKey: key,
     });
-    for (const [value, key] of [["mail.example.invalid", "domain-child"], ["ample.invalid", "domain-partial"]]) {
-      const result = await domain(value, key);
-      assert.equal(result.kind, "suppressed", key);
-      assert.deepEqual(result.cancelledOutboxItemIds, [], `${value} must not match verified@example.invalid`);
-    }
-    assert.equal((await latestEvent(fixture, context.queued.outboxItemId)).state, "pending");
-    const match = await domain("Example.Invalid", "domain-match");
-    assert.deepEqual(match.cancelledOutboxItemIds, [context.queued.outboxItemId]);
+    const partial = await domain("ample.invalid", "domain-partial");
+    assert.equal(partial.kind, "suppressed");
+    assert.deepEqual(partial.cancelledOutboxItemIds, [context.queued.outboxItemId], "the D1 rechecks block it, so it is cancelled, not stranded");
     assert.equal((await latestEvent(fixture, context.queued.outboxItemId)).state, "cancelled");
+    const outbox = (await fixture.vite.ssrLoadModule(OUTBOX)).createD1OutboxRepository(fixture.database, { ...scope(context.seeded), now: () => OUTREACH_NOW + 1_000 });
+    assert.equal((await outbox.claimDispatchLease({ outboxItemId: context.queued.outboxItemId, holderId: "synthetic-worker-one" })).kind, "blocked");
+    const match = await domain("Example.Invalid", "domain-match");
+    assert.equal(match.kind, "suppressed");
+    assert.deepEqual(match.cancelledOutboxItemIds, [], "nothing live is left to cancel");
   } finally {
     await fixture.dispose();
   }
