@@ -10,7 +10,7 @@ if (!LANES.includes(lane as (typeof LANES)[number])) throw new Error("PROSPECTOR
 
 export default defineConfig({
   testDir: "./tests/browser",
-  testMatch: `${lane}.spec.ts`,
+  testMatch: lane === "operator-journey-e1" ? ["operator-journey-e1.spec.ts", "phase7-surfaces.spec.ts"] : `${lane}.spec.ts`,
   timeout: 120_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

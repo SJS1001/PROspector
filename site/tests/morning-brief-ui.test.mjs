@@ -24,9 +24,11 @@ test("the Morning Brief workspace states every unavailable downstream boundary a
       "READ-ONLY PHASE 4 STATE",
       "All active Company, Product, Market Play, and Profile paths",
       "No run, schedule, or export actions are available",
-      "Weekly outcome unavailable",
-      "Export and handoff unavailable",
-      "Restore unavailable",
+      "Weekly outcome is read-only",
+      "Contact links and loss events are not saved yet",
+      "Export and handoff are not available here",
+      "Restore is not available here",
+      "Handoff &amp; Recovery screen",
     ]) assert.match(html, new RegExp(copy, "i"));
     assert.doesNotMatch(html, /<(button|form|input|select|textarea)\b/i);
   } finally { await vite.close(); }

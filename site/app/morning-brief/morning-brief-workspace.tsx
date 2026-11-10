@@ -88,13 +88,13 @@ export function MorningBriefWorkspace({
 
       <p className="panel brief-pilot-notice" role="note">{PILOT_NOTICE}</p>
 
-      <section className="panel brief-boundary" aria-label="Unavailable downstream capabilities">
+      <section className="panel brief-boundary" aria-label="Actions not available in this brief">
         <h2>Local operating view only</h2>
         <p>No run, schedule, or export actions are available from this brief.</p>
         <ul>
-          <li><strong>Weekly outcome unavailable.</strong> Export-ready transition history is not persisted.</li>
-          <li><strong>Export and handoff unavailable.</strong> Verification, package, suppression, and delivery authority is not composed.</li>
-          <li><strong>Restore unavailable.</strong> Workspace origin and verified recovery evidence are not persisted.</li>
+          <li><strong>Weekly outcome is read-only.</strong> It counts saved Export-ready transitions. Contact links and loss events are not saved yet, so they show as unknown, never zero.</li>
+          <li><strong>Export and handoff are not available here.</strong> CSV CRM Handoff is on the Handoff &amp; Recovery screen.</li>
+          <li><strong>Restore is not available here.</strong> Archive, dry run, and restore are on the Handoff &amp; Recovery screen.</li>
         </ul>
       </section>
 
@@ -186,7 +186,7 @@ export function ProfileBrief({ brief }: { brief: MorningBriefAvailable }) {
           <div><dt>Export-ready Prospects</dt><dd>{handoff?.counts ? handoff.counts.exportReadyProspectCount : "Unavailable"}</dd></div>
           <div><dt>Eligible contact rows</dt><dd>{handoff?.counts ? handoff.counts.eligibleContactRowCount : "Unavailable"}</dd></div>
         </dl>
-        <p>{CONTACT_ROW_DISTINCTION} Read-only: CSV handoff is requested from Exports &amp; History.</p>
+        <p>{CONTACT_ROW_DISTINCTION} Read-only: CSV handoff is requested from the Handoff &amp; Recovery screen.</p>
       </section>
 
       <section className="brief-section" aria-label="Evidence">
