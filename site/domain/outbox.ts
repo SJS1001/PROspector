@@ -1,5 +1,80 @@
 import { canonicalDigest } from "./enrichment-grant-issuance";
 
+/**
+ * D-7 (owner-delegated decision 3, 2026-11-10; migration 0024). A
+ * confirmed-domain tombstone reaches an email item only through the recorded
+ * whole-label domain scope (`outreach_contact_point_domains`) of the email
+ * contact points bound to its Package Version. A point with no recorded scope,
+ * or email work with no bound email point, is reached by every confirmed-domain
+ * tombstone (fail closed). A Contact tombstone reaches email work only on the
+ * `email` or `all` channel. Company and Organization tombstones stay
+ * workspace-wide. Suppression stop events defer to their tombstone. These
+ * fragments are shared with outreach-stop-rules.ts so cancellation reaches
+ * exactly what these rechecks block.
+ */
+function boundEmailPointScopes(pv: string, joins = "") {
+  return `FROM outreach_artifact_bindings domain_binding
+    JOIN contact_point_observations domain_point ON domain_point.id=domain_binding.binding_id
+    LEFT JOIN outreach_contact_point_domains point_domain ON point_domain.workspace_id=${pv}.workspace_id
+      AND point_domain.contact_point_digest=domain_point.contact_point_digest${joins}
+    WHERE (domain_binding.workspace_id,domain_binding.artifact_kind,domain_binding.artifact_id,domain_binding.binding_kind)
+        =(${pv}.workspace_id,'package_version',${pv}.id,'contact_observation')
+      AND domain_point.kind='email'`;
+}
+
+/** 1 when Package Version `pv` has no bound email point or one without a recorded domain scope. */
+export function emailDomainScopeUnresolvedSql(pv: string) {
+  return `(SELECT count(*)=0 OR count(point_domain.id)<count(*) ${boundEmailPointScopes(pv)})`;
+}
+
+/** JSON array of every recorded domain-scope digest of Package Version `pv`'s bound email points. */
+export function emailDomainScopeDigestsSql(pv: string) {
+  return `(SELECT json_group_array(scope_domain.value) ${boundEmailPointScopes(pv, `
+    JOIN json_each(point_domain.domain_digests_json) scope_domain`)})`;
+}
+
+/**
+ * True (1) when confirmed-domain tombstone `tomb` reaches Package Version
+ * `pv`'s email work: it has no bound email point, a bound email point has no
+ * recorded domain scope, or a recorded scope holds the tombstone digest or an
+ * alias. One flat aggregate over outer joins, with no nested subquery, because
+ * the lease statement already sits near D1's expression-depth limit of 100.
+ */
+function domainTombstoneReachesSql(tomb: string, pv: string) {
+  return `(SELECT count(*)=0 OR count(point_domain.id)<count(*) OR count(domain_reach.value)>0
+    ${boundEmailPointScopes(pv, `
+    LEFT JOIN json_each(point_domain.domain_digests_json) scope_domain
+    LEFT JOIN json_each(json_insert(${tomb}.alias_snapshot_json,'$[#]',${tomb}.subject_digest)) domain_reach
+      ON domain_reach.value=scope_domain.value`)})`;
+}
+
+/**
+ * Tombstone `tomb` blocks email work through a Company, Organization or
+ * Contact scope (D-7 narrowed). The confirmed-domain clause is separate so
+ * each statement can place it last in its OR chain, the shallowest position,
+ * which keeps the lease statement within D1's expression-depth limit.
+ */
+function narrowedTombstoneBlocksSql(tomb: string, pv: string, contactIdentity: string) {
+  return `(${tomb}.subject_kind IN ('company','organization')
+    OR (${tomb}.subject_kind='contact' AND ${tomb}.channel IN ('email','all') AND (
+      ${tomb}.subject_digest=${contactIdentity}
+      OR EXISTS (SELECT 1 FROM json_each(${tomb}.alias_snapshot_json) alias WHERE alias.value=${contactIdentity})
+    ))
+    OR ${domainTombstoneBlocksSql(tomb, pv)})`;
+}
+
+/** Confirmed-domain tombstone `tomb` blocks Package Version `pv`'s email work (D-7). */
+function domainTombstoneBlocksSql(tomb: string, pv: string) {
+  return `(${tomb}.subject_kind='confirmed_email_domain' AND ${domainTombstoneReachesSql(tomb, pv)})`;
+}
+
+/** Stop event `stop` blocks email work (D-7 narrowed scopes only; suppression stops defer to their tombstone). */
+function narrowedStopBlocksSql(stop: string, contactIdentity: string) {
+  return `${stop}.subject_kind IN ('company','organization')
+    OR (${stop}.subject_kind='confirmed_email_domain' AND ${stop}.stop_kind<>'suppression')
+    OR (${stop}.subject_kind='contact' AND ${stop}.stop_kind<>'suppression' AND ${stop}.subject_digest=${contactIdentity})`;
+}
+
 type Scope = Readonly<{ workspaceId: string; ownerSubject: string; now?: () => number }>;
 type EnqueueInput = Readonly<{ messageApprovalId: string; senderConnectionId: string }>;
 type OutboxRow = {
@@ -354,11 +429,7 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
                AND NOT EXISTS (
                  SELECT 1 FROM outreach_suppression_tombstones suppression
                  WHERE suppression.workspace_id=ma.workspace_id AND suppression.effective_at<=? AND (
-                   suppression.subject_kind IN ('company','organization','confirmed_email_domain')
-                   OR (suppression.subject_kind='contact' AND (
-                     suppression.subject_digest=contact.identity_digest
-                     OR EXISTS (SELECT 1 FROM json_each(suppression.alias_snapshot_json) alias WHERE alias.value=contact.identity_digest)
-                   ))
+                   ${narrowedTombstoneBlocksSql("suppression", "pv", "contact.identity_digest")}
                    OR (suppression.subject_kind='exact_email' AND EXISTS (
                      SELECT 1 FROM outreach_artifact_bindings binding
                      JOIN contact_point_observations observation ON observation.id=binding.binding_id
@@ -372,8 +443,7 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
                AND NOT EXISTS (
                  SELECT 1 FROM outreach_stop_events stop
                  WHERE stop.workspace_id=ma.workspace_id AND stop.effective_at<=? AND (
-                   stop.subject_kind IN ('company','organization','confirmed_email_domain')
-                   OR (stop.subject_kind='contact' AND stop.subject_digest=contact.identity_digest)
+                   ${narrowedStopBlocksSql("stop", "contact.identity_digest")}
                    OR EXISTS (
                      SELECT 1 FROM outreach_artifact_bindings binding
                      JOIN contact_point_observations observation ON observation.id=binding.binding_id
@@ -607,11 +677,7 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
              AND NOT EXISTS (
                SELECT 1 FROM outreach_suppression_tombstones suppression
                WHERE suppression.workspace_id=item.workspace_id AND suppression.effective_at<=? AND (
-                 suppression.subject_kind IN ('company','organization','confirmed_email_domain')
-                 OR (suppression.subject_kind='contact' AND (
-                   suppression.subject_digest=contact.identity_digest
-                   OR EXISTS (SELECT 1 FROM json_each(suppression.alias_snapshot_json) alias WHERE alias.value=contact.identity_digest)
-                 ))
+                 ${narrowedTombstoneBlocksSql("suppression", "pv", "contact.identity_digest")}
                  OR (suppression.subject_kind='exact_email' AND EXISTS (
                    SELECT 1 FROM outreach_artifact_bindings binding
                    JOIN contact_point_observations observation ON observation.id=binding.binding_id
@@ -625,8 +691,7 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
              AND NOT EXISTS (
                SELECT 1 FROM outreach_stop_events stop
                WHERE stop.workspace_id=item.workspace_id AND stop.effective_at<=? AND (
-                 stop.subject_kind IN ('company','organization','confirmed_email_domain')
-                 OR (stop.subject_kind='contact' AND stop.subject_digest=contact.identity_digest)
+                 ${narrowedStopBlocksSql("stop", "contact.identity_digest")}
                  OR EXISTS (
                    SELECT 1 FROM outreach_artifact_bindings binding
                    JOIN contact_point_observations observation ON observation.id=binding.binding_id
@@ -1603,11 +1668,7 @@ async function readAuthorityExpiry(
        AND NOT EXISTS (
          SELECT 1 FROM outreach_suppression_tombstones suppression
          WHERE suppression.workspace_id=item.workspace_id AND suppression.effective_at<=? AND (
-           suppression.subject_kind IN ('company','organization','confirmed_email_domain')
-           OR (suppression.subject_kind='contact' AND (
-             suppression.subject_digest=contact.identity_digest
-             OR EXISTS (SELECT 1 FROM json_each(suppression.alias_snapshot_json) alias WHERE alias.value=contact.identity_digest)
-           ))
+           ${narrowedTombstoneBlocksSql("suppression", "pv", "contact.identity_digest")}
            OR (suppression.subject_kind='exact_email' AND (
              suppression.subject_digest=observation.contact_point_digest
              OR EXISTS (SELECT 1 FROM json_each(suppression.alias_snapshot_json) alias WHERE alias.value=observation.contact_point_digest)
@@ -1617,8 +1678,7 @@ async function readAuthorityExpiry(
        AND NOT EXISTS (
          SELECT 1 FROM outreach_stop_events stop
          WHERE stop.workspace_id=item.workspace_id AND stop.effective_at<=? AND (
-           stop.subject_kind IN ('company','organization','confirmed_email_domain')
-           OR (stop.subject_kind='contact' AND stop.subject_digest=contact.identity_digest)
+           ${narrowedStopBlocksSql("stop", "contact.identity_digest")}
            OR (stop.subject_kind='exact_email' AND stop.subject_digest=observation.contact_point_digest)
          )
        )

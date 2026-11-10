@@ -1,5 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 
+import { emailDomainScopeDigests } from "./email-domain-scope";
+
 const REQUIRED_GMAIL_SCOPES = Object.freeze([
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
@@ -348,6 +350,22 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
         ),
         await auditStatement(database, scope, commandId, "recipient_dispatch_authority.recorded", "recipient_dispatch_authority", authorityId, "owner_acknowledged_advisory", operationDigest, now),
       ];
+      // D-7 (0024): the SQL rechecks cannot hash, so record the verified
+      // recipient's whole-label domain scope next to the authority. The
+      // address was just proved to be this contact point. An unresolvable
+      // domain records nothing, which the rechecks treat as blocked by every
+      // confirmed-domain tombstone. The row is immutable and shared by every
+      // Message to the same address, so a repeat insert is ignored.
+      const domainDigests = await emailDomainScopeDigests(recipient);
+      if (domainDigests) {
+        statements.push(database.prepare(
+          `INSERT OR IGNORE INTO outreach_contact_point_domains (id,workspace_id,contact_point_digest,domain_digests_json,created_at)
+           VALUES (?,?,?,?,?)`,
+        ).bind(
+          derivedId("ocpd", await digest({ schema: "outreach-contact-point-domain/v1", workspaceId: scope.workspaceId, contactPointDigest: recipientAddressDigest })),
+          scope.workspaceId, recipientAddressDigest, JSON.stringify(domainDigests), now,
+        ));
+      }
       return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, authorityId, authorityDigest, statements);
     },
 

@@ -182,35 +182,42 @@ test("governed enqueue replays exactly, refuses mismatched reuse, and denied tup
   }
 });
 
-test("a domain, organization or phone-only contact stop cancels every item the enqueue and lease rechecks would block", async () => {
-  // Lane B follow-up: enqueue, lease and the 0015-0017 pre-call triggers treat
-  // every Organization and confirmed-domain tombstone as workspace-wide and do
-  // not consult the channel. Cancellation must reach at least that set, or an
-  // item stays pending while no lease can ever claim it.
+async function recordStop(fixture, context, subject, channel, reason, key, effectiveAt = OUTREACH_NOW + 1_100) {
+  const stopRules = (await fixture.vite.ssrLoadModule(MODULES.stopRules)).createOutreachStopRules(fixture.database, scope(context.seeded, effectiveAt));
+  return stopRules.recordSuppressionStop({
+    subject, channel, reason, sourceEventDigest: digestOf(key), aliasDigests: [], effectiveAt, idempotencyKey: `dispatch-${key}`,
+  });
+}
+
+async function domainDigestOf(fixture, domain) {
+  const domainScope = await fixture.vite.ssrLoadModule(MODULES.domainScope);
+  return domainScope.domainDigest(domainScope.normalizeConfirmedDomain(domain));
+}
+
+test("Company and Organization stops still cancel every queued item and block every later lease", async () => {
+  // D-7 narrows only confirmed-domain and Contact tombstones. Company and
+  // Organization tombstones stay workspace-wide in enqueue, lease, the 0010
+  // approval triggers and the 0015-0017 pre-call/attempt triggers, so
+  // cancellation must still reach every live item.
   const cases = [
-    ["non-matching confirmed domain", { kind: "confirmed_email_domain", domain: "ample.invalid", ownerConfirmed: true }, "email", "owner_request"],
-    ["unrelated organization", { kind: "organization", identityDigest: "4".repeat(64) }, "email", "owner_request"],
-    ["phone-only contact do_not_call", { kind: "contact", identityDigest: null }, "phone", "do_not_call"],
+    ["d7-organization", () => ({ kind: "organization", identityDigest: "4".repeat(64) }), "email", "owner_request"],
+    ["d7-company", (context) => ({ kind: "company", workspaceId: context.seeded.workspaceId }), "all", "owner_request"],
   ];
-  for (const [label, subjectTemplate, channel, reason] of cases) {
-    const fixture = await createD1Fixture(`dispatch-stop-agreement-${channel}-${subjectTemplate.kind}`);
+  for (const [key, subjectOf, channel, reason] of cases) {
+    const fixture = await createD1Fixture(`dispatch-${key}`);
     try {
       const context = await prepareApprovedPair(fixture);
       const queued = await enqueuePair(fixture, context);
       assert.equal((await claimLease(fixture, context, queued.origin.outboxItemId, "synthetic-worker-one")).kind, "claimed");
-      const subject = subjectTemplate.kind === "contact" ? { kind: "contact", identityDigest: "6".repeat(64) } : subjectTemplate;
-      const stopRules = (await fixture.vite.ssrLoadModule(MODULES.stopRules)).createOutreachStopRules(fixture.database, scope(context.seeded, OUTREACH_NOW + 1_100));
-      const result = await stopRules.recordSuppressionStop({
-        subject, channel, reason, sourceEventDigest: digestOf(label), aliasDigests: [], effectiveAt: OUTREACH_NOW + 1_100, idempotencyKey: `dispatch-agreement-${subjectTemplate.kind}`,
-      });
-      assert.equal(result.kind, "suppressed", label);
-      assert.deepEqual(result.cancelledOutboxItemIds, [queued.origin.outboxItemId, queued.followUp.outboxItemId].sort(), label);
-      assert.deepEqual(result.uncancelled, [], label);
+      const result = await recordStop(fixture, context, subjectOf(context), channel, reason, key);
+      assert.equal(result.kind, "suppressed", key);
+      assert.deepEqual(result.cancelledOutboxItemIds, [queued.origin.outboxItemId, queued.followUp.outboxItemId].sort(), key);
+      assert.deepEqual(result.uncancelled, [], key);
       for (const item of [queued.origin, queued.followUp]) {
-        assert.equal((await latestEvent(fixture, item.outboxItemId)).state, "cancelled", label);
+        assert.equal((await latestEvent(fixture, item.outboxItemId)).state, "cancelled", key);
         const lease = await claimLease(fixture, context, item.outboxItemId, "synthetic-worker-two", OUTREACH_NOW + 20_000);
-        assert.equal(lease.kind, "blocked", label);
-        assert.equal(lease.providerCalls, 0, label);
+        assert.equal(lease.kind, "blocked", key);
+        assert.equal(lease.providerCalls, 0, key);
       }
       await assertNoForbiddenStates(fixture);
     } finally {
@@ -219,6 +226,202 @@ test("a domain, organization or phone-only contact stop cancels every item the e
   }
 });
 
+test("D-7: a confirmed domain stop outside the recipient's domain or a phone-only Contact stop leaves email work queued, leasable and preparable", async () => {
+  // Recipient: verified@example.invalid. other.invalid is unrelated,
+  // ample.invalid is a string suffix but not a whole-label suffix, and
+  // mail.example.invalid is a child, which never covers its parent. A
+  // do_not_call Contact tombstone on the phone channel does not reach email.
+  const cases = [
+    ["d7-other-domain", { kind: "confirmed_email_domain", domain: "other.invalid", ownerConfirmed: true }, "email", "owner_request"],
+    ["d7-string-suffix", { kind: "confirmed_email_domain", domain: "ample.invalid", ownerConfirmed: true }, "email", "owner_request"],
+    ["d7-child-domain", { kind: "confirmed_email_domain", domain: "mail.example.invalid", ownerConfirmed: true }, "all", "owner_request"],
+    ["d7-phone-contact", { kind: "contact", identityDigest: "6".repeat(64) }, "phone", "do_not_call"],
+  ];
+  for (const [key, subject, channel, reason] of cases) {
+    const fixture = await createD1Fixture(`dispatch-${key}`);
+    try {
+      const context = await prepareApprovedPair(fixture);
+      const queued = await enqueuePair(fixture, context);
+      assert.equal((await claimLease(fixture, context, queued.origin.outboxItemId, "synthetic-worker-one")).kind, "claimed");
+      const result = await recordStop(fixture, context, subject, channel, reason, key);
+      assert.equal(result.kind, "suppressed", key);
+      assert.deepEqual(result.cancelledOutboxItemIds, [], key);
+      assert.deepEqual(result.uncancelled, [], key);
+      assert.equal((await latestEvent(fixture, queued.origin.outboxItemId)).state, "leased", key);
+      assert.equal((await latestEvent(fixture, queued.followUp.outboxItemId)).state, "pending", key);
+      // Nothing is stranded: the lease, the 0015 pre-call receipt trigger and
+      // the 0016 attempt-preparation trigger all admit the uncancelled item.
+      const lease = await claimLease(fixture, context, queued.followUp.outboxItemId, "synthetic-worker-two", OUTREACH_NOW + 1_200);
+      assert.equal(lease.kind, "claimed", key);
+      const outbox = (await fixture.vite.ssrLoadModule(MODULES.outbox)).createD1OutboxRepository(fixture.database, scope(context.seeded, OUTREACH_NOW + 1_300));
+      const receipt = await outbox.recordPreCallRecheckReceipt({ outboxItemId: queued.followUp.outboxItemId, holderId: "synthetic-worker-two", leaseGeneration: lease.leaseGeneration });
+      assert.equal(receipt.kind, "recorded", key);
+      const attempt = await outbox.prepareDispatchAttempt({ outboxItemId: queued.followUp.outboxItemId, preCallReceiptId: receipt.receiptId, holderId: "synthetic-worker-two", leaseGeneration: lease.leaseGeneration });
+      assert.equal(attempt.kind, "prepared_no_invocation", key);
+      assert.equal(attempt.providerCalls, 0, key);
+      await assertNoForbiddenStates(fixture);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("D-7: a confirmed domain stop cancels that domain and its whole-label subdomains, and a Contact stop cancels its own channel", async () => {
+  const cases = [
+    ["d7-same-domain", "verified@example.invalid", { kind: "confirmed_email_domain", domain: "example.invalid", ownerConfirmed: true }, "email"],
+    ["d7-root-dot-domain", "verified@example.invalid", { kind: "confirmed_email_domain", domain: "EXAMPLE.invalid.", ownerConfirmed: true }, "email"],
+    ["d7-parent-domain", "verified@mail.example.invalid", { kind: "confirmed_email_domain", domain: "example.invalid", ownerConfirmed: true }, "all"],
+    ["d7-exact-subdomain", "verified@mail.example.invalid", { kind: "confirmed_email_domain", domain: "mail.example.invalid", ownerConfirmed: true }, "email"],
+    ["d7-email-contact", "verified@example.invalid", { kind: "contact", identityDigest: "6".repeat(64) }, "email"],
+    ["d7-all-contact", "verified@example.invalid", { kind: "contact", identityDigest: "6".repeat(64) }, "all"],
+  ];
+  for (const [key, recipient, subject, channel] of cases) {
+    const fixture = await createD1Fixture(`dispatch-${key}`);
+    try {
+      const context = await prepareApprovedPair(fixture, { recipient });
+      const queued = await enqueuePair(fixture, context);
+      assert.equal((await claimLease(fixture, context, queued.origin.outboxItemId, "synthetic-worker-one")).kind, "claimed");
+      const result = await recordStop(fixture, context, subject, channel, "owner_request", key);
+      assert.equal(result.kind, "suppressed", key);
+      assert.deepEqual(result.cancelledOutboxItemIds, [queued.origin.outboxItemId, queued.followUp.outboxItemId].sort(), key);
+      assert.deepEqual(result.uncancelled, [], key);
+      for (const item of [queued.origin, queued.followUp]) {
+        assert.equal((await latestEvent(fixture, item.outboxItemId)).state, "cancelled", key);
+        const lease = await claimLease(fixture, context, item.outboxItemId, "synthetic-worker-two", OUTREACH_NOW + 20_000);
+        assert.equal(lease.kind, "blocked", key);
+        assert.equal(lease.providerCalls, 0, key);
+      }
+      await assertNoForbiddenStates(fixture);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("D-7: the recipient authority records the whole-label domain scope of its verified contact point", async () => {
+  const fixture = await createD1Fixture("dispatch-d7-domain-scope-row");
+  try {
+    const context = await prepareApprovedPair(fixture, { recipient: "verified@mail.example.invalid" });
+    const rows = (await fixture.database.prepare(
+      "SELECT contact_point_digest,domain_digests_json FROM outreach_contact_point_domains WHERE workspace_id=?",
+    ).bind(context.seeded.workspaceId).all()).results;
+    assert.deepEqual(rows, [{
+      contact_point_digest: context.seeded.contactPointDigest,
+      domain_digests_json: JSON.stringify([await domainDigestOf(fixture, "mail.example.invalid"), await domainDigestOf(fixture, "example.invalid")]),
+    }], "two Messages to one verified address share one immutable scope row");
+    await assert.rejects(
+      fixture.database.prepare("UPDATE outreach_contact_point_domains SET domain_digests_json='[]' WHERE workspace_id=?").bind(context.seeded.workspaceId).run(),
+      /immutable outreach contact point domain/,
+    );
+    await assert.rejects(
+      fixture.database.prepare("DELETE FROM outreach_contact_point_domains WHERE workspace_id=?").bind(context.seeded.workspaceId).run(),
+      /immutable outreach contact point domain/,
+    );
+    for (const [label, digests] of [
+      ["empty", "[]"],
+      ["not hex", JSON.stringify(["x".repeat(64)])],
+      ["duplicate", JSON.stringify(["a".repeat(64), "a".repeat(64)])],
+      ["not an array", "{}"],
+    ]) {
+      await assert.rejects(
+        fixture.database.prepare(
+          "INSERT INTO outreach_contact_point_domains (id,workspace_id,contact_point_digest,domain_digests_json,created_at) VALUES (?,?,?,?,?)",
+        ).bind(`ocpd_forged_${label.replace(/ /gu, "_")}`, context.seeded.workspaceId, "b".repeat(64), digests, OUTREACH_NOW).run(),
+        /invalid outreach contact point domain/,
+        label,
+      );
+    }
+    await assert.rejects(
+      fixture.database.prepare(
+        "INSERT INTO outreach_contact_point_domains (id,workspace_id,contact_point_digest,domain_digests_json,created_at) VALUES (?,?,?,?,?)",
+      ).bind("ocpd_forged_unknown_point", context.seeded.workspaceId, "b".repeat(64), JSON.stringify(["a".repeat(64)]), OUTREACH_NOW).run(),
+      /invalid outreach contact point domain/,
+      "a scope row needs a stored email contact point",
+    );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("D-7: enqueue rechecks a confirmed domain by whole labels and a Contact tombstone by its channel", async () => {
+  const cases = [
+    ["d7-enqueue-other-domain", { kind: "confirmed_email_domain", domain: "other.invalid", ownerConfirmed: true }, "email", "queued"],
+    ["d7-enqueue-string-suffix", { kind: "confirmed_email_domain", domain: "ample.invalid", ownerConfirmed: true }, "email", "queued"],
+    ["d7-enqueue-phone-contact", { kind: "contact", identityDigest: "6".repeat(64) }, "phone", "queued"],
+    ["d7-enqueue-same-domain", { kind: "confirmed_email_domain", domain: "example.invalid", ownerConfirmed: true }, "email", "blocked"],
+    ["d7-enqueue-email-contact", { kind: "contact", identityDigest: "6".repeat(64) }, "email", "blocked"],
+  ];
+  for (const [key, subject, channel, expected] of cases) {
+    const fixture = await createD1Fixture(`dispatch-${key}`);
+    try {
+      const context = await prepareApprovedPair(fixture);
+      const result = await recordStop(fixture, context, subject, channel, channel === "phone" ? "do_not_call" : "owner_request", key, OUTREACH_NOW);
+      assert.equal(result.kind, "suppressed", key);
+      const outbox = (await fixture.vite.ssrLoadModule(MODULES.outbox)).createD1OutboxRepository(fixture.database, scope(context.seeded));
+      const enqueued = await outbox.enqueueApprovedMessage({ messageApprovalId: context.approvals.origin.id, senderConnectionId: context.senderConnectionId });
+      assert.equal(enqueued.kind, expected, key);
+      assert.equal(enqueued.providerCalls, 0, key);
+      const items = expected === "queued" ? 1 : 0;
+      assert.deepEqual(await rowCounts(fixture), { outreach_message_approval_consumptions: items, outreach_outbox_items: items, outreach_outbox_events: items }, key);
+      await assertNoForbiddenStates(fixture);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("D-7: approvals resolve a confirmed domain through the recorded scope and fail closed while it is unknown", async () => {
+  const domain = (value) => ({ kind: "confirmed_email_domain", domain: value, ownerConfirmed: true });
+  const record = (fixture, subject, channel, reason, key) => async ({ seeded }) => {
+    const result = await recordStop(fixture, { seeded }, subject, channel, reason, key, OUTREACH_NOW);
+    assert.equal(result.kind, "suppressed", key);
+  };
+
+  // Before the recipient authority exists the package's email point has no
+  // recorded domain scope, so any confirmed-domain tombstone still refuses
+  // the Package approval (fail closed, same as before D-7).
+  let fixture = await createD1Fixture("dispatch-d7-approval-unknown-scope");
+  try {
+    await assert.rejects(
+      prepareApprovedPair(fixture, { beforePackageApproval: record(fixture, domain("other.invalid"), "email", "owner_request", "d7-approval-unknown") }),
+      /unresolved_suppression_scope/,
+    );
+    assert.equal(await countRows(fixture.database, "outreach_package_approvals"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+
+  // A phone-only Contact tombstone does not refuse an email-only Package.
+  fixture = await createD1Fixture("dispatch-d7-approval-phone-contact");
+  try {
+    const context = await prepareApprovedPair(fixture, {
+      beforePackageApproval: record(fixture, { kind: "contact", identityDigest: "6".repeat(64) }, "phone", "do_not_call", "d7-approval-phone"),
+    });
+    assert.equal((await enqueuePair(fixture, context)).origin.kind, "queued");
+  } finally {
+    await fixture.dispose();
+  }
+
+  // After the recipient authority records the scope, an unrelated domain no
+  // longer refuses the Message approval, and the recipient's domain does.
+  fixture = await createD1Fixture("dispatch-d7-approval-other-domain");
+  try {
+    const context = await prepareApprovedPair(fixture, { beforeMessageApproval: record(fixture, domain("other.invalid"), "email", "owner_request", "d7-approval-other") });
+    assert.equal((await enqueuePair(fixture, context)).origin.kind, "queued");
+  } finally {
+    await fixture.dispose();
+  }
+  fixture = await createD1Fixture("dispatch-d7-approval-same-domain");
+  try {
+    await assert.rejects(
+      prepareApprovedPair(fixture, { beforeMessageApproval: record(fixture, domain("example.invalid"), "email", "owner_request", "d7-approval-same") }),
+      /unresolved_suppression_scope/,
+    );
+    assert.equal(await countRows(fixture.database, "outreach_message_approvals"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
 test("an exact-email stop spelled with a DNS root dot cancels queued items and blocks the enqueue SQL recheck for the plain contact point", async () => {
   // PR 199 review: the outbox enqueue/lease SQL, the 0010 and 0015-0017
   // triggers and the eligibility snapshot SQL match exact_email tombstones by

@@ -13,6 +13,7 @@ export const MODULES = Object.freeze({
   mail: new URL("../../domain/ports/mail.ts", import.meta.url).pathname,
   gmail: new URL("../../adapters/gmail.ts", import.meta.url).pathname,
   issuance: new URL("../../domain/enrichment-grant-issuance.ts", import.meta.url).pathname,
+  domainScope: new URL("../../domain/email-domain-scope.ts", import.meta.url).pathname,
 });
 
 export const FORBIDDEN_STATES = Object.freeze(["dispatching", "sent", "delivery_unknown"]);
@@ -28,17 +29,21 @@ export function scope(seeded, now = OUTREACH_NOW) {
 /**
  * Seeds one Package with two approved Messages to the same verified recipient:
  * an "origin" Message and a "follow-up" Message. Nothing is enqueued here.
+ * `recipient` overrides the verified address; `beforePackageApproval` and
+ * `beforeMessageApproval` run with the seeded context at those points.
  */
-export async function prepareApprovedPair(fixture) {
-  const seeded = await seedOutreachAuthority(fixture);
+export async function prepareApprovedPair(fixture, options = {}) {
+  const recipient = options.recipient ?? RECIPIENT;
+  const seeded = await seedOutreachAuthority(fixture, { email: recipient });
   const repository = (await fixture.vite.ssrLoadModule(MODULES.repository)).createD1OutreachRepository(fixture.database, scope(seeded));
   const packageVersion = await repository.createPackageVersion(packageInput(seeded));
+  if (options.beforePackageApproval) await options.beforePackageApproval({ seeded, repository });
   const packageApproval = await repository.approvePackageVersion({
     packageVersionId: packageVersion.id, expectedVersion: 1, expiresAt: OUTREACH_NOW + 70_000, idempotencyKey: "dispatch-package-approval",
   });
   const approvals = {};
   for (const [index, messageId] of MESSAGE_IDS.entries()) {
-    const message = await repository.createMessageVersion(messageInput(packageVersion, messageId, index));
+    const message = await repository.createMessageVersion(messageInput(packageVersion, messageId, index, recipient));
     const recipientAuthority = await repository.recordRecipientDispatchAuthority({
       messageVersionId: message.id, packageApprovalId: packageApproval.id, emailObservationId: seeded.observationId,
       jurisdictionCode: "CA-ON", claimedBasisCode: "legitimate_interest", basisSourceId: "outreach-source", basisSourceDigest: seeded.sourceDigest,
@@ -49,6 +54,7 @@ export async function prepareApprovedPair(fixture) {
       recipientAuthorityId: recipientAuthority.id, expectedRevision: 0, status: "working", checkDigest: "e".repeat(64),
       observedAt: OUTREACH_NOW, validUntil: OUTREACH_NOW + 70_000, idempotencyKey: `dispatch-unsubscribe-working-${index}`,
     });
+    if (index === 0 && options.beforeMessageApproval) await options.beforeMessageApproval({ seeded, repository });
     approvals[index === 0 ? "origin" : "followUp"] = await repository.approveMessageVersion({
       messageVersionId: message.id, packageApprovalId: packageApproval.id, expectedVersion: 1,
       acknowledgementDigest: recipientAuthority.digest, expiresAt: OUTREACH_NOW + 60_000, idempotencyKey: `dispatch-message-approval-${index}`,
@@ -202,12 +208,12 @@ function packageInput(seeded) {
   };
 }
 
-function messageInput(packageVersion, messageId, index) {
+function messageInput(packageVersion, messageId, index, recipient = RECIPIENT) {
   return {
     messageId, packageId: "dispatch-package-root", packageVersionId: packageVersion.id,
     version: 1, expectedVersion: 0,
     snapshot: {
-      senderReference: "sender-synthetic", from: "owner@example.invalid", replyTo: null, to: [RECIPIENT],
+      senderReference: "sender-synthetic", from: "owner@example.invalid", replyTo: null, to: [recipient],
       cc: [], bcc: [], subject: `Synthetic governed outreach message ${index}`, textBody: "Hello from the offline fixture.", htmlBody: null,
       links: ["https://example.invalid/unsubscribe"], attachments: [], threadReference: null, replyToMessageReference: null,
     },

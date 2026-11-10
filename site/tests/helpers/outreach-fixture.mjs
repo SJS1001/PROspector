@@ -13,6 +13,13 @@ export const OUTREACH_OWNER = Object.freeze({
 
 const attestors = new WeakMap();
 
+/**
+ * Migrations after 0017 that applyOutreachMigrations already applies. Tests
+ * that seed on this fixture and then roll the remaining chain forward skip
+ * these, so no migration runs twice.
+ */
+export const OUTREACH_FIXTURE_FORWARD_MIGRATIONS = Object.freeze(["0024_domain-tombstone-scope.sql"]);
+
 export async function applyOutreachMigrations(database) {
   await applyMigrations(database);
   await applyCandidateMigrations(database, [
@@ -24,6 +31,8 @@ export async function applyOutreachMigrations(database) {
     "0015_governed-outreach-pre-call.sql",
     "0016_governed-outreach-attempt-preparation.sql",
     "0017_governed-outreach-preparation-recovery.sql",
+    // D-7: 0024 depends only on the 0008 and 0010-0017 outreach tables.
+    ...OUTREACH_FIXTURE_FORWARD_MIGRATIONS,
   ]);
 }
 
@@ -51,6 +60,25 @@ export async function applyOutreachAttemptPreparationMigration(database) {
 
 export async function applyOutreachPreparationRecoveryMigration(database) {
   await applyCandidateMigrations(database, ["0017_governed-outreach-preparation-recovery.sql"]);
+}
+
+/**
+ * D-7: current code writes the recorded domain scope (0024's
+ * `outreach_contact_point_domains`) when it records recipient authority, and
+ * the lease recheck reads it. Upgrade tests that seed with current code on an
+ * older outreach schema need that one table first. This applies only 0024's
+ * leading table, index and table-local triggers, never its recreation of the
+ * 0010 and 0015-0017 triggers, so the migration under test stays the old one.
+ */
+export async function applyOutreachDomainScopeTable(database) {
+  const sql = await readFile(new URL("../../drizzle/0024_domain-tombstone-scope.sql", import.meta.url), "utf8");
+  const statements = sql.split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
+  const tableOnly = statements.slice(0, statements.findIndex((statement) => statement.startsWith("DROP TRIGGER ")));
+  assert.equal(tableOnly.length, 5);
+  for (const statement of tableOnly) {
+    assert.match(statement, /^CREATE (TABLE `outreach_contact_point_domains`|UNIQUE INDEX `outreach_contact_point_domain_point_unique` ON `outreach_contact_point_domains`|TRIGGER [a-z_]+ BEFORE (INSERT|UPDATE|DELETE) ON outreach_contact_point_domains )/u);
+    await database.prepare(statement).run();
+  }
 }
 
 async function applyCandidateMigrations(database, migrations) {
@@ -110,7 +138,7 @@ export async function seedOutreachAuthority(fixture, options = {}) {
   });
   assert.equal(reserved.kind, "reserved");
   assert.equal((await authority.claimAdmittedCommittedInvocation(repository, reserved.reservation.id, OUTREACH_NOW + 3)).kind, "claimed");
-  const observation = await makeObservation(fixture, reserved, issued.grant);
+  const observation = await makeObservation(fixture, reserved, issued.grant, options.email ?? "verified@example.invalid");
   const settlementIdentity = await authority.deriveEnrichmentSettlementIdentity({
     reservationId: reserved.reservation.id,
     terminalState: "settled",
@@ -237,14 +265,14 @@ async function seedReservationInputs(database, seeded, grant) {
   }
 }
 
-async function makeObservation(fixture, reserved, grant) {
+async function makeObservation(fixture, reserved, grant, email) {
   const contactEvidence = await fixture.vite.ssrLoadModule(new URL("../../domain/contact-evidence.ts", import.meta.url).pathname);
   const binding = reserved.reservation.assignment.evidenceAssignments[0];
   const providerAuthority = { providerId: grant.tuple.providerId, providerVersion: grant.tuple.providerVersion, catalogRef: grant.tuple.catalogRef };
   const envelope = {
     id: "outreach-observation", assignmentId: binding.assignmentId, prospectId: binding.prospectId,
     workspaceId: binding.workspaceId, contactId: binding.contactId, profileConfigurationId: binding.profileConfigurationId,
-    profileConfigurationDigest: binding.profileConfigurationDigest, kind: "email", value: "verified@example.invalid", confidence: 1,
+    profileConfigurationDigest: binding.profileConfigurationDigest, kind: "email", value: email, confidence: 1,
     provenance: { sourceReference: "source:synthetic", excerpt: "synthetic verification", objectReference: "object:synthetic", contentHash: "8".repeat(64), retrievedAt: OUTREACH_NOW - 4 },
     observedAt: OUTREACH_NOW - 2,
   };

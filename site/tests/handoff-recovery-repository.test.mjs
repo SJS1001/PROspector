@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { CANONICAL_MIGRATION_FILENAMES } from "../scripts/migration-chain.mjs";
 import { applyMigrationsThrough, createD1Fixture } from "./helpers/d1.mjs";
-import { OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuthority } from "./helpers/outreach-fixture.mjs";
+import { OUTREACH_FIXTURE_FORWARD_MIGRATIONS, OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuthority } from "./helpers/outreach-fixture.mjs";
 
 const MIGRATION = "0023_handoff_recovery.sql";
 const NEW_TABLES = Object.freeze([
@@ -106,7 +106,8 @@ async function handoffFixture(name) {
       packageVersionId: packageVersion.id, expectedVersion: 1, expiresAt: OUTREACH_NOW + 20_000, idempotencyKey: "handoff-package-approval",
     });
     const cutoff = CANONICAL_MIGRATION_FILENAMES.findIndex((filename) => filename.startsWith("0017_"));
-    await applyFiles(fixture.database, CANONICAL_MIGRATION_FILENAMES.slice(cutoff + 1));
+    await applyFiles(fixture.database, CANONICAL_MIGRATION_FILENAMES.slice(cutoff + 1)
+      .filter((filename) => !OUTREACH_FIXTURE_FORWARD_MIGRATIONS.includes(filename)));
     const recoveryModule = await load(fixture, "handoff-recovery-repository.ts");
     const repository = (now = T0, scope = {}) => recoveryModule.createD1HandoffRecoveryRepository(fixture.database, {
       workspaceId: seeded.workspaceId, ownerSubject: OUTREACH_OWNER.subject, now: () => now, ...scope,
