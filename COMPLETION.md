@@ -67,6 +67,20 @@ The owner answered the seven open questions in `docs/reviews/2026-11-09-code-rev
 6. **Prospecting validation refusals get their own error codes and honest messages** (for example a past defer date, or `manual_find` with no active schedule). They are no longer shown as "This candidate changed in another tab". The existing E1 rule that an expired CSRF token is never retried automatically still stands.
 7. **Operator do-not-contact domain entries also block subdomains**, so `acme.com` blocks `x@mail.acme.com`.
 
+## Phase 6–7 local build rules, 2026-11-09
+
+The build is local and synthetic only. The lane map is in `docs/implementation-lanes/2026-11-09-phase6-7-local-build-map.md`. These rules bind every lane:
+
+- **Eligibility.** Phase 6/7 services take an injected eligibility/recheck port. Production composition wires the existing blocked `recheck*` functions in `site/domain/contact-eligibility.ts`, which stays unedited. Only tests inject a synthetic ContactReady. Nothing routes around the boundary.
+- **Outbox states.** `dispatching`, `sent` and `delivery_unknown` stay unreachable in D1. Send semantics are tested against the in-memory orchestrator only. There is no MailPort invocation, worker, send route or provider binding.
+- **No new migrations.** 07-04 stays blocked on its undecided index.
+- **Transition history stays unwired** (owner decision 3 applies when it is wired).
+- **Phone action.** The manual-call phone action stays disabled until 06-13 Task 3 owner UAT. No literal `tel:` or `mailto:`.
+- **Site domain suppression** also blocks subdomains, following owner decision 7's reasoning. The owner may reverse this.
+- **RED tests** for modules that do not exist yet use `test(..., { todo: "<plan> not implemented" })`.
+- **Records.** Lanes do not edit `COMPLETION.md` or `COMPLETION_LEDGER.md`; the coordinator records receipts. Lanes create no summary files and claim no credit.
+- **Still blocked:** 06-10, 06-11, 06-12, 06-13 Tasks 1–2, 07-04, 07-07 (crypto choice and hosted target), 07-08, 07-10 Task 2.
+
 ## Flags
 
 | Flag | Value | Meaning |
@@ -151,7 +165,7 @@ A person and an authorized target are still required for:
 - 06-10, 06-11, and 06-13, then authorized Gmail or manual-call suppression
 - 07-07 and 07-10 archive capability, weekday 06:00 America/Toronto proof, and a restore drill
 
-07-04 still names migration index `NNNN`. Do not invent it. Phase 6 and Phase 7 implementation stays closed. The matrix on the baseline, `docs/implementation-lanes/2026-11-08-phase4-7-engineering-status.md`, is unchanged by this checkpoint.
+07-04 still names migration index `NNNN`. Do not invent it. Superseded 2026-11-09: local, synthetic Phase 6 and 7 implementation is owner-authorized (see "Owner authorization, 2026-11-09"). The external gates above stay closed. The matrix on the baseline, `docs/implementation-lanes/2026-11-08-phase4-7-engineering-status.md`, is unchanged by this checkpoint.
 
 ## Distributor and DigitalRain
 
@@ -188,7 +202,7 @@ Read this file first. Do not rebuild the 44-plan audit from chat.
 
 1. Check out `cursor/schedule-overlap-state-de84` and confirm `git rev-parse HEAD` equals `git log -1 --format=%H -- COMPLETION.md`.
 2. If `development_running` is true and `last_progress_at` is less than 10 minutes old, this session still owns the overlap files. Do not start another one.
-3. The overlap revalidation already finished. If the source files are committed on top of `3c0649f04f6b28c309a21d7e08f6b393cc2c717d` with diff `c0df45307d15b5f042803b87260cdfc7e56fe35a`, do not run them again. Do not run `npm test`. Do not start Phase 6 or Phase 7. Do not open Distributor or DigitalRain work from this tree.
+3. The overlap revalidation already finished. If the source files are committed on top of `3c0649f04f6b28c309a21d7e08f6b393cc2c717d` with diff `c0df45307d15b5f042803b87260cdfc7e56fe35a`, do not run them again. Do not run `npm test`. Phase 6 and 7 local build is authorized (2026-11-09); follow "Phase 6–7 local build rules" below. Do not open Distributor or DigitalRain work from this tree.
 4. `prior_failure_fingerprint` of `scope-correction-development-cancelled` means the old shard run stays stopped. Do not cite it as a pass.
 5. If `needs_user` is true, wait. Do not rerun a green suite.
 6. `all_done` true would mean the product is accepted. It is false.
