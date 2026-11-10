@@ -5,17 +5,22 @@ import type { Sql } from "../db";
 // All joins include ownership; all suppression scopes win before data leaves.
 // A domain entry blocks that domain and its subdomains (acme.com blocks
 // x@mail.acme.com, not x@notacme.com), per owner decision 7, 2026-11-09.
+// Both sides drop trailing dots first: x@acme.com. is the same mailbox as
+// x@acme.com (the DNS root label), so it must not escape an entry.
+const mailbox = `rtrim(lower(trim(c.email_display)), '.')`;
+const mailDomain = `split_part(${mailbox}, '@', 2)`;
+const entry = `rtrim(lower(trim(s.value)), '.')`;
 const eligible = `p.user_id = $1 and p.status = 'approved' and p.approved_at is not null
   and r.state = 'approved' and r.outcome = 'Passed'
   and c.email_kind in ('verified', 'public_source')
   and c.email_display ~ '^[^[:space:]@,;<>]+@[^[:space:]@,;<>]+[.][^[:space:]@,;<>]+$'
-  and lower(c.email_display) not like '%.invalid'
+  and ${mailbox} not like '%.invalid'
   and c.source <> '' and c.published_url ~ '^https?://'
   and not exists (select 1 from suppressions s where s.user_id = $1 and (
     s.kind = 'all'
-    or (s.kind = 'email' and lower(trim(s.value)) = lower(trim(c.email_display)))
-    or (s.kind = 'domain' and (lower(trim(s.value)) = split_part(lower(c.email_display), '@', 2)
-      or right(split_part(lower(c.email_display), '@', 2), length(trim(s.value)) + 1) = '.' || lower(trim(s.value))))
+    or (s.kind = 'email' and ${entry} = ${mailbox})
+    or (s.kind = 'domain' and (${entry} = ${mailDomain}
+      or right(${mailDomain}, length(${entry}) + 1) = '.' || ${entry}))
     or (s.kind = 'contact' and s.value = c.id)
     or (s.kind = 'org' and lower(trim(s.value)) = lower(trim(r.account_name)))
     or (s.kind = 'phone' and coalesce(c.phone_display, '') <> ''

@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access, readFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const execute = promisify(execFile);
@@ -140,7 +142,27 @@ export function controller(config, deps = {}) {
   };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// The app copies this file alone into its bundle, so the guard is inline. Real
+// paths are compared: node realpaths import.meta.url but not process.argv[1],
+// and a raw comparison made a launch through a symlink a silent no-op.
+function isDirectRun(entry = process.argv[1]) {
+  if (!entry) return false;
+  const self = realpathSync(fileURLToPath(import.meta.url));
+  let target = null;
+  try {
+    target = realpathSync(entry);
+  } catch {
+    target = null;
+  }
+  if (target === self) return true;
+  if (basename(entry) === basename(self))
+    throw new Error(
+      `direct-run guard: ${entry} names ${basename(self)} but does not resolve to ${self}`,
+    );
+  return false;
+}
+
+if (isDirectRun()) {
   try {
     const config = JSON.parse(await readFile(new URL("config.json", import.meta.url), "utf8"));
     const action = process.argv[2];

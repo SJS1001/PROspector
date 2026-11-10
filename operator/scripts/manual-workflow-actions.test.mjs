@@ -375,6 +375,52 @@ test("a domain entry also blocks its subdomains, but not a lookalike domain", as
   assert.equal(counts.provider, 0);
 });
 
+test("a mailbox or entry with a trailing dot cannot escape a do-not-contact block", async () => {
+  const sql = pgSql(await database());
+  const { fns, counts } = pgFns(sql);
+  // "x@acme.com." is the same mailbox as "x@acme.com" (the root label), so it
+  // must be blocked by an acme.com domain entry and by its subdomain rule.
+  const viaDomain = ["x@acme.com.", "x@mail.acme.com.", "x@ACME.COM..", "x@Mail.Acme.Com."];
+  for (const email of viaDomain) {
+    await outreachFixture(sql);
+    await sql.query("update contacts set email_display = $1", [email]);
+    assert.equal(await csvHas(sql, email), true, `${email} is eligible before the entry`);
+    await fns.addSuppression({ kind: "domain", value: "acme.com", reason: "Fictional opt-out" });
+    assert.equal(await csvHas(sql, email), false, email);
+    await assert.rejects(manualWorkflow.prepareManualMessage(sql, "owner", "p", "a", "m"), email);
+  }
+  // An exact email entry also blocks the trailing-dot spelling of that mailbox.
+  await outreachFixture(sql);
+  await sql.query("update contacts set email_display = 'x@acme.com.'");
+  await fns.addSuppression({ kind: "email", value: "x@acme.com", reason: "Fictional opt-out" });
+  assert.equal(await csvHas(sql, "x@acme.com."), false);
+  // An entry stored with a trailing dot (for example by a crafted archive
+  // restore, which keeps suppression values as archived) still blocks.
+  for (const [kind, value, email] of [
+    ["domain", "acme.com.", "x@acme.com"],
+    ["domain", "acme.com.", "x@mail.acme.com"],
+    ["domain", " ACME.com. ", "x@acme.com."],
+    ["email", "x@acme.com.", "x@acme.com"],
+  ]) {
+    await outreachFixture(sql);
+    await sql.query("update contacts set email_display = $1", [email]);
+    await sql.query(
+      "insert into suppressions (id, user_id, kind, value, reason) values ('crafted', 'owner', $1, $2, 'Fictional opt-out')",
+      [kind, value],
+    );
+    assert.equal(await csvHas(sql, email), false, `${kind}:${value} blocks ${email}`);
+    await assert.rejects(manualWorkflow.prepareManualMessage(sql, "owner", "p", "a", "m"));
+  }
+  // The trailing dot does not widen a block to a lookalike domain.
+  for (const email of ["x@notacme.com.", "x@acme.co.", "x@acme.com.evil.example."]) {
+    await outreachFixture(sql);
+    await sql.query("update contacts set email_display = $1", [email]);
+    await fns.addSuppression({ kind: "domain", value: "acme.com", reason: "Fictional opt-out" });
+    assert.equal(await csvHas(sql, email), true, email);
+  }
+  assert.equal(counts.provider, 0);
+});
+
 test("Settings rejects an invalid spend cap or batch size instead of saving it", async () => {
   const sql = pgSql(await database());
   const { fns, counts } = pgFns(sql);

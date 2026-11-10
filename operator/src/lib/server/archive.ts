@@ -298,6 +298,12 @@ export async function validateWorkspaceArchive(
   for (const row of a.tables.enrichment_grants)
     if (row.spent_at === null || (row.cost_cents as number) < 0)
       throw new Error("Invalid spent enrichment history");
+  // A trailing dot names the same mailbox (x@acme.com. is x@acme.com). No local
+  // path stores one, so an archive that carries one is crafted and is refused
+  // rather than restored as a spelling that might slip past do-not-contact.
+  for (const row of a.tables.contacts)
+    if ((row.email_display as string).trim().endsWith("."))
+      throw new Error("Invalid contacts.email_display");
   for (const row of a.tables.prospects) {
     let assessment: unknown;
     try {
@@ -716,6 +722,11 @@ export async function restoreWorkspaceArchive(
       [owner],
     );
     const derivedSuppressions: { id: string; email: string; reason: string }[] = [];
+    const archivedSuppressions = new Map(
+      a.tables.suppressions
+        .map((row) => transform("suppressions", row))
+        .map((row) => [row.id, row] as const),
+    );
     for (const contact of suppressedContacts) {
       const email = contact.email_display.trim().toLowerCase();
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -723,22 +734,24 @@ export async function restoreWorkspaceArchive(
           .update(`prospector:${owner}:sup:email:${email}`)
           .digest("hex")
           .slice(0, 24);
-        const archived = a.tables.suppressions
-          .map((row) => transform("suppressions", row))
-          .find((row) => row.id === id);
+        const archived = archivedSuppressions.get(id);
         if (archived && (archived.kind !== "email" || archived.value !== email))
           throw new Error("Derived suppression identity conflicts with archive suppression");
-        const [existing] = await sql.query<Row>(
-          "select user_id, kind, value from suppressions where id = $1",
-          [id],
-        );
-        if (
-          existing &&
-          (existing.user_id !== owner || existing.kind !== "email" || existing.value !== email)
-        )
-          throw new Error("Derived suppression identity conflicts with an existing suppression");
         derivedSuppressions.push({ id, email, reason: contact.reason });
       }
+    }
+    // One read checks every derived identity instead of one query per contact.
+    const existingDerived = derivedSuppressions.length
+      ? await sql.query<Row>(
+          "select id, user_id, kind, value from suppressions where id = any($1::text[])",
+          [derivedSuppressions.map((item) => item.id)],
+        )
+      : [];
+    const derivedById = new Map(derivedSuppressions.map((item) => [item.id, item]));
+    for (const existing of existingDerived) {
+      const item = derivedById.get(existing.id as string)!;
+      if (existing.user_id !== owner || existing.kind !== "email" || existing.value !== item.email)
+        throw new Error("Derived suppression identity conflicts with an existing suppression");
     }
     check();
     for (const item of derivedSuppressions)

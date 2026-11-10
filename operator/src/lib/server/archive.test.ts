@@ -141,6 +141,111 @@ test("invalid archives, failures and interruption leave the owner unchanged", as
   }
 });
 
+test("a crafted archive mailbox with a trailing dot is refused before mutation", async () => {
+  // "x@acme.com." is the same mailbox as "x@acme.com". No local path stores a
+  // trailing-dot contact, so an archive that carries one is refused whole.
+  const { pg, adapter } = await setup();
+  try {
+    await fixture(pg);
+    const a = await exportWorkspaceArchive("a", adapter),
+      before = await exportWorkspaceArchive("b", adapter);
+    for (const email of ["a@example.com.", "a@mail.example.com..", " a@example.com. "]) {
+      const crafted = structuredClone(a);
+      crafted.tables.contacts[0].email_display = email;
+      rehash(crafted);
+      await assert.rejects(
+        restoreWorkspaceArchive("b", crafted, adapter),
+        /Invalid contacts\.email_display/,
+        email,
+      );
+    }
+    assert.deepEqual(await exportWorkspaceArchive("b", adapter), before);
+    // The ordinary spelling still restores.
+    await restoreWorkspaceArchive("b", a, adapter);
+    assert.equal((await exportWorkspaceArchive("b", adapter)).tables.contacts.length, 1);
+  } finally {
+    await pg.close();
+  }
+});
+test("contact opt-outs become mailbox opt-outs on restore with one batched read", async () => {
+  const { pg, adapter } = await setup();
+  try {
+    await fixture(pg);
+    const contacts = 6;
+    await pg.exec(
+      "insert into prospects(id,user_id,account_name,account_id,target_name,target_id,offer_id,score,outcome,state,configuration_digest,assessment_id,assessment_json,evidence_excerpt,evidence_url,evidence_tier,evidence_date) values ('pb','b','Other','account','Name','target','offer',1,'Passed','qualified','digest','assessment','{}','quote','https://example.com',1,'2026-01-01')",
+    );
+    for (let i = 0; i < contacts; i++)
+      await pg.query(
+        "insert into contacts(id,user_id,prospect_id,full_name,role,email_kind,email_display,source,confidence) values ($1,'b','pb','Person','champion','public_source',$2,'source','high')",
+        [`cb${i}`, ` Person${i}@Example.org `],
+      );
+    for (let i = 0; i < contacts; i++)
+      await pg.query(
+        "insert into suppressions(id,user_id,kind,value,reason) values ($1,'b','contact',$2,$3)",
+        [`sc${i}`, `cb${i}`, `opt out ${i}`],
+      );
+    const queries: string[] = [];
+    const counting: ArchiveAdapter = {
+      transaction: (fn) =>
+        adapter.transaction((sql) => {
+          const wrapped = ((parts: TemplateStringsArray, ...values: unknown[]) =>
+            sql(parts, ...values)) as Sql;
+          wrapped.query = (text, params) => {
+            queries.push(text);
+            return sql.query(text, params);
+          };
+          return fn(wrapped);
+        }),
+    };
+    const archive = await exportWorkspaceArchive("a", adapter);
+    await restoreWorkspaceArchive("b", archive, counting);
+    // Every replaced contact's opt-out is kept as an exact mailbox entry.
+    const kept = (
+      await pg.query<{ value: string; reason: string }>(
+        "select value, reason from suppressions where user_id = 'b' and kind = 'email' and value like 'person%' order by value",
+      )
+    ).rows;
+    assert.deepEqual(
+      kept,
+      Array.from({ length: contacts }, (_, i) => ({
+        value: `person${i}@example.org`,
+        reason: `opt out ${i}`,
+      })),
+    );
+    // The derived identities are checked with one read, not one per contact.
+    const perIdentity = queries.filter((text) => /from suppressions where id\b/.test(text));
+    assert.equal(perIdentity.length, 1, perIdentity.join("\n"));
+  } finally {
+    await pg.close();
+  }
+});
+test("the batched read still refuses an existing row that holds a derived identity", async () => {
+  const { pg, adapter } = await setup();
+  try {
+    await fixture(pg);
+    await pg.exec(`insert into prospects(id,user_id,account_name,account_id,target_name,target_id,offer_id,score,outcome,state,configuration_digest,assessment_id,assessment_json,evidence_excerpt,evidence_url,evidence_tier,evidence_date) values ('pb','b','Other','account','Name','target','offer',1,'Passed','qualified','digest','assessment','{"passRule":"rule","hardDisqualifier":null,"dimensions":[]}','quote','https://example.com',1,'2026-01-01');
+      insert into contacts(id,user_id,prospect_id,full_name,role,email_kind,email_display,source,confidence) values ('cb0','b','pb','Person','champion','public_source','person0@example.org','source','high'),('cb1','b','pb','Person','champion','public_source','person1@example.org','source','high');
+      insert into suppressions(id,user_id,kind,value,reason) values ('sc0','b','contact','cb0','opt out'),('sc1','b','contact','cb1','opt out');`);
+    const derivedId = createHash("sha256")
+      .update("prospector:b:sup:email:person1@example.org")
+      .digest("hex")
+      .slice(0, 24);
+    await pg.query(
+      "insert into suppressions(id,user_id,kind,value,reason) values ($1,'b','email','someone-else@example.org','forged')",
+      [derivedId],
+    );
+    const archive = await exportWorkspaceArchive("a", adapter),
+      before = await exportWorkspaceArchive("b", adapter);
+    await assert.rejects(
+      restoreWorkspaceArchive("b", archive, adapter),
+      /Derived suppression identity conflicts with an existing suppression/,
+    );
+    assert.deepEqual(await exportWorkspaceArchive("b", adapter), before);
+  } finally {
+    await pg.close();
+  }
+});
 test("opportunity explanations survive restore and unsafe source links are rejected", async () => {
   const { pg, adapter } = await setup();
   try {
