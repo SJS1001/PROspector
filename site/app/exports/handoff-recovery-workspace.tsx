@@ -423,7 +423,7 @@ export function HandoffRecoveryWorkspace({ onUnauthorized }: { onUnauthorized: (
       <header className="page-heading">
         <div>
           <span className="eyebrow">OWNER EVIDENCE — CSV DELIVERY AND RECOVERY</span>
-          <h1 id="exports-title">Exports &amp; History</h1>
+          <h1 id="exports-title">Handoff &amp; Recovery</h1>
           <p>CSV CRM Handoff and Workspace Recovery for this owner workspace. Schedules stay owned by Phase 4; this surface cannot change them.</p>
         </div>
       </header>

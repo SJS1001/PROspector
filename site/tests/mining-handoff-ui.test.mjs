@@ -1185,7 +1185,7 @@ test("the operator shell mounts the Exports & History workspace as its own task,
     // control whose label contains "Export" or "CSV".
     assert.equal(routing.operatorTaskLabel("exports"), "Handoff & Recovery");
     const html = renderToStaticMarkup(React.createElement(app.ProspectorApp, { initialView: "exports" }));
-    assert.match(html, /<h1 id="exports-title">Exports &amp; History<\/h1>/u, "the workspace renders in the shell");
+    assert.match(html, /<h1 id="exports-title">Handoff &amp; Recovery<\/h1>/u, "the workspace renders in the shell");
     assert.match(html, /<button[^>]*aria-current="page"[^>]*>Handoff &amp; Recovery<\/button>/u, "its navigation entry is current");
     const status = renderToStaticMarkup(React.createElement(app.ProspectorApp, { initialView: "status" }));
     assert.doesNotMatch(status, /id="exports-title"/u, "the workspace renders only for its task");
