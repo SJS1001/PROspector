@@ -219,6 +219,50 @@ test("a domain, organization or phone-only contact stop cancels every item the e
   }
 });
 
+test("an exact-email stop spelled with a DNS root dot cancels queued items and blocks the enqueue SQL recheck for the plain contact point", async () => {
+  // PR 199 review: the outbox enqueue/lease SQL, the 0010 and 0015-0017
+  // triggers and the eligibility snapshot SQL match exact_email tombstones by
+  // subject digest or alias snapshot only. The tombstone must carry every
+  // mailbox spelling, or `x@example.com.` and `x@example.com` escape each other.
+  const dotted = `${RECIPIENT.toUpperCase()}.`;
+
+  const cancelFixture = await createD1Fixture("dispatch-root-dot-cancel");
+  try {
+    const context = await prepareApprovedPair(cancelFixture);
+    const queued = await enqueuePair(cancelFixture, context);
+    const stopRules = (await cancelFixture.vite.ssrLoadModule(MODULES.stopRules)).createOutreachStopRules(cancelFixture.database, scope(context.seeded, OUTREACH_NOW + 1_100));
+    const result = await stopRules.recordSuppressionStop({
+      subject: { kind: "exact_email", email: dotted }, channel: "email", reason: "owner_request", sourceEventDigest: digestOf("root-dot-cancel"),
+      aliasDigests: [], effectiveAt: OUTREACH_NOW + 1_100, idempotencyKey: "dispatch-root-dot-cancel",
+    });
+    assert.equal(result.kind, "suppressed");
+    assert.deepEqual(result.cancelledOutboxItemIds, [queued.origin.outboxItemId, queued.followUp.outboxItemId].sort());
+    assert.deepEqual(result.uncancelled, []);
+    await assertNoForbiddenStates(cancelFixture);
+  } finally {
+    await cancelFixture.dispose();
+  }
+
+  const enqueueFixture = await createD1Fixture("dispatch-root-dot-enqueue");
+  try {
+    const context = await prepareApprovedPair(enqueueFixture);
+    const stopRules = (await enqueueFixture.vite.ssrLoadModule(MODULES.stopRules)).createOutreachStopRules(enqueueFixture.database, scope(context.seeded, OUTREACH_NOW));
+    const result = await stopRules.recordSuppressionStop({
+      subject: { kind: "exact_email", email: dotted }, channel: "email", reason: "owner_request", sourceEventDigest: digestOf("root-dot-enqueue"),
+      aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: "dispatch-root-dot-enqueue",
+    });
+    assert.equal(result.kind, "suppressed");
+    const outbox = (await enqueueFixture.vite.ssrLoadModule(MODULES.outbox)).createD1OutboxRepository(enqueueFixture.database, scope(context.seeded));
+    const enqueued = await outbox.enqueueApprovedMessage({ messageApprovalId: context.approvals.origin.id, senderConnectionId: context.senderConnectionId });
+    assert.equal(enqueued.kind, "blocked", "the enqueue SQL recheck sees the root-dot tombstone");
+    assert.equal(enqueued.providerCalls, 0);
+    assert.deepEqual(await rowCounts(enqueueFixture), { outreach_message_approval_consumptions: 0, outreach_outbox_items: 0, outreach_outbox_events: 0 });
+    await assertNoForbiddenStates(enqueueFixture);
+  } finally {
+    await enqueueFixture.dispose();
+  }
+});
+
 test("originated sync denies unauthenticated connections, origins and fields without persistence or stop action", async () => {
   const fixture = await createD1Fixture("dispatch-sync-denials");
   try {
