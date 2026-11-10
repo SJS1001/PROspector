@@ -1070,7 +1070,152 @@ export function createD1OutboxRepository(database: D1Database, scopeValue: Scope
       ) return lifecycleBlocked("attempt_unavailable");
       return dispatchRepreparationResult(preparation, stored, receipt, !committed);
     },
+
+    /**
+     * Plans the only stop transition this boundary owns: `pending` or an
+     * unexpired `leased` item becomes `cancelled`, inside the existing event
+     * trigger. It never commits. The caller places the returned statements
+     * after its durable stop/tombstone statements in one D1 batch. Each insert
+     * is fenced to the exact revision read here, so a concurrent lease or
+     * cancellation makes it a no-op instead of failing the caller's batch.
+     * Dispatching, sent and delivery-unknown states are never produced.
+     */
+    async prepareCancellationBeforeDispatch(inputValue: unknown): Promise<CancellationPlanResult> {
+      const input = exactDataRecord(inputValue, ["outboxItemIds", "reasonCode"]);
+      const itemIds = input && Array.isArray(input.outboxItemIds) ? [...input.outboxItemIds] : null;
+      if (
+        !input || !itemIds || itemIds.length < 1 || itemIds.length > MAX_CANCELLATION_TARGETS
+        || !itemIds.every(id) || new Set(itemIds).size !== itemIds.length
+        || typeof input.reasonCode !== "string" || !/^[a-z][a-z0-9_]{0,63}$/u.test(input.reasonCode)
+      ) return cancellationBlocked("invalid_request");
+      const reasonCode = input.reasonCode;
+      const now = scope.now();
+      if (!Number.isSafeInteger(now) || now <= 0) return cancellationBlocked("current_authority_unavailable");
+      const admitted = await database.prepare(
+        "SELECT 1 ok FROM workspaces WHERE id=? AND owner_subject=? LIMIT 1",
+      ).bind(scope.workspaceId, scope.ownerSubject).first();
+      if (!admitted) return cancellationBlocked("current_authority_unavailable");
+
+      const targets: CancellationTarget[] = [];
+      const skipped: CancellationSkip[] = [];
+      const statements: D1PreparedStatement[] = [];
+      for (const outboxItemId of [...itemIds].sort() as string[]) {
+        const current = await readLatestEvent(database, scope.workspaceId, outboxItemId);
+        if (!current || !validLatestEvent(current)) {
+          skipped.push(Object.freeze({ outboxItemId, reason: "unknown_item" }));
+          continue;
+        }
+        const cancellable = current.state === "pending"
+          ? current.lease_generation === 0 && current.lease_holder_id === null && current.lease_expires_at === null
+          : current.state === "leased" && current.lease_holder_id !== null && current.lease_expires_at !== null && current.lease_expires_at > now;
+        if (!cancellable) {
+          skipped.push(Object.freeze({
+            outboxItemId,
+            reason: current.state === "leased" ? "lease_expired" : "not_cancellable",
+          }));
+          continue;
+        }
+        const revision = current.revision + 1;
+        const eventDigest = await canonicalDigest({
+          schema: "outreach-outbox-event/v1",
+          outboxItemId,
+          revision,
+          state: "cancelled",
+          leaseGeneration: current.lease_generation,
+          holderId: current.lease_holder_id,
+          expiresAt: current.lease_expires_at,
+          reasonCode,
+          createdAt: now,
+        });
+        const eventId = `ooe-${eventDigest}`;
+        statements.push(database.prepare(
+          `INSERT INTO outreach_outbox_events
+            (id,workspace_id,outbox_item_id,revision,state,lease_generation,lease_holder_id,lease_expires_at,reason_code,event_digest,created_at)
+           SELECT ?,prior.workspace_id,prior.outbox_item_id,prior.revision+1,'cancelled',prior.lease_generation,
+                  prior.lease_holder_id,prior.lease_expires_at,?,?,?
+           FROM outreach_outbox_events prior
+           JOIN workspaces workspace ON workspace.id=prior.workspace_id AND workspace.owner_subject=?
+           WHERE prior.workspace_id=? AND prior.outbox_item_id=? AND prior.revision=? AND prior.state=?
+             AND prior.lease_generation=? AND prior.lease_holder_id IS ? AND prior.lease_expires_at IS ?
+             AND prior.created_at<=?
+             AND (prior.state='pending' OR prior.lease_expires_at>?)
+             AND NOT EXISTS (SELECT 1 FROM outreach_outbox_events later
+               WHERE later.workspace_id=prior.workspace_id AND later.outbox_item_id=prior.outbox_item_id
+                 AND later.revision>prior.revision)
+             AND NOT EXISTS (SELECT 1 FROM outreach_dispatch_attempt_preparations preparation
+               JOIN outreach_dispatch_attempt_preparation_events lifecycle
+                 ON lifecycle.workspace_id=preparation.workspace_id AND lifecycle.preparation_id=preparation.id
+               WHERE preparation.workspace_id=prior.workspace_id AND preparation.outbox_item_id=prior.outbox_item_id
+                 AND lifecycle.event_kind='voided_before_invocation'
+                 AND lifecycle.lease_generation=prior.lease_generation
+                 AND lifecycle.id=(SELECT latest.id FROM outreach_dispatch_attempt_preparation_events latest
+                   WHERE latest.workspace_id=preparation.workspace_id AND latest.preparation_id=preparation.id
+                   ORDER BY latest.revision DESC LIMIT 1))`,
+        ).bind(
+          eventId, reasonCode, eventDigest, now,
+          scope.ownerSubject,
+          scope.workspaceId, outboxItemId, current.revision, current.state,
+          current.lease_generation, current.lease_holder_id, current.lease_expires_at,
+          now,
+          now,
+        ));
+        targets.push(Object.freeze({
+          outboxItemId,
+          fromState: current.state as "pending" | "leased",
+          expectedRevision: current.revision,
+          eventId,
+          eventDigest,
+        }));
+      }
+      return Object.freeze({
+        kind: "planned",
+        reasonCode,
+        plannedAt: now,
+        targets: Object.freeze(targets),
+        skipped: Object.freeze(skipped),
+        statements: Object.freeze(statements),
+        providerInvocationAuthorized: false,
+        providerCalls: 0,
+      });
+    },
   });
+}
+
+const MAX_CANCELLATION_TARGETS = 64;
+
+type CancellationTarget = Readonly<{
+  outboxItemId: string;
+  fromState: "pending" | "leased";
+  expectedRevision: number;
+  eventId: string;
+  eventDigest: string;
+}>;
+
+type CancellationSkip = Readonly<{
+  outboxItemId: string;
+  reason: "unknown_item" | "lease_expired" | "not_cancellable";
+}>;
+
+export type CancellationPlanResult =
+  | Readonly<{
+      kind: "planned";
+      reasonCode: string;
+      plannedAt: number;
+      targets: readonly CancellationTarget[];
+      skipped: readonly CancellationSkip[];
+      statements: readonly D1PreparedStatement[];
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>
+  | Readonly<{
+      kind: "blocked";
+      reason: "invalid_request" | "current_authority_unavailable";
+      providerInvocationAuthorized: false;
+      providerCalls: 0;
+    }>;
+
+function cancellationBlocked(reason: "invalid_request" | "current_authority_unavailable"): CancellationPlanResult {
+  return Object.freeze({ kind: "blocked", reason, providerInvocationAuthorized: false, providerCalls: 0 });
 }
 
 async function readOutbox(database: D1Database, workspaceId: string, approvalId: string) {
