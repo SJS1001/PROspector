@@ -347,7 +347,7 @@ async function runCommand(
     case "run_dry_run": {
       if (!services.recovery) return refusedResult(command.action, ["recovery_capability_unavailable"]);
       if (await services.recovery.currentRestoreArchiveRef() !== command.archiveRef) return refusedResult(command.action, ["stale_projection"]);
-      const result = await dryRunRestore({ archiveRef: command.archiveRef, passphrase: command.passphrase, ports: services.recovery.restore });
+      const result = await dryRunRestore({ archiveRef: command.archiveRef, passphrase: command.passphrase, ports: scopedRestorePorts(services.recovery.restore, scope) });
       if (result.status !== "verified") return refusedResult(command.action, [result.reason]);
       return completed(command.action, false, {
         dryRunId: result.dryRunId, nonce: result.nonce, expiresAt: result.expiresAt, manifestDigest: result.manifestDigest,
@@ -367,7 +367,8 @@ async function runCommand(
         return refusedResult(command.action, ["stale_projection"]);
       }
       const result = await applyRestore({
-        archiveRef: command.archiveRef, dryRunId: command.dryRunId, nonce: command.nonce, passphrase: command.passphrase, ports: services.recovery.restore,
+        archiveRef: command.archiveRef, dryRunId: command.dryRunId, nonce: command.nonce, passphrase: command.passphrase,
+        ports: scopedRestorePorts(services.recovery.restore, scope),
       });
       if (result.status === "restored") {
         return completed(command.action, false, {
@@ -396,6 +397,11 @@ function scopedAuthority(port: RecoveryAuthorityPort, scope: HandoffRecoveryScop
       return authority && authorityMatchesScope(authority, scope) ? authority : null;
     },
   });
+}
+
+/** The dry run and restore take the target identity only from the authority, so it is bound to the scope the same way. */
+function scopedRestorePorts(ports: RestorePorts, scope: HandoffRecoveryScope): RestorePorts {
+  return Object.freeze({ ...ports, authority: scopedAuthority(ports.authority, scope) });
 }
 
 function authorityMatchesScope(authority: RecoveryAuthority, scope: HandoffRecoveryScope) {
