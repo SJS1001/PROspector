@@ -96,6 +96,21 @@ function mailboxSpellings(normalizedEmail: string): string[] {
   return [...new Set(canonical ? [normalizedEmail, canonical, `${canonical}.`] : [normalizedEmail])];
 }
 
+/**
+ * Digests of every spelling of one mailbox. An exact-email tombstone stores
+ * the ones other than its subject digest as aliases, because the D1 SQL
+ * rechecks (outbox enqueue/lease, the 0010 and 0015-0017 triggers, the
+ * eligibility snapshot) match one contact-point digest against the subject
+ * digest or the alias snapshot and never call the resolver.
+ */
+export async function mailboxSpellingDigests(value: unknown): Promise<string[]> {
+  const email = normalizeExactEmail(value);
+  if (!email) throw new SuppressionInputError("invalid_email");
+  const digests: string[] = [];
+  for (const spelling of mailboxSpellings(email)) digests.push(await emailDigest(spelling));
+  return digests;
+}
+
 /** E.164 only. A number without an explicit country code is never guessed. */
 export function normalizeE164Phone(value: unknown): string | null {
   return normalizeBusinessPhone(value);

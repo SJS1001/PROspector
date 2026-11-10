@@ -231,6 +231,32 @@ test("a trailing dot on a mailbox or confirmed domain never escapes an exact or 
       assert.deepEqual((await blocked(email)).scopes, ["exact_email"], email);
     }
     assert.equal((await blocked("other@exact.example.")).blocked, false, "a trailing dot never widens an exact block");
+
+    // The D1 SQL rechecks (outbox enqueue/lease, the 0010 and 0015-0017
+    // triggers, the eligibility snapshot) never call the resolver: they match
+    // one contact-point digest against the tombstone digest or its alias
+    // snapshot. Every mailbox spelling must therefore be in the tombstone row.
+    const sqlMatches = async (email) => {
+      const point = await suppression.emailDigest(email);
+      const rows = (await fixture.database.prepare(
+        `SELECT id FROM outreach_suppression_tombstones WHERE workspace_id=? AND subject_kind='exact_email' AND (
+           subject_digest=? OR EXISTS (SELECT 1 FROM json_each(alias_snapshot_json) alias WHERE alias.value=?))`,
+      ).bind(LIGHT_WORKSPACE.id, point, point).all()).results;
+      return rows.length;
+    };
+    for (const email of ["plain@exact.example", "plain@exact.example.", "dotted@exact.example", "dotted@exact.example."]) {
+      assert.equal(await sqlMatches(email), 1, `the SQL recheck shape matches ${email}`);
+    }
+    assert.equal(await sqlMatches("other@exact.example."), 0, "the alias spellings never widen an exact block");
+    const callerAlias = digestOf("caller-supplied-alias");
+    assert.equal((await stopRules.recordSuppressionStop({
+      subject: { kind: "exact_email", email: "aliased@exact.example" }, channel: "email", reason: "owner_request", sourceEventDigest: digestOf("dot-aliased"),
+      aliasDigests: [callerAlias], effectiveAt: OUTREACH_NOW, idempotencyKey: "dot-exact-aliased",
+    })).kind, "suppressed");
+    const aliased = await fixture.database.prepare(
+      "SELECT subject_digest,alias_snapshot_json FROM outreach_suppression_tombstones WHERE workspace_id=? AND subject_digest=?",
+    ).bind(LIGHT_WORKSPACE.id, await suppression.emailDigest("aliased@exact.example")).first();
+    assert.deepEqual(JSON.parse(aliased.alias_snapshot_json), [callerAlias, await suppression.emailDigest("aliased@exact.example.")].sort(), "caller aliases are kept and the root-dot spelling is added");
     assert.equal((await blocked("x@dotted-domain.example..")).blocked, true, "a malformed root fails closed");
     assert.equal((await blocked("x@dotted-domain.example..")).complete, false);
   } finally {
