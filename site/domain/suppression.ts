@@ -1,5 +1,6 @@
 import { normalizeBusinessEmail, normalizeBusinessPhone } from "./contact-evidence";
 import { canonicalDigest } from "./enrichment-grant-issuance";
+import { domainDigest, normalizeConfirmedDomain, wholeLabelDomainSuffixes } from "./email-domain-scope";
 import {
   createD1OutreachRepository,
   prepareSuppressionTombstone,
@@ -50,6 +51,10 @@ export type BlockingScopes = Readonly<{
   providerCalls: 0;
 }>;
 
+// One normalization library: the confirmed-domain helpers live in a leaf
+// module the outreach repository can import without a cycle.
+export { domainDigest, normalizeConfirmedDomain };
+
 export class SuppressionInputError extends Error {
   constructor(reason: string) {
     super(`suppression_input:${reason}`);
@@ -59,9 +64,7 @@ export class SuppressionInputError extends Error {
 
 const DIGEST = /^[a-f0-9]{64}$/u;
 const ID = /^[a-z0-9][a-z0-9_.:-]{2,127}$/iu;
-const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 const TOKEN = /^[A-Za-z0-9_-]{32,256}$/u;
-const MAX_DOMAIN_LABELS = 8;
 const MAX_ALIASES = 64;
 const LOOKUP_CHUNK = 32;
 const REASONS: readonly SuppressionReason[] = ["owner_request", "unsubscribe", "explicit_opt_out", "do_not_call", "identity_retention", "import_retention"];
@@ -116,32 +119,13 @@ export function normalizeE164Phone(value: unknown): string | null {
   return normalizeBusinessPhone(value);
 }
 
-/** Owner-confirmed domain: lowercase ASCII/punycode labels, at least two labels. */
-export function normalizeConfirmedDomain(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  let candidate = value.normalize("NFC").trim().toLowerCase();
-  if (candidate.endsWith(".")) candidate = candidate.slice(0, -1);
-  if (candidate.length < 3 || candidate.length > 253 || /[^a-z0-9.\-\u0080-￿]/u.test(candidate)) return null;
-  let ascii: string;
-  try {
-    ascii = new URL(`https://${candidate}/`).hostname;
-  } catch {
-    return null;
-  }
-  const labels = ascii.split(".");
-  if (labels.length < 2 || labels.length > MAX_DOMAIN_LABELS || !labels.every((label) => LABEL.test(label))) return null;
-  if (/^[0-9.]+$/u.test(ascii)) return null;
-  return ascii;
-}
-
 /** Every whole-label suffix with two or more labels, most specific first. */
 export function emailDomainSuffixes(email: unknown): string[] {
   const normalized = normalizeExactEmail(email);
   if (!normalized) throw new SuppressionInputError("invalid_email");
   const domain = normalizeConfirmedDomain(normalized.slice(normalized.lastIndexOf("@") + 1));
   if (!domain) throw new SuppressionInputError("invalid_email_domain");
-  const labels = domain.split(".");
-  return labels.slice(0, -1).map((_, index) => labels.slice(index).join("."));
+  return wholeLabelDomainSuffixes(domain);
 }
 
 /** True when a confirmed domain entry covers the address by whole labels. */
@@ -201,10 +185,6 @@ export function emailDigest(normalizedEmail: string): Promise<string> {
 
 export function phoneDigest(normalizedPhone: string): Promise<string> {
   return canonicalDigest({ schema: "contact-point/v1", kind: "phone", normalizedValue: normalizedPhone });
-}
-
-export function domainDigest(normalizedDomain: string): Promise<string> {
-  return canonicalDigest({ schema: "outreach-suppression-domain/v1", domain: normalizedDomain });
 }
 
 export function companyDigest(workspaceId: string): Promise<string> {

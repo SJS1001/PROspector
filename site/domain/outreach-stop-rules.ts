@@ -1,5 +1,5 @@
 import { canonicalDigest } from "./enrichment-grant-issuance";
-import { createD1OutboxRepository } from "./outbox";
+import { createD1OutboxRepository, emailDomainScopeDigestsSql, emailDomainScopeUnresolvedSql } from "./outbox";
 import {
   prepareInboundStopEvent,
   prepareSuppressionTombstone,
@@ -35,6 +35,10 @@ type LiveItem = Readonly<{
   contactIdentityDigest: string;
   recipientDigests: readonly string[];
   unparseableRecipient: boolean;
+  /** D-7: the item's bound email points lack a complete recorded domain scope. */
+  emailDomainUnresolved: boolean;
+  /** D-7: every recorded whole-label domain-scope digest of the item's bound email points. */
+  emailDomainDigests: readonly string[];
 }>;
 
 type Matcher = (item: LiveItem) => boolean;
@@ -384,7 +388,9 @@ async function confirmCancellation(database: D1Database, scope: OutreachReposito
 async function liveItems(database: D1Database, scope: OutreachRepositoryScope): Promise<LiveItem[]> {
   const rows = await database.prepare(
     `SELECT item.id outbox_item_id,mv.snapshot_json,package.profile_id,contact.identity_digest contact_identity_digest,
-            rda.recipient_address_digest
+            rda.recipient_address_digest,
+            CASE WHEN ${emailDomainScopeUnresolvedSql("pv")} THEN 1 ELSE 0 END email_domain_unresolved,
+            ${emailDomainScopeDigestsSql("pv")} email_domain_digests_json
      FROM outreach_outbox_items item
      JOIN outreach_outbox_events latest ON latest.workspace_id=item.workspace_id AND latest.outbox_item_id=item.id
        AND latest.revision=(SELECT max(event.revision) FROM outreach_outbox_events event
@@ -399,6 +405,7 @@ async function liveItems(database: D1Database, scope: OutreachRepositoryScope): 
      ORDER BY item.id LIMIT ?`,
   ).bind(scope.workspaceId, MAX_LIVE_ITEMS).all<{
     outbox_item_id: string; snapshot_json: string; profile_id: string; contact_identity_digest: string; recipient_address_digest: string | null;
+    email_domain_unresolved: number; email_domain_digests_json: string | null;
   }>();
   const items: LiveItem[] = [];
   for (const row of rows.results ?? []) {
@@ -412,27 +419,32 @@ async function liveItems(database: D1Database, scope: OutreachRepositoryScope): 
         unparseableRecipient = true;
       }
     }
+    const domainDigests = digestList(row.email_domain_digests_json);
     items.push(Object.freeze({
       outboxItemId: row.outbox_item_id,
       profileId: row.profile_id,
       contactIdentityDigest: row.contact_identity_digest,
       recipientDigests: Object.freeze([...recipientDigests]),
       unparseableRecipient,
+      // A malformed scope read fails closed, like a point with no scope.
+      emailDomainUnresolved: Number(row.email_domain_unresolved) !== 0 || domainDigests === null,
+      emailDomainDigests: Object.freeze(domainDigests ?? []),
     }));
   }
   return items;
 }
 
 /**
- * Which live email work a suppression subject reaches. The rule is: never less
- * than what the outbox can no longer lease. Enqueue, lease and the 0015-0017
- * pre-call/attempt triggers treat every Company, Organization and
- * confirmed-domain tombstone (and its stop event) as workspace-wide, and do not
- * consult the channel for those kinds or for Contact. A narrower cancellation
- * would leave items `pending` that no lease can ever claim, because tombstones
- * are append-only. The whole-label subdomain reach of a confirmed domain
- * (owner decision D-6) is enforced by the resolver; the D1 rechecks cannot
- * resolve a domain digest, and narrowing them needs a migration (deferred).
+ * Which live email work a suppression subject reaches: exactly what enqueue,
+ * lease and the 0010 and 0015-0017 triggers block once the tombstone exists
+ * (D-7, migration 0024). A narrower cancellation would leave items `pending`
+ * that no lease can ever claim, because tombstones are append-only; a wider
+ * one would cancel work the rechecks still allow.
+ * - Company and Organization tombstones stay workspace-wide.
+ * - A confirmed domain reaches an item whose bound email points have no
+ *   complete recorded domain scope (fail closed), or whose recorded scope holds
+ *   the domain digest or an alias: the domain and its whole-label subdomains.
+ * - A Contact reaches its own items only on the `email` or `all` channel.
  * Only an E.164 phone subject never reaches email work.
  */
 async function suppressionMatcher(subject: DurableSubject): Promise<Matcher> {
@@ -440,10 +452,13 @@ async function suppressionMatcher(subject: DurableSubject): Promise<Matcher> {
   switch (subject.kind) {
     case "company":
     case "organization":
-    case "confirmed_email_domain":
       return () => true;
+    case "confirmed_email_domain":
+      return (item) => item.emailDomainUnresolved || item.emailDomainDigests.some((digest) => reach.has(digest));
     case "contact":
-      return (item) => reach.has(item.contactIdentityDigest);
+      return subject.channel === "email" || subject.channel === "all"
+        ? (item) => reach.has(item.contactIdentityDigest)
+        : () => false;
     case "exact_email":
       return (item) => item.unparseableRecipient || item.recipientDigests.some((digest) => reach.has(digest));
     default:
@@ -515,6 +530,16 @@ function exactRecord(value: unknown, required: readonly string[], optional: read
 
 function refused(reason: string): Refused {
   return Object.freeze({ kind: "refused", reason, providerCalls: 0 });
+}
+
+function digestList(json: string | null): string[] | null {
+  if (json === null) return [];
+  try {
+    const value = JSON.parse(json) as unknown;
+    return Array.isArray(value) && value.every(validDigest) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function positive(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) > 0; }

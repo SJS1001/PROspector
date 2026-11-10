@@ -7,6 +7,7 @@ import { applyOutreachMigrations, OUTREACH_NOW, OUTREACH_OWNER, seedOutreachAuth
 
 // Lane-local helpers only. tests/helpers/outreach-fixture.mjs is not edited.
 const SUPPRESSION = new URL("../domain/suppression.ts", import.meta.url).pathname;
+const DOMAIN_SCOPE = new URL("../domain/email-domain-scope.ts", import.meta.url).pathname;
 const STOP_RULES = new URL("../domain/outreach-stop-rules.ts", import.meta.url).pathname;
 const OUTBOX = new URL("../domain/outbox.ts", import.meta.url).pathname;
 const REPOSITORY = new URL("../domain/outreach-repository.ts", import.meta.url).pathname;
@@ -45,6 +46,36 @@ test("normalization keeps exact email distinct, folds owner-confirmed domains by
     assert.match(token, /^[a-f0-9]{64}$/u);
     assert.notEqual(token, UNSUBSCRIBE_TOKEN);
     await assert.rejects(suppression.unsubscribeTokenDigest("short"), /invalid_unsubscribe_token/);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("D-7: the recorded domain scope of a mailbox is every whole-label suffix digest, with the same normalization as the resolver", async () => {
+  const vite = await createServer({ configFile: false, logLevel: "silent" });
+  try {
+    const suppression = await vite.ssrLoadModule(SUPPRESSION);
+    const domainScope = await vite.ssrLoadModule(DOMAIN_SCOPE);
+    // One normalization library: suppression re-exports the leaf helpers.
+    assert.equal(suppression.normalizeConfirmedDomain, domainScope.normalizeConfirmedDomain);
+    assert.equal(suppression.domainDigest, domainScope.domainDigest);
+    const digests = async (...domains) => Promise.all(domains.map((domain) => suppression.domainDigest(domain)));
+    for (const [email, domains] of [
+      ["x@example.invalid", ["example.invalid"]],
+      ["x@mail.example.invalid", ["mail.example.invalid", "example.invalid"]],
+      ["X@Mail.Example.Invalid.", ["mail.example.invalid", "example.invalid"]],
+      ["x@mail.eu.acme.com", ["mail.eu.acme.com", "eu.acme.com", "acme.com"]],
+    ]) {
+      assert.deepEqual(await domainScope.emailDomainScopeDigests(email), await digests(...domains), email);
+      assert.deepEqual(suppression.emailDomainSuffixes(email), domains, email);
+    }
+    const scoped = await domainScope.emailDomainScopeDigests("x@example.invalid");
+    assert.equal(scoped.includes(await suppression.domainDigest("ample.invalid")), false, "a string suffix is not a whole-label suffix");
+    assert.equal(scoped.includes(await suppression.domainDigest("mail.example.invalid")), false, "a child domain never covers its parent");
+    // Unresolvable domains record no scope, so the SQL rechecks fail closed.
+    for (const email of ["not-an-email", "x@localhost", "x@127.0.0.1", "x@example..invalid", 42]) {
+      assert.equal(await domainScope.emailDomainScopeDigests(email), null, String(email));
+    }
   } finally {
     await vite.close();
   }
@@ -463,27 +494,32 @@ test("an expired lease is reported, not cancelled, and still cannot be reclaimed
   }
 });
 
-test("domain suppression cancels every live email item, matching the workspace-wide D1 rechecks", async () => {
-  // Lane E follow-up: enqueue, lease and the 0015-0017 triggers block on any
-  // confirmed-domain tombstone, so a narrower cancellation would leave an item
-  // pending that no lease can claim. Whole-label reach stays in the resolver.
+test("domain suppression cancels exactly the live email items the whole-label D1 rechecks block", async () => {
+  // D-7 (owner-delegated 2026-11-10): migration 0024 narrows enqueue, lease and
+  // the 0010 and 0015-0017 triggers to whole-label domain matching, so
+  // cancellation narrows with them. A non-matching domain neither cancels nor
+  // blocks; a matching one cancels, so nothing is stranded pending.
   const fixture = await createD1Fixture("suppression-domain-cancel");
   try {
     const context = await prepareQueued(fixture);
-    const stopRules = (await fixture.vite.ssrLoadModule(STOP_RULES)).createOutreachStopRules(fixture.database, { ...scope(context.seeded), now: () => OUTREACH_NOW + 10 });
-    const domain = (value, key) => stopRules.recordSuppressionStop({
+    const stopRulesModule = await fixture.vite.ssrLoadModule(STOP_RULES);
+    const domain = (value, key, at) => stopRulesModule.createOutreachStopRules(fixture.database, { ...scope(context.seeded), now: () => at }).recordSuppressionStop({
       subject: { kind: "confirmed_email_domain", domain: value, ownerConfirmed: true }, channel: "email", reason: "owner_request",
-      sourceEventDigest: digestOf(key), aliasDigests: [], effectiveAt: OUTREACH_NOW + 10, idempotencyKey: key,
+      sourceEventDigest: digestOf(key), aliasDigests: [], effectiveAt: at, idempotencyKey: key,
     });
-    const partial = await domain("ample.invalid", "domain-partial");
+    const partial = await domain("ample.invalid", "domain-partial", OUTREACH_NOW + 10);
     assert.equal(partial.kind, "suppressed");
-    assert.deepEqual(partial.cancelledOutboxItemIds, [context.queued.outboxItemId], "the D1 rechecks block it, so it is cancelled, not stranded");
-    assert.equal((await latestEvent(fixture, context.queued.outboxItemId)).state, "cancelled");
+    assert.deepEqual(partial.cancelledOutboxItemIds, [], "ample.invalid is not a whole-label suffix of example.invalid");
+    assert.deepEqual(partial.uncancelled, []);
+    assert.equal((await latestEvent(fixture, context.queued.outboxItemId)).state, "pending");
     const outbox = (await fixture.vite.ssrLoadModule(OUTBOX)).createD1OutboxRepository(fixture.database, { ...scope(context.seeded), now: () => OUTREACH_NOW + 1_000 });
-    assert.equal((await outbox.claimDispatchLease({ outboxItemId: context.queued.outboxItemId, holderId: "synthetic-worker-one" })).kind, "blocked");
-    const match = await domain("Example.Invalid", "domain-match");
+    assert.equal((await outbox.claimDispatchLease({ outboxItemId: context.queued.outboxItemId, holderId: "synthetic-worker-one" })).kind, "claimed", "the uncancelled item is not stranded");
+    const match = await domain("Example.Invalid", "domain-match", OUTREACH_NOW + 1_100);
     assert.equal(match.kind, "suppressed");
-    assert.deepEqual(match.cancelledOutboxItemIds, [], "nothing live is left to cancel");
+    assert.deepEqual(match.cancelledOutboxItemIds, [context.queued.outboxItemId], "the recipient's own domain cancels the leased item");
+    assert.equal((await latestEvent(fixture, context.queued.outboxItemId)).state, "cancelled");
+    const later = (await fixture.vite.ssrLoadModule(OUTBOX)).createD1OutboxRepository(fixture.database, { ...scope(context.seeded), now: () => OUTREACH_NOW + 40_000 });
+    assert.equal((await later.claimDispatchLease({ outboxItemId: context.queued.outboxItemId, holderId: "synthetic-worker-two" })).kind, "blocked");
   } finally {
     await fixture.dispose();
   }

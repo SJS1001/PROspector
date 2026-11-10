@@ -1342,6 +1342,21 @@ export const outreachStopEvents = sqliteTable("outreach_stop_events", {
   check("outreach_stop_digest_check", sql`length(${t.subjectDigest}) = 64 and ${t.subjectDigest} not glob '*[^0-9a-f]*' and length(${t.sourceEventDigest}) = 64 and ${t.sourceEventDigest} not glob '*[^0-9a-f]*'`),
 ]);
 
+/**
+ * D-7 (migration 0024): the whole-label confirmed-domain scope of one verified
+ * email contact point, as `outreach-suppression-domain/v1` digests. The SQL
+ * rechecks cannot hash, so they read this row; a point without one is treated
+ * as covered by every confirmed-domain tombstone (fail closed). Append-only.
+ */
+export const outreachContactPointDomains = sqliteTable("outreach_contact_point_domains", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  contactPointDigest: text("contact_point_digest").notNull(), domainDigestsJson: text("domain_digests_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [
+  uniqueIndex("outreach_contact_point_domain_point_unique").on(t.workspaceId, t.contactPointDigest),
+  check("outreach_contact_point_domain_digest_check", sql`length(${t.contactPointDigest}) = 64 and ${t.contactPointDigest} not glob '*[^0-9a-f]*' and ${t.createdAt} > 0`),
+]);
+
 export const outreachAuditRecords = sqliteTable("outreach_audit_records", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   actorSubject: text("actor_subject").notNull(), action: text("action", { enum: ["package.version.created", "message.version.created", "package.approved", "message.approved", "suppression.recorded", "recipient_dispatch_authority.recorded", "unsubscribe_authority_event.recorded", "sender_capability.recorded", "approval.revoked"] }).notNull(),

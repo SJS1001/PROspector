@@ -13,6 +13,13 @@ export const OUTREACH_OWNER = Object.freeze({
 
 const attestors = new WeakMap();
 
+/**
+ * Migrations after 0017 that applyOutreachMigrations already applies. Tests
+ * that seed on this fixture and then roll the remaining chain forward skip
+ * these, so no migration runs twice.
+ */
+export const OUTREACH_FIXTURE_FORWARD_MIGRATIONS = Object.freeze(["0024_domain-tombstone-scope.sql"]);
+
 export async function applyOutreachMigrations(database) {
   await applyMigrations(database);
   await applyCandidateMigrations(database, [
@@ -24,6 +31,8 @@ export async function applyOutreachMigrations(database) {
     "0015_governed-outreach-pre-call.sql",
     "0016_governed-outreach-attempt-preparation.sql",
     "0017_governed-outreach-preparation-recovery.sql",
+    // D-7: 0024 depends only on the 0008 and 0010-0017 outreach tables.
+    ...OUTREACH_FIXTURE_FORWARD_MIGRATIONS,
   ]);
 }
 
@@ -53,6 +62,25 @@ export async function applyOutreachPreparationRecoveryMigration(database) {
   await applyCandidateMigrations(database, ["0017_governed-outreach-preparation-recovery.sql"]);
 }
 
+/**
+ * D-7: current code writes the recorded domain scope (0024's
+ * `outreach_contact_point_domains`) when it records recipient authority, and
+ * the lease recheck reads it. Upgrade tests that seed with current code on an
+ * older outreach schema need that one table first. This applies only 0024's
+ * leading table, index and table-local triggers, never its recreation of the
+ * 0010 and 0015-0017 triggers, so the migration under test stays the old one.
+ */
+export async function applyOutreachDomainScopeTable(database) {
+  const sql = await readFile(new URL("../../drizzle/0024_domain-tombstone-scope.sql", import.meta.url), "utf8");
+  const statements = sql.split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
+  const tableOnly = statements.slice(0, statements.findIndex((statement) => statement.startsWith("DROP TRIGGER ")));
+  assert.equal(tableOnly.length, 5);
+  for (const statement of tableOnly) {
+    assert.match(statement, /^CREATE (TABLE `outreach_contact_point_domains`|UNIQUE INDEX `outreach_contact_point_domain_point_unique` ON `outreach_contact_point_domains`|TRIGGER [a-z_]+ BEFORE (INSERT|UPDATE|DELETE) ON outreach_contact_point_domains )/u);
+    await database.prepare(statement).run();
+  }
+}
+
 async function applyCandidateMigrations(database, migrations) {
   for (const migration of migrations) {
     const sql = await readFile(new URL(`../../drizzle/${migration}`, import.meta.url), "utf8");
@@ -70,7 +98,7 @@ const DEFAULT_IDENTITY = Object.freeze({ prospectId: "outreach-prospect", contac
  * verified email; omitted fields keep the defaults every other suite uses.
  */
 export async function seedOutreachAuthority(fixture, options = {}) {
-  const identity = Object.freeze({ ...DEFAULT_IDENTITY, ...(options.identity ?? {}) });
+  const identity = Object.freeze({ ...DEFAULT_IDENTITY, ...(options.email ? { contactEmail: options.email } : {}), ...(options.identity ?? {}) });
   if (options.applyMigrations !== false) await applyOutreachMigrations(fixture.database);
   const seeded = await seedApprovedProspect(fixture, identity);
   const repositoryModule = await fixture.vite.ssrLoadModule(
@@ -140,16 +168,27 @@ export async function seedOutreachAuthority(fixture, options = {}) {
      JOIN typed_configurations cfg ON cfg.id=? AND cfg.workspace_id=p.workspace_id
      WHERE p.id=? AND p.workspace_id=?`,
   ).bind(identity.contactId, seeded.configurationId, seeded.prospectId, seeded.workspaceId).first();
+  // D-7: `beforeEligibilitySnapshot` records state (such as tombstones) before
+  // the snapshot exists; the snapshot then preserves exactly the suppression
+  // refs the production snapshot writer would (matchingSuppressionRefs).
+  let preservedSuppressionRefs = [];
+  if (options.beforeEligibilitySnapshot) {
+    await options.beforeEligibilitySnapshot({ seeded: { ...seeded, contactId: identity.contactId, observationId: observation.id } });
+    const persistence = await fixture.vite.ssrLoadModule(
+      new URL("../../domain/contact-eligibility-persistence.ts", import.meta.url).pathname,
+    );
+    preservedSuppressionRefs = await persistence.matchingSuppressionRefs(fixture.database, seeded.workspaceId, identity.contactId, [observation.id]);
+  }
   const eligibilityDigest = "2".repeat(64);
   await fixture.database.prepare(
     `INSERT INTO contact_eligibility_snapshots (
       id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
       prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,snapshot_digest,projected_at
-    ) VALUES ('outreach-eligibility',?,?,?,?,?, ?,?,'ContactReady',1,?,'[]','[]',?,?)`,
+    ) VALUES ('outreach-eligibility',?,?,?,?,?, ?,?,'ContactReady',1,?,'[]',?,?,?)`,
   ).bind(
     seeded.workspaceId, identity.contactId, seeded.prospectId, seeded.configurationId, lineage.configuration_digest,
     lineage.configuration_revision, lineage.prospect_revision, JSON.stringify([observation.id]),
-    eligibilityDigest, OUTREACH_NOW,
+    JSON.stringify(preservedSuppressionRefs), eligibilityDigest, OUTREACH_NOW,
   ).run();
   const sourceDigest = "3".repeat(64);
   await fixture.database.prepare(

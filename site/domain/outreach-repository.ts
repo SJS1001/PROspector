@@ -1,5 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 
+import { contactPointDomainScopeStatement } from "./email-domain-scope";
+
 const REQUIRED_GMAIL_SCOPES = Object.freeze([
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
@@ -348,6 +350,15 @@ export function createD1OutreachRepository(database: D1Database, scope: Outreach
         ),
         await auditStatement(database, scope, commandId, "recipient_dispatch_authority.recorded", "recipient_dispatch_authority", authorityId, "owner_acknowledged_advisory", operationDigest, now),
       ];
+      // D-7 (0024): the SQL rechecks cannot hash, so record the verified
+      // recipient's whole-label domain scope next to the authority. The
+      // address was just proved to be this contact point. An unresolvable
+      // domain records nothing, which the Message approval, enqueue, lease and
+      // 0015-0017 rechecks treat as blocked by every confirmed-domain
+      // tombstone. The row is immutable and shared by every Message to the same
+      // address, so a repeat insert is ignored.
+      const scopeStatement = await contactPointDomainScopeStatement(database, scope.workspaceId, recipientAddressDigest, recipient, now);
+      if (scopeStatement) statements.push(scopeStatement);
       return commit(database, scope.workspaceId, input.idempotencyKey, operationDigest, authorityId, authorityDigest, statements);
     },
 
