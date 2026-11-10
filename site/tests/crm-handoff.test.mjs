@@ -4,9 +4,9 @@ import test from "node:test";
 import { createServer } from "vite";
 
 // 07-02 contract: deterministic CSV CRM handoff.
-// Live cases bind to domain/crm-csv-codec.ts, domain/crm-handoff-export-artifact.ts
-// and domain/crm-handoff-delivery.ts. Cases for domain/crm-handoff.ts (07-06),
-// which does not exist yet, are `todo`. Everything here is synthetic and uses
+// Live cases bind to domain/crm-csv-codec.ts, domain/crm-handoff-export-artifact.ts,
+// domain/crm-handoff-delivery.ts and the 07-06 service shell domain/crm-handoff.ts
+// (fake ports only; D1 persistence needs 07-04 and stays `todo`). Everything here is synthetic and uses
 // fake ports only; no CSV is delivered, persisted, or downloaded.
 
 const DIGEST_A = "a".repeat(64);
@@ -493,21 +493,106 @@ async function loadHandoffService() {
   }
 }
 
-function fakePorts() {
-  const calls = { eligibility: 0, store: 0, delivery: 0, provider: 0 };
+const SERVICE_WORKSPACE = "workspace-one";
+const SERVICE_AUTHORITY = {
+  exportScope: { tenantId: "synthetic-tenant-0001", workspaceId: "synthetic-workspace-0001" },
+  selectionId: "synthetic-selection-0001",
+  selectionRevision: 7,
+  authorityRevision: 11,
+  configurationDigest: DIGEST_C,
+  exportDefinitionDigest: DIGEST_B,
+};
+const lineage = (char) => ({ identityDigest: char.repeat(64), aliasDigests: [] });
+
+function candidate(n, patch = {}, cells = {}) {
   return {
-    calls,
-    eligibility: { async recheck() { calls.eligibility += 1; return { contactReady: true }; } },
-    store: { async putImmutable() { calls.store += 1; } },
-    delivery: { async put() { calls.delivery += 1; } },
+    workspaceId: SERVICE_WORKSPACE,
+    prospectState: "Export-ready",
+    deleted: false,
+    aliasOf: null,
+    verificationClass: "mailbox_verified",
+    packageDigest: "e".repeat(64),
+    eligibilityInput: {},
+    cells: row(n, cells),
+    ...patch,
   };
 }
 
-test("only a current Export-ready Prospect with an approved package and fresh verified, unsuppressed contact point yields a row", { todo: "07-06 not implemented" }, async () => {
+/** Synthetic candidate set covering every exclusion the service must make. */
+function defaultCandidates() {
+  return [
+    candidate(1),
+    candidate(2, { verificationClass: "source_verified" }, { verification_class: "synthetic_source_verified" }),
+    candidate(3, { eligibilityInput: { fake: "stale_verification" } }),
+    candidate(4, { eligibilityInput: { fake: "package_revoked" } }),
+    candidate(5, { eligibilityInput: { fake: "high_risk_drift" } }),
+    candidate(6, { deleted: true }),
+    candidate(7, { workspaceId: "workspace-two" }),
+    candidate(8, { aliasOf: "synthetic-prospect-0001" }),
+    candidate(9, { prospectState: "Prospect" }),
+    candidate(10, {}, { contact_value: "blocked-exact@example.test" }),
+    candidate(11, {}, { contact_value: "someone@blocked-domain.example.test" }),
+    candidate(12, { contactLineage: lineage("1") }),
+    candidate(13, { organizationLineage: lineage("2") }),
+  ];
+}
+
+/**
+ * Fake ports for the 07-06 shell. The suppression fake mirrors the real
+ * resolver's `isBlocked`: it only reports blocked / not blocked, always counts
+ * the company subject, and treats an email's domain (and subdomains) as a
+ * domain subject. `companySuppressed` models a company-wide tombstone.
+ */
+function fakePorts({ companySuppressed = false, candidates = defaultCandidates() } = {}) {
+  const calls = { eligibility: 0, store: 0, delivery: 0, provider: 0, suppression: 0 };
+  const stored = [];
+  const blocked = {
+    emails: new Set(["blocked-exact@example.test"]),
+    domains: new Set(["blocked-domain.example.test"]),
+    contacts: new Set(["1".repeat(64)]),
+    organizations: new Set(["2".repeat(64)]),
+  };
+  return {
+    calls,
+    stored,
+    source: { async read() { return { ...SERVICE_AUTHORITY, candidates }; } },
+    eligibility: {
+      async recheck(request) {
+        calls.eligibility += 1;
+        const fake = request.eligibilityInput?.fake;
+        return fake ? { contactReady: false, reasonCode: fake } : { contactReady: true };
+      },
+    },
+    suppression: {
+      async isBlocked(input) {
+        calls.suppression += 1;
+        if (companySuppressed) return { blocked: true, providerCalls: 0 };
+        const email = input.email?.toLowerCase();
+        const domain = email?.split("@")[1];
+        const domainHit = domain && [...blocked.domains].some((entry) => domain === entry || domain.endsWith(`.${entry}`));
+        const hit = (email && blocked.emails.has(email)) || domainHit
+          || (input.contact && blocked.contacts.has(input.contact.identityDigest))
+          || (input.organization && blocked.organizations.has(input.organization.identityDigest));
+        return { blocked: Boolean(hit), providerCalls: 0 };
+      },
+    },
+    store: {
+      async lookup({ workspaceId, idempotencyKey }) {
+        const mine = stored.filter((entry) => entry.stored.workspaceId === workspaceId);
+        return (mine.find((entry) => entry.stored.idempotencyKey === idempotencyKey) ?? mine.at(-1))?.stored ?? null;
+      },
+      async putImmutable(record) { calls.store += 1; stored.push(record); },
+    },
+    delivery: { async put() { calls.delivery += 1; } },
+    clock: { nowIso: () => "2026-11-09T12:00:00.000Z" },
+  };
+}
+
+test("only a current Export-ready Prospect with an approved package and fresh verified, unsuppressed contact point yields a row", async () => {
   const { vite, service } = await loadHandoffService();
   try {
     const ports = fakePorts();
-    const plan = await service.planCrmHandoff({ workspaceId: "workspace-one", ports });
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
     for (const reason of ["stale_verification", "package_revoked", "high_risk_drift", "deleted", "cross_workspace", "alias_merge"]) {
       assert.ok(plan.exclusions.some((entry) => entry.reason === reason), reason);
     }
@@ -518,7 +603,7 @@ test("only a current Export-ready Prospect with an approved package and fresh ve
   }
 });
 
-test("exact, domain, contact, organization, and company suppression each exclude separately and yield only a labelled non-contactable manifest entry", { todo: "07-06 not implemented" }, async () => {
+test("exact, domain, contact, organization, and company suppression each exclude separately and yield only a labelled non-contactable manifest entry", { todo: "07-06 shell: the resolver's isBlocked reports only blocked/not blocked, so per-scope labels are not derivable once a company-wide tombstone is present; needs a scope-aware resolver (see the live scope tests below)" }, async () => {
   const { vite, service } = await loadHandoffService();
   try {
     const plan = await service.planCrmHandoff({ workspaceId: "workspace-one", ports: fakePorts() });
@@ -532,7 +617,7 @@ test("exact, domain, contact, organization, and company suppression each exclude
   }
 });
 
-test("a stale prior snapshot or UI selection cannot authorize a row once current projections change", { todo: "07-06 not implemented" }, async () => {
+test("a stale prior snapshot or UI selection cannot authorize a row once current projections change", async () => {
   const { vite, service } = await loadHandoffService();
   try {
     const result = await service.materializeCrmHandoff({ workspaceId: "workspace-one", staleSnapshotDigest: DIGEST_A, ports: fakePorts() });
@@ -543,7 +628,7 @@ test("a stale prior snapshot or UI selection cannot authorize a row once current
   }
 });
 
-test("the service materializes an immutable version, replays on retry, and a stale snapshot never reaches the delivery port", { todo: "07-06 not implemented" }, async () => {
+test("the service materializes an immutable version, replays on retry, and a stale snapshot never reaches the delivery port", async () => {
   const { vite, service } = await loadHandoffService();
   try {
     const ports = fakePorts();
@@ -555,4 +640,160 @@ test("the service materializes an immutable version, replays on retry, and a sta
   } finally {
     await vite.close();
   }
+});
+
+// -- 07-06 service shell: live cases beyond the contract (fake ports) --------
+
+async function withService(run) {
+  const { vite, service } = await loadHandoffService();
+  try { return await run(service); } finally { await vite.close(); }
+}
+
+test("each non-company suppression scope excludes its own contact only and leaves a labelled non-contactable entry without the contact value", async () => {
+  await withService(async (service) => {
+    const ports = fakePorts();
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
+    const reasonFor = (n) => plan.exclusions.filter((e) => e.contactId === `synthetic-contact-${String(n).padStart(4, "0")}`).map((e) => e.reason);
+    assert.deepEqual(reasonFor(10), ["suppressed_exact"]);
+    assert.deepEqual(reasonFor(11), ["suppressed_domain"]);
+    assert.deepEqual(reasonFor(12), ["suppressed_contact"]);
+    assert.deepEqual(reasonFor(13), ["suppressed_organization"]);
+    assert.equal(plan.nonContactable.length, 4);
+    assert.ok(plan.nonContactable.every((entry) => entry.contactable === false));
+    assert.equal(JSON.stringify(plan.nonContactable).includes("example.test"), false, "no raw contact value in the manifest entries");
+    // Contacts that are not suppressed keep their rows.
+    assert.deepEqual(plan.rows.map((r) => r.contactId), ["synthetic-contact-0001", "synthetic-contact-0002"]);
+    assert.deepEqual(plan.rows.map((r) => r.verificationClass), ["mailbox_verified", "source_verified"]);
+  });
+});
+
+test("a company-wide tombstone excludes every candidate and nothing can be materialized or stored", async () => {
+  await withService(async (service) => {
+    const ports = fakePorts({ companySuppressed: true });
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
+    assert.equal(plan.rows.length, 0);
+    assert.ok(plan.exclusions.some((e) => e.reason === "suppressed_company"));
+    const result = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
+    assert.deepEqual({ status: result.status, reason: result.reason }, { status: "blocked", reason: "no_eligible_rows" });
+    assert.equal(ports.calls.store, 0);
+  });
+});
+
+test("a suppression port that throws or reports an unknown shape fails closed", async () => {
+  await withService(async (service) => {
+    for (const isBlocked of [async () => { throw new Error("d1 down"); }, async () => ({}), async () => null]) {
+      const ports = { ...fakePorts(), suppression: { isBlocked } };
+      const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
+      assert.equal(plan.rows.length, 0);
+      assert.ok(plan.exclusions.some((e) => e.reason === "suppressed_company"));
+    }
+  });
+});
+
+test("an eligibility port that throws, refuses, or is the production blocked recheck yields no rows", async () => {
+  await withService(async (service) => {
+    const throwing = { ...fakePorts(), eligibility: { async recheck() { throw new Error("down"); } } };
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: throwing });
+    assert.equal(plan.rows.length, 0);
+    assert.ok(plan.exclusions.some((e) => e.reason === "eligibility_unavailable"));
+
+    const production = { ...fakePorts(), eligibility: service.createCrmExportEligibilityPort() };
+    const prodPlan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: production });
+    assert.equal(prodPlan.rows.length, 0, "recheckForCrmExport always refuses");
+    const result = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: production });
+    assert.equal(result.reason, "no_eligible_rows");
+    assert.equal(production.calls.store, 0);
+
+    // Only a strict `contactReady: true` passes.
+    const loose = { ...fakePorts(), eligibility: { async recheck() { return { contactReady: "yes" }; } } };
+    assert.equal((await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: loose })).rows.length, 0);
+  });
+});
+
+test("the same key with a changed snapshot conflicts; a new key with a changed snapshot stores the next version; both replay when unchanged", async () => {
+  await withService(async (service) => {
+    const ports = fakePorts();
+    const first = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, idempotencyKey: "idem-1", ports });
+    assert.equal(first.status, "materialized");
+    assert.equal(first.version, 1);
+    assert.equal(first.providerCalls, 0);
+    const bytes = ports.stored[0].bytes;
+    assert.equal(sha256(bytes), first.csvSha256, "stored bytes match the reported checksum");
+    assert.equal(ports.stored[0].manifest.csvSha256, first.csvSha256);
+
+    // Same key, same snapshot: replay with no second store call.
+    const replay = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, idempotencyKey: "idem-1", ports });
+    assert.equal(replay.status, "replayed");
+    // A different key but an identical frozen snapshot also replays the original.
+    assert.equal((await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, idempotencyKey: "idem-2", ports })).status, "replayed");
+    assert.equal(ports.calls.store, 1);
+
+    // Contact 1 is later suppressed: the snapshot changes.
+    const candidates = defaultCandidates();
+    candidates[0] = { ...candidates[0], contactLineage: lineage("1") };
+    ports.source.read = async () => ({ ...SERVICE_AUTHORITY, candidates });
+    const conflict = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, idempotencyKey: "idem-1", ports });
+    assert.deepEqual({ status: conflict.status, reason: conflict.reason }, { status: "blocked", reason: "idempotency_conflict" });
+    const next = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, idempotencyKey: "idem-3", ports });
+    assert.equal(next.status, "materialized");
+    assert.equal(next.version, 2);
+    assert.notEqual(next.snapshotDigest, first.snapshotDigest);
+    assert.equal(ports.calls.store, 2);
+    // The earlier immutable version is untouched.
+    assert.equal(ports.stored[0].stored.version, 1);
+    assert.equal(ports.stored[0].stored.csvSha256, first.csvSha256);
+  });
+});
+
+test("a snapshot the caller saw that still matches the current plan is accepted; a store failure is reported blocked", async () => {
+  await withService(async (service) => {
+    const ports = fakePorts();
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports });
+    const ok = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, staleSnapshotDigest: plan.snapshotDigest, ports });
+    assert.equal(ok.status, "materialized");
+
+    const failing = { ...fakePorts(), store: { async lookup() { return null; }, async putImmutable() { throw new Error("conflict"); } } };
+    const failed = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: failing });
+    assert.deepEqual({ status: failed.status, reason: failed.reason }, { status: "blocked", reason: "store_failed" });
+  });
+});
+
+test("invalid input, unavailable authority, and non-synthetic rows are blocked before anything is stored", async () => {
+  await withService(async (service) => {
+    const ports = fakePorts();
+    for (const bad of [{ workspaceId: "bad id", ports }, { workspaceId: SERVICE_WORKSPACE, ports: {} }, { workspaceId: SERVICE_WORKSPACE, staleSnapshotDigest: "short", ports }]) {
+      assert.equal((await service.materializeCrmHandoff(bad)).reason, "invalid_request");
+    }
+    const down = { ...fakePorts(), source: { async read() { throw new Error("down"); } } };
+    assert.equal((await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: down })).reason, "authority_unavailable");
+
+    const real = { ...fakePorts(), source: { async read() { return { ...SERVICE_AUTHORITY, candidates: [candidate(1, {}, { contact_value: "real.person@company.test" })] }; } } };
+    const refused = await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: real });
+    assert.deepEqual({ status: refused.status, reason: refused.reason, detail: refused.detail }, { status: "blocked", reason: "artifact_rejected", detail: "crm_handoff_export_not_synthetic" });
+    assert.equal(real.calls.store, 0);
+  });
+});
+
+test("duplicate candidates collapse when identical and are all excluded when the same identity carries different material", async () => {
+  await withService(async (service) => {
+    const same = fakePorts({ candidates: [candidate(1), candidate(1)] });
+    assert.equal((await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: same })).rows.length, 1);
+    const conflicting = fakePorts({ candidates: [candidate(1), candidate(1, {}, { account_target: "Fictional Example Mining Company", selected_role: "Fictional Example Operations Role", evidence_refs: "synthetic-evidence-0002" })] });
+    const plan = await service.planCrmHandoff({ workspaceId: SERVICE_WORKSPACE, ports: conflicting });
+    assert.equal(plan.rows.length, 0);
+    assert.deepEqual(plan.exclusions.map((e) => e.reason), ["duplicate_identity_conflict"]);
+  });
+});
+
+test("the service performs no provider, delivery, or network call and the source has no tel:/mailto: literals", async () => {
+  await withService(async (service) => {
+    const ports = fakePorts();
+    await service.materializeCrmHandoff({ workspaceId: SERVICE_WORKSPACE, idempotencyKey: "idem-9", ports });
+    assert.equal(ports.calls.provider, 0);
+    assert.equal(ports.calls.delivery, 0);
+  });
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../domain/crm-handoff.ts", import.meta.url), "utf8");
+  assert.equal(/\b(?:tel|mailto):/iu.test(source), false);
+  assert.equal(/\bfetch\s*\(|process\.env|env\./u.test(source), false);
 });
