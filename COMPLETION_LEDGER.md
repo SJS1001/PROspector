@@ -2,7 +2,18 @@
 
 This ledger is the v1 requirement inventory. It is not the 26/74 plan-credit ledger in `COMPLETION.md`. Formal acceptance is the count of rows whose status is `verified`. That count is 0. A product percent is unknown while `verification_mapping` is `partial`. Do not divide 26 by 74 or by 17 and call the result completion.
 
-Local extracts merged on 2026-11-09 are recorded below as test evidence only. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
+Local extracts merged on 2026-11-09 are recorded below as test evidence only. PR #173 (operator review batch 03: run recovery, atomic run claims, do-not-contact normalisation and merge suppression) is recorded the same way; its macOS browser-workflow run is owner-attested, not re-recorded in last-run.json. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74. PR #163 adds a fail-closed monitoring classifier that is not one of the 17 v1 requirements, so it is not attached to a requirement row.
+
+Session entry, review fix batch 12 (operator tests), PR #170. Source SHA `409065b9b1f0779950c27f80d064aaf542c7c652`, merged into `claude/research-uses-configured-llm` as `5cbbf206c0f08b9c87a7134878516906d31a0d50` on 2026-11-09 at about 19:10Z. Session `session_011p7TfhvrePA3bUJrvFeUp8`. Tests ran at about 17:20Z on Node 22.23.4 from `operator/`. Changes: operator `npm test` now runs `scripts/test-all.mjs`, which collects all 13 `src/**/*.test.ts` files (9 before) and the OpenRouter settings keyboard acceptance test. `vault.test.ts` now tampers with real sealed secrets and covers the unsafe-permission and missing-key refusals. `local-start.mjs` exits 0 only on the shutdown signal it forwarded; any other child signal exits 128 + signo. Results: `node --experimental-strip-types --test src/lib/server/vault.test.ts` 6/6 pass. `node --test scripts/local-start-exit.test.mjs scripts/with-app-env.test.mjs` 16/16 pass. `npm test` scripts group 299/299, source group 107/107, keyboard group 1/1, exit 0. `npx tsc --noEmit` exit 0. eslint 0 errors. Root `node --test tests/completion-ledger.test.mjs` 3/3 pass. Environment note: `scripts/local-foundation.test.mjs` "foundation HTTP and recovery lifecycle" needs `npm run build` first; without it the test fails the same way on the base branch. Not verified: a real server crash by signal. This is test tooling, not one of the 17 v1 requirements, so it is not attached to a requirement row. Requirement status is unchanged. Formal acceptance stays 0/17. Plan credit stays 26/74.
+
+Session `claude-ee67a286-2026-11-09`, review round two (operator). Merged into `claude/research-uses-configured-llm` with tip `949f925`:
+- PR #166: review batch 01, AI key bound to its provider.
+- PR #185: owner decisions 1 and 7. The spend cap is enforced, restore keeps the live month's spend, and do-not-contact domains block subdomains.
+- PR #171: batch 11. PRs #170 and #173 are recorded above.
+
+Before the merge, the combined tree was identical to the tested head `e72b72e`. `cd operator && npm test` gave 323/324 for scripts, 118/118 for source and 1/1 for acceptance. The one failure was `local-foundation`, because port 8080 was held by the owner's app. After `npm run build`, with the app paused, `node --test scripts/local-foundation.test.mjs` gave 10/10. `npx tsc --noEmit` was clean, eslint on the changed files was clean, and `auditGraph()` equals `reviewed-graph.json`.
+
+An independent adversarial review of #185 found a restore bypass of the cap. It was fixed, and the regression test fails without the fix. Evidence is local and synthetic only. No requirement status changed, and formal acceptance stays 0/17.
 
 Session `claude-ee67a286-2026-11-09` (owner-authorized local work, branch `claude/owner-local-completion-20261109`, commit `0c3ce490d707c0fa0b4eac9178ab05c75491d96f`): merged issue work for #6 (docs), #7 (protocol, label-agreement scorer and fixtures), #8 (plain-language Contacts labels and a Review-to-Contacts link) and #11 (browser run record). `cd site && npm test` exited 0 with 1175 pass, 0 fail, 0 cancelled, 0 skipped across 169 files; `npm run lint` exited 0; `npm run test:browser` 2 pass; `npm run test:browser:operator-journey` 2 pass; `npm run test:browser:person-discovery` 1 fail (recorded as negative evidence under REQ-contact-verification). Fix `72a1b74` then made that lane pass and the full suite pass with 1176 tests (positive evidence under the same row). No requirement status changed.
 
@@ -78,7 +89,7 @@ The source SHA below is the code inspected before this ledger file existed. It i
     "recorded_at": "2026-11-08T21:00:33Z",
     "session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
     "seeded_at": "2026-11-08T21:00:33Z",
-    "last_source_review_at": "2026-11-09T17:30:00Z",
+    "last_source_review_at": "2026-11-09T19:14:58Z",
     "verification_mapping": "partial"
   },
   "requirements": [
@@ -113,8 +124,8 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "insufficient",
-      "last_touched_at": "2026-11-08T21:00:33Z",
-      "last_touched_session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
+      "last_touched_at": "2026-11-09T19:14:58Z",
+      "last_touched_session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
       "evidence": [
         {
           "kind": "artifact",
@@ -137,6 +148,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
             }
           ],
           "limitations": "The requirements traceability cell says local implementation is complete and acceptance is pending. No requirement-scoped test count is recorded here. The session that wrote the 2026-09-03 requirements update is unknown. Plan credit 26/74 is not this requirement's acceptance."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/173",
+          "pr_number": 173,
+          "artifact_path": "operator/scripts/run-recovery.test.mjs",
+          "evidence_commit": "a0fd31bf7ea3885bcfe09b31d5e7efd4816816b5",
+          "test_scope": "cd operator && node --test scripts/run-recovery.test.mjs scripts/manual-workflow-actions.test.mjs scripts/hunt-evidence.test.mjs",
+          "test_counts": {
+            "tests": 19,
+            "passed": 19,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T19:14:58Z",
+          "recorded_at": "2026-11-09T19:14:58Z",
+          "session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
+          "limitations": "Operator app only, synthetic PGlite fixture with stubbed providers. Interrupted queued/running runs are failed at server start and on archive restore; migration 0010 allows one active prospecting and one active discovery run per workspace, so overlapping starts cannot both run and spend; hunt saves skip existing prospect ids. Real concurrent Postgres sessions and a real quit mid-hunt were not exercised. The macOS browser-workflow acceptance run of the PR head is recorded on the owner's attestation only: the last-run.json shared from it matched the 29 Oct copy, so EVIDENCE.md and last-run.json were not refreshed. Not Plan 02-99 acceptance, not plan credit. Formal acceptance stays 0/17. Plan credit stays 26/74."
         }
       ]
     },
@@ -928,8 +960,8 @@ The source SHA below is the code inspected before this ledger file existed. It i
       "exception_evidence": [],
       "external_acceptance_recorded": false,
       "verification_assessment": "not_assessed",
-      "last_touched_at": "2026-11-08T21:00:33Z",
-      "last_touched_session": "bc-883d1be0-7187-5703-b79b-59553a39de84",
+      "last_touched_at": "2026-11-09T19:14:58Z",
+      "last_touched_session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
       "evidence": [
         {
           "kind": "artifact",
@@ -994,6 +1026,27 @@ The source SHA below is the code inspected before this ledger file existed. It i
           "recorded_at": "2026-11-09T18:50:00Z",
           "session": "claude-011p7Tfj-2026-11-09",
           "limitations": "Review batch 02 (2026-11-09 code review finding 4). Synthetic decision service only: do_not_call is now recordable after approval expiry, phone-freshness lapse, an already-present suppression, or an authority change, and always uses the current suppression subjects and pending work; scope, approval and phone binding, and synthetic classification are still required, and other outcomes keep the fail-closed gate. Injected test repository only; no real commitCurrentOutcome implementation, route, phone number, URI, dial, or provider. Not production suppression. Not plan credit. Formal acceptance stays 0/17."
+        },
+        {
+          "kind": "test",
+          "pr_url": "https://github.com/SJS1001/PROspector/pull/173",
+          "pr_number": 173,
+          "artifact_path": "operator/scripts/manual-workflow-actions.test.mjs",
+          "evidence_commit": "a0fd31bf7ea3885bcfe09b31d5e7efd4816816b5",
+          "test_scope": "cd operator && node --test scripts/manual-workflow-actions.test.mjs",
+          "test_counts": {
+            "tests": 14,
+            "passed": 14,
+            "failed": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          "exit_code": 0,
+          "observed_at": "2026-11-09T19:14:58Z",
+          "recorded_at": "2026-11-09T19:14:58Z",
+          "session": "session_011p7Tfmi4ZJpvWoLXSSfwKR",
+          "limitations": "Operator app only, synthetic PGlite fixture. addSuppression now normalises domains (scheme, path, port, leading @, www.), validates email shape, requires an existing contact id, warns on an unmatched org, and rejects values that could never match; mergeContacts carries contact suppression to the kept contact and pins both mailboxes in one transaction. Matching is unchanged: subdomains are not blocked (open owner question). No sender identity or unsubscribe control is covered. Not production enforcement at send time, not Plan 02-99 acceptance, not plan credit. Formal acceptance stays 0/17. Plan credit stays 26/74."
         }
       ]
     },

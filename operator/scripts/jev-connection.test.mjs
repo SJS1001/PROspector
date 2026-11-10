@@ -27,6 +27,8 @@ test("JEV request contract, validation, safe failures and status", async (t) => 
     title: "Test",
     pageText: "Source",
     profileText: "Profile",
+    // Metering is covered by spend-cap.test.mjs; here every request is let through.
+    spend: (_charge, send) => send(),
   };
   let requested;
   let response;

@@ -23,6 +23,16 @@ import type {
   Suppression,
 } from "@/lib/domain/types";
 
+// Each kind matches a different field, so the value field says what to enter.
+const SUPPRESSION_FIELDS: Record<string, { label: string; placeholder: string }> = {
+  email: { label: "Email address", placeholder: "name@example.com" },
+  domain: { label: "Domain", placeholder: "example.com" },
+  phone: { label: "Phone number", placeholder: "+1 416 555 0100" },
+  contact: { label: "Contact id", placeholder: "Contact id from the contacts list" },
+  org: { label: "Organization name", placeholder: "Exact organization name" },
+  all: { label: "Note", placeholder: "all" },
+};
+
 export function OutreachView() {
   const { data, isPending, isError } = useWorkspace();
   if (isPending) return <p className="text-sm text-muted">Loading messages…</p>;
@@ -401,6 +411,8 @@ function SuppressionPanel({ suppressions }: { suppressions: Suppression[] }) {
   const [kind, setKind] = useState("email");
   const [value, setValue] = useState("");
   const [reason, setReason] = useState("");
+  const [warning, setWarning] = useState<string | null>(null);
+  const field = SUPPRESSION_FIELDS[kind] ?? SUPPRESSION_FIELDS.email;
 
   return (
     <Panel className="p-6">
@@ -413,12 +425,15 @@ function SuppressionPanel({ suppressions }: { suppressions: Suppression[] }) {
           className="mt-5 grid gap-3 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
           onSubmit={(event) => {
             event.preventDefault();
+            setWarning(null);
             add.mutate(
               { kind, value, reason },
               {
-                onSuccess: () => {
+                onSuccess: (result) => {
                   setValue("");
                   setReason("");
+                  const note = (result as { suppressionWarning?: string }).suppressionWarning;
+                  if (note) setWarning(note);
                 },
               },
             );
@@ -440,13 +455,13 @@ function SuppressionPanel({ suppressions }: { suppressions: Suppression[] }) {
             </select>
           </label>
           <label className="grid gap-1 text-xs text-muted">
-            {kind === "domain" ? "Domain" : "Email"}
+            {field.label}
             <input
               required
               value={value}
               onChange={(event) => setValue(event.target.value)}
               className="min-h-11 rounded-[10px] border border-line bg-cream px-3 text-sm text-ink"
-              placeholder={kind === "domain" ? "example.com" : "name@example.com"}
+              placeholder={field.placeholder}
             />
           </label>
           <label className="grid gap-1 text-xs text-muted">
@@ -483,6 +498,11 @@ function SuppressionPanel({ suppressions }: { suppressions: Suppression[] }) {
         <div className="mt-3">
           <ErrorNote message={mutationMessage(add.error)} />
         </div>
+      ) : null}
+      {warning && !add.error ? (
+        <p role="status" className="mt-3 text-sm text-muted">
+          {warning}
+        </p>
       ) : null}
     </Panel>
   );

@@ -1,6 +1,7 @@
 import { useNitroApp as getNitroApp, useNitroHooks as getNitroHooks } from "nitro/app";
 import { serve } from "srvx/node";
-import { closeDatabase } from "../src/lib/db";
+import { closeDatabase, getSql } from "../src/lib/db";
+import { recoverInterruptedRuns } from "../src/lib/server/archive";
 import { createLocalShutdown } from "./local-shutdown.mjs";
 
 // Nitro's installed node-server preset drains HTTP but does not call its close
@@ -8,6 +9,10 @@ import { createLocalShutdown } from "./local-shutdown.mjs";
 const nitroApp = getNitroApp();
 const hooks = getNitroHooks();
 hooks.hook("close", closeDatabase);
+// Runs end only inside the request that started them. After migrations and
+// before serving, no request can own a run, so fail every orphan left by a quit,
+// crash or sleep; otherwise each later hunt or discovery would be refused.
+await recoverInterruptedRuns(await getSql());
 const parsedPort = Number.parseInt(process.env.NITRO_PORT ?? process.env.PORT ?? "");
 const cert = process.env.NITRO_SSL_CERT;
 const key = process.env.NITRO_SSL_KEY;

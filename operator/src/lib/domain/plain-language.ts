@@ -9,7 +9,7 @@ const SYSTEM_COPY: Readonly<Record<string, string>> = {
   "Timing / urgency": "Reason to act now",
   "Data readiness": "Available data",
   "Commercial viability": "Buying potential",
-  "Add an AI API key in Connections before running discovery or hunts.": "Add an AI API key in Settings before searching for markets or prospects.",
+  "Add an AI API key in Connections before running discovery or hunts.": "Add an AI API key in Settings → Connections → AI model before using research or searching for markets or prospects.",
   "Only confirmed knowledge can enter a corrected review.": "Confirm this answer before editing it.",
   "Choose Explore, Defer, or Dismiss.": "Choose a market, review it later, or skip it.",
   "Audience and likely buyer are required to confirm a draft play.": "Enter the target customers and likely buyer before confirming this market.",
