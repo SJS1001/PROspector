@@ -675,6 +675,64 @@ test("the Outreach screen speaks plain language: full digests sit behind technic
   });
 });
 
+const VISIBLE_JARGON = /\(Phase \d+\)|\brefus(?:ed|al|es)?\b/i;
+
+test("the screen the owner actually sees, built from the production projection, carries no phase number or refusal jargon", async () => {
+  const { fixture, handler, context } = await seededWorkspace("outreach-ui-production-plain-language");
+  try {
+    const services = handler.composeProductionOutreachServices(fixture.database, context.scope);
+    const projection = await handler.readOutreachProjection(fixture.database, context.scope, services);
+    assert.match(projection.gates.approval.reason, /\(Phase 5\)/, "precondition: the server gate reason still names the phase (server copy is unchanged)");
+    assert.match(projection.gates.queue.reason, /refused/, "precondition: the server queue reason still says refused");
+    const vite = await createServer({ configFile: false, logLevel: "silent" });
+    try {
+      const leaves = await vite.ssrLoadModule(new URL("app/prospects/outreach-leaves.tsx", root).pathname);
+      const normalized = leaves.normalizeOutreachProjection(JSON.parse(JSON.stringify(projection)));
+      assert.equal(normalized.gates.approval.available, false, "the gate stays closed after the copy is mapped");
+      assert.equal(normalized.gates.queue.available, false);
+      assert.match(normalized.gates.approval.reason, /contact readiness checks are accepted/i, "the mapped reason keeps its meaning");
+      assert.match(normalized.gates.approval.reason, /Nothing is sent and no call is placed\./);
+      assert.match(normalized.gates.queue.reason, /Gmail is authorized\. No email will be sent\./);
+      const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection: normalized, interaction: leaves.READ_ONLY_INTERACTION }));
+      const visible = html.replaceAll(TECHNICAL_BLOCK, "");
+      assert.doesNotMatch(visible, VISIBLE_JARGON, `visible copy has no phase number or refusal jargon: ${visible.match(VISIBLE_JARGON)?.[0]}`);
+      const note = visible.match(/<p role="note"><strong>Outreach is not available yet\.<\/strong> ([^<]+)<\/p>/)?.[1] ?? "";
+      assert.match(note, /contact readiness/i, "the readiness note still explains why");
+      for (const action of ["Approve package for CRM eligibility", "Approve this message for queued Gmail delivery", "Queue for controlled delivery"]) {
+        const button = html.match(new RegExp(`<button[^>]*>${action}</button>`))?.[0] ?? "";
+        assert.match(button, /disabled=""/, `${action} stays native-disabled`);
+        const describedBy = button.match(/aria-describedby="([^"]+)"/)?.[1];
+        const reason = html.match(new RegExp(`<span id="${describedBy}" tabindex="0">([^<]+)</span>`))?.[1] ?? "";
+        assert.ok(reason.length > 12, `${action} keeps its adjacent reason`);
+        assert.doesNotMatch(reason, VISIBLE_JARGON, `${action} reason is plain language: ${reason}`);
+      }
+    } finally { await vite.close(); }
+  } finally { await fixture.dispose(); }
+});
+
+test("gate reasons are mapped on the client: unknown server copy loses phase numbers and refusal wording, never availability", async () => {
+  await withApp(async ({ leaves }) => {
+    const odd = leaves.normalizeOutreachProjection(sampleProjection({ gates: {
+      approval: { available: false, reason: "Something new is refused until checks (Phase 7) pass." },
+      queue: { available: false, reason: "Queueing refused." },
+      phone: { enabled: false, reason: "owner_uat_pending" },
+    } }));
+    assert.equal(odd.gates.approval.available, false);
+    assert.doesNotMatch(odd.gates.approval.reason, VISIBLE_JARGON, odd.gates.approval.reason);
+    assert.match(odd.gates.approval.reason, /checks pass/);
+    assert.doesNotMatch(odd.gates.queue.reason, VISIBLE_JARGON, odd.gates.queue.reason);
+    assert.doesNotMatch(leaves.reasonText("contact_recheck_blocked"), VISIBLE_JARGON);
+    assert.doesNotMatch(leaves.reasonText("current_authority_unavailable"), VISIBLE_JARGON);
+    assert.doesNotMatch(leaves.reasonText("something_new"), VISIBLE_JARGON);
+  });
+});
+
+test("the technical details toggle shows the same open/closed cue as the other disclosures on the card", async () => {
+  const css = await source("app/globals.css");
+  assert.match(css, /\.outreach-technical summary::before\s*\{[^}]*content:\s*"\\25B8"/, "a closed technical record shows a disclosure triangle");
+  assert.match(css, /\.outreach-technical\[open\] summary::before\s*\{[^}]*content:\s*"\\25BE"/, "an open technical record turns the triangle down");
+});
+
 test("the Outreach styles keep technical records and cards inside a 390px viewport", async () => {
   const css = await source("app/globals.css");
   assert.match(css, /\.outreach-technical\s*\{[^}]*min-width:0/, "technical records can shrink");

@@ -107,7 +107,7 @@ const DELIVERY_COPY: Readonly<Record<string, string>> = Object.freeze({
 });
 
 const REASONS: Readonly<Record<string, string>> = Object.freeze({
-  contact_recheck_blocked: "Contact readiness checks are not accepted yet, so this is refused.",
+  contact_recheck_blocked: "Contact readiness checks are not accepted yet, so this is not available.",
   contact_recheck_unavailable: "Contact readiness could not be checked.",
   contact_not_ready: "The contact is not ready for outreach.",
   contact_point_missing: "A selected contact point has no current verification.",
@@ -131,7 +131,7 @@ const REASONS: Readonly<Record<string, string>> = Object.freeze({
   invalid_idempotency_key: "The request could not be matched to a single intent. Reload and try again.",
   gmail_unavailable: "Gmail delivery is unavailable. No email will be sent.",
   sender_ambiguous: "More than one Gmail sender is connected, so nothing was queued. No email will be sent.",
-  current_authority_unavailable: "Current safety checks refused this. Nothing was queued or sent.",
+  current_authority_unavailable: "Current safety checks did not allow this. Nothing was queued or sent.",
   invalid_request: "The request was not valid.",
   write_failed: "The record could not be saved. Nothing else changed.",
   unknown_contact: "That contact is not in this workspace.",
@@ -161,7 +161,7 @@ export function reasonText(code: string): string {
   if (prefix === "dependency_added") return `A new ${label} exists that this version does not include.`;
   if (prefix === "contact") return `Contact check: ${label}.`;
   if (code.startsWith("contact_point_")) return `A selected contact point is ${code.slice("contact_point_".length).replaceAll("_", " ")}.`;
-  return `Refused: ${code.replaceAll(/[_:]/gu, " ")}.`;
+  return `Not available: ${code.replaceAll(/[_:]/gu, " ")}.`;
 }
 function reasonList(codes: readonly string[]) { return codes.length === 0 ? "" : codes.map(reasonText).join(" "); }
 
@@ -177,7 +177,27 @@ function list<T>(value: unknown, map: (item: Record<string, unknown>) => T | nul
   return Object.freeze(value.slice(0, max).map((item) => { const r = rec(item); return r ? map(r) : null; }).filter((item): item is T => item !== null));
 }
 function strs(value: unknown, max = 64, length = 2_048) { return Object.freeze(Array.isArray(value) ? value.filter((item) => typeof item === "string").slice(0, max).map((item) => item.slice(0, length)) : []); }
-function gate(value: unknown): OutreachGate { const r = rec(value); return Object.freeze({ available: r?.available === true, reason: str(r?.reason, 400) || "Unavailable." }); }
+/**
+ * The server's gate copy is shared with other callers and stays unchanged, so
+ * the owner screen maps it here: known sentences get plain wording, and any
+ * other sentence loses phase numbers and refusal wording. Availability is
+ * never derived from the text.
+ */
+const GATE_REASONS: Readonly<Record<string, string>> = Object.freeze({
+  "Approvals, queueing and calls are refused until contact readiness checks (Phase 5) are accepted. Nothing is sent and no call is placed.":
+    "Approving, queueing and calling stay off until contact readiness checks are accepted. Nothing is sent and no call is placed.",
+  "Queueing is refused until contact readiness checks are accepted and Gmail is authorized. No email will be sent.":
+    "Queueing stays off until contact readiness checks are accepted and Gmail is authorized. No email will be sent.",
+});
+export function plainGateReason(reason: string): string {
+  if (Object.hasOwn(GATE_REASONS, reason)) return GATE_REASONS[reason];
+  return reason
+    .replaceAll(/\s*\(Phase \d+\)/gu, "")
+    .replaceAll(/\b(is|are) refused\b/giu, "$1 not available")
+    .replaceAll(/\brefus(?:ed|al|es)?\b/giu, "not available")
+    .replace(/^not available/u, "Not available");
+}
+function gate(value: unknown): OutreachGate { const r = rec(value); return Object.freeze({ available: r?.available === true, reason: plainGateReason(str(r?.reason, 400)) || "Unavailable." }); }
 
 export function normalizeOutreachProjection(value: unknown): OutreachProjection | null {
   const body = rec(value);

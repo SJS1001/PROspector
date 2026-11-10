@@ -272,6 +272,8 @@ nav { display:grid; gap:4px; margin-top:5px; }nav button { position:relative; di
 .outreach-technical { min-width:0; border-top:1px solid var(--line); padding-top:8px; }
 .outreach-technical summary { min-height:44px; display:flex; align-items:center; color:var(--green); font-weight:760; cursor:pointer; }
 .outreach-technical summary:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.outreach-technical summary::before { content:"\25B8"; content:"\25B8" / ""; margin-right:6px; font-size:12px; }
+.outreach-technical[open] summary::before { content:"\25BE"; content:"\25BE" / ""; }
 .outreach-technical dl { display:grid; gap:8px; margin:8px 0 0; font-size:12px; }
 .outreach-technical dl div { display:grid; grid-template-columns:minmax(120px,220px) minmax(0,1fr); gap:12px; }
 .outreach-technical dt { color:var(--muted); }
