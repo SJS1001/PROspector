@@ -8,9 +8,10 @@ import { createServer } from "vite";
 import { createD1Fixture } from "./helpers/d1.mjs";
 import { seedProfileAuthority } from "./helpers/phase4.mjs";
 import { applyOutreachMigrations } from "./helpers/outreach-fixture.mjs";
+import { seedManualCallAuthority } from "./helpers/manual-call-fixture.mjs";
 import {
   addSenderConnection, CLOCK, count, MODULES, OUTREACH_NOW, recordRecipientAuthority,
-  seedOutreachWorkspace, syntheticServices, UNSUBSCRIBE_TOKEN,
+  scopeOf, seedOutreachWorkspace, syntheticServices, UNSUBSCRIBE_TOKEN,
 } from "./helpers/outreach-ui-fixture.mjs";
 
 // Lane G (06-08, local): the owner Outreach command handler, the public
@@ -786,9 +787,331 @@ test("the Outreach routes compose production services only, and no new source ca
 });
 
 // ---------------------------------------------------------------------------
+// Drafting from current evidence (06-08, deterministic, no AI or provider)
+// ---------------------------------------------------------------------------
+
+const ISSUANCE_MODULE = new URL("domain/enrichment-grant-issuance.ts", root).pathname;
+const DRAFT_TABLES = ["outreach_packages", "outreach_package_versions", "outreach_messages", "outreach_message_versions", "outreach_package_approvals", "outreach_message_approvals", "outreach_recipient_dispatch_authorities", "outreach_outbox_items"];
+
+async function draftRowCounts(fixture) {
+  return Object.fromEntries(await Promise.all(DRAFT_TABLES.map(async (table) => [table, await count(fixture, table)])));
+}
+
+/** Records one eligibility snapshot whose digest the verified reader accepts, the way the Phase 5 snapshot writer would. */
+async function recordEligibilitySnapshot(fixture, seeded, { id, projectedAt, state = "ContactReady", observationIds }) {
+  const issuance = await fixture.vite.ssrLoadModule(ISSUANCE_MODULE);
+  const ids = [...new Set(observationIds ?? [seeded.observationId, seeded.phoneObservationId])].sort();
+  const eligible = state === "ContactReady";
+  const snapshotDigest = await issuance.canonicalDigest({
+    schema: "contact-eligibility-snapshot/v1", workspaceId: seeded.workspaceId, contactId: seeded.contactId, prospectId: seeded.prospectId,
+    configurationId: seeded.configurationId, configurationDigest: seeded.configurationDigest, configurationRevision: seeded.configurationRevision,
+    prospectRevision: seeded.prospectRevision, state, eligible, observationIds: ids, reasonCodes: [], preservedSuppressionRefs: [], projectedAt,
+  });
+  await fixture.database.prepare(
+    `INSERT INTO contact_eligibility_snapshots (
+      id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
+      prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,snapshot_digest,projected_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'[]','[]',?,?)`,
+  ).bind(
+    id, seeded.workspaceId, seeded.contactId, seeded.prospectId, seeded.configurationId, seeded.configurationDigest,
+    seeded.configurationRevision, seeded.prospectRevision, state, eligible ? 1 : 0, JSON.stringify(ids), snapshotDigest, projectedAt,
+  ).run();
+  return snapshotDigest;
+}
+
+/** The Lane F synthetic evidence (email plus E.164 phone) with no Outreach Package yet. */
+async function draftableWorkspace(name, { verifiedSnapshot = true } = {}) {
+  const fixture = await createD1Fixture(name);
+  try {
+    const seeded = await seedManualCallAuthority(fixture);
+    const snapshotDigest = verifiedSnapshot
+      ? await recordEligibilitySnapshot(fixture, seeded, { id: "outreach-eligibility-current", projectedAt: OUTREACH_NOW + 5 })
+      : null;
+    const handler = await fixture.vite.ssrLoadModule(MODULES.handler);
+    return { fixture, handler, seeded, scope: scopeOf(seeded), snapshotDigest };
+  } catch (error) { await fixture.dispose(); throw error; }
+}
+
+function draftCommand(seeded, overrides = {}) {
+  return { action: "draft_package", prospectId: seeded.prospectId, contactId: seeded.contactId, confirmedRecipientEmail: " Verified@Example.INVALID ", idempotencyKey: "draft-from-evidence-1", ...overrides };
+}
+
+const DRAFT_CONTEXT = Object.freeze({ senderAddress: OWNER_EMAIL });
+
+test("owner drafts a Package and Message Versions from current evidence in the Outreach workspace", async () => {
+  const { fixture, handler, seeded, scope, snapshotDigest } = await draftableWorkspace("outreach-ui-draft-from-evidence");
+  try {
+    const services = handler.composeProductionOutreachServices(fixture.database, scope);
+    const before = await handler.readOutreachProjection(fixture.database, scope, services);
+    assert.deepEqual(before.packages, []);
+    assert.equal(before.draftCandidates.length, 1, "the approved prospect with a current ready contact is a draft candidate");
+    const [candidate] = before.draftCandidates;
+    assert.equal(candidate.prospectId, seeded.prospectId);
+    assert.equal(candidate.contactId, seeded.contactId);
+    assert.equal(candidate.ready, true, JSON.stringify(candidate.reasonCodes));
+    assert.deepEqual(candidate.reasonCodes, []);
+    assert.equal(candidate.alreadyDrafted, false);
+    assert.equal(candidate.recipientConfirmationRequired, true, "an email point needs the owner's confirmation of its address");
+    assert.equal(JSON.stringify(before).includes("verified@example.invalid"), false, "the candidate never projects the stored address");
+
+    const result = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded), DRAFT_CONTEXT);
+    assert.equal(result.status, 200, JSON.stringify(result.body.command));
+    const { command, projection } = result.body;
+    assert.equal(command.action, "draft_package");
+    assert.equal(command.status, "applied");
+    assert.equal(command.authority, "draft_only");
+    assert.equal(command.providerCalls, 0);
+    assert.equal(command.messageVersionIds.length, 1);
+
+    const [card] = projection.packages;
+    assert.equal(projection.packages.length, 1);
+    assert.equal(card.packageVersionId, command.packageVersionId);
+    assert.equal(card.artifactDigest, command.packageArtifactDigest);
+    assert.equal(card.version, 1);
+    assert.equal(card.approval, null, "drafting approves nothing");
+    assert.equal(card.selectedRole, "champion", "the role comes from the server's contact assignment");
+    assert.equal(card.evidenceCount, 1);
+    assert.equal(card.claimGuardrailCount, 1);
+    assert.equal(card.selectedContactPointCount, 2);
+    assert.equal(card.draftMessageCount, 1);
+    const bound = Object.fromEntries(card.bindings.map((binding) => [`${binding.kind}:${binding.id}`, binding.digest]));
+    assert.equal(bound[`configuration:${seeded.configurationId}`], seeded.configurationDigest);
+    assert.equal(bound["evidence:outreach-evidence"], seeded.evidenceDigest);
+    assert.equal(bound["source:outreach-source"], seeded.sourceDigest);
+    assert.equal(bound["claim_guardrail:outreach-guardrail"], seeded.guardrailDigest);
+    assert.equal(bound["contact_eligibility:outreach-eligibility-current"], snapshotDigest, "the current verified snapshot, not the older one");
+    assert.equal(bound[`contact_observation:${seeded.observationId}`], seeded.observationDigest);
+    assert.equal(bound[`contact_observation:${seeded.phoneObservationId}`], seeded.phoneObservationDigest);
+    assert.ok(bound["qualification:outreach-assessment"] && bound["review_decision:outreach-review"]);
+    assert.ok(card.callScript.includes(seeded.evidenceDigest.slice(0, 12)), "the call script cites the evidence by reference");
+    assert.ok(card.callScript.includes(seeded.guardrailDigest.slice(0, 12)), "and the Claim Guardrail by reference");
+    assert.match(card.recommendedAngle, /1 evidence reference/);
+
+    const [message] = projection.messages;
+    assert.equal(projection.messages.length, 1);
+    assert.equal(message.messageVersionId, command.messageVersionIds[0]);
+    assert.equal(message.packageVersionId, command.packageVersionId);
+    assert.equal(message.from, OWNER_EMAIL, "From is the admitted owner address the server knows");
+    assert.deepEqual(message.to, ["verified@example.invalid"], "the owner-confirmed address, normalized, matches the verified email point");
+    assert.deepEqual(message.links, []);
+    assert.equal(message.intendedSendAt, null);
+    assert.equal(message.approval, null);
+    assert.equal(message.recipientAuthority, null);
+    assert.equal(message.outbox, null);
+    for (const text of [card.recommendedAngle, card.callScript, message.subject, message.textPreview]) {
+      assert.doesNotMatch(text, /tel:|mailto:|\+1416/i);
+      assert.equal(text.includes("verified@example.invalid"), false);
+    }
+    assert.deepEqual(projection.draftCandidates.map((row) => [row.ready, row.alreadyDrafted]), [[false, true]], "the candidate now says it is drafted");
+
+    const counts = await draftRowCounts(fixture);
+    assert.deepEqual(counts, {
+      outreach_packages: 1, outreach_package_versions: 1, outreach_messages: 1, outreach_message_versions: 1,
+      outreach_package_approvals: 0, outreach_message_approvals: 0, outreach_recipient_dispatch_authorities: 0, outreach_outbox_items: 0,
+    }, "drafts only: no approval, recipient authority or outbox item");
+    const audits = (await fixture.database.prepare("SELECT action FROM outreach_audit_records ORDER BY action").all()).results.map((row) => row.action);
+    assert.deepEqual(audits, ["message.version.created", "package.version.created"], "both drafts went through the audited repository paths");
+
+    const replay = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded), DRAFT_CONTEXT);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.command.status, "replayed");
+    assert.equal(replay.body.command.packageVersionId, command.packageVersionId);
+    assert.deepEqual(replay.body.command.messageVersionIds, command.messageVersionIds);
+    assert.deepEqual(await draftRowCounts(fixture), counts, "a replay writes nothing new");
+    const again = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded, { idempotencyKey: "draft-from-evidence-2" }), DRAFT_CONTEXT);
+    assert.equal(again.status, 409);
+    assert.deepEqual(again.body.command.reasonCodes, ["package_already_drafted"]);
+
+    const approval = await handler.executeOutreachCommand(fixture.database, scope, services, {
+      action: "approve_package", packageVersionId: card.packageVersionId, reviewedDigest: card.artifactDigest, idempotencyKey: "draft-then-approve",
+    });
+    assert.equal(approval.status, 409, "approval stays a separate, explicit command");
+    assert.ok(approval.body.command.reasonCodes.includes("contact_recheck_blocked"), "and production still refuses it through the Phase 5 recheck");
+    assert.equal(await count(fixture, "outreach_package_approvals"), 0);
+
+    const vite = await createServer({ configFile: false, logLevel: "silent" });
+    try {
+      const leaves = await vite.ssrLoadModule(new URL("app/prospects/outreach-leaves.tsx", root).pathname);
+      const html = renderToStaticMarkup(React.createElement(leaves.OutreachSections, {
+        projection: leaves.normalizeOutreachProjection(JSON.parse(JSON.stringify(projection))), interaction: leaves.READ_ONLY_INTERACTION,
+      }));
+      assert.match(html, /Draft only — no Gmail delivery is authorized\./);
+      assert.match(html, /Draft package from current evidence/);
+      assert.match(html, /already has an Outreach Package/);
+      assert.doesNotMatch(html, /tel:|mailto:/i);
+      const visible = html.replaceAll(TECHNICAL_BLOCK, "");
+      assert.doesNotMatch(visible, VISIBLE_JARGON);
+      assert.doesNotMatch(visible, /[0-9a-f]{64}/);
+    } finally { await vite.close(); }
+  } finally { await fixture.dispose(); }
+});
+
+test("drafting fails closed on stale or ineligible evidence, says why, and writes nothing", async () => {
+  const unverified = await draftableWorkspace("outreach-ui-draft-unverified", { verifiedSnapshot: false });
+  try {
+    const services = unverified.handler.composeProductionOutreachServices(unverified.fixture.database, unverified.scope);
+    const projection = await unverified.handler.readOutreachProjection(unverified.fixture.database, unverified.scope, services);
+    assert.deepEqual(projection.draftCandidates.map((row) => [row.ready, row.reasonCodes]), [[false, ["eligibility_snapshot_unavailable"]]], "a snapshot whose digest does not verify is not current evidence");
+    const result = await unverified.handler.executeOutreachCommand(unverified.fixture.database, unverified.scope, services, draftCommand(unverified.seeded), DRAFT_CONTEXT);
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.body.command.reasonCodes, ["eligibility_snapshot_unavailable"]);
+    assert.equal(await count(unverified.fixture, "outreach_package_versions"), 0);
+  } finally { await unverified.fixture.dispose(); }
+
+  const { fixture, handler, seeded, scope } = await draftableWorkspace("outreach-ui-draft-stale");
+  try {
+    const services = handler.composeProductionOutreachServices(fixture.database, scope);
+    const run = (overrides, context = DRAFT_CONTEXT) => handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded, overrides), context);
+    const before = await draftRowCounts(fixture);
+
+    const mismatch = await run({ confirmedRecipientEmail: "someone-else@example.invalid", idempotencyKey: "draft-mismatch" });
+    assert.equal(mismatch.status, 409);
+    assert.deepEqual(mismatch.body.command.reasonCodes, ["recipient_confirmation_mismatch"]);
+    const withoutConfirmation = draftCommand(seeded, { idempotencyKey: "draft-unconfirmed" });
+    delete withoutConfirmation.confirmedRecipientEmail;
+    const unconfirmed = await handler.executeOutreachCommand(fixture.database, scope, services, withoutConfirmation, DRAFT_CONTEXT);
+    assert.deepEqual(unconfirmed.body.command.reasonCodes, ["recipient_confirmation_required"]);
+    const noSender = await run({ idempotencyKey: "draft-no-sender" }, {});
+    assert.deepEqual(noSender.body.command.reasonCodes, ["sender_address_unavailable"], "without a server-known owner address nothing is drafted");
+    const foreign = await run({ contactId: "someone-elses-contact", idempotencyKey: "draft-foreign" });
+    assert.deepEqual(foreign.body.command.reasonCodes, ["unknown_contact"]);
+
+    await fixture.database.prepare("UPDATE contacts SET revision=revision+1,updated_at=? WHERE id=? AND workspace_id=?").bind(OUTREACH_NOW + 6, seeded.contactId, seeded.workspaceId).run();
+    const changed = await run({ idempotencyKey: "draft-contact-changed" });
+    assert.deepEqual(changed.body.command.reasonCodes, ["contact_changed"], "a contact edited after its snapshot is stale");
+    await fixture.database.prepare("UPDATE contacts SET revision=revision-1,updated_at=? WHERE id=? AND workspace_id=?").bind(OUTREACH_NOW, seeded.contactId, seeded.workspaceId).run();
+
+    await recordEligibilitySnapshot(fixture, seeded, { id: "outreach-eligibility-noncontactable", projectedAt: OUTREACH_NOW + 7, state: "NonContactable" });
+    const ineligible = await run({ idempotencyKey: "draft-ineligible" });
+    assert.deepEqual(ineligible.body.command.reasonCodes, ["contact_not_ready"], "the newest snapshot wins, and it is not ready");
+    const listed = await handler.readOutreachProjection(fixture.database, scope, services);
+    assert.deepEqual(listed.draftCandidates.map((row) => [row.ready, row.reasonCodes]), [[false, ["contact_not_ready"]]]);
+    assert.deepEqual(await draftRowCounts(fixture), before, "no refused draft wrote a package or message");
+  } finally { await fixture.dispose(); }
+
+  const suppressed = await draftableWorkspace("outreach-ui-draft-suppressed");
+  try {
+    const services = suppressed.handler.composeProductionOutreachServices(suppressed.fixture.database, suppressed.scope);
+    const stop = await suppressed.handler.executeOutreachCommand(suppressed.fixture.database, suppressed.scope, services, {
+      action: "record_suppression", subjectKind: "company", channel: "all", reason: "owner_request", confirmed: true, idempotencyKey: "draft-company-stop",
+    });
+    assert.equal(stop.status, 200);
+    const result = await suppressed.handler.executeOutreachCommand(suppressed.fixture.database, suppressed.scope, services, draftCommand(suppressed.seeded), DRAFT_CONTEXT);
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.body.command.reasonCodes, ["suppressed"], "a company suppression blocks drafting");
+    assert.equal(await count(suppressed.fixture, "outreach_package_versions"), 0);
+  } finally { await suppressed.fixture.dispose(); }
+});
+
+test("a suppression of one selected contact point blocks drafting even though the contact stays ready on its other channel", async () => {
+  const cases = [
+    ["exact-email", { subjectKind: "exact_email", value: "verified@example.invalid", channel: "email", reason: "owner_request" }],
+    ["e164-phone", { subjectKind: "e164_phone", value: "+14165550100", channel: "phone", reason: "owner_request" }],
+  ];
+  for (const [name, stop] of cases) {
+    const { fixture, handler, seeded, scope } = await draftableWorkspace(`outreach-ui-draft-point-suppressed-${name}`);
+    try {
+      const services = handler.composeProductionOutreachServices(fixture.database, scope);
+      const stopped = await handler.executeOutreachCommand(fixture.database, scope, services, {
+        action: "record_suppression", confirmed: true, idempotencyKey: `draft-point-stop-${name}`, ...stop,
+      });
+      assert.equal(stopped.status, 200, `${name}: ${JSON.stringify(stopped.body.command)}`);
+      const listed = await handler.readOutreachProjection(fixture.database, scope, services);
+      assert.deepEqual(listed.draftCandidates.map((row) => [row.ready, row.reasonCodes]), [[false, ["contact_point_suppressed"]]], `${name}: the candidate is not ready for a draft`);
+      const result = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded), DRAFT_CONTEXT);
+      assert.equal(result.status, 409, `${name}: ${JSON.stringify(result.body.command)}`);
+      assert.deepEqual(result.body.command.reasonCodes, ["contact_point_suppressed"], `${name}: a suppressed point is never drafted to`);
+      assert.equal(await count(fixture, "outreach_package_versions"), 0, `${name}: no package`);
+      assert.equal(await count(fixture, "outreach_message_versions"), 0, `${name}: no message`);
+    } finally { await fixture.dispose(); }
+  }
+});
+
+test("a draft whose email the message rules would refuse writes no Package, so a later valid draft still succeeds", async () => {
+  const { fixture, handler, seeded, scope } = await draftableWorkspace("outreach-ui-draft-atomic");
+  try {
+    const services = handler.composeProductionOutreachServices(fixture.database, scope);
+    const before = await draftRowCounts(fixture);
+    const invalid = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded, { idempotencyKey: "draft-atomic-invalid" }), { senderAddress: "own(er)@example.invalid" });
+    assert.equal(invalid.status, 409, JSON.stringify(invalid.body.command));
+    assert.deepEqual(invalid.body.command.reasonCodes, ["draft_message_invalid"]);
+    assert.deepEqual(await draftRowCounts(fixture), before, "no orphan Package Version names a missing message");
+    assert.deepEqual(invalid.body.projection.draftCandidates.map((row) => [row.ready, row.alreadyDrafted]), [[true, false]], "the candidate is still ready");
+    const valid = await handler.executeOutreachCommand(fixture.database, scope, services, draftCommand(seeded, { idempotencyKey: "draft-atomic-valid" }), DRAFT_CONTEXT);
+    assert.equal(valid.status, 200, JSON.stringify(valid.body.command));
+    assert.equal(valid.body.command.messageVersionIds.length, 1);
+    assert.equal(await count(fixture, "outreach_message_versions"), 1);
+  } finally { await fixture.dispose(); }
+});
+
+test("the draft command is a closed owner command: the browser cannot supply evidence, configuration, content or authority", async () => {
+  const { fixture, handler } = await ownerWorkspace("outreach-ui-draft-closed-shape");
+  try {
+    const deps = ownerDependencies(fixture.database);
+    const valid = { action: "draft_package", prospectId: "draft-prospect", contactId: "draft-contact", confirmedRecipientEmail: "verified@example.invalid", idempotencyKey: "draft-shape-key" };
+    for (const forged of [
+      { ...valid, evidenceDigests: ["a".repeat(64)] },
+      { ...valid, configurationId: "forged-configuration" },
+      { ...valid, recommendedAngle: "We guarantee results" },
+      { ...valid, callScript: "Say anything" },
+      { ...valid, textBody: "Hello" },
+      { ...valid, senderAddress: "forged@example.invalid" },
+      { ...valid, workspaceId: "someone-else" },
+      { ...valid, approved: true },
+      { ...valid, confirmedRecipientEmail: 42 },
+      { ...valid, prospectId: "x" },
+      { action: "draft_package", prospectId: "draft-prospect", idempotencyKey: "draft-shape-key" },
+    ]) {
+      const response = await handler.handleOutreachPost(mutation(forged, { cookie: await csrfCookie(handler, fixture.database) }), deps);
+      assert.equal(response.status, 400, JSON.stringify(forged));
+      assert.equal((await response.json()).error, "invalid_command");
+    }
+    const noCsrf = await handler.handleOutreachPost(mutation(valid), deps);
+    assert.equal(noCsrf.status, 403);
+    const foreign = await handler.handleOutreachPost(mutation(valid, { origin: "https://foreign.test" }), deps);
+    assert.equal(foreign.status, 403);
+    const response = await handler.handleOutreachPost(mutation(valid, { cookie: await csrfCookie(handler, fixture.database) }), deps);
+    assert.equal(response.status, 409, "a well-formed draft for evidence the server does not hold is refused, not trusted");
+    const body = await response.json();
+    assert.deepEqual(body.command.reasonCodes, ["prospect_unavailable"]);
+    assert.equal(body.command.providerCalls, 0);
+    assert.match(response.headers.get("set-cookie") ?? "", /__Host-prospector-csrf/);
+    assert.equal(await count(fixture, "outreach_package_versions"), 0);
+  } finally { await fixture.dispose(); }
+});
+
+test("the draft card enables its button only for ready evidence with a typed confirmation, and every disabled state says why", async () => {
+  await withApp(async ({ leaves }) => {
+    const candidates = [
+      { prospectId: "draft-prospect-a", contactId: "draft-contact-a", contactName: "<b>Ready</b> Contact", ready: true, reasonCodes: [], alreadyDrafted: false, recipientConfirmationRequired: true },
+      { prospectId: "draft-prospect-b", contactId: "draft-contact-b", contactName: "Stale Contact", ready: false, reasonCodes: ["contact_changed"], alreadyDrafted: false, recipientConfirmationRequired: true },
+    ];
+    const projection = leaves.normalizeOutreachProjection(sampleProjection({ packages: [], messages: [], calls: [], draftCandidates: candidates }));
+    assert.equal(projection.draftCandidates.length, 2);
+    const render = (draftForms) => renderToStaticMarkup(React.createElement(leaves.OutreachSections, { projection, interaction: { ...leaves.READ_ONLY_INTERACTION, draftForms } }));
+    const buttons = (html) => html.match(/<button[^>]*>Draft package from current evidence<\/button>/g) ?? [];
+    const empty = render({});
+    assert.equal(buttons(empty).length, 2);
+    assert.ok(buttons(empty).every((button) => /disabled=""/.test(button)), "no confirmation typed yet, so nothing is enabled");
+    assert.match(empty, /Type the contact&#x27;s verified email address to confirm it/);
+    assert.match(empty, /The contact changed after its readiness was checked/);
+    assert.match(empty, /&lt;b&gt;Ready&lt;\/b&gt; Contact/, "names are escaped data");
+    assert.match(empty, /Nothing is approved or sent/);
+    const typed = render({ "draft-prospect-a|draft-contact-a": "verified@example.invalid", "draft-prospect-b|draft-contact-b": "verified@example.invalid" });
+    const [ready, stale] = buttons(typed);
+    assert.doesNotMatch(ready, /disabled=""/, "ready evidence plus a confirmation enables the draft");
+    assert.match(stale, /disabled=""/, "stale evidence stays disabled even with a confirmation");
+    for (const button of buttons(typed)) assert.match(button, /aria-describedby="/);
+    assert.doesNotMatch(typed, /tel:|mailto:/i);
+    assert.doesNotMatch(typed.replaceAll(TECHNICAL_BLOCK, ""), VISIBLE_JARGON);
+    assert.match(leaves.reasonText("recipient_confirmation_mismatch"), /does not match/);
+    assert.match(leaves.reasonText("package_already_drafted"), /already/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Later plans
 // ---------------------------------------------------------------------------
 
-test("owner drafts a Package and Message Versions from current evidence in the Outreach workspace", { todo: "06-08 drafting from evidence not implemented (no derivation service yet)" }, () => {});
 test("owner reconciles a Delivery unknown item without any resend", { todo: "06-12 not implemented" }, () => {});
 test("owner opens a verified business phone after acceptance", { todo: "06-13 Task 3 not implemented" }, () => {});

@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  BLOCKED_OUTREACH_PROJECTION, callKey, EMPTY_CALL_FORM, EMPTY_SUPPRESSION_FORM, normalizeOutreachProjection, OutreachSections, reasonText,
-  type CallForm, type Confirming, type OutreachCallCard, type OutreachInteraction, type OutreachMessageCard, type OutreachPackageCard,
+  BLOCKED_OUTREACH_PROJECTION, callKey, draftKey, EMPTY_CALL_FORM, EMPTY_SUPPRESSION_FORM, normalizeOutreachProjection, OutreachSections, reasonText,
+  type CallForm, type Confirming, type OutreachCallCard, type OutreachDraftCandidate, type OutreachInteraction, type OutreachMessageCard, type OutreachPackageCard,
   type OutreachProjection, type SuppressionForm,
 } from "./outreach-leaves";
 
@@ -102,6 +102,7 @@ const APPLIED_TEXT: Readonly<Record<string, string>> = Object.freeze({
   queue_message: "Queued for controlled delivery. No email has been sent by this action.",
   record_suppression: "Suppression recorded. Matching queued work was cancelled first.",
   record_call_outcome: "Call outcome recorded. It authorizes no follow-up.",
+  draft_package: "Draft package and email draft created from current evidence. Nothing was approved or sent.",
 });
 
 export function OutreachWorkspace({ onAuthUnavailable }: { onAuthUnavailable?: () => void }) {
@@ -112,6 +113,7 @@ export function OutreachWorkspace({ onAuthUnavailable }: { onAuthUnavailable?: (
   const [callForms, setCallForms] = useState<Record<string, CallForm>>({});
   const [suppressionForm, setSuppressionForm] = useState<SuppressionForm>(EMPTY_SUPPRESSION_FORM);
   const [confirming, setConfirming] = useState<Confirming>(null);
+  const [draftForms, setDraftForms] = useState<Record<string, string>>({});
   const keys = useRef(new Map<string, string>());
   const busy = useRef(false);
 
@@ -163,6 +165,7 @@ export function OutreachWorkspace({ onAuthUnavailable }: { onAuthUnavailable?: (
       setReviewed({});
       if (action === "record_call_outcome") setCallForms({});
       if (action === "record_suppression") setSuppressionForm(EMPTY_SUPPRESSION_FORM);
+      if (action === "draft_package") setDraftForms({});
       setNotice({ kind: "applied", text: APPLIED_TEXT[action] ?? "Saved." });
     } finally {
       busy.current = false;
@@ -171,7 +174,16 @@ export function OutreachWorkspace({ onAuthUnavailable }: { onAuthUnavailable?: (
   }, [load, onAuthUnavailable]);
 
   const interaction: OutreachInteraction = {
-    pending, reviewed, callForms, suppressionForm, confirming,
+    pending, reviewed, callForms, suppressionForm, confirming, draftForms,
+    onDraftChange: (key, value) => setDraftForms((current) => ({ ...current, [key]: value })),
+    onDraft: (candidate: OutreachDraftCandidate) => {
+      // Locators and the owner's confirmation only; the server derives evidence, content and sender.
+      const confirmation = (draftForms[draftKey(candidate)] ?? "").trim();
+      void submit({
+        action: "draft_package", prospectId: candidate.prospectId, contactId: candidate.contactId,
+        ...(candidate.recipientConfirmationRequired && confirmation ? { confirmedRecipientEmail: confirmation } : {}),
+      });
+    },
     onReview: (key, value) => setReviewed((current) => ({ ...current, [key]: value })),
     onApprovePackage: (card: OutreachPackageCard) => void submit({ action: "approve_package", packageVersionId: card.packageVersionId, reviewedDigest: card.artifactDigest }),
     onApproveMessage: (card: OutreachMessageCard) => {
