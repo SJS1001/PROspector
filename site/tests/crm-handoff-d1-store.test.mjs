@@ -112,8 +112,30 @@ function memoryObjects() {
 
 const unsuppressed = { async blockingScopes() { return { blocked: false, scopes: [], complete: true, providerCalls: 0 }; } };
 
-async function setup(name) {
-  const context = await handoffFixture(name);
+// The D1 Prospect, Contact and verified email are the same identities the CSV
+// row for candidate 1 exports, so the persisted lineage is the exported row's.
+const IDENTITY = Object.freeze({ prospectId: "synthetic-prospect-0001", contactId: "synthetic-contact-0001", contactEmail: "person0001@example.test" });
+
+/** A D1 handle whose `failOn`-th batch throws once, to model a partial write. */
+function failNthBatch(database, failOn) {
+  let batches = 0;
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === "batch") {
+        return async (statements) => {
+          batches += 1;
+          if (batches === failOn) throw new Error("synthetic interrupted batch");
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+async function setup(name, fixtureOptions = {}) {
+  const context = await handoffFixture(name, { identity: IDENTITY, ...fixtureOptions });
   let service;
   let storeModule;
   try {
@@ -125,10 +147,10 @@ async function setup(name) {
   }
   const clock = { now: T0 };
   const objects = memoryObjects();
-  const state = { candidates: candidates(context), eligibilityHook: null };
+  const state = { authority: { ...AUTHORITY }, candidates: candidates(context), eligibilityHook: null };
   const scope = (overrides = {}) => ({ workspaceId: context.seeded.workspaceId, ownerSubject: OUTREACH_OWNER.subject, now: () => clock.now, ...overrides });
   const ports = (overrides = {}) => ({
-    source: { async read() { return { ...AUTHORITY, candidates: state.candidates }; } },
+    source: { async read() { return { ...state.authority, candidates: state.candidates }; } },
     eligibility: {
       async recheck() {
         if (state.eligibilityHook) await state.eligibilityHook();
@@ -136,7 +158,7 @@ async function setup(name) {
       },
     },
     suppression: unsuppressed,
-    store: storeModule.createD1CrmHandoffStore(context.fixture.database, scope(overrides.scope), { objects }),
+    store: storeModule.createD1CrmHandoffStore(overrides.database ?? context.fixture.database, scope(overrides.scope), { objects }),
     clock: { nowIso: () => new Date(clock.now).toISOString() },
     ...overrides.ports,
   });
@@ -172,6 +194,7 @@ test("a materialized handoff persists its frozen snapshot, exact-byte artifact, 
     [snapshotRow.prospect_id, snapshotRow.contact_id, snapshotRow.contact_point_digest, snapshotRow.package_version_id, snapshotRow.package_approval_id],
     Object.values(authorityRef(context)),
   );
+  assert.deepEqual([snapshotRow.prospect_id, snapshotRow.contact_id], [row(1).prospect_id, row(1).contact_id], "the persisted lineage is the exported row's Prospect and Contact");
   const snapshot = await database.prepare("SELECT * FROM handoff_export_snapshots").first();
   assert.equal(snapshot.suppression_fence_count, 0);
   assert.equal(snapshot.export_definition_digest, AUTHORITY.exportDefinitionDigest);
@@ -393,6 +416,119 @@ test("the access path refuses invalid input and a store without the download met
     assert.equal(/\b(?:tel|mailto):/iu.test(source), false, path);
     assert.equal(/\bfetch\s*\(|process\.env|\benv\./u.test(source), false, path);
   }
+});
+
+test("a changed snapshot whose rows match an earlier version stores a new downloadable version, with no orphan snapshot", async (t) => {
+  const context = await setup("crm-d1-store-same-rows");
+  t.after(() => context.fixture.dispose());
+  const { database, service, state } = context;
+  const ports = context.ports();
+  const workspaceId = context.seeded.workspaceId;
+  const first = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-same-1", ports });
+  assert.equal(first.status, "materialized", JSON.stringify(first));
+
+  // Authority revision only: same exported rows, a different snapshot.
+  state.authority = { ...AUTHORITY, selectionRevision: AUTHORITY.selectionRevision + 1 };
+  assert.deepEqual(pick(await service.accessCrmHandoffArtifact({ workspaceId, artifactId: first.artifactId, ports })), { status: "blocked", reason: "eligibility_changed" });
+  const second = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-same-2", ports });
+  assert.equal(second.status, "materialized", JSON.stringify(second));
+  assert.equal(second.version, 2);
+  assert.notEqual(second.snapshotDigest, first.snapshotDigest);
+  assert.notEqual(second.csvSha256, first.csvSha256, "each version's bytes are distinct, so 0023 can hold them");
+  const secondAccess = await service.accessCrmHandoffArtifact({ workspaceId, artifactId: second.artifactId, ports });
+  assert.equal(secondAccess.status, "authorized", JSON.stringify(pick(secondAccess)));
+
+  // Exclusion ledger only: candidate 3 is now excluded for a different reason.
+  state.candidates = candidates(context).map((candidate, index) => (index === 2 ? { ...candidate, prospectState: "Export-ready", deleted: true } : candidate));
+  const third = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-same-3", ports });
+  assert.equal(third.status, "materialized", JSON.stringify(third));
+  assert.equal(third.version, 3);
+  assert.equal((await service.accessCrmHandoffArtifact({ workspaceId, artifactId: third.artifactId, ports })).status, "authorized");
+
+  assert.equal(await count(database, "handoff_export_snapshots"), 3);
+  assert.equal(await count(database, "handoff_export_artifacts"), 3, "every recorded snapshot has its artifact");
+  assert.equal(await count(database, "handoff_delivery_events", "event_kind='issued'"), 3);
+});
+
+test("after a delivery expires, a newly evaluated request with unchanged rows gets a fresh version and window; the original key still replays the expired one and says so", async (t) => {
+  // The Package approval outlives the first delivery window, so only the window ended.
+  const context = await setup("crm-d1-store-expired-renew", { approvalExpiresAt: OUTREACH_NOW + 3 * DAY });
+  t.after(() => context.fixture.dispose());
+  const { database, service, clock } = context;
+  const ports = context.ports();
+  const workspaceId = context.seeded.workspaceId;
+  const made = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-renew-1", ports });
+  assert.equal(made.status, "materialized");
+  assert.equal(made.deliveryState, "available");
+
+  clock.now = T0 + DAY + 1;
+  assert.deepEqual(pick(await service.accessCrmHandoffArtifact({ workspaceId, artifactId: made.artifactId, ports })), { status: "blocked", reason: "delivery_expired" });
+  const fresh = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-renew-2", ports });
+  assert.equal(fresh.status, "materialized", JSON.stringify(fresh));
+  assert.equal(fresh.version, 2);
+  assert.equal(fresh.snapshotDigest, made.snapshotDigest, "eligibility did not change");
+  assert.notEqual(fresh.artifactId, made.artifactId);
+  assert.equal(fresh.deliveryState, "available");
+  const access = await service.accessCrmHandoffArtifact({ workspaceId, artifactId: fresh.artifactId, ports });
+  assert.equal(access.status, "authorized", JSON.stringify(pick(access)));
+  const window = await database.prepare("SELECT expires_at FROM handoff_delivery_events WHERE event_kind='issued' ORDER BY occurred_at DESC LIMIT 1").first();
+  assert.equal(window.expires_at, T0 + DAY + 1 + DAY, "a fresh window from the new request");
+
+  const again = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-renew-1", ports });
+  assert.deepEqual([again.status, again.version, again.artifactId, again.deliveryState], ["replayed", 1, made.artifactId, "expired"]);
+  // The fresh version is deliverable, so another new key replays it.
+  const third = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-renew-3", ports });
+  assert.deepEqual([third.status, third.version, third.deliveryState], ["replayed", 2, "available"]);
+});
+
+test("an artifact committed without its issued event is completed by the retry with its original window, then downloads", async (t) => {
+  const context = await setup("crm-d1-store-partial");
+  t.after(() => context.fixture.dispose());
+  const { database, service, clock } = context;
+  const workspaceId = context.seeded.workspaceId;
+  // Batches: 1 export snapshot, 2 export artifact, 3 issued delivery event.
+  const flaky = context.ports({ database: failNthBatch(database, 3) });
+  const first = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-partial", ports: flaky });
+  assert.deepEqual(pick(first), { status: "blocked", reason: "store_failed" });
+  assert.equal(await count(database, "handoff_export_artifacts"), 1);
+  assert.equal(await count(database, "handoff_delivery_events"), 0);
+
+  clock.now = T0 + 5_000;
+  const retry = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-partial", ports: flaky });
+  assert.deepEqual([retry.status, retry.version, retry.deliveryState], ["replayed", 1, "available"], JSON.stringify(retry));
+  const issued = await database.prepare("SELECT occurred_at,expires_at FROM handoff_delivery_events WHERE event_kind='issued'").all();
+  assert.deepEqual(issued.results.map((event) => [event.occurred_at, event.expires_at]), [[T0, T0 + DAY]], "the original window, not a new one");
+  const access = await service.accessCrmHandoffArtifact({ workspaceId, artifactId: retry.artifactId, ports: context.ports() });
+  assert.equal(access.status, "authorized", JSON.stringify(pick(access)));
+
+  // A new key over the same snapshot replays the now-deliverable artifact.
+  const other = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: "crm-d1-partial-2", ports: context.ports() });
+  assert.deepEqual([other.status, other.artifactId, other.deliveryState], ["replayed", retry.artifactId, "available"]);
+  assert.equal(await count(database, "handoff_delivery_events"), 1);
+});
+
+test("a row whose D1 lineage names a different Prospect, Contact, or contact point than the exported row is excluded and never persisted", async (t) => {
+  const context = await setup("crm-d1-store-lineage-binding");
+  t.after(() => context.fixture.dispose());
+  const { database, service, state, objects } = context;
+  const ports = context.ports();
+  const workspaceId = context.seeded.workspaceId;
+  const bound = candidates(context)[0];
+  const variants = {
+    prospect: { ...bound, cells: row(2, { verification_class: "synthetic_mailbox_verified" }) },
+    contact: { ...bound, cells: { ...bound.cells, contact_id: "synthetic-contact-0002" } },
+    contactPoint: { ...bound, cells: { ...bound.cells, contact_value: "person0009@example.test" } },
+  };
+  for (const [name, candidate] of Object.entries(variants)) {
+    state.candidates = [candidate];
+    const plan = await service.planCrmHandoff({ workspaceId, ports });
+    assert.equal(plan.rows.length, 0, name);
+    assert.deepEqual(plan.exclusions.map((entry) => entry.reason), ["authority_ref_mismatch"], name);
+    const result = await service.materializeCrmHandoff({ workspaceId, idempotencyKey: `crm-d1-mismatch-${name}`, ports });
+    assert.deepEqual(pick(result), { status: "blocked", reason: "no_eligible_rows" }, name);
+  }
+  assert.deepEqual(await handoffCounts(database), ZERO);
+  assert.equal(objects.calls.put, 0);
 });
 
 function pick(result) {

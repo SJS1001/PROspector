@@ -182,6 +182,7 @@ export type RecordRefusalInput = Readonly<{
 export type ReadExportArtifactSelector =
   | Readonly<{ by: "idempotencyKey"; idempotencyKey: string }>
   | Readonly<{ by: "objectKey"; objectKey: string }>
+  | Readonly<{ by: "contentSha256"; contentSha256: string }>
   | Readonly<{ by: "latest" }>;
 
 export type ExportArtifactView = Readonly<{
@@ -559,6 +560,9 @@ export function createD1HandoffRecoveryRepository(database: D1Database, scopeVal
       } else if (input.by === "objectKey" && exactKeys(input, ["by", "objectKey"]) && OBJECT_KEY.test(String(input.objectKey))) {
         filter = "AND artifact.object_key=?";
         bindings = [input.objectKey];
+      } else if (input.by === "contentSha256" && exactKeys(input, ["by", "contentSha256"]) && validDigest(input.contentSha256)) {
+        filter = "AND artifact.content_sha256=?";
+        bindings = [input.contentSha256];
       } else if (input.by === "latest" && exactKeys(input, ["by"])) {
         filter = "";
         bindings = [];

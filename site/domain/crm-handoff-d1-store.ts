@@ -21,9 +21,17 @@
  * binding exists. Every repository call re-admits the owner and workspace
  * against `workspaces`, which is the download re-authorization.
  *
- * Partial-write behaviour is fail-closed: an artifact recorded without its
- * issued event reads back as a failed delivery, and a retry replays it rather
- * than creating different bytes.
+ * Each snapshot row is the exported row's own lineage: the store refuses a row
+ * whose `authorityRef` names another Prospect or Contact (the service also
+ * binds the contact-point digest to the exported value).
+ *
+ * Partial writes: an artifact recorded without its issued event cannot be
+ * downloaded. The envelope carries the service key and the original window,
+ * so the next `lookup` (any retry, by key or by the latest fallback) records
+ * the missing issued event with that same window -- never a new one -- under
+ * the same idempotent command key. That is the only write `lookup` makes.
+ * Before any write, a version whose bytes another artifact already holds is
+ * refused, so no snapshot is left without its artifact.
  *
  * Production composition (`createD1CrmHandoffPorts`) always wires the blocked
  * `recheckForCrmExport` eligibility port and the real suppression resolver; it
@@ -82,6 +90,29 @@ export function createD1CrmHandoffStore(
     return { view, stored };
   };
 
+  /** Records the issued event an interrupted write left out, with its original window. */
+  const completeInterruptedIssue = async (view: ExportArtifactView): Promise<ExportArtifactView> => {
+    if (view.delivery.issued || view.delivery.terminal) return view;
+    const envelope = view.manifest as Record<string, unknown>;
+    const serviceKey = envelope.serviceIdempotencyKey;
+    const issuedAt = envelope.deliveryIssuedAt;
+    const expiresAt = envelope.deliveryExpiresAt;
+    if (
+      typeof serviceKey !== "string" || !ID.test(serviceKey)
+      || !Number.isSafeInteger(issuedAt) || !Number.isSafeInteger(expiresAt) || (expiresAt as number) <= (issuedAt as number)
+    ) return view;
+    await repository.recordDeliveryEvent({
+      subjectKind: "export_artifact",
+      subjectId: view.id,
+      eventKind: "issued",
+      expiresAt: expiresAt as number,
+      reasonCode: "artifact_issued",
+      occurredAt: issuedAt as number,
+      idempotencyKey: (await commandKeys(serviceKey)).issued,
+    });
+    return (await repository.readExportArtifact({ by: "objectKey", objectKey: view.objectKey })) ?? view;
+  };
+
   const store: CrmHandoffD1Store = {
     async readSuppressionFenceCount() {
       return (await repository.readSuppressionFence()).tombstoneCount;
@@ -92,9 +123,9 @@ export function createD1CrmHandoffStore(
       if (typeof request.idempotencyKey !== "string" || !ID.test(request.idempotencyKey)) invalid();
       const keys = await commandKeys(request.idempotencyKey);
       const byKey = await repository.readExportArtifact({ by: "idempotencyKey", idempotencyKey: keys.artifact });
-      if (byKey) return toStored(workspaceId, byKey, request.idempotencyKey);
+      if (byKey) return toStored(workspaceId, await completeInterruptedIssue(byKey), request.idempotencyKey);
       const latest = await repository.readExportArtifact({ by: "latest" });
-      return latest ? toStored(workspaceId, latest, latest.idempotencyKey) : null;
+      return latest ? toStored(workspaceId, await completeInterruptedIssue(latest), latest.idempotencyKey) : null;
     },
 
     async putImmutable(record: CrmHandoffStoreRecord) {
@@ -104,13 +135,20 @@ export function createD1CrmHandoffStore(
         !(record.bytes instanceof Uint8Array) || record.bytes.byteLength === 0
         || !Number.isSafeInteger(record.suppressionFenceCount) || (record.suppressionFenceCount as number) < 0
         || !DIGEST.test(record.configurationDigest) || !Array.isArray(record.rows) || record.rows.length === 0
-        || record.rows.some((row) => !row.authorityRef)
+        || record.rows.some((row) => !row.authorityRef || row.authorityRef.prospectId !== row.prospectId || row.authorityRef.contactId !== row.contactId)
         || !Array.isArray(record.packageDigests) || !record.packageDigests.every((value) => DIGEST.test(value))
         || record.manifest?.csvSha256 !== stored.csvSha256 || record.manifest?.artifactSha256 !== stored.manifestSha256
         || (await sha256(record.bytes)) !== stored.csvSha256
       ) invalid();
       const keys = await commandKeys(stored.idempotencyKey);
       const objectKey = await objectKeyFor(workspaceId, stored.artifactId);
+      const issuedAt = clock();
+      const expiresAt = Date.parse(stored.deliveryExpiresAt);
+      if (!Number.isSafeInteger(issuedAt) || !(expiresAt > issuedAt)) invalid();
+      // 0023 keeps one artifact per workspace content checksum: refuse before
+      // writing anything rather than leave a snapshot without its artifact.
+      const sameBytes = await repository.readExportArtifact({ by: "contentSha256", contentSha256: stored.csvSha256 });
+      if (sameBytes && sameBytes.objectKey !== objectKey) invalid();
 
       let snapshot;
       try {
@@ -158,6 +196,9 @@ export function createD1CrmHandoffStore(
           schema: CRM_HANDOFF_STORE_SCHEMA,
           artifactId: stored.artifactId,
           version: stored.version,
+          serviceIdempotencyKey: stored.idempotencyKey,
+          deliveryIssuedAt: issuedAt,
+          deliveryExpiresAt: expiresAt,
           snapshotDigest: stored.snapshotDigest,
           exportDefinitionDigest: stored.exportDefinitionDigest,
           manifestSha256: stored.manifestSha256,
@@ -173,9 +214,9 @@ export function createD1CrmHandoffStore(
         subjectKind: "export_artifact",
         subjectId: artifact.id,
         eventKind: "issued",
-        expiresAt: Date.parse(stored.deliveryExpiresAt),
+        expiresAt,
         reasonCode: "artifact_issued",
-        occurredAt: clock(),
+        occurredAt: issuedAt,
         idempotencyKey: keys.issued,
       });
     },

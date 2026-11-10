@@ -63,11 +63,14 @@ function packageInput(seeded) {
   };
 }
 
-/** Caller disposes `fixture`. */
-export async function handoffFixture(name) {
+/**
+ * Caller disposes `fixture`. `identity` renames the seeded Prospect/Contact/email;
+ * `approvalExpiresAt` sets the Package approval's expiry.
+ */
+export async function handoffFixture(name, { identity, approvalExpiresAt = OUTREACH_NOW + 20_000 } = {}) {
   const fixture = await createD1Fixture(name);
   try {
-    const seeded = await seedOutreachAuthority(fixture);
+    const seeded = await seedOutreachAuthority(fixture, identity ? { identity } : {});
     await fixture.database.prepare("UPDATE prospecting_candidates SET status='observed' WHERE id='outreach-candidate'").run();
     const outreachModule = await loadDomain(fixture, "outreach-repository.ts");
     const outreach = outreachModule.createD1OutreachRepository(fixture.database, {
@@ -75,7 +78,7 @@ export async function handoffFixture(name) {
     });
     const packageVersion = await outreach.createPackageVersion(packageInput(seeded));
     const packageApproval = await outreach.approvePackageVersion({
-      packageVersionId: packageVersion.id, expectedVersion: 1, expiresAt: OUTREACH_NOW + 20_000, idempotencyKey: "handoff-package-approval",
+      packageVersionId: packageVersion.id, expectedVersion: 1, expiresAt: approvalExpiresAt, idempotencyKey: "handoff-package-approval",
     });
     const cutoff = CANONICAL_MIGRATION_FILENAMES.findIndex((filename) => filename.startsWith("0017_"));
     await applyFiles(fixture.database, CANONICAL_MIGRATION_FILENAMES.slice(cutoff + 1));
