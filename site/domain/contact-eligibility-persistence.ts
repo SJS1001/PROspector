@@ -321,10 +321,26 @@ export async function hasCurrentDrift(database: D1Database, workspaceId: string,
 }
 
 /**
- * Suppression and tombstone refs that cover the contact or any of the named
+ * Suppression and tombstone refs that suppress the contact through the named
  * contact-point observations. An unresolvable subject scope returns a sentinel
  * ref, so callers fail closed. Shared by the snapshot writer and the Contacts
  * read projection.
+ *
+ * D-7 (owner-delegated decision 3, migration 0024): the snapshot gates every
+ * channel at once (enqueue, lease and both approval triggers require its refs
+ * to be empty), so a tombstone set suppresses the Contact only when it reaches
+ * every channel of the named points. Company, Organization and `all`-channel
+ * Contact tombstones reach every channel; a channel-scoped Contact tombstone
+ * reaches its own channel; an exact email or E.164 tombstone reaches its
+ * point's channel; a confirmed domain reaches email when a named email point's
+ * recorded whole-label scope holds it or an alias. The scope is recorded with
+ * the recipient dispatch authority, after any snapshot of a first-time
+ * address, so an unscoped point is deferred, like Package approval, to the
+ * Message approval, enqueue, lease and 0015-0017 rechecks, which fail closed
+ * for it. Those channel-specific rechecks, and the manual-call recheck for
+ * phone, still block whatever a narrowed snapshot leaves open. Legacy
+ * suppressions, unknown kinds and anything unparseable reach every channel,
+ * and with no named point any matching ref suppresses.
  */
 export async function matchingSuppressionRefs(
   database: D1Database,
@@ -341,9 +357,11 @@ export async function matchingSuppressionRefs(
   const contact = await database.prepare(
     "SELECT identity_digest FROM contacts WHERE id=? AND workspace_id=? LIMIT 1",
   ).bind(contactId, workspaceId).first<{ identity_digest: string }>();
+  const identity = contact && digest(contact.identity_digest) ? contact.identity_digest : null;
+  const points = digests.filter((row) => digest(row.contact_point_digest));
   const subjects = uniqueSorted([
-    ...(contact && digest(contact.identity_digest) ? [contact.identity_digest] : []),
-    ...digests.filter((row) => digest(row.contact_point_digest)).map((row) => row.contact_point_digest),
+    ...(identity ? [identity] : []),
+    ...points.map((row) => row.contact_point_digest),
   ]);
   if (subjects.length === 0) return ["unresolved-contact-suppression-scope"];
   const subjectPlaceholders = subjects.map(() => "?").join(",");
@@ -352,7 +370,7 @@ export async function matchingSuppressionRefs(
       `SELECT id FROM suppressions WHERE workspace_id=? AND subject_digest IN (${subjectPlaceholders})`,
     ).bind(workspaceId, ...subjects).all<{ id: string }>(),
     database.prepare(
-      `SELECT id FROM outreach_suppression_tombstones
+      `SELECT id,subject_kind,subject_digest,channel,alias_snapshot_json FROM outreach_suppression_tombstones
        WHERE workspace_id=? AND (
          subject_digest IN (${subjectPlaceholders})
          OR EXISTS (
@@ -361,12 +379,99 @@ export async function matchingSuppressionRefs(
          )
          OR subject_kind IN ('confirmed_email_domain','organization','company')
        )`,
-    ).bind(workspaceId, ...subjects, ...subjects).all<{ id: string }>(),
+    ).bind(workspaceId, ...subjects, ...subjects).all<TombstoneRow>(),
   ]);
-  return uniqueSorted([
-    ...legacy.results.map((row) => row.id),
-    ...outreach.results.map((row) => row.id),
-  ].filter((id) => bounded(id, 160)));
+  const legacyRefs = legacy.results.map((row) => row.id).filter((id) => bounded(id, 160));
+  const tombstones = outreach.results.filter((row) => bounded(row.id, 160));
+  const channels = new Set(points.map((row) => row.kind));
+  if (points.length === 0 || [...channels].some((kind) => kind !== "email" && kind !== "phone")) {
+    return uniqueSorted([...legacyRefs, ...tombstones.map((row) => row.id)]);
+  }
+  const emailPoints = points.filter((row) => row.kind === "email").map((row) => row.contact_point_digest);
+  const phonePoints = new Set(points.filter((row) => row.kind === "phone").map((row) => row.contact_point_digest));
+  let domainScopes = new Map<string, ReadonlySet<string>>();
+  if (emailPoints.length > 0 && tombstones.some((row) => row.subject_kind === "confirmed_email_domain")) {
+    try {
+      domainScopes = await recordedDomainScopes(database, workspaceId, emailPoints);
+    } catch {
+      return uniqueSorted([...legacyRefs, ...tombstones.map((row) => row.id)]);
+    }
+  }
+  const reached = new Set<string>();
+  const refs: string[] = [];
+  // Only refs that reach a channel of the named points are preserved.
+  const reach = (ref: string, scope: readonly string[]) => {
+    const named = scope.filter((channel) => channels.has(channel));
+    if (named.length === 0) return;
+    refs.push(ref);
+    for (const channel of named) reached.add(channel);
+  };
+  for (const id of legacyRefs) reach(id, ALL_CHANNELS);
+  for (const row of tombstones) reach(row.id, tombstoneChannels(row, identity, emailPoints, phonePoints, domainScopes));
+  if (![...channels].every((channel) => reached.has(channel))) return [];
+  return uniqueSorted(refs);
+}
+
+type TombstoneRow = { id: string; subject_kind: string; subject_digest: string; channel: string; alias_snapshot_json: string };
+
+const ALL_CHANNELS: readonly string[] = Object.freeze(["email", "phone"]);
+
+/** The channels of the named points that one tombstone reaches (D-7). */
+function tombstoneChannels(
+  row: TombstoneRow,
+  identity: string | null,
+  emailPoints: readonly string[],
+  phonePoints: ReadonlySet<string>,
+  domainScopes: ReadonlyMap<string, ReadonlySet<string>>,
+): readonly string[] {
+  const aliases = digestList(row.alias_snapshot_json);
+  if (!aliases || !digest(row.subject_digest)) return ALL_CHANNELS;
+  const covers = (value: string) => row.subject_digest === value || aliases.includes(value);
+  switch (row.subject_kind) {
+    case "company":
+    case "organization":
+      return ALL_CHANNELS;
+    case "contact":
+      if (!identity || !covers(identity) || row.channel === "all") return ALL_CHANNELS;
+      return row.channel === "email" || row.channel === "phone" ? [row.channel] : ALL_CHANNELS;
+    case "exact_email":
+      return emailPoints.some(covers) ? ["email"] : ALL_CHANNELS;
+    case "e164_phone":
+      return [...phonePoints].some(covers) ? ["phone"] : ALL_CHANNELS;
+    case "confirmed_email_domain":
+      return emailPoints.some((point) => [...domainScopes.get(point) ?? []].some(covers)) ? ["email"] : [];
+    default:
+      return ALL_CHANNELS;
+  }
+}
+
+/**
+ * The recorded whole-label domain scope (0024) of each named email point. A
+ * point with no row is absent (deferred to the email rechecks). A malformed
+ * row or a failed read throws; the caller then fails closed.
+ */
+async function recordedDomainScopes(database: D1Database, workspaceId: string, emailPoints: readonly string[]) {
+  const scopes = new Map<string, ReadonlySet<string>>();
+  const rows = (await database.prepare(
+    `SELECT contact_point_digest,domain_digests_json FROM outreach_contact_point_domains
+     WHERE workspace_id=? AND contact_point_digest IN (${emailPoints.map(() => "?").join(",")})`,
+  ).bind(workspaceId, ...emailPoints).all<{ contact_point_digest: string; domain_digests_json: string }>()).results ?? [];
+  for (const row of rows) {
+    const domains = digestList(row.domain_digests_json);
+    if (!domains || domains.length === 0) throw new Error("contact_point_domain_scope_invalid");
+    scopes.set(row.contact_point_digest, new Set(domains));
+  }
+  return scopes;
+}
+
+function digestList(json: unknown): string[] | null {
+  if (typeof json !== "string") return null;
+  try {
+    const value = JSON.parse(json) as unknown;
+    return Array.isArray(value) && value.every(digest) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readSnapshotByDigest(

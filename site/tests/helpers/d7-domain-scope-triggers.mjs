@@ -7,9 +7,14 @@ import { readFile } from "node:fs/promises";
 //
 // - A confirmed-domain tombstone blocks an email contact point only when the
 //   point's recorded whole-label domain scope (outreach_contact_point_domains)
-//   holds the tombstone digest or one of its aliases. A point with no recorded
-//   scope is blocked by every confirmed-domain tombstone (fail closed), and
-//   email work with no bound email point is blocked too.
+//   holds the tombstone digest or one of its aliases. In the Message approval
+//   and 0015-0017 triggers a point with no recorded scope is blocked by every
+//   confirmed-domain tombstone (fail closed), and email work with no bound
+//   email point is blocked too. Package approval, which grants no email
+//   authority and precedes the recipient authority that records the scope,
+//   defers an unscoped point to those rechecks.
+// - In Package approval a Contact tombstone blocks only when it reaches every
+//   bound channel ('all', or no bound point on another channel).
 // - A Contact tombstone blocks only its own channel ('all' blocks both).
 // - Suppression stop events defer to their tombstone, which carries the
 //   channel and aliases; reply/bounce/pause stops are unchanged.
@@ -30,19 +35,32 @@ export const D7_NARROWED_TRIGGER_SOURCES = Object.freeze({
  * SQL that is true when a confirmed-domain tombstone `tomb` reaches the email
  * contact points bound to Package Version `pv` in workspace `workspace`.
  */
-export function domainTombstoneReaches({ tomb, aliasName, pv, workspace, binding, observation, requireEmailPoint, indent }) {
+export function domainTombstoneReaches({ tomb, aliasName, pv, workspace, binding, observation, requireEmailPoint, failClosedWithoutScope = true, indent }) {
   const pad = " ".repeat(indent);
+  // Package approval grants no email authority, so it defers a point with no
+  // recorded scope to the Message approval and outbox rechecks, which fail
+  // closed (PR 205 review: the scope is recorded beside the recipient
+  // authority, which needs a Package approval first).
+  const scopeMatch = [
+    `EXISTS (SELECT 1 FROM json_each(point_domain.domain_digests_json) scope_domain`,
+    `${pad}      WHERE scope_domain.value=${tomb}.subject_digest`,
+    `${pad}        OR EXISTS (SELECT 1 FROM json_each(${tomb}.alias_snapshot_json) ${aliasName} WHERE ${aliasName}.value=scope_domain.value)))`,
+  ];
   const reach = [
     `${pad}EXISTS (SELECT 1 FROM outreach_artifact_bindings ${binding}`,
     `${pad}  JOIN contact_point_observations ${observation} ON ${observation}.id=${binding}.binding_id`,
-    `${pad}  LEFT JOIN outreach_contact_point_domains point_domain ON point_domain.workspace_id=${workspace}`,
+    `${pad}  ${failClosedWithoutScope ? "LEFT JOIN" : "JOIN"} outreach_contact_point_domains point_domain ON point_domain.workspace_id=${workspace}`,
     `${pad}    AND point_domain.contact_point_digest=${observation}.contact_point_digest`,
     `${pad}  WHERE ${binding}.workspace_id=${workspace} AND ${binding}.artifact_kind='package_version'`,
     `${pad}    AND ${binding}.artifact_id=${pv} AND ${binding}.binding_kind='contact_observation'`,
-    `${pad}    AND ${observation}.kind='email' AND (point_domain.id IS NULL`,
-    `${pad}      OR EXISTS (SELECT 1 FROM json_each(point_domain.domain_digests_json) scope_domain`,
-    `${pad}        WHERE scope_domain.value=${tomb}.subject_digest`,
-    `${pad}          OR EXISTS (SELECT 1 FROM json_each(${tomb}.alias_snapshot_json) ${aliasName} WHERE ${aliasName}.value=scope_domain.value))))`,
+    ...(failClosedWithoutScope
+      ? [
+        `${pad}    AND ${observation}.kind='email' AND (point_domain.id IS NULL`,
+        `${pad}      OR EXISTS (SELECT 1 FROM json_each(point_domain.domain_digests_json) scope_domain`,
+        `${pad}        WHERE scope_domain.value=${tomb}.subject_digest`,
+        `${pad}          OR EXISTS (SELECT 1 FROM json_each(${tomb}.alias_snapshot_json) ${aliasName} WHERE ${aliasName}.value=scope_domain.value))))`,
+      ]
+      : [`${pad}    AND ${observation}.kind='email' AND ${scopeMatch.join("\n")}`]),
   ].join("\n");
   if (!requireEmailPoint) return reach;
   return [
@@ -62,11 +80,11 @@ function approvalReplacements(kind) {
   const pv = kind === "package" ? "NEW.package_version_id" : MESSAGE_PV;
   const domain = domainTombstoneReaches({
     tomb: "s", aliasName: "a", pv, workspace: "NEW.workspace_id", binding: "b", observation: "o",
-    requireEmailPoint: kind === "message", indent: 10,
+    requireEmailPoint: kind === "message", failClosedWithoutScope: kind === "message", indent: 10,
   });
   const contactChannel = kind === "package"
-    ? "(s.channel='all' OR EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id\n"
-      + "          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation' AND o.kind=s.channel))"
+    ? "(s.channel='all' OR NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id\n"
+      + "          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation' AND o.kind<>s.channel))"
     : "s.channel IN ('email','all')";
   return [
     [

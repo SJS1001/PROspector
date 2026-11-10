@@ -42,14 +42,13 @@ CREATE TRIGGER outreach_package_approval_current_guard BEFORE INSERT ON outreach
         OR (s.subject_kind='confirmed_email_domain' AND (
           EXISTS (SELECT 1 FROM outreach_artifact_bindings b
             JOIN contact_point_observations o ON o.id=b.binding_id
-            LEFT JOIN outreach_contact_point_domains point_domain ON point_domain.workspace_id=NEW.workspace_id
+            JOIN outreach_contact_point_domains point_domain ON point_domain.workspace_id=NEW.workspace_id
               AND point_domain.contact_point_digest=o.contact_point_digest
             WHERE b.workspace_id=NEW.workspace_id AND b.artifact_kind='package_version'
               AND b.artifact_id=NEW.package_version_id AND b.binding_kind='contact_observation'
-              AND o.kind='email' AND (point_domain.id IS NULL
-                OR EXISTS (SELECT 1 FROM json_each(point_domain.domain_digests_json) scope_domain
-                  WHERE scope_domain.value=s.subject_digest
-                    OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=scope_domain.value)))))))
+              AND o.kind='email' AND EXISTS (SELECT 1 FROM json_each(point_domain.domain_digests_json) scope_domain
+                WHERE scope_domain.value=s.subject_digest
+                  OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=scope_domain.value))))))
   );
   SELECT RAISE(ABORT, 'stale or prohibited outreach authority') WHERE NOT EXISTS (SELECT 1 FROM outreach_package_versions pv
     JOIN outreach_packages op ON op.id=pv.package_id AND op.workspace_id=pv.workspace_id
@@ -127,8 +126,8 @@ CREATE TRIGGER outreach_package_approval_current_guard BEFORE INSERT ON outreach
     WHERE pv.id=NEW.package_version_id AND pv.workspace_id=NEW.workspace_id
       AND NOT EXISTS (SELECT 1 FROM outreach_suppression_tombstones s WHERE s.workspace_id=pv.workspace_id AND s.effective_at<=NEW.created_at AND (
         s.subject_kind='company'
-        OR (s.subject_kind='contact' AND (s.channel='all' OR EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id
-          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation' AND o.kind=s.channel))
+        OR (s.subject_kind='contact' AND (s.channel='all' OR NOT EXISTS (SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id
+          WHERE b.artifact_kind='package_version' AND b.artifact_id=pv.id AND b.binding_kind='contact_observation' AND o.kind<>s.channel))
           AND (s.subject_digest=c.identity_digest OR EXISTS (SELECT 1 FROM json_each(s.alias_snapshot_json) a WHERE a.value=c.identity_digest)))
         OR (s.subject_kind IN ('exact_email','e164_phone') AND EXISTS (
           SELECT 1 FROM outreach_artifact_bindings b JOIN contact_point_observations o ON o.id=b.binding_id

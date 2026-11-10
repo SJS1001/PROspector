@@ -161,16 +161,27 @@ export async function seedOutreachAuthority(fixture, options = {}) {
      JOIN typed_configurations cfg ON cfg.id=? AND cfg.workspace_id=p.workspace_id
      WHERE p.id=? AND p.workspace_id=?`,
   ).bind(seeded.configurationId, seeded.prospectId, seeded.workspaceId).first();
+  // D-7: `beforeEligibilitySnapshot` records state (such as tombstones) before
+  // the snapshot exists; the snapshot then preserves exactly the suppression
+  // refs the production snapshot writer would (matchingSuppressionRefs).
+  let preservedSuppressionRefs = [];
+  if (options.beforeEligibilitySnapshot) {
+    await options.beforeEligibilitySnapshot({ seeded: { ...seeded, contactId: "outreach-contact", observationId: observation.id } });
+    const persistence = await fixture.vite.ssrLoadModule(
+      new URL("../../domain/contact-eligibility-persistence.ts", import.meta.url).pathname,
+    );
+    preservedSuppressionRefs = await persistence.matchingSuppressionRefs(fixture.database, seeded.workspaceId, "outreach-contact", [observation.id]);
+  }
   const eligibilityDigest = "2".repeat(64);
   await fixture.database.prepare(
     `INSERT INTO contact_eligibility_snapshots (
       id,workspace_id,contact_id,prospect_id,configuration_id,configuration_digest,configuration_revision,
       prospect_revision,state,eligible,observation_ids_json,reason_codes_json,preserved_suppression_refs_json,snapshot_digest,projected_at
-    ) VALUES ('outreach-eligibility',?,'outreach-contact',?,?,?, ?,?,'ContactReady',1,?,'[]','[]',?,?)`,
+    ) VALUES ('outreach-eligibility',?,'outreach-contact',?,?,?, ?,?,'ContactReady',1,?,'[]',?,?,?)`,
   ).bind(
     seeded.workspaceId, seeded.prospectId, seeded.configurationId, lineage.configuration_digest,
     lineage.configuration_revision, lineage.prospect_revision, JSON.stringify([observation.id]),
-    eligibilityDigest, OUTREACH_NOW,
+    JSON.stringify(preservedSuppressionRefs), eligibilityDigest, OUTREACH_NOW,
   ).run();
   const sourceDigest = "3".repeat(64);
   await fixture.database.prepare(

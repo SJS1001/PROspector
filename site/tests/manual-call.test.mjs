@@ -387,6 +387,105 @@ test("a reply stop blocks follow_up only, and a paused Profile removes the call 
   }
 });
 
+const STOP_RULES = new URL("../domain/outreach-stop-rules.ts", import.meta.url).pathname;
+const PERSISTENCE = new URL("../domain/contact-eligibility-persistence.ts", import.meta.url).pathname;
+
+/** Records one durable suppression through the shared stop rule. */
+async function recordD7Stop(fixture, seeded, subject, channel, reason, key) {
+  const stopRules = (await fixture.vite.ssrLoadModule(STOP_RULES)).createOutreachStopRules(fixture.database, scopeFor(seeded, clockAt(OUTREACH_NOW)));
+  const digest = (await fixture.vite.ssrLoadModule(new URL("../domain/enrichment-grant-issuance.ts", import.meta.url).pathname)).canonicalDigest;
+  const result = await stopRules.recordSuppressionStop({
+    subject, channel, reason, sourceEventDigest: await digest({ schema: "d7-test/v1", key }), aliasDigests: [], effectiveAt: OUTREACH_NOW, idempotencyKey: `d7-${key.replace(/[^a-z0-9]+/giu, "-")}`,
+  });
+  assert.equal(result.kind, "suppressed", key);
+}
+
+test("D-7: eligibility suppression refs suppress a Contact only when every channel of its named points is reached", async () => {
+  // PR 205 review: matchingSuppressionRefs feeds the snapshot's preserved
+  // refs, which enqueue, lease and both approval triggers require to be empty.
+  // A phone-only tombstone (do_not_call writes a phone-channel Contact
+  // tombstone and an E.164 tombstone) must not suppress a Contact that still
+  // has an email point, and an email-only block must not suppress its phone.
+  const phoneDnc = [
+    [{ kind: "contact", identityDigest: "6".repeat(64) }, "phone", "do_not_call"],
+    [{ kind: "e164_phone", phone: "+14165550100" }, "phone", "do_not_call"],
+  ];
+  const recipientDomain = [{ kind: "confirmed_email_domain", domain: "example.invalid", ownerConfirmed: true }, "email", "owner_request"];
+  // A confirmed domain reaches email only through the scope a recipient
+  // authority records; before that the snapshot defers to the email rechecks.
+  const cases = [
+    // [label, stops, scope recorded, refs for [email,phone], [email], [phone]]
+    ["phone do_not_call", phoneDnc, true, 0, 0, 2],
+    ["email Contact", [[{ kind: "contact", identityDigest: "6".repeat(64) }, "email", "owner_request"]], true, 0, 1, 0],
+    ["exact email", [[{ kind: "exact_email", email: "verified@example.invalid" }, "email", "owner_request"]], true, 0, 1, 0],
+    ["all-channel Contact", [[{ kind: "contact", identityDigest: "6".repeat(64) }, "all", "owner_request"]], true, 1, 1, 1],
+    ["other domain", [[{ kind: "confirmed_email_domain", domain: "other.invalid", ownerConfirmed: true }, "email", "owner_request"]], true, 0, 0, 0],
+    ["recipient domain", [recipientDomain], true, 0, 1, 0],
+    ["recipient domain before a scope", [recipientDomain], false, 0, 0, 0],
+    ["recipient domain and phone do_not_call", [recipientDomain, ...phoneDnc], true, 3, 1, 2],
+    ["organization", [[{ kind: "organization", identityDigest: "4".repeat(64) }, "email", "owner_request"]], true, 1, 1, 1],
+  ];
+  for (const [label, stops, scoped, both, emailOnly, phoneOnly] of cases) {
+    const fixture = await createD1Fixture(`manual-call-d7-refs-${label.replace(/[^a-z]+/gu, "-")}`);
+    try {
+      const seeded = await seedManualCallAuthority(fixture);
+      if (scoped) {
+        const domainScope = await fixture.vite.ssrLoadModule(new URL("../domain/email-domain-scope.ts", import.meta.url).pathname);
+        await (await domainScope.contactPointDomainScopeStatement(fixture.database, seeded.workspaceId, seeded.contactPointDigest, "verified@example.invalid", OUTREACH_NOW)).run();
+      }
+      for (const [index, [subject, channel, reason]] of stops.entries()) await recordD7Stop(fixture, seeded, subject, channel, reason, `${label}-${index}`);
+      const persistence = await fixture.vite.ssrLoadModule(PERSISTENCE);
+      const refs = (ids) => persistence.matchingSuppressionRefs(fixture.database, seeded.workspaceId, seeded.contactId, ids);
+      assert.equal((await refs([seeded.observationId, seeded.phoneObservationId])).length, both, `${label}: email and phone`);
+      assert.equal((await refs([seeded.observationId])).length, emailOnly, `${label}: email only`);
+      assert.equal((await refs([seeded.phoneObservationId])).length, phoneOnly, `${label}: phone only`);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("D-7: a channel-scoped Contact tombstone refuses Package approval only when it reaches every bound channel", async () => {
+  // PR 205 review: a Package may bind email and phone points together. A
+  // phone-only Contact tombstone must not refuse a mixed Package (its email
+  // still proceeds; the phone stays blocked by the manual-call recheck), but
+  // it still refuses a phone-only Package. An email-channel tombstone likewise
+  // refuses an email-only Package and not a mixed one (the Message approval,
+  // enqueue and lease rechecks still block its email).
+  const contact = { kind: "contact", identityDigest: "6".repeat(64) };
+  const cases = [
+    ["phone-mixed", "phone", "do_not_call", "mixed", true],
+    ["phone-phone-only", "phone", "do_not_call", "phone", false],
+    ["phone-email-only", "phone", "do_not_call", "email", true],
+    ["email-mixed", "email", "owner_request", "mixed", true],
+    ["email-email-only", "email", "owner_request", "email", false],
+    ["all-mixed", "all", "owner_request", "mixed", false],
+  ];
+  for (const [key, channel, reason, shape, approved] of cases) {
+    const fixture = await createD1Fixture(`manual-call-d7-package-${key}`);
+    try {
+      const seeded = await seedManualCallAuthority(fixture);
+      await recordD7Stop(fixture, seeded, contact, channel, reason, key);
+      const repository = (await fixture.vite.ssrLoadModule(REPOSITORY)).createD1OutreachRepository(fixture.database, scopeFor(seeded, clockAt(OUTREACH_NOW + 10)));
+      const input = packageInput(seeded, { selectPhone: shape !== "email" });
+      if (shape === "phone") {
+        input.snapshot.selectedContactPointDigests = [seeded.phoneContactPointDigest];
+        input.bindings = input.bindings.filter((binding) => !(binding.kind === "contact_observation" && binding.id === seeded.observationId));
+      }
+      const packageVersion = await repository.createPackageVersion(input);
+      const approve = repository.approvePackageVersion({
+        packageVersionId: packageVersion.id, expectedVersion: 1, expiresAt: OUTREACH_NOW + 70_000, idempotencyKey: `d7-package-approval-${key}`,
+      });
+      if (approved) assert.ok((await approve).id, key);
+      else await assert.rejects(approve, /outreach_repository_conflict/u, key);
+      const count = await fixture.database.prepare("SELECT count(*) count FROM outreach_package_approvals").first();
+      assert.equal(Number(count.count), approved ? 1 : 0, key);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
 test("manual-call source has no static call or mail link, no preparation import, and no bypass of the click-to-call recheck", async () => {
   const source = await readFile(MANUAL_CALL, "utf8");
   assert.doesNotMatch(source, /\btel:|\bmailto:/iu, "no literal call or mail scheme");

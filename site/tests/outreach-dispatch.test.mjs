@@ -370,23 +370,43 @@ test("D-7: enqueue rechecks a confirmed domain by whole labels and a Contact tom
   }
 });
 
-test("D-7: approvals resolve a confirmed domain through the recorded scope and fail closed while it is unknown", async () => {
+test("D-7: approvals resolve a confirmed domain through the recorded scope; Package approval defers an unscoped point to Message approval", async () => {
   const domain = (value) => ({ kind: "confirmed_email_domain", domain: value, ownerConfirmed: true });
   const record = (fixture, subject, channel, reason, key) => async ({ seeded }) => {
     const result = await recordStop(fixture, { seeded }, subject, channel, reason, key, OUTREACH_NOW);
     assert.equal(result.kind, "suppressed", key);
   };
 
-  // Before the recipient authority exists the package's email point has no
-  // recorded domain scope, so any confirmed-domain tombstone still refuses
-  // the Package approval (fail closed, same as before D-7).
-  let fixture = await createD1Fixture("dispatch-d7-approval-unknown-scope");
+  // PR 205 review: the scope is recorded beside the recipient authority,
+  // which needs a Package approval first, so a first-time address never has
+  // one at Package approval. Package approval grants no email authority and
+  // defers an unscoped point; an unrelated domain no longer refuses it.
+  let fixture = await createD1Fixture("dispatch-d7-approval-first-time-other-domain");
+  try {
+    const context = await prepareApprovedPair(fixture, {
+      beforePackageApproval: async (seededContext) => {
+        assert.equal(await countRows(fixture.database, "outreach_contact_point_domains"), 0, "a first-time address has no recorded scope");
+        await record(fixture, domain("other.invalid"), "email", "owner_request", "d7-approval-first-time-other")(seededContext);
+      },
+    });
+    assert.equal(await countRows(fixture.database, "outreach_package_approvals"), 1);
+    assert.equal(await countRows(fixture.database, "outreach_message_approvals"), 2);
+    assert.equal((await enqueuePair(fixture, context)).origin.kind, "queued");
+  } finally {
+    await fixture.dispose();
+  }
+  // The recipient's own domain is then refused at Message approval, once the
+  // recipient authority has recorded the scope: email still cannot move.
+  fixture = await createD1Fixture("dispatch-d7-approval-first-time-same-domain");
   try {
     await assert.rejects(
-      prepareApprovedPair(fixture, { beforePackageApproval: record(fixture, domain("other.invalid"), "email", "owner_request", "d7-approval-unknown") }),
+      prepareApprovedPair(fixture, { beforePackageApproval: record(fixture, domain("example.invalid"), "email", "owner_request", "d7-approval-first-time-same") }),
       /unresolved_suppression_scope/,
     );
-    assert.equal(await countRows(fixture.database, "outreach_package_approvals"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_package_approvals"), 1, "Package approval deferred the unscoped point");
+    assert.equal(await countRows(fixture.database, "outreach_contact_point_domains"), 1, "the recipient authority recorded the scope");
+    assert.equal(await countRows(fixture.database, "outreach_message_approvals"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 0);
   } finally {
     await fixture.dispose();
   }
@@ -422,6 +442,78 @@ test("D-7: approvals resolve a confirmed domain through the recorded scope and f
     await fixture.dispose();
   }
 });
+test("D-7: an eligibility snapshot taken after an unrelated-domain or phone-only tombstone keeps email work approvable, queued and leasable", async () => {
+  // PR 205 review: the snapshot's preserved suppression refs gate enqueue,
+  // lease and both approval triggers. They must not carry a confirmed-domain
+  // tombstone on another domain or a phone-channel Contact/number tombstone.
+  const cases = [
+    ["d7-snapshot-other-domain", [[{ kind: "confirmed_email_domain", domain: "other.invalid", ownerConfirmed: true }, "email", "owner_request"]]],
+    ["d7-snapshot-phone-dnc", [
+      [{ kind: "contact", identityDigest: "6".repeat(64) }, "phone", "do_not_call"],
+      [{ kind: "e164_phone", phone: "+14165550100" }, "phone", "do_not_call"],
+    ]],
+  ];
+  for (const [key, stops] of cases) {
+    const fixture = await createD1Fixture(`dispatch-${key}`);
+    try {
+      const context = await prepareApprovedPair(fixture, {
+        seed: {
+          beforeEligibilitySnapshot: async ({ seeded }) => {
+            for (const [index, [subject, channel, reason]] of stops.entries()) {
+              assert.equal((await recordStop(fixture, { seeded }, subject, channel, reason, `${key}-${index}`, OUTREACH_NOW)).kind, "suppressed", key);
+            }
+          },
+        },
+      });
+      const snapshot = await fixture.database.prepare("SELECT preserved_suppression_refs_json FROM contact_eligibility_snapshots WHERE id='outreach-eligibility'").first();
+      assert.equal(snapshot.preserved_suppression_refs_json, "[]", key);
+      const queued = await enqueuePair(fixture, context);
+      assert.equal(queued.origin.kind, "queued", key);
+      assert.equal((await claimLease(fixture, context, queued.origin.outboxItemId, "synthetic-worker-one")).kind, "claimed", key);
+      await assertNoForbiddenStates(fixture);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test("D-7: an eligibility snapshot taken after an email-channel Contact tombstone still blocks the Package, and the recipient's domain is refused at Message approval", async () => {
+  const cases = [
+    ["d7-snapshot-email-contact", { kind: "contact", identityDigest: "6".repeat(64) }, "email"],
+    ["d7-snapshot-all-contact", { kind: "contact", identityDigest: "6".repeat(64) }, "all"],
+  ];
+  const beforeSnapshot = (fixture, subject, channel, key) => ({
+    beforeEligibilitySnapshot: async ({ seeded }) => {
+      assert.equal((await recordStop(fixture, { seeded }, subject, channel, "owner_request", key, OUTREACH_NOW)).kind, "suppressed", key);
+    },
+  });
+  for (const [key, subject, channel] of cases) {
+    const fixture = await createD1Fixture(`dispatch-${key}`);
+    try {
+      await assert.rejects(prepareApprovedPair(fixture, { seed: beforeSnapshot(fixture, subject, channel, key) }), /outreach_repository_conflict:conflict$/u, key);
+      const snapshot = await fixture.database.prepare("SELECT preserved_suppression_refs_json FROM contact_eligibility_snapshots WHERE id='outreach-eligibility'").first();
+      assert.equal(JSON.parse(snapshot.preserved_suppression_refs_json).length, 1, key);
+      assert.equal(await countRows(fixture.database, "outreach_package_approvals"), 0, key);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+  // A snapshot of a first-time address cannot resolve its domain (no scope is
+  // recorded yet), so it defers like Package approval; the Message approval
+  // recheck then refuses the recipient's domain with the recorded scope.
+  const fixture = await createD1Fixture("dispatch-d7-snapshot-same-domain");
+  try {
+    const subject = { kind: "confirmed_email_domain", domain: "example.invalid", ownerConfirmed: true };
+    await assert.rejects(prepareApprovedPair(fixture, { seed: beforeSnapshot(fixture, subject, "email", "d7-snapshot-same-domain") }), /unresolved_suppression_scope/u);
+    const snapshot = await fixture.database.prepare("SELECT preserved_suppression_refs_json FROM contact_eligibility_snapshots WHERE id='outreach-eligibility'").first();
+    assert.equal(snapshot.preserved_suppression_refs_json, "[]");
+    assert.equal(await countRows(fixture.database, "outreach_message_approvals"), 0);
+    assert.equal(await countRows(fixture.database, "outreach_outbox_items"), 0);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("an exact-email stop spelled with a DNS root dot cancels queued items and blocks the enqueue SQL recheck for the plain contact point", async () => {
   // PR 199 review: the outbox enqueue/lease SQL, the 0010 and 0015-0017
   // triggers and the eligibility snapshot SQL match exact_email tombstones by

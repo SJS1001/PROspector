@@ -29,12 +29,14 @@ export function scope(seeded, now = OUTREACH_NOW) {
 /**
  * Seeds one Package with two approved Messages to the same verified recipient:
  * an "origin" Message and a "follow-up" Message. Nothing is enqueued here.
- * `recipient` overrides the verified address; `beforePackageApproval` and
+ * `recipient` overrides the verified address; `seed` passes options to
+ * seedOutreachAuthority; `afterSeed`, `beforePackageApproval` and
  * `beforeMessageApproval` run with the seeded context at those points.
  */
 export async function prepareApprovedPair(fixture, options = {}) {
   const recipient = options.recipient ?? RECIPIENT;
-  const seeded = await seedOutreachAuthority(fixture, { email: recipient });
+  const seeded = await seedOutreachAuthority(fixture, { ...options.seed, email: recipient });
+  if (options.afterSeed) await options.afterSeed({ seeded });
   const repository = (await fixture.vite.ssrLoadModule(MODULES.repository)).createD1OutreachRepository(fixture.database, scope(seeded));
   const packageVersion = await repository.createPackageVersion(packageInput(seeded));
   if (options.beforePackageApproval) await options.beforePackageApproval({ seeded, repository });

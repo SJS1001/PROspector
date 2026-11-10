@@ -55,3 +55,26 @@ export async function emailDomainScopeDigests(email: unknown): Promise<string[] 
   for (const suffix of wholeLabelDomainSuffixes(domain)) digests.push(await domainDigest(suffix));
   return digests;
 }
+
+/**
+ * The immutable D-7 scope row (migration 0024) for one stored email contact
+ * point, or null when the address or its domain cannot be resolved (the SQL
+ * rechecks then fail closed). The row is a pure function of the address, so
+ * every writer derives the same id and value and a repeat insert is ignored.
+ * The table's guard requires the email observation to exist already.
+ */
+export async function contactPointDomainScopeStatement(
+  database: D1Database,
+  workspaceId: string,
+  contactPointDigest: string,
+  email: unknown,
+  createdAt: number,
+): Promise<D1PreparedStatement | null> {
+  const digests = await emailDomainScopeDigests(email);
+  if (!digests) return null;
+  const id = `ocpd_${(await canonicalDigest({ schema: "outreach-contact-point-domain/v1", workspaceId, contactPointDigest })).slice(0, 32)}`;
+  return database.prepare(
+    `INSERT OR IGNORE INTO outreach_contact_point_domains (id,workspace_id,contact_point_digest,domain_digests_json,created_at)
+     VALUES (?,?,?,?,?)`,
+  ).bind(id, workspaceId, contactPointDigest, JSON.stringify(digests), createdAt);
+}
