@@ -222,7 +222,7 @@ function crmPorts(workspace, eligibility, packageDigest) {
         };
       } },
       eligibility: { async recheck(request) { calls.eligibility += 1; return eligibility.recheck(request); } },
-      suppression: { isBlocked: (input) => resolver.isBlocked(input) },
+      suppression: { blockingScopes: (input) => resolver.blockingScopes(input) },
       store: { async lookup() { return null; }, async putImmutable() { calls.store += 1; } },
       clock: { nowIso: () => "2026-11-09T12:00:00.000Z" },
     },
@@ -424,9 +424,10 @@ test("every stop kind cancels pending and leased work for the same Prospect befo
       apply: (workspace, flow, services) => ownerSuppression(workspace, services, { subjectKind: "company", channel: "all" }),
     },
     {
-      // D-7: the contact tombstone is channel-blind, so a phone do_not_call also cancels the
-      // Contact's email work. That over-blocks and fails safe; narrowing it is an owner decision.
-      kind: "do_not_call with the owner-confirmed number", expect: { cancelled: 2, durable: ["stop:suppression", "stop:suppression", "tombstone:contact:do_not_call", "tombstone:e164_phone:do_not_call"], crmEmail: null },
+      // D-7 (owner-delegated decision, migration 0024): a Contact tombstone applies to its own
+      // channel only, so a phone do_not_call leaves the Contact's email work queued. The phone
+      // itself stays blocked and is never exported.
+      kind: "do_not_call with the owner-confirmed number", expect: { cancelled: 2, states: { origin: "leased", followUp: "pending" }, emailStopped: false, durable: ["stop:suppression", "stop:suppression", "tombstone:contact:do_not_call", "tombstone:e164_phone:do_not_call"], crmEmail: null },
       async apply(workspace, flow, services) {
         const result = await callOutcome(workspace, services, "do_not_call", "h-matrix-dnc", { confirmedPhoneE164: CONFIRMED_PHONE });
         assert.equal(result.status, 200, JSON.stringify(result.body.command));
@@ -447,13 +448,14 @@ test("every stop kind cancels pending and leased work for the same Prospect befo
       const cancelled = await stop.apply(workspace, flow, services);
       if (cancelled !== null) assert.equal(cancelled, stop.expect.cancelled, stop.kind);
       const states = await statesOf(workspace, flow.items);
-      assert.deepEqual(states, { origin: "cancelled", followUp: "cancelled" }, stop.kind);
+      assert.deepEqual(states, stop.expect.states ?? { origin: "cancelled", followUp: "cancelled" }, stop.kind);
       const durable = [
         ...(await fixture.database.prepare("SELECT stop_kind FROM outreach_stop_events").all()).results.map((row) => `stop:${row.stop_kind}`),
         ...(await fixture.database.prepare("SELECT subject_kind,reason FROM outreach_suppression_tombstones").all()).results.map((row) => `tombstone:${row.subject_kind}:${row.reason}`),
       ].sort();
       assert.deepEqual(durable, stop.expect.durable, stop.kind);
-      await assertNoSendPath(workspace, flow.items);
+      if (stop.expect.emailStopped === false) await assertNoForbiddenStates(fixture);
+      else await assertNoSendPath(workspace, flow.items);
       const crm = await crmPlan(workspace);
       if (stop.expect.crmEmail !== null) assert.deepEqual(crm.email, stop.expect.crmEmail, `${stop.kind}: CRM email exclusion`);
       if (stop.kind.startsWith("do_not_call")) {
