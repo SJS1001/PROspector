@@ -1031,6 +1031,114 @@ test("the restore gate requires a clean target and a dry run of the current cand
   } finally { await fixture.dispose(); }
 });
 
+// The dry run and the restore take the target identity only from the server
+// authority, so the command must refuse an authority that is not the
+// server-derived scope's, exactly as the projected gate already does.
+test("dry run and restore refuse a composed authority for another workspace or owner, matching the projected gate", async () => {
+  const { fixture, handler, workspaceId } = await ownerWorkspace("handoff-recovery-restore-scope");
+  try {
+    const archiveModule = await fixture.vite.ssrLoadModule(domainPath("workspace-archive.ts"));
+    const repositoryModule = await fixture.vite.ssrLoadModule(domainPath("handoff-recovery-repository.ts"));
+    const { envelope } = await archiveModule.createWorkspaceArchive({
+      passphrase: PASSPHRASE,
+      ports: {
+        now: () => Date.now(),
+        authority: { current: async () => freshAuthority("workspace-recovery-source", "owner-source") },
+        source: { readSnapshot: async () => sourceSnapshot("workspace-recovery-source"), readObject: async () => null },
+        archiveStore: { putImmutable: async () => undefined },
+        evidence: {
+          recordArchive: async () => ({ id: `rar_${"1".repeat(32)}`, digest: "1".repeat(64), replayed: false }),
+          recordDeliveryEvent: async () => ({ id: `hde_${"2".repeat(32)}`, digest: "2".repeat(64), replayed: false }),
+          recordRefusal: async () => ({ id: `hra_${"3".repeat(32)}`, digest: "3".repeat(64), replayed: false }),
+        },
+      },
+    });
+    const upload = { bytes: new TextEncoder().encode(JSON.stringify(envelope)), expiresAt: Date.now() + 60 * 60_000 };
+    const calls = { readArchive: 0 };
+    const server = { authority: (scope) => freshAuthority(scope.workspaceId, scope.ownerSubject) };
+    const target = memoryTarget();
+    const services = (database, scope) => {
+      const repository = repositoryModule.createD1HandoffRecoveryRepository(database, scope);
+      const authority = { current: async () => server.authority(scope) };
+      return {
+        mode: "synthetic",
+        crm: null,
+        recovery: {
+          archive: {
+            now: () => Date.now(),
+            authority,
+            source: { readSnapshot: async () => sourceSnapshot(scope.workspaceId), readObject: async () => null },
+            archiveStore: { putImmutable: async () => { throw new Error("not in this test"); } },
+            evidence: repository,
+          },
+          restore: {
+            now: () => Date.now(),
+            authority,
+            archives: { readArchive: async (ref) => { calls.readArchive += 1; return ref === "archive-upload-1" ? upload : null; } },
+            target,
+            evidence: repository,
+          },
+          currentRestoreArchiveRef: async () => "archive-upload-1",
+        },
+      };
+    };
+    const deps = ownerDependencies(fixture.database, { services });
+    const post = async (body) => {
+      const cookie = await csrfCookie(handler, fixture.database, { services });
+      const before = calls.readArchive;
+      const response = await handler.handleHandoffRecoveryPost(mutation(body, { cookie }), deps);
+      return { status: response.status, body: await response.json(), readArchive: calls.readArchive - before };
+    };
+    const read = async () => (await handler.handleHandoffRecoveryGet(new Request("https://prospector.test/api/handoff-recovery"), deps)).json();
+    const foreignAuthorities = [
+      ["authority for another workspace", (scope) => freshAuthority("workspace-foreign", scope.ownerSubject)],
+      ["authority for another owner", (scope) => freshAuthority(scope.workspaceId, "foreign-owner-subject")],
+    ];
+    const dryRunBody = { action: "run_dry_run", archiveRef: "archive-upload-1", passphrase: PASSPHRASE };
+
+    for (const [name, authorityFor] of foreignAuthorities) {
+      server.authority = authorityFor;
+      const projected = await read();
+      assert.deepEqual(projected.recovery.reauthentication, { state: "missing", reauthenticatedAt: null }, name);
+      assert.deepEqual(projected.recovery.gates.dryRun, { available: false, firstUnmetPredicate: "not_authorized" }, name);
+      const refused = await post(dryRunBody);
+      assert.equal(refused.status, 409, name);
+      assert.equal(refused.body.command.status, "refused", name);
+      assert.deepEqual(refused.body.command.reasonCodes, ["not_authorized"], name);
+      assert.equal(refused.body.command.targetWrites, 0, name);
+      assert.equal(refused.readArchive, 0, `${name}: refused before the candidate archive is read`);
+      const counts = await tableCounts(fixture.database);
+      assert.deepEqual([counts.recovery_dry_runs, counts.recovery_restore_locks, counts.recovery_restore_results], [0, 0, 0], name);
+    }
+
+    // A dry run under the scope's own authority, then a restore attempted under a foreign one.
+    server.authority = (scope) => freshAuthority(scope.workspaceId, scope.ownerSubject);
+    const dryRun = await post(dryRunBody);
+    assert.equal(dryRun.status, 200, JSON.stringify(dryRun.body.command));
+    const restoreBody = { action: "restore_verified_archive", archiveRef: "archive-upload-1", dryRunId: dryRun.body.command.dryRunId, nonce: dryRun.body.command.nonce, passphrase: PASSPHRASE, confirmed: true };
+    for (const [name, authorityFor] of foreignAuthorities) {
+      server.authority = authorityFor;
+      assert.deepEqual((await read()).recovery.gates.restore, { available: false, firstUnmetPredicate: "not_authorized" }, name);
+      const refused = await post(restoreBody);
+      assert.equal(refused.status, 409, name);
+      assert.equal(refused.body.command.status, "refused", name);
+      assert.deepEqual(refused.body.command.reasonCodes, ["not_authorized"], name);
+      assert.equal(refused.body.command.targetWrites, 0, name);
+      const counts = await tableCounts(fixture.database);
+      assert.deepEqual([counts.recovery_restore_locks, counts.recovery_restore_results], [0, 0], name);
+      assert.equal(target.counters.scheduler + target.counters.runner + target.counters.send + target.counters.provider + target.counters.delivery, 0, name);
+    }
+    const audited = (await fixture.database.prepare("SELECT DISTINCT workspace_id FROM handoff_recovery_audit_events").all()).results.map((row) => row.workspace_id);
+    assert.deepEqual(audited, [workspaceId], "refusals are audited under the server-derived workspace only");
+
+    // The scope's own authority still restores.
+    server.authority = (scope) => freshAuthority(scope.workspaceId, scope.ownerSubject);
+    const restored = await post(restoreBody);
+    assert.equal(restored.status, 200, JSON.stringify(restored.body.command));
+    assert.equal(restored.body.command.status, "applied");
+  } finally { await fixture.dispose(); }
+});
+
 // -- 07-09: Exports & History leaves and workspace ----------------------------
 
 function blockedProjection(patch = {}) {

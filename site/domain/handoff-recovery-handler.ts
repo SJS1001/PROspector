@@ -4,7 +4,7 @@ import { CRM_HANDOFF_STORE_SCHEMA } from "./crm-handoff-d1-store";
 import { consumeCsrfToken, csrfCookieName, csrfTokenFromRequest, CsrfTokenError, issueCsrfToken, withCsrfCookie, type CsrfCookieMode } from "./csrf";
 import { readMorningBrief, type MorningBriefPrincipal } from "./morning-brief-read";
 import { admitPilotOwner, PilotAccessError } from "./pilot-access";
-import type { RecoveryAuthority, RestorePorts, WorkspaceArchivePorts } from "./ports/workspace-archive";
+import type { RecoveryAuthority, RecoveryAuthorityPort, RestorePorts, WorkspaceArchivePorts } from "./ports/workspace-archive";
 import { readBoundedJson, validateSameOriginMutation } from "./request-security";
 import { applyRestore } from "./restore-apply";
 import { dryRunRestore, RESTORE_EFFECT_FENCE } from "./restore-verifier";
@@ -328,6 +328,7 @@ async function runCommand(
       const store = ports.archiveStore;
       const observed: WorkspaceArchivePorts = {
         ...ports,
+        authority: scopedAuthority(ports.authority, scope),
         archiveStore: Object.freeze({
           putImmutable: (...args: Parameters<typeof store.putImmutable>) => { writeBegan = true; return store.putImmutable(...args); },
         }),
@@ -346,7 +347,7 @@ async function runCommand(
     case "run_dry_run": {
       if (!services.recovery) return refusedResult(command.action, ["recovery_capability_unavailable"]);
       if (await services.recovery.currentRestoreArchiveRef() !== command.archiveRef) return refusedResult(command.action, ["stale_projection"]);
-      const result = await dryRunRestore({ archiveRef: command.archiveRef, passphrase: command.passphrase, ports: services.recovery.restore });
+      const result = await dryRunRestore({ archiveRef: command.archiveRef, passphrase: command.passphrase, ports: scopedRestorePorts(services.recovery.restore, scope) });
       if (result.status !== "verified") return refusedResult(command.action, [result.reason]);
       return completed(command.action, false, {
         dryRunId: result.dryRunId, nonce: result.nonce, expiresAt: result.expiresAt, manifestDigest: result.manifestDigest,
@@ -366,7 +367,8 @@ async function runCommand(
         return refusedResult(command.action, ["stale_projection"]);
       }
       const result = await applyRestore({
-        archiveRef: command.archiveRef, dryRunId: command.dryRunId, nonce: command.nonce, passphrase: command.passphrase, ports: services.recovery.restore,
+        archiveRef: command.archiveRef, dryRunId: command.dryRunId, nonce: command.nonce, passphrase: command.passphrase,
+        ports: scopedRestorePorts(services.recovery.restore, scope),
       });
       if (result.status === "restored") {
         return completed(command.action, false, {
@@ -381,6 +383,29 @@ async function runCommand(
       return refusedResult(command.action, [result.reason]);
     }
   }
+}
+
+/**
+ * The authority the archive service sees is bound to the server-derived scope:
+ * an authority for any other workspace or owner is no authority, so the service
+ * refuses `not_authorized` before it reads the source or writes anything.
+ */
+function scopedAuthority(port: RecoveryAuthorityPort, scope: HandoffRecoveryScope): RecoveryAuthorityPort {
+  return Object.freeze({
+    current: async () => {
+      const authority = await port.current();
+      return authority && authorityMatchesScope(authority, scope) ? authority : null;
+    },
+  });
+}
+
+/** The dry run and restore take the target identity only from the authority, so it is bound to the scope the same way. */
+function scopedRestorePorts(ports: RestorePorts, scope: HandoffRecoveryScope): RestorePorts {
+  return Object.freeze({ ...ports, authority: scopedAuthority(ports.authority, scope) });
+}
+
+function authorityMatchesScope(authority: RecoveryAuthority, scope: HandoffRecoveryScope) {
+  return authority.workspaceId === scope.workspaceId && authority.ownerSubject === scope.ownerSubject;
 }
 
 function completed(action: JsonAction, replayed: boolean, extra: Record<string, unknown>, targetWrites = 0): CommandResult {
@@ -596,7 +621,7 @@ async function readRecovery(database: D1Database, scope: HandoffRecoveryScope, s
 }
 
 function reauthState(authority: RecoveryAuthority | null, scope: HandoffRecoveryScope, now: number) {
-  if (!authority || authority.workspaceId !== scope.workspaceId || !Number.isSafeInteger(authority.reauthenticatedAt)) {
+  if (!authority || !authorityMatchesScope(authority, scope) || !Number.isSafeInteger(authority.reauthenticatedAt)) {
     return Object.freeze({ state: "missing" as const, reauthenticatedAt: null });
   }
   const fresh = authority.reauthenticatedAt <= now && now - authority.reauthenticatedAt <= REAUTH_MAX_AGE_MS;
